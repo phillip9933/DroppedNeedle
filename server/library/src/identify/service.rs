@@ -403,7 +403,7 @@ impl IdentifyService {
                     drop(hold);
                     tracing::debug!(
                         artist_mbid = mbid,
-                        error = unanswered.error.0,
+                        error = unanswered.error.detail,
                         "MusicBrainz could not answer about an artist id; lookups wait"
                     );
                     break;
@@ -473,7 +473,7 @@ impl IdentifyService {
                     lock(&self.document_hold).hold(unanswered.retry_after_secs);
                     tracing::debug!(
                         release_mbid = mbid,
-                        error = unanswered.error.0,
+                        error = unanswered.error.detail,
                         "MusicBrainz could not answer about a release; document lookups wait"
                     );
                     break;

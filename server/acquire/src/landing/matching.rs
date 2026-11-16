@@ -17,7 +17,7 @@ use super::ports::{LandingLibrary, OwnedTracks};
 use super::probe::{LandedFile, Landing};
 use super::specs::{Target, album_version};
 use droppedneedle_library::identify::providers::GROUP_FETCH;
-use droppedneedle_library::identify::sources::ReleaseHit;
+use droppedneedle_library::identify::sources::{ReleaseHit, SourceError};
 use droppedneedle_library::matching::decide::{ACCEPT_TRACK, EDITION_COHORT};
 use droppedneedle_library::matching::score::{NAME_GATE, TrackPair};
 use droppedneedle_library::matching::strings::{
@@ -46,7 +46,7 @@ pub enum MatchState {
     /// Every candidate is vetoed by the files' own MusicBrainz ids.
     Contradictory,
     /// MusicBrainz could not answer; try again later.
-    Unavailable(String),
+    Unavailable(SourceError),
 }
 
 /// The chosen release and how the files scored against it.
@@ -222,13 +222,13 @@ pub async fn find(
         let releases = recall(library, target, &local).await?;
         let album_copies = take_album_copies(library, target, &mut local, &releases).await?;
         let aliases = merged_recordings(library, &local, &releases, PRIORITY).await?;
-        Ok::<_, String>((releases, aliases, album_copies))
+        Ok::<_, SourceError>((releases, aliases, album_copies))
     };
     let (releases, aliases, album_copies) = match recalled.await {
         Ok(recalled) => recalled,
-        Err(detail) => {
+        Err(error) => {
             return MatchSummary {
-                state: MatchState::Unavailable(detail),
+                state: MatchState::Unavailable(error),
                 found: None,
                 considered: Vec::new(),
                 owned,
@@ -254,7 +254,7 @@ async fn take_album_copies(
     target: &Target,
     local: &mut LocalAlbum,
     releases: &[Release],
-) -> Result<HashMap<usize, String>, String> {
+) -> Result<HashMap<usize, String>, SourceError> {
     let mut copies = HashMap::new();
     if !target.is_track || !target.album_version || target.release_group_mbid.is_empty() {
         return Ok(copies);
@@ -265,11 +265,7 @@ async fn take_album_copies(
     if releases.iter().any(|release| release.answers_to(&tagged)) {
         return Ok(copies);
     }
-    let Some(album) = library
-        .release(&tagged, PRIORITY)
-        .await
-        .map_err(|error| error.0)?
-    else {
+    let Some(album) = library.release(&tagged, PRIORITY).await? else {
         return Ok(copies);
     };
     let requested = target.track_title.as_deref().or_else(|| {
@@ -371,7 +367,7 @@ pub async fn album_copy_proven(
             Ok(_) => {}
             Err(error) => {
                 tracing::debug!(
-                    error = error.0,
+                    error = error.detail,
                     "tagged release unreadable; not proof of an album copy"
                 );
             }
@@ -387,7 +383,7 @@ pub async fn album_copy_proven(
         Ok(hits) => hits,
         Err(error) => {
             tracing::debug!(
-                error = error.0,
+                error = error.detail,
                 "album search failed; not proof of an album copy"
             );
             return false;
@@ -405,7 +401,7 @@ pub async fn album_copy_proven(
         Ok(None) => return false,
         Err(error) => {
             tracing::debug!(
-                error = error.0,
+                error = error.detail,
                 "album release unreadable; not proof of an album copy"
             );
             return false;
@@ -460,13 +456,10 @@ pub async fn merged_recordings(
     local: &LocalAlbum,
     releases: &[Release],
     priority: RequestPriority,
-) -> Result<HashMap<String, String>, String> {
+) -> Result<HashMap<String, String>, SourceError> {
     let mut aliases = HashMap::new();
     for mbid in unknown_recordings(local, releases) {
-        if let Some(canonical) = library
-            .canonical_recording(&mbid, priority)
-            .await
-            .map_err(|error| error.0)?
+        if let Some(canonical) = library.canonical_recording(&mbid, priority).await?
             && canonical != mbid
         {
             aliases.insert(mbid, canonical);
@@ -484,23 +477,16 @@ async fn recall(
     library: &dyn LandingLibrary,
     target: &Target,
     local: &LocalAlbum,
-) -> Result<Vec<Release>, String> {
+) -> Result<Vec<Release>, SourceError> {
     let mut releases: Vec<Release> = Vec::new();
-    let error = |error: droppedneedle_library::identify::sources::SourceError| error.0;
     if let Some(pinned) = target.release_mbid.as_deref() {
-        fetch(
-            library.release(pinned, PRIORITY).await.map_err(error)?,
-            &mut releases,
-        );
+        fetch(library.release(pinned, PRIORITY).await?, &mut releases);
         return Ok(releases);
     }
     if let Some(tagged) = local.tagged_release()
         && !releases.iter().any(|known| known.answers_to(&tagged))
     {
-        fetch(
-            library.release(&tagged, PRIORITY).await.map_err(error)?,
-            &mut releases,
-        );
+        fetch(library.release(&tagged, PRIORITY).await?, &mut releases);
     }
     let in_group = |release: &Release| {
         target.release_group_mbid.is_empty()
@@ -513,8 +499,7 @@ async fn recall(
     if !target.release_group_mbid.is_empty() {
         hits = library
             .group_releases(&target.release_group_mbid, PRIORITY)
-            .await
-            .map_err(error)?;
+            .await?;
     }
     let listed = !hits.is_empty();
     if !listed && !target.album_title.trim().is_empty() {
@@ -525,14 +510,10 @@ async fn recall(
         };
         hits = library
             .search(&target.album_title, artist, PRIORITY)
-            .await
-            .map_err(error)?;
+            .await?;
     }
     for id in pick_hits(&hits, target, local.tracks.len(), &releases, listed) {
-        fetch(
-            library.release(&id, PRIORITY).await.map_err(error)?,
-            &mut releases,
-        );
+        fetch(library.release(&id, PRIORITY).await?, &mut releases);
     }
     releases.retain(in_group);
     Ok(releases)

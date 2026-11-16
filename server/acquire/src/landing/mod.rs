@@ -1445,14 +1445,17 @@ async fn decide_hearing(
             return (unheard, None);
         }
     };
-    let Some(proof) = heard_through_merges(target, landing, found, &heard, library).await else {
-        unheard.outcome = Outcome::Reject(Rejection {
-            code: Reason::MusicbrainzUnavailable,
-            disposition: Disposition::Temporary,
-            quarantine: None,
-            detail: "MusicBrainz could not be reached to follow a merged recording".to_owned(),
-        });
-        return (unheard, None);
+    let proof = match heard_through_merges(target, landing, found, &heard, library).await {
+        Ok(proof) => proof,
+        Err(disposition) => {
+            unheard.outcome = Outcome::Reject(Rejection {
+                code: Reason::MusicbrainzUnavailable,
+                disposition,
+                quarantine: None,
+                detail: "MusicBrainz could not answer a merged recording lookup".to_owned(),
+            });
+            return (unheard, None);
+        }
     };
     let decision = decide(target, landing, policy, matched, Some(&proof), checks);
     (decision, Some(heard))
@@ -1470,12 +1473,12 @@ async fn heard_through_merges(
     found: &FoundRelease,
     heard: &HashMap<String, Vec<String>>,
     library: &dyn LandingLibrary,
-) -> Option<HashMap<String, Vec<String>>> {
+) -> Result<HashMap<String, Vec<String>>, Disposition> {
     let mut proof = heard.clone();
     if specs::artist_proof(target, landing, found, Some(&proof)).is_some() {
-        return Some(proof);
+        return Ok(proof);
     }
-    let mut failed = false;
+    let mut failure = None;
     let mut canonical: HashMap<String, Option<String>> = HashMap::new();
     for pair in &found.scored.pairs {
         let wanted = &found.release.tracks[pair.track].recording_id;
@@ -1492,8 +1495,10 @@ async fn heard_through_merges(
                     .canonical_recording(&id, RequestPriority::BackgroundSync)
                     .await
                     .unwrap_or_else(|error| {
-                        tracing::info!(error = %error.0, recording = id, "merged recording not looked up");
-                        failed = true;
+                        tracing::info!(error = %error.detail, recording = id, "merged recording not looked up");
+                        if failure != Some(Disposition::Outage) {
+                            failure = Some(Disposition::for_musicbrainz_error(&error));
+                        }
                         None
                     });
                 canonical.insert(id.clone(), answer);
@@ -1507,8 +1512,12 @@ async fn heard_through_merges(
             }
         }
     }
-    (!failed || specs::artist_proof(target, landing, found, Some(&proof)).is_some())
-        .then_some(proof)
+    if let Some(failure) = failure
+        && specs::artist_proof(target, landing, found, Some(&proof)).is_none()
+    {
+        return Err(failure);
+    }
+    Ok(proof)
 }
 
 /// Library folders as the filesystem resolves them.

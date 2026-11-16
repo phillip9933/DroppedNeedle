@@ -9,6 +9,7 @@ use crate::common::{Probe, track_file};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use droppedneedle_acquire::db::AcquireDb;
 use droppedneedle_acquire::downloads::SourceTag;
@@ -42,8 +43,8 @@ use droppedneedle_library::scan::EffectivePolicy;
 use droppedneedle_library::tags::TagField;
 use droppedneedle_library::tags::save::{TagEdit, save_tags};
 use droppedneedle_library::wiring::LibrarySetup;
-use droppedneedle_providers::RequestPriority;
 use droppedneedle_providers::musicbrainz::is_valid_mbid;
+use droppedneedle_providers::{ProviderError, RequestPriority};
 use futures_util::future::BoxFuture;
 
 use crate::common::TestPlatform;
@@ -437,7 +438,7 @@ impl ReleaseSource for Merged {
         mbid: &'a str,
     ) -> BoxFuture<'a, Result<Option<String>, SourceError>> {
         let answer = if !is_valid_mbid(mbid) {
-            Err(SourceError("not a MusicBrainz id".to_owned()))
+            Err(SourceError::refused("not a MusicBrainz id".to_owned()))
         } else if mbid == self.retired {
             Ok(Some(self.kept.clone()))
         } else {
@@ -1158,10 +1159,10 @@ impl FingerprintSource for Outage {
     }
 }
 
-/// A worker holding one finished download of one tagged track, with AcoustID
-/// as `outage` says.
-async fn landing_during(
-    outage: Arc<Outage>,
+/// A worker holding one finished download of one tagged track.
+async fn finished_landing(
+    fingerprints: Option<Arc<dyn FingerprintSource>>,
+    releases: impl FnOnce(Release) -> Arc<dyn ReleaseSource>,
 ) -> (
     droppedneedle_acquire::AcquireSetup,
     Arc<DownloadWorker>,
@@ -1180,7 +1181,9 @@ async fn landing_during(
         .build()
         .await;
     let (mut library, _) = library_at(&platform);
-    library.imports.fingerprints = outage;
+    if let Some(fingerprints) = fingerprints {
+        library.imports.fingerprints = fingerprints;
+    }
     let music = dir.join("music");
     std::fs::create_dir_all(&music).expect("music root");
     library
@@ -1200,12 +1203,7 @@ async fn landing_during(
         1,
     )];
     let lengths: Vec<Option<u64>> = files.iter().map(|path| length_ms(path)).collect();
-    let releases: Arc<dyn ReleaseSource> = Arc::new(Releases(vec![release(
-        GOOD_RELEASE,
-        GOOD_GROUP,
-        &["Mysterons"],
-        &lengths,
-    )]));
+    let releases = releases(release(GOOD_RELEASE, GOOD_GROUP, &["Mysterons"], &lengths));
     let (acquire, fixed) = acquire_serving(
         &platform,
         &library,
@@ -1250,7 +1248,10 @@ async fn landing_during(
 async fn acoustid_errors_wait_or_spend_the_waits() {
     let case = "outage";
     let outage = Outage::new(AcoustIdUnavailable::Unreachable);
-    let (acquire, worker, music, _grounds) = landing_during(outage.clone()).await;
+    let (acquire, worker, music, _grounds) = finished_landing(Some(outage.clone()), |release| {
+        Arc::new(Releases(vec![release]))
+    })
+    .await;
     for pass in 1..=12 {
         worker.run_once(pass).await;
         worker.wait_for_landings().await;
@@ -1279,7 +1280,8 @@ async fn acoustid_errors_wait_or_spend_the_waits() {
 
     let case = "steady error";
     let outage = Outage::new(AcoustIdUnavailable::Refused);
-    let (acquire, worker, music, _grounds) = landing_during(outage).await;
+    let (acquire, worker, music, _grounds) =
+        finished_landing(Some(outage), |release| Arc::new(Releases(vec![release]))).await;
     for pass in 1..=12 {
         worker.run_once(pass).await;
         worker.wait_for_landings().await;
@@ -1290,6 +1292,109 @@ async fn acoustid_errors_wait_or_spend_the_waits() {
         files_under(&music, "flac").is_empty(),
         "{case}: nothing imported"
     );
+}
+
+/// MusicBrainz fails its first twelve lookups, then has the requested release.
+struct MusicBrainzFailure {
+    releases: Releases,
+    error: ProviderError,
+    searches: Arc<AtomicUsize>,
+}
+
+impl ReleaseSource for MusicBrainzFailure {
+    fn search<'a>(
+        &'a self,
+        title: &'a str,
+        artist: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<ReleaseHit>, SourceError>> {
+        Box::pin(async move {
+            if self.searches.fetch_add(1, Ordering::Relaxed) < 12 {
+                return Err(self.error.clone().into());
+            }
+            self.releases.search(title, artist).await
+        })
+    }
+
+    fn release<'a>(&'a self, mbid: &'a str) -> BoxFuture<'a, Result<Option<Release>, SourceError>> {
+        self.releases.release(mbid)
+    }
+
+    fn canonical_recording<'a>(
+        &'a self,
+        mbid: &'a str,
+    ) -> BoxFuture<'a, Result<Option<String>, SourceError>> {
+        self.releases.canonical_recording(mbid)
+    }
+}
+
+/// A MusicBrainz outage can outlast the landing's ordinary waits. The
+/// original attempt imports once MusicBrainz answers.
+#[tokio::test]
+async fn musicbrainz_outage_keeps_the_finished_attempt() {
+    let searches = Arc::new(AtomicUsize::new(0));
+    let (acquire, worker, music, _grounds) = finished_landing(None, |release| {
+        Arc::new(MusicBrainzFailure {
+            releases: Releases(vec![release]),
+            error: ProviderError::Unavailable {
+                provider: "musicbrainz",
+                retry_after: None,
+            },
+            searches: searches.clone(),
+        })
+    })
+    .await;
+    for pass in 1..=12 {
+        worker.run_once(pass).await;
+        worker.wait_for_landings().await;
+    }
+    let task = acquire.journal.read_task("landing").await.unwrap().unwrap();
+    assert_eq!(task.status, TaskStatus::Processing);
+    assert_eq!(searches.load(Ordering::Relaxed), 12);
+    assert_eq!(
+        decisions(&acquire, "landing"),
+        vec![(
+            "deferred".to_owned(),
+            Some("musicbrainz_unavailable".to_owned())
+        )],
+    );
+    assert!(files_under(&music, "flac").is_empty());
+
+    worker.run_once(13).await;
+    worker.wait_for_landings().await;
+    let task = acquire.journal.read_task("landing").await.unwrap().unwrap();
+    assert_eq!(task.status, TaskStatus::Completed);
+    assert_eq!(files_under(&music, "flac").len(), 1);
+    let attempts = acquire.journal.read_attempts("landing").await.unwrap();
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].id, "landing-a0");
+    let tasks: i64 = acquire
+        .db
+        .db()
+        .one("SELECT COUNT(*) FROM download_tasks", []);
+    assert_eq!(tasks, 1);
+}
+
+/// Repeated refusals still spend the ordinary waits and keep the files for retry.
+#[tokio::test]
+async fn musicbrainz_refusal_spends_the_landing_waits() {
+    let (acquire, worker, music, _grounds) = finished_landing(None, |release| {
+        Arc::new(MusicBrainzFailure {
+            releases: Releases(vec![release]),
+            error: ProviderError::BadRequest {
+                provider: "musicbrainz",
+                status: 400,
+            },
+            searches: Arc::new(AtomicUsize::new(0)),
+        })
+    })
+    .await;
+    for pass in 1..=12 {
+        worker.run_once(pass).await;
+        worker.wait_for_landings().await;
+    }
+    let task = acquire.journal.read_task("landing").await.unwrap().unwrap();
+    assert_eq!(task.status, TaskStatus::Failed);
+    assert!(files_under(&music, "flac").is_empty());
 }
 
 /// What AcoustID hears decides an untagged or mismatched file: a failed
