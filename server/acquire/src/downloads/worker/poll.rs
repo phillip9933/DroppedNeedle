@@ -168,7 +168,11 @@ impl DownloadWorker {
     /// math ages a dead client out into failover instead.
     async fn poll_one(self: &Arc<Self>, pass: &Pass, task: &TaskRow) -> Polled {
         let now = pass.now;
-        if self.landing_in_flight(&task.id) {
+        let replacing = self
+            .replacements
+            .lock()
+            .is_ok_and(|pending| pending.contains_key(&task.id));
+        if self.landing_in_flight(&task.id) || replacing {
             return Polled::Answered;
         }
         // The pass listed its tasks before any of them were polled; a
@@ -391,15 +395,10 @@ impl DownloadWorker {
             ),
             WatchdogOutcome::Stalled => (Reason::Stalled, "transfer stalled".to_owned()),
             WatchdogOutcome::GiveWay => {
-                if !self.give_way(pass, task, attempt, source).await {
-                    // No other copy now: this one keeps its place in the
-                    // queue, and the next look waits another full wait.
-                    if let Ok(mut cache) = self.poll_cache.lock()
-                        && let Some(memory) = cache.get_mut(&task.id)
-                    {
-                        memory.give_way_from = now;
-                    }
-                    self.record_progress(pass, task, &progress).await;
+                self.record_progress(pass, task, &progress).await;
+                if let Ok(mut pending) = self.replacements.lock() {
+                    pending.insert(task.id.clone(), attempt.clone());
+                    self.wake();
                 }
                 return;
             }
@@ -422,66 +421,6 @@ impl DownloadWorker {
             Some(QuarantineReason::DownloadFailed),
         )
         .await;
-    }
-
-    /// Move a copy that sat in a peer's queue past the preferred-quality
-    /// wait on to the source's next copy. The next copy is enqueued first,
-    /// and only once it is journaled is the waiting one handed to cleanup,
-    /// so a peer that is the only one sharing the album keeps its place.
-    /// The slow peer is not blocklisted: the next search skips it because
-    /// this task already tried it. Answers whether the copy moved.
-    async fn give_way(
-        &self,
-        pass: &Pass,
-        task: &TaskRow,
-        attempt: &AttemptRow,
-        source: &Arc<dyn DownloadSource>,
-    ) -> bool {
-        // No new copy while the library folder cannot take files, as for
-        // any enqueue.
-        if pass.library.is_some() {
-            return false;
-        }
-        let Some(attempts) = self.attempts(&task.id).await else {
-            return false;
-        };
-        let handled = handled_count(&attempts, None);
-        let source_index = handled_count(&attempts, Some(&source.tag()));
-        let key = format!("enqueue:{}:{handled}", task.id);
-        let task_id = task.id.clone();
-        let now = pass.now;
-        if self
-            .step("downloads.enqueue_key", move |store| {
-                store.claim_key(&key, &task_id, "enqueue", now)
-            })
-            .await
-            .is_none()
-        {
-            return false;
-        }
-        match source.enqueue(&task.id, source_index).await {
-            Ok(next) => {
-                let moved = self
-                    .journal_enqueued(
-                        pass,
-                        task,
-                        source,
-                        handled,
-                        source_index,
-                        &next,
-                        Some(attempt),
-                    )
-                    .await;
-                if moved {
-                    tracing::info!(task_id = %task.id, "queued copy gave way to the next one");
-                }
-                moved
-            }
-            Err(error) => {
-                tracing::info!(task_id = %task.id, %error, "no other copy to give way to; still waiting");
-                false
-            }
-        }
     }
 
     /// Fail one attempt over to the next candidate: blocklist the failed

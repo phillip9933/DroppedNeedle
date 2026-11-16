@@ -4,7 +4,7 @@
 //! traffic (queued tasks re-dispatch through the first worker pass,
 //! landings and live attempts resume, the rest restart clean under the
 //! same idempotency keys, so a double resume cannot double-enqueue).
-//! [`DownloadWorker`] then runs the steady-state passes on one cadence:
+//! [`DownloadWorker`] runs acquisition and transfer checks on separate cadences:
 //!
 //! - enqueue: queued tasks below the concurrency cap search and enqueue
 //!   through the source order, journaling each attempt; nothing starts,
@@ -24,7 +24,7 @@
 //!
 //! Sources and tuning are resolved at the start of every pass, so saved
 //! settings take effect on the next pass without a restart. The loop runs
-//! on the loop supervisor as `download-worker`. Journal failures are logged
+//! on the supervisor as `download-enqueue` and `download-worker`. Journal failures are logged
 //! and skip the affected item; a read error never stands in for "no rows".
 
 use std::collections::{HashMap, HashSet};
@@ -69,6 +69,9 @@ use poll::{PollBackoff, PollMemory};
 
 /// Job name of the worker loop.
 pub const DOWNLOAD_WORKER_JOB: &str = "download-worker";
+
+/// Job name of the search and enqueue loop.
+pub const DOWNLOAD_ENQUEUE_JOB: &str = "download-enqueue";
 
 /// Job name of the wait, at shutdown, for the landings the worker started.
 pub const DOWNLOAD_LANDINGS_JOB: &str = "download-landings";
@@ -194,6 +197,8 @@ pub struct DownloadWorker {
     /// their backoff lapses.
     poll_backoff: Mutex<HashMap<SourceTag, PollBackoff>>,
     enqueue_not_before: Mutex<HashMap<String, f64>>,
+    /// An attempt's replacement is queued or searching on the enqueue loop.
+    replacements: Mutex<HashMap<String, AttemptRow>>,
     unsearchable_warned: Mutex<HashSet<String>>,
     /// Download starts, completions and failures go to `subscriber`
     /// plugins through this host.
@@ -220,6 +225,8 @@ pub struct DownloadWorker {
     readiness: SourceReadiness,
     /// The library folder check: its last answer, and whether one runs.
     library_check: Arc<Mutex<LibraryCheck>>,
+    /// Both loops wait for the same bounded readiness check before acting.
+    library_check_gate: tokio::sync::Mutex<()>,
     /// The library wait last logged, so each change is logged once.
     library_wait_logged: Mutex<Option<LibraryWait>>,
 }
@@ -304,6 +311,7 @@ impl DownloadWorker {
             poll_cache: Mutex::new(HashMap::new()),
             poll_backoff: Mutex::new(HashMap::new()),
             enqueue_not_before: Mutex::new(HashMap::new()),
+            replacements: Mutex::new(HashMap::new()),
             unsearchable_warned: Mutex::new(HashSet::new()),
             plugins: ports.plugins,
             landing: ports.landing,
@@ -317,6 +325,7 @@ impl DownloadWorker {
             health,
             library_check: Arc::new(Mutex::new(LibraryCheck::default())),
             library_wait_logged: Mutex::new(None),
+            library_check_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -354,6 +363,7 @@ impl DownloadWorker {
     /// not finish in time counts as not answering, and the next pass
     /// starts none until it ends.
     async fn check_library(&self) -> Option<LibraryWait> {
+        let _check = self.library_check_gate.lock().await;
         let library = self.landing.library().clone();
         {
             let mut state = lock_check(&self.library_check);

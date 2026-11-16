@@ -90,6 +90,7 @@ pub const ACQUIRE_LOOPS: &[&str] = &[
     crate::held::PRUNE_JOB,
     crate::import_folder::IMPORT_FOLDER_JOB,
     crate::downloads::worker::DOWNLOAD_WORKER_JOB,
+    crate::downloads::worker::DOWNLOAD_ENQUEUE_JOB,
     crate::probes::PROBE_JOB,
     crate::readiness::SOURCE_WATCH_JOB,
 ];

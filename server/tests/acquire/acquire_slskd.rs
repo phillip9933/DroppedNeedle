@@ -1369,3 +1369,130 @@ async fn soulseek_counts_only_readable_files_as_audio() {
     let offered = source.search(&target).await.expect("search runs");
     assert!(offered.is_empty(), "an APE-only folder is never offered");
 }
+
+/// A search that has reached slskd but cannot finish must leave the
+/// supervisor free to poll a second Soulseek download.
+#[tokio::test]
+async fn soulseek_search_does_not_block_transfer_polls() {
+    use crate::common::acquire::{review_off_in, save_slskd};
+    use droppedneedle_acquire::downloads::ExpectedTrack;
+    use droppedneedle_acquire::downloads::state::{AttemptState, TaskStatus};
+    use droppedneedle_acquire::downloads::worker::spawn_download_worker;
+    use droppedneedle_kernel::clock::Clock as _;
+
+    const FILE: &str = r"Music\Album\01 Song.flac";
+    let db = AcquireDb::scratch().unwrap();
+    db.add_user("u-ada", "Ada", "user").await.unwrap();
+    let dir = db.path().parent().unwrap();
+    let settings =
+        droppedneedle_acquire::test_support::scratch_settings(&dir.join("settings")).unwrap();
+    let slskd = MockSlskd::start().await.unwrap();
+    slskd.set_handler_delay_ms(60_000);
+    save_slskd(&settings, &slskd.base_url());
+    review_off_in(&settings);
+    let journal = Arc::new(Journal::new(db.clone(), quiet_ticks()));
+    let (worker, _) = worker_over(
+        &db,
+        journal.clone(),
+        &settings,
+        dir.join("slskd"),
+        Arc::new(FixedAlbums::default()),
+        None,
+        droppedneedle_kernel::events::EventHub::new(),
+    )
+    .await;
+    let handle = serde_json::to_string(&SourceHandle {
+        username: "existing-peer".to_owned(),
+        filenames: vec![FILE.to_owned()],
+        ..SourceHandle::new(SourceTag::Soulseek)
+    })
+    .unwrap();
+    let now = droppedneedle_kernel::clock::SystemClock.now_ms() as f64 / 1000.0;
+    journal
+        .run("test.seed", move |store| {
+            for (id, title) in [("live", "Existing album"), ("searching", "New album")] {
+                store.insert_task(
+                    &NewTask {
+                        id: id.to_owned(),
+                        user_id: "u-ada".to_owned(),
+                        artist_name: "An artist".to_owned(),
+                        album_title: title.to_owned(),
+                        release_group_mbid: String::new(),
+                        origin: "user".to_owned(),
+                        retry_count: 0,
+                    },
+                    now,
+                )?;
+            }
+            store.set_task_plan(
+                "searching",
+                &TaskPlan {
+                    release_mbid: Some("00000000-0000-4000-8000-000000000001".to_owned()),
+                    expected_tracks: vec![ExpectedTrack {
+                        disc_number: 1,
+                        track_number: 1,
+                        title: Some("Song".to_owned()),
+                        duration_seconds: None,
+                        recording_mbid: None,
+                        release_track_mbid: None,
+                    }],
+                    ..Default::default()
+                },
+                now,
+            )?;
+            store.insert_attempt(
+                "live-a0",
+                "live",
+                "soulseek",
+                0,
+                "",
+                &handle,
+                AttemptState::InUse,
+                now,
+            )?;
+            store.transition_task("live", TaskStatus::Downloading, now, None)
+        })
+        .await
+        .unwrap();
+
+    slskd.inject_transfer_progress(
+        "existing-peer",
+        FILE,
+        100,
+        0,
+        "Queued, Remotely",
+        None,
+        None,
+    );
+    let (supervisor, _runtime, _dir) = crate::common::scratch_supervisor("soulseek-poll").await;
+    spawn_download_worker(worker.clone(), &supervisor).unwrap();
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while slskd.max_in_flight() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the queued album has started searching");
+    slskd.inject_transfer_progress("existing-peer", FILE, 100, 40, "InProgress", None, None);
+    worker.wake();
+
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let progress = journal
+                .read("test.progress", |store| store.get_task("live"))
+                .await
+                .unwrap();
+            if progress.is_some_and(|task| task.downloaded_bytes == 40) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the existing transfer advances while the search is blocked");
+    assert!(
+        slskd.search_texts().is_empty(),
+        "the search is still blocked"
+    );
+    supervisor.shutdown(Duration::ZERO).await;
+}

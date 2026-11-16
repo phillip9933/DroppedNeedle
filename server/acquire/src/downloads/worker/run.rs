@@ -1,8 +1,11 @@
-//! One pass of every step, and the loop that runs it on the supervisor.
+//! Independent search and transfer status loops on the supervisor.
 
 use std::sync::Arc;
 
-use super::{DOWNLOAD_LANDINGS_JOB, DOWNLOAD_WORKER_JOB, DownloadWorker, Pass, WORKER_INTERVAL};
+use super::{
+    DOWNLOAD_ENQUEUE_JOB, DOWNLOAD_LANDINGS_JOB, DOWNLOAD_WORKER_JOB, DownloadWorker, Pass,
+    WORKER_INTERVAL,
+};
 use crate::downloads::watchdog::Watchdog;
 use droppedneedle_kernel::jobs::{
     AlreadyRunning, Next, Schedule, Supervisor, Tick, TickCtx, TickResult,
@@ -23,13 +26,19 @@ pub fn spawn_download_worker(
     let gate = Arc::new(tokio::sync::Mutex::new(()));
     supervisor.on_wakeup(
         DOWNLOAD_WORKER_JOB,
-        wake,
+        wake.clone(),
         Schedule::new(WORKER_INTERVAL),
         WorkerTick {
             worker: Arc::clone(&worker),
             gate: Arc::clone(&gate),
             pass: 0,
         },
+    )?;
+    supervisor.on_wakeup(
+        DOWNLOAD_ENQUEUE_JOB,
+        wake,
+        Schedule::new(WORKER_INTERVAL),
+        EnqueueTick(Arc::clone(&worker)),
     )?;
     supervisor.one_shot(DOWNLOAD_LANDINGS_JOB, move |ctx| async move {
         ctx.token().cancelled().await;
@@ -54,39 +63,64 @@ impl Tick for WorkerTick {
         if ctx.token().is_cancelled() {
             return Ok(Next::Finish);
         }
-        self.worker.run_once(self.pass).await;
+        if let Some(pass_ctx) = self.worker.prepare_pass().await {
+            self.worker.transfer_pass(&pass_ctx, self.pass).await;
+        }
         self.pass = self.pass.wrapping_add(1);
         Ok(Next::Continue)
     }
 }
 
+/// Only this loop starts transfers. A search can wait on slskd without
+/// delaying the polls of transfers that are already underway.
+struct EnqueueTick(Arc<DownloadWorker>);
+
+impl Tick for EnqueueTick {
+    async fn tick(&mut self, ctx: &TickCtx) -> TickResult {
+        if ctx.token().is_cancelled() {
+            return Ok(Next::Finish);
+        }
+        if let Some(pass) = self.0.prepare_pass().await {
+            self.0.replacement_pass(&pass).await;
+            self.0.enqueue_pass(&pass).await;
+        }
+        Ok(Next::Continue)
+    }
+}
+
 impl DownloadWorker {
-    /// Run every steady-state pass once, in order. The orphan sweep only
-    /// runs when `pass` hits its hourly slot. Landings the poll pass
-    /// starts run on their own tasks; [`Self::wait_for_landings`] awaits
-    /// them.
+    /// Drive one complete pass when a caller is running the worker
+    /// explicitly. Production drives the two passes independently.
     pub async fn run_once(self: &Arc<Self>, pass: u64) {
+        if let Some(pass_ctx) = self.prepare_pass().await {
+            self.enqueue_pass(&pass_ctx).await;
+            self.transfer_pass(&pass_ctx, pass).await;
+            self.replacement_pass(&pass_ctx).await;
+        }
+    }
+
+    async fn prepare_pass(&self) -> Option<Pass> {
         // Settings that do not read stop the whole pass: nothing starts,
         // lands or fails over until they are saved again.
-        let Some(config) = self.settings.config() else {
-            return;
-        };
+        let config = self.settings.config()?;
         let library = self.check_library().await;
         self.note_library_wait(library.as_ref());
-        let pass_ctx = Pass {
+        Some(Pass {
             library,
             watchdog: Watchdog::new(config.watchdog.clone()),
             sources: self.settings.sources(),
             config,
             now: self.now_unix_f64(),
-        };
-        self.enqueue_pass(&pass_ctx).await;
-        self.poll_pass(&pass_ctx).await;
-        self.retry_pass(&pass_ctx).await;
-        self.cleanup_pass(&pass_ctx).await;
+        })
+    }
+
+    async fn transfer_pass(self: &Arc<Self>, pass_ctx: &Pass, pass: u64) {
+        self.poll_pass(pass_ctx).await;
+        self.retry_pass(pass_ctx).await;
+        self.cleanup_pass(pass_ctx).await;
         if pass.is_multiple_of(ORPHAN_EVERY_NTH_PASS) {
-            self.release_kept(&pass_ctx).await;
-            self.orphan_pass(&pass_ctx).await;
+            self.release_kept(pass_ctx).await;
+            self.orphan_pass(pass_ctx).await;
         }
     }
 }
