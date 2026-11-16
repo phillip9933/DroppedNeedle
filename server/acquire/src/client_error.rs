@@ -53,6 +53,9 @@ pub enum ClientError {
     /// HTTP 404 or 410.
     #[error("{service} has no such item")]
     NotFound { service: Service },
+    /// slskd confirmed the peer went offline before accepting the files.
+    #[error("the Soulseek peer is offline")]
+    PeerOffline,
     /// HTTP 400 or another 4xx: the service refused the request itself.
     #[error("{service} refused the request{}", detail_suffix(detail))]
     BadRequest { service: Service, detail: String },
@@ -138,6 +141,7 @@ impl ClientError {
     #[must_use]
     pub fn service(&self) -> Service {
         match self {
+            Self::PeerOffline => Service::Slskd,
             Self::Auth { service, .. }
             | Self::Redirected { service, .. }
             | Self::NotFound { service }

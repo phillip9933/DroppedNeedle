@@ -101,6 +101,7 @@ struct MockState {
     /// One-shot 429s for the rate-limit tests.
     fail_next_search: bool,
     fail_next_enqueue: bool,
+    offline_peer: Option<String>,
     /// Concurrent in-flight searches+enqueues right now, and the observed max.
     in_flight: usize,
     max_in_flight: usize,
@@ -439,6 +440,13 @@ async fn enqueue(
             )
                 .into_response();
         }
+        if guard.offline_peer.as_deref() == Some(username.as_str()) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("User {username} appears to be offline"),
+            )
+                .into_response();
+        }
         guard.in_flight += 1;
         guard.max_in_flight = guard.max_in_flight.max(guard.in_flight);
         guard.handler_delay_ms
@@ -707,6 +715,15 @@ impl MockSlskd {
             .fail_next_enqueue = true;
     }
 
+    /// This peer still appears in searches, but slskd cannot enqueue it.
+    pub fn set_offline_peer(&self, username: &str) {
+        self.state
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .offline_peer = Some(username.to_owned());
+    }
+
     /// Leave every later enqueued file waiting in its peer's queue, with
     /// no bytes moved, instead of finishing it at once.
     pub fn queue_enqueued(&self, queued: bool) {
@@ -838,6 +855,7 @@ impl MockSlskd {
         guard.expected_api_key = None;
         guard.fail_next_search = false;
         guard.fail_next_enqueue = false;
+        guard.offline_peer = None;
         guard.in_flight = 0;
         guard.max_in_flight = 0;
         guard.handler_delay_ms = 0;

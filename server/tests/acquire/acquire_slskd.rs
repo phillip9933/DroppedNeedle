@@ -36,6 +36,19 @@ use slskd::{
     aggregate_status, album_query_ladder, match_transfers,
 };
 
+async fn first_soulseek_choice(
+    repo: &SlskdRepository<impl SlskdHttp>,
+    target: &SearchTarget,
+    keep: impl Fn(&slskd::SearchResult) -> bool,
+) -> Result<soulseek::SoulseekChoice, soulseek::SoulseekMiss> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(150);
+    let candidates = soulseek::choices(repo, target, deadline, keep).await?;
+    Ok(candidates
+        .into_iter()
+        .next()
+        .expect("a successful search has a candidate"))
+}
+
 fn test_policy() -> DownloadPolicy {
     DownloadPolicy {
         search_timeout: Duration::from_secs(2),
@@ -480,7 +493,7 @@ async fn album_ladder() {
         wanted: Vec::new(),
         track: None,
     };
-    let choice = soulseek::choose(&repo, &target, |_| true)
+    let choice = first_soulseek_choice(&repo, &target, |_| true)
         .await
         .expect("ladder search succeeds");
     assert_eq!(choice.pick.username, "alice", "a broader rung fans out");
@@ -1142,7 +1155,7 @@ async fn automatic_pick_skips_a_numbered_file_with_a_conflicting_title() {
         year: Some(2024),
         ..two_track_album()
     };
-    let choice = soulseek::choose(&repo, &target, |_| true)
+    let choice = first_soulseek_choice(&repo, &target, |_| true)
         .await
         .expect("the correct later peer is selected");
 
@@ -1227,7 +1240,7 @@ async fn album_ladder_continues_past_unusable_and_partial_folders() {
         .read_blocklist(&SourceTag::Soulseek, now)
         .await
         .expect("blocklist reads");
-    let choice = soulseek::choose(repo.as_ref(), &target, |hit| {
+    let choice = first_soulseek_choice(repo.as_ref(), &target, |hit| {
         !blocklist.blocks_file(&hit.username, &hit.filename)
     })
     .await
@@ -1300,7 +1313,7 @@ async fn album_ladder_keeps_results_after_a_failed_or_timed_out_query() {
         let repo = repository(replies.clone().into());
         let choice = tokio::time::timeout(
             Duration::from_secs(151),
-            soulseek::choose(&repo, &target, |_| true),
+            first_soulseek_choice(&repo, &target, |_| true),
         )
         .await
         .expect("the search has a deadline")
@@ -1316,7 +1329,7 @@ async fn album_ladder_keeps_results_after_a_failed_or_timed_out_query() {
         let empty_repo = repository(VecDeque::new());
         let error = tokio::time::timeout(
             Duration::from_secs(151),
-            soulseek::choose(&empty_repo, &target, |_| true),
+            first_soulseek_choice(&empty_repo, &target, |_| true),
         )
         .await
         .expect("the search has a deadline")

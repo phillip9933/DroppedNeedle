@@ -142,6 +142,16 @@ impl<T: SlskdHttp> SlskdClient<T> {
         let reply = self
             .with_rate_limit_retry(|| self.http.post(&path, body.clone()))
             .await?;
+        // slskd 0.26.2's enqueue controller returns the offline exception
+        // message as HTTP 500. Other 500s do not tell us whether files queued.
+        if reply.status == 500 {
+            let offline = format!("User {username} appears to be offline");
+            if String::from_utf8_lossy(&reply.body).trim() == offline
+                || serde_json::from_slice::<String>(&reply.body).is_ok_and(|body| body == offline)
+            {
+                return Err(ClientError::PeerOffline);
+            }
+        }
         Self::check(&reply)?;
         Self::decode(&reply)
     }

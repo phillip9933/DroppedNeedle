@@ -13,12 +13,11 @@ use tokio::time::{Instant, timeout_at};
 use super::SearchTarget;
 use super::reasons::TrackReason;
 use crate::client_error::{ClientError, Service};
-use crate::downloads::sources::SOURCE_TIMEOUT;
 use crate::reason::Reason;
 use crate::slskd::folders::{FolderPick, RankRequest, rank_folders, rank_listing};
 use crate::slskd::{SearchResult, SlskdHttp, SlskdRepository, album_query_ladder};
 
-/// The folder chosen, and why a lone-track share was used when it was.
+/// An eligible folder and the reason a lone-track share would be used.
 #[derive(Debug, Clone)]
 pub struct SoulseekChoice {
     /// The folder and the files to enqueue from it.
@@ -115,13 +114,14 @@ fn miss(has_listing: bool, has_title_conflict: bool, reason: Reason, detail: &st
     }
 }
 
-/// Search and pick. `keep` drops hits that may not be tried again
+/// Search and rank. `keep` drops hits that may not be tried again
 /// (quarantined files, peers this task already tried).
-pub async fn choose<H: SlskdHttp>(
+pub async fn choices<H: SlskdHttp>(
     repo: &SlskdRepository<H>,
     target: &SearchTarget,
+    deadline: Instant,
     keep: impl Fn(&SearchResult) -> bool,
-) -> Result<SoulseekChoice, SoulseekMiss> {
+) -> Result<Vec<SoulseekChoice>, SoulseekMiss> {
     let request = RankRequest {
         album_title: &target.album_title,
         tracklist: &target.tracklist,
@@ -130,26 +130,24 @@ pub async fn choose<H: SlskdHttp>(
     };
     let policy = repo.policy();
     let (mut hits, listing) = if target.has_album() {
-        search_album(
-            repo,
-            target,
-            request,
-            Instant::now() + SOURCE_TIMEOUT,
-            &keep,
-        )
-        .await
-        .map_err(SoulseekMiss::Search)?
+        search_album(repo, target, request, deadline, &keep)
+            .await
+            .map_err(SoulseekMiss::Search)?
     } else {
         (Vec::new(), Vec::new())
     };
     let has_listing = !listing.is_empty();
     let has_title_conflict = listing.iter().any(|pick| pick.title_conflicts > 0);
-    let best = rank_folders(&hits, request, policy).into_iter().next();
-    if let Some(pick) = best.filter(|pick| target.track.is_none() || !pick.lone_track) {
-        return Ok(SoulseekChoice {
+    let album_choices: Vec<_> = rank_folders(&hits, request, policy)
+        .into_iter()
+        .filter(|pick| target.track.is_none() || !pick.lone_track)
+        .map(|pick| SoulseekChoice {
             pick,
             lone_reason: None,
-        });
+        })
+        .collect();
+    if !album_choices.is_empty() {
+        return Ok(album_choices);
     }
     let Some(track) = target.track.as_ref() else {
         return Err(miss(
@@ -162,10 +160,18 @@ pub async fn choose<H: SlskdHttp>(
     // No album folder holds the track: search for the track itself. Its
     // results can still turn up an album folder, which wins as usual.
     let album = target.has_album().then_some(target.album_title.as_str());
-    let more = repo
-        .search_track(&track.artist, &track.title, album)
-        .await
-        .map_err(SoulseekMiss::Search)?;
+    let more = timeout_at(
+        deadline,
+        repo.search_track(&track.artist, &track.title, album),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(ClientError::transport(
+            Service::Slskd,
+            "track search timed out",
+        ))
+    })
+    .map_err(SoulseekMiss::Search)?;
     for hit in more {
         let seen = hits
             .iter()
@@ -174,7 +180,8 @@ pub async fn choose<H: SlskdHttp>(
             hits.push(hit);
         }
     }
-    let Some(pick) = rank_folders(&hits, request, policy).into_iter().next() else {
+    let picks = rank_folders(&hits, request, policy);
+    if picks.is_empty() {
         let review = rank_listing(&hits, request, policy);
         return Err(miss(
             !review.is_empty(),
@@ -182,13 +189,15 @@ pub async fn choose<H: SlskdHttp>(
             TrackReason::TrackNotFound.into(),
             &TrackReason::TrackNotFound.to_string(),
         ));
-    };
-    let lone_reason = if pick.lone_track || !target.has_album() {
-        Some(track.no_album.unwrap_or(TrackReason::NoAlbumFolder))
-    } else {
-        None
-    };
-    Ok(SoulseekChoice { pick, lone_reason })
+    }
+    Ok(picks
+        .into_iter()
+        .map(|pick| {
+            let lone_reason = (pick.lone_track || !target.has_album())
+                .then(|| track.no_album.unwrap_or(TrackReason::NoAlbumFolder));
+            SoulseekChoice { pick, lone_reason }
+        })
+        .collect())
 }
 
 #[cfg(test)]
