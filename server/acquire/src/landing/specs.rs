@@ -30,6 +30,7 @@ use super::quality::{RecipeFit, names_format, recipe_fit};
 use crate::downloads::quarantine::QuarantineReason;
 use crate::reason::Reason;
 use droppedneedle_kernel::runtime_config::sections::{QualityRecipeEntry, recipe_for_range};
+use droppedneedle_library::identify::sources::SourceError;
 use droppedneedle_library::matching::decide::{ACCEPT_ALBUM, ACCEPT_TRACK};
 use droppedneedle_library::matching::model::credit_text;
 use droppedneedle_library::matching::score::{NAME_GATE, SAME_MASTER_SECS, Support, TrackPair};
@@ -43,13 +44,23 @@ use droppedneedle_library::matching::strings::{
 pub enum Disposition {
     /// This release can never pass: fail over to the next candidate.
     Permanent,
-    /// It could pass later (files still settling, MusicBrainz down).
+    /// A bounded wait before the landing gives up and keeps the files.
     Temporary,
     /// A service outage says nothing about the files and can outlast every
     /// wait: it never uses them up.
     Outage,
     /// Our side failed (mount, disk): never blame or blocklist the source.
     LocalFault,
+}
+
+impl Disposition {
+    pub(super) fn for_musicbrainz_error(error: &SourceError) -> Self {
+        if error.is_retriable() {
+            Self::Outage
+        } else {
+            Self::Temporary
+        }
+    }
 }
 
 /// One rejection: a machine code, what it means, and the blocklist reason
@@ -774,11 +785,11 @@ impl ImportSpec for ReleaseFound {
                 Reason::NoRelease,
                 "MusicBrainz has no release of the requested album to check the files against",
             ),
-            Some(MatchState::Unavailable(detail)) => Verdict::reject(
+            Some(MatchState::Unavailable(error)) => Verdict::reject(
                 Reason::MusicbrainzUnavailable,
-                Disposition::Temporary,
+                Disposition::for_musicbrainz_error(error),
                 None,
-                format!("MusicBrainz could not be reached: {detail}"),
+                format!("MusicBrainz could not answer: {}", error.detail),
             ),
         }
     }

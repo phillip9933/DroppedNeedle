@@ -780,7 +780,7 @@ impl<R: ReleaseSource, F: FingerprintSource> IdentifyProviders for LiveProviders
             let source = self.at(&facts.local_album_id, priority);
             let result = match source.recall(&facts, named_group.as_deref()).await {
                 Ok(outcome) => return outcome,
-                Err(Stopped::Provider(SourceError(error))) => {
+                Err(Stopped::Provider(SourceError { detail: error, .. })) => {
                     tracing::info!(album = facts.local_album_id, %error, "identify recall deferred");
                     deferred()
                 }
@@ -815,7 +815,7 @@ impl<R: ReleaseSource, F: FingerprintSource> IdentifyProviders for LiveProviders
             let source = self.at(&facts.local_album_id, priority);
             let result = match source.recall_exact(&facts, &release_mbid).await {
                 Ok(result) => result,
-                Err(SourceError(error)) => {
+                Err(SourceError { detail: error, .. }) => {
                     tracing::info!(album = facts.local_album_id, %error, "exact release recall deferred");
                     deferred()
                 }

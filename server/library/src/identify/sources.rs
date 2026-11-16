@@ -41,9 +41,38 @@ use droppedneedle_providers::{
     Source as CacheSource,
 };
 
-/// The provider could not answer; the job waits and retries.
+/// A provider lookup failed. The error keeps whether it can recover on retry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceError(pub String);
+pub struct SourceError {
+    /// What went wrong, for logs and landing decisions.
+    pub detail: String,
+    retriable: bool,
+}
+
+impl SourceError {
+    /// A rejection or invalid answer outside the provider transport.
+    pub fn refused(detail: String) -> Self {
+        Self {
+            detail,
+            retriable: false,
+        }
+    }
+
+    /// Whether the failure can clear on its own and the lookup can be retried.
+    #[must_use]
+    pub fn is_retriable(&self) -> bool {
+        self.retriable
+    }
+}
+
+impl From<ProviderError> for SourceError {
+    fn from(error: ProviderError) -> Self {
+        Self {
+            detail: error.to_string(),
+            retriable: error.is_retriable(),
+        }
+    }
+}
 
 /// What MusicBrainz says about one artist id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +102,7 @@ impl Unanswered {
     /// A source that has no way to look artists up.
     pub fn cannot_tell() -> Self {
         Self {
-            error: SourceError("this source cannot tell".to_owned()),
+            error: SourceError::refused("this source cannot tell".to_owned()),
             retry_after_secs: None,
         }
     }
@@ -387,7 +416,7 @@ impl ReleaseSource for MusicBrainzView {
             let page = self
                 .search_releases(title, artist, SEARCH_LIMIT, Criticality::IdentityCritical)
                 .await
-                .map_err(|error| SourceError(error.to_string()))?;
+                .map_err(SourceError::from)?;
             Ok(release_hits(page.items))
         })
     }
@@ -410,7 +439,7 @@ impl ReleaseSource for MusicBrainzView {
             let page = self
                 .search_releases_query(&lucene, SEARCH_LIMIT, Criticality::IdentityCritical)
                 .await
-                .map_err(|error| SourceError(error.to_string()))?;
+                .map_err(SourceError::from)?;
             Ok(release_hits(page.items))
         })
     }
@@ -425,7 +454,7 @@ impl ReleaseSource for MusicBrainzView {
             let page = self
                 .search_recordings_query(&query, RECORDING_LIMIT, Criticality::IdentityCritical)
                 .await
-                .map_err(|error| SourceError(error.to_string()))?;
+                .map_err(SourceError::from)?;
             Ok(recording_release_hits(page.items))
         })
     }
@@ -435,7 +464,7 @@ impl ReleaseSource for MusicBrainzView {
             fetch_release(self, mbid)
                 .await
                 .map_err(|failure| match failure {
-                    ReleaseFailure::Provider(error) => SourceError(error.to_string()),
+                    ReleaseFailure::Provider(error) => SourceError::from(error),
                     ReleaseFailure::Wire(error) => error,
                 })
         })
@@ -452,7 +481,7 @@ impl ReleaseSource for MusicBrainzView {
             match fetch_release(self, mbid).await {
                 Ok(Some(release)) => Ok(ReleaseAnswer::Found(Box::new(release))),
                 Ok(None) => Ok(ReleaseAnswer::Missing),
-                Err(ReleaseFailure::Wire(error)) => Ok(ReleaseAnswer::Refused(error.0)),
+                Err(ReleaseFailure::Wire(error)) => Ok(ReleaseAnswer::Refused(error.detail)),
                 Err(ReleaseFailure::Provider(
                     error @ (ProviderError::BadRequest { .. }
                     | ProviderError::Redirect { .. }
@@ -467,7 +496,7 @@ impl ReleaseSource for MusicBrainzView {
                         _ => None,
                     };
                     Err(Unanswered {
-                        error: SourceError(error.to_string()),
+                        error: SourceError::from(error),
                         retry_after_secs,
                     })
                 }
@@ -483,7 +512,7 @@ impl ReleaseSource for MusicBrainzView {
             self.resolve_recording_mbid(mbid, Criticality::IdentityCritical)
                 .await
                 .map(|found| found.map(|id| id.to_ascii_lowercase()))
-                .map_err(|error| SourceError(error.to_string()))
+                .map_err(SourceError::from)
         })
     }
 
@@ -514,7 +543,7 @@ impl ReleaseSource for MusicBrainzView {
             .await;
             match listed {
                 Ok(editions) => Ok(Some(editions)),
-                Err(error) if error.is_retriable() => Err(SourceError(error.to_string())),
+                Err(error) if error.is_retriable() => Err(SourceError::from(error)),
                 Err(error) => {
                     tracing::info!(
                         release_group = group,
@@ -543,7 +572,7 @@ impl ReleaseSource for MusicBrainzView {
                 Ok(found) => Ok(found
                     .map(|lookup| lookup.entity.id.trim().to_ascii_lowercase())
                     .filter(|id| is_valid_mbid(id))),
-                Err(error) if error.is_retriable() => Err(SourceError(error.to_string())),
+                Err(error) if error.is_retriable() => Err(SourceError::from(error)),
                 Err(error) => {
                     tracing::info!(
                         release_group = asked,
@@ -567,7 +596,7 @@ impl ReleaseSource for MusicBrainzView {
         Box::pin(async move {
             let asked = mbid.trim().to_ascii_lowercase();
             let unanswered = |error: ProviderError, retry_after_secs| Unanswered {
-                error: SourceError(error.to_string()),
+                error: SourceError::from(error),
                 retry_after_secs,
             };
             match self
@@ -643,7 +672,7 @@ impl ReleaseSource for MusicBrainzView {
                     .await
                 }
             }
-            .map_err(|error| SourceError(error.to_string()))?;
+            .map_err(SourceError::from)?;
             Ok(EditionPage {
                 total: page.count,
                 offset: page.offset,
@@ -893,7 +922,7 @@ async fn fetch_release(
 
 pub fn release_from_wire(wire: MbRelease, old_ids: Vec<String>) -> Result<Release, SourceError> {
     let group = wire.release_group.ok_or_else(|| {
-        SourceError(format!(
+        SourceError::refused(format!(
             "release {} arrived without its release group",
             wire.id
         ))
@@ -913,7 +942,7 @@ pub fn release_from_wire(wire: MbRelease, old_ids: Vec<String>) -> Result<Releas
         });
         for (track_index, track) in medium.tracks.iter().enumerate() {
             let recording = track.recording.as_ref().ok_or_else(|| {
-                SourceError(format!("track {} arrived without its recording", track.id))
+                SourceError::refused(format!("track {} arrived without its recording", track.id))
             })?;
             absolute += 1;
             tracks.push(ReleaseTrack {

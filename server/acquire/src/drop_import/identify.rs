@@ -185,8 +185,8 @@ pub async fn identify(library: &dyn LandingLibrary, landing: &Landing, folder: &
         ..Target::default()
     };
     let summary = find(library, &target, landing).await;
-    if let MatchState::Unavailable(detail) = &summary.state {
-        return Outcome::Unavailable(detail.clone());
+    if let MatchState::Unavailable(error) = &summary.state {
+        return Outcome::Unavailable(error.detail.clone());
     }
     if summary.best().is_some_and(close) {
         return chosen_edition(library, landing, summary, &target, UNTIL_FREE).await;
@@ -239,7 +239,7 @@ pub async fn assigned(
         match library.release(&pin, PERSON).await {
             Ok(Some(release)) => releases.push(release),
             Ok(None) => target.release_mbid = None,
-            Err(error) => return Outcome::Unavailable(error.0),
+            Err(error) => return Outcome::Unavailable(error.detail),
         }
     }
     if releases.is_empty()
@@ -250,13 +250,13 @@ pub async fn assigned(
                 releases.push(release);
             }
             Ok(_) => {}
-            Err(error) => return Outcome::Unavailable(error.0),
+            Err(error) => return Outcome::Unavailable(error.detail),
         }
     }
     if target.release_mbid.is_none() {
         let mut hits = match library.group_releases(&group, PERSON).await {
             Ok(hits) => hits,
-            Err(error) => return Outcome::Unavailable(error.0),
+            Err(error) => return Outcome::Unavailable(error.detail),
         };
         let files = landing.audio.len();
         hits.sort_by_key(|hit| {
@@ -270,13 +270,13 @@ pub async fn assigned(
                     releases.push(release);
                 }
                 Ok(_) => {}
-                Err(error) => return Outcome::Unavailable(error.0),
+                Err(error) => return Outcome::Unavailable(error.detail),
             }
         }
     }
     let aliases = match merged_recordings(library, &local, &releases, PERSON).await {
         Ok(aliases) => aliases,
-        Err(detail) => return Outcome::Unavailable(detail),
+        Err(error) => return Outcome::Unavailable(error.detail),
     };
     let mut summary = choose(&local, releases, &aliases, &target);
     if summary.best().is_none() {
@@ -318,7 +318,7 @@ async fn by_fingerprint(
         if let Some(release) = library
             .release(&id, RequestPriority::BackgroundSync)
             .await
-            .map_err(|error| FingerprintFailure::MusicBrainz(error.0))?
+            .map_err(|error| FingerprintFailure::MusicBrainz(error.detail))?
         {
             releases.push(release);
         }
@@ -326,7 +326,7 @@ async fn by_fingerprint(
     let local = local_album(&landing.audio, target);
     let aliases = merged_recordings(library, &local, &releases, RequestPriority::BackgroundSync)
         .await
-        .map_err(FingerprintFailure::MusicBrainz)?;
+        .map_err(|error| FingerprintFailure::MusicBrainz(error.detail))?;
     let summary = choose(&local, releases, &aliases, target);
     Ok(summary.best().is_some_and(close).then_some(summary))
 }
@@ -357,8 +357,8 @@ async fn chosen_edition(
             ..target.clone()
         };
         let again = find(library, &pinned, landing).await;
-        if let MatchState::Unavailable(detail) = &again.state {
-            return Outcome::Unavailable(detail.clone());
+        if let MatchState::Unavailable(error) = &again.state {
+            return Outcome::Unavailable(error.detail.clone());
         }
         if !again.best().is_some_and(close) {
             return Outcome::Review {

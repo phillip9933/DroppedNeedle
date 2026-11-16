@@ -713,7 +713,7 @@ impl Operations {
                 RequestPriority::UserInitiated,
             )
             .await
-            .map_err(|error| OperationError::Unavailable(error.0))?;
+            .map_err(|error| OperationError::Unavailable(error.detail))?;
         Ok(ReleaseSearch {
             title_query,
             artist_query,
