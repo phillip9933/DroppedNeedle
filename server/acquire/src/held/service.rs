@@ -1794,7 +1794,7 @@ impl HeldService {
                     continue;
                 }
             };
-            let placed = match library.placed_sources(&staging_name(&entry)).await {
+            let placed = match library.placed_audio_sources(&staging_name(&entry)).await {
                 Ok(Some(placed)) => placed,
                 Ok(None) => continue,
                 Err(error) => {
@@ -1824,9 +1824,10 @@ impl HeldService {
                     continue;
                 }
                 let relative = file.path.clone();
+                let original = path.clone();
                 let hashed = tokio::task::spawn_blocking(move || hash_held(&path, &relative)).await;
-                if let Ok(Ok(sha)) = hashed
-                    && placed.contains(&sha)
+                if let Ok(Ok((real, sha))) = hashed
+                    && (placed.contains(&original, &sha) || placed.contains(&real, &sha))
                 {
                     committed.push(file.clone());
                 }
@@ -2041,10 +2042,10 @@ fn refused(reason: Reason) -> HeldError {
     HeldError::Refused(format!("{} {}", reason.message(), reason.action()))
 }
 
-/// The SHA-256 of the held file at `path`, which lies at `relative` below
+/// The real path and SHA-256 of the held file at `path`, at `relative` below
 /// its folder: read beneath that folder's real path, never through a link
 /// below it. Blocking.
-fn hash_held(path: &Path, relative: &str) -> std::io::Result<String> {
+fn hash_held(path: &Path, relative: &str) -> std::io::Result<(PathBuf, String)> {
     let depth = Path::new(relative).components().count();
     let folder = path
         .ancestors()
@@ -2054,7 +2055,8 @@ fn hash_held(path: &Path, relative: &str) -> std::io::Result<String> {
     let real = std::fs::canonicalize(folder)?;
     let at = super::below(&real, relative)
         .ok_or_else(|| std::io::Error::other("held file path is not below its folder"))?;
-    Ok(confine::hash_beneath(&[real], &at)?.sha256)
+    let hash = confine::hash_beneath(&[real], &at)?.sha256;
+    Ok((at, hash))
 }
 
 /// Read files off the async workers, never entering the library.

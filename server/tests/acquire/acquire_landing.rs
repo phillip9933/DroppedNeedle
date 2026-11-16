@@ -24,7 +24,8 @@ use droppedneedle_acquire::downloads::{PlannedAlbum, ReplaceVersion, TaskPlan};
 use droppedneedle_acquire::intake::{self, Gate};
 use droppedneedle_acquire::landing::library::LibraryLanding;
 use droppedneedle_acquire::landing::ports::{
-    ImportFailure, ImportReceipt, ImportRequest, LandingLibrary, OwnedCopy, OwnedTracks, VersionRow,
+    ImportFailure, ImportReceipt, ImportRequest, LandingLibrary, OwnedCopy, OwnedTracks,
+    PlacedSources, VersionRow,
 };
 use droppedneedle_acquire::landing::specs::{Disposition, Rejection};
 use droppedneedle_acquire::landing::{Landed, LandingReport, LandingResult, Reported};
@@ -1851,6 +1852,8 @@ async fn a_held_import_cut_off_by_a_restart_never_places_its_file_twice() {
         2,
     );
     let bytes = std::fs::read(&first).expect("held copy");
+    let duplicate = held_dir.join("duplicate.flac");
+    std::fs::write(&duplicate, &bytes).expect("second copy of the exact same bytes");
     let seeded: Vec<i64> = acquire
         .db
         .write("test.held", move |tx| {
@@ -1861,7 +1864,11 @@ async fn a_held_import_cut_off_by_a_restart_never_places_its_file_twice() {
                 rusqlite::params![format!("album:{GOOD_GROUP}"), GOOD_GROUP],
             )?;
             let mut ids = Vec::new();
-            for (name, track) in [("first.flac", &tracks[0]), ("second.flac", &tracks[1])] {
+            for (name, track) in [
+                ("first.flac", &tracks[0]),
+                ("second.flac", &tracks[1]),
+                ("duplicate.flac", &tracks[0]),
+            ] {
                 tx.execute(
                     "INSERT INTO acquire_held_files (entry_id, root, path, original_name, \
                      release_mbid, release_track_mbid, recording_mbid, disc_number, \
@@ -1925,11 +1932,13 @@ async fn a_held_import_cut_off_by_a_restart_never_places_its_file_twice() {
         vec![
             ("imported".to_owned(), "held".to_owned()),
             ("held".to_owned(), "held".to_owned()),
+            ("held".to_owned(), "held".to_owned()),
         ],
-        "the file that went in is imported; the other waits"
+        "the file that went in is imported; the others wait"
     );
     assert!(!first.exists(), "the placed file's held copy is removed");
     assert!(held_dir.join("second.flac").is_file());
+    assert_eq!(std::fs::read(&duplicate).unwrap(), bytes);
     let copies: i64 = acquire.db.db().one(
         "SELECT COUNT(*) FROM local_tracks WHERE availability = 'indexed' \
          AND title = 'Mysterons'",
@@ -7019,6 +7028,13 @@ impl LandingLibrary for Shaky {
         staging: &'a str,
     ) -> BoxFuture<'a, Result<Option<std::collections::HashSet<String>>, String>> {
         self.inner.placed_sources(staging)
+    }
+
+    fn placed_audio_sources<'a>(
+        &'a self,
+        staging: &'a str,
+    ) -> BoxFuture<'a, Result<Option<PlacedSources>, String>> {
+        self.inner.placed_audio_sources(staging)
     }
 
     fn import(

@@ -80,4 +80,22 @@ droppedneedle_kernel::sql! {
     pub(super) PLACED_SOURCES = "SELECT DISTINCT source_sha256 FROM library_publish_journal \
          WHERE substr(source_rel, 1, length(?1)) = ?1 AND source_sha256 IS NOT NULL \
            AND state IN ('committed', 'cleanup_pending', 'cleaned')";
+    /// The original path and source hash of each committed import file
+    /// staged beneath `?1`. A staged relative path alone can be used by a
+    /// later publish, so the original path comes from that row's own bundle.
+    pub(super) PLACED_AUDIO_SOURCES = "SELECT DISTINCT \
+           json_extract(item.value, '$.adopt.source_path') AS original_path, j.source_sha256 \
+         FROM library_publish_journal j \
+         JOIN library_publish_operations o ON o.bundle_id = j.bundle_id \
+         JOIN json_each(o.bundle_json, '$.items') AS item \
+           ON json_extract(item.value, '$.source_rel') = j.source_rel \
+           AND json_extract(item.value, '$.source_root') = j.source_root \
+           AND json_extract(item.value, '$.track_id') = j.track_id \
+         WHERE substr(j.source_rel, 1, length(?1)) = ?1 AND j.kind = 'audio' \
+           AND j.source_sha256 IS NOT NULL AND j.state IN ('committed', 'cleanup_pending', 'cleaned') \
+           AND json_type(item.value, '$.adopt.source_path') = 'text'";
+    pub(super) row PlacedSourceRow for [PLACED_AUDIO_SOURCES] {
+        original_path: String,
+        source_sha256: String,
+    }
 }
