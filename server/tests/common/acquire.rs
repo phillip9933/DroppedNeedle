@@ -89,7 +89,8 @@ impl AlbumLookup for FixedAlbums {
     fn preferred_release<'a>(
         &'a self,
         _release_group_mbid: &'a str,
-    ) -> futures_util::future::BoxFuture<'a, Result<Option<AlbumRelease>, GroupLookupError>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<AlbumRelease>, GroupLookupError>> + Send + 'a>>
+    {
         Box::pin(async { Ok(None) })
     }
 
