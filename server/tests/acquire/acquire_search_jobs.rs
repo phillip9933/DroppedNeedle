@@ -168,6 +168,8 @@ async fn look_finishes(updates: &mut Subscription, worker: &DownloadWorker) {
 #[tokio::test]
 async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
     let mock = MockSlskd::start().await.expect("mock starts");
+    let mut conflict = peer("conflict", "@@music\\DJ Lenzo\\VOCALIST", &[0, 1, 2, 3]);
+    conflict["files"][0]["filename"] = "@@music\\DJ Lenzo\\VOCALIST\\01 Waka Waka.flac".into();
     let mut complete = peer("complete", "@@music\\MA\\Blue Lines (1991)", &[0, 1, 2, 3]);
     complete["files"].as_array_mut().expect("files").insert(
         0,
@@ -178,6 +180,7 @@ async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
     );
     mock.script_responses(vec![
         peer("halfway", "@@music\\Massive Attack\\Blue Lines", &[0, 1]),
+        conflict,
         complete,
     ]);
 
@@ -238,19 +241,28 @@ async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
         ranked,
         [
             (0, Some("complete".to_owned()), CandidateTier::Recommended),
-            (1, Some("halfway".to_owned()), CandidateTier::Possible),
+            (1, Some("conflict".to_owned()), CandidateTier::Possible),
+            (2, Some("halfway".to_owned()), CandidateTier::Possible),
         ]
     );
     assert_eq!(
         payload.candidates[1].view.note.code,
-        CandidateNoteCode::Incomplete
+        CandidateNoteCode::TitleConflict
+    );
+    assert!(
+        payload.candidates[1]
+            .view
+            .note
+            .text
+            .contains("names a different track")
     );
     assert!(matches!(
         jobs.get(&stranger, &job_id).await,
         Err(SearchJobError::Forbidden)
     ));
 
-    // Pick the second folder; the worker fetches it without searching.
+    // A person may take the flagged match; the worker fetches the pinned
+    // folder without searching again.
     let searches_before = mock.search_texts().len();
     let task_id = jobs
         .pick(&owner, &job_id, 1, false)
@@ -271,8 +283,8 @@ async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
         .expect("handles read");
     assert_eq!(handles.len(), 1, "one enqueue: {handles:?}");
     let handle: SourceHandle = serde_json::from_str(&handles[0]).expect("handle decodes");
-    assert_eq!(handle.username, "halfway");
-    assert_eq!(handle.filenames.len(), 2);
+    assert_eq!(handle.username, "conflict");
+    assert_eq!(handle.filenames.len(), 4);
 
     let task = journal
         .read_task(&task_id)

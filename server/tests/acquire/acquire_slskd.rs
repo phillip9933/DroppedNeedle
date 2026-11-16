@@ -1135,6 +1135,29 @@ fn two_track_album() -> SearchTarget {
     }
 }
 
+#[tokio::test]
+async fn automatic_pick_skips_a_numbered_file_with_a_conflicting_title() {
+    let mock = MockSlskd::start().await.expect("mock starts");
+    let queries = ["Artist Album 2024", "*rtist Album 2024"];
+    let mut conflict = album_peer("a-conflict", "flac");
+    conflict["files"][0]["filename"] =
+        "@@music\\Artist\\Album\\01 Lying on the Hood of Your Car.flac".into();
+    mock.script_query(queries[0], vec![conflict]);
+    mock.script_query(queries[1], vec![album_peer("z-correct", "flac")]);
+
+    let repo = repository(&mock);
+    let target = SearchTarget {
+        year: Some(2024),
+        ..two_track_album()
+    };
+    let choice = soulseek::choose(&repo, &target, |_| true)
+        .await
+        .expect("the correct later peer is selected");
+
+    assert_eq!(choice.pick.username, "z-correct");
+    assert_eq!(mock.search_texts(), queries);
+}
+
 // A nonempty answer can be entirely blocked or refused, and an allowed
 // partial folder should not stop a search for the complete edition.
 #[tokio::test]

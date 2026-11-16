@@ -71,6 +71,8 @@ pub struct FolderPick {
     pub total: usize,
     /// Paired files whose length is unknown or off the release's.
     pub duration_misses: usize,
+    /// Paired filenames that name a different track than the release.
+    pub title_conflicts: usize,
     /// Worst recipe rank of the files to fetch (`usize::MAX` when one
     /// is outside the recipe).
     pub quality: usize,
@@ -100,7 +102,7 @@ pub fn rank_folders(
 ) -> Vec<FolderPick> {
     ranked(hits, request, policy)
         .into_iter()
-        .filter(|pick| !pick.out_of_band)
+        .filter(|pick| !pick.out_of_band && pick.title_conflicts == 0)
         .collect()
 }
 
@@ -248,6 +250,18 @@ fn judge(
             .count();
         (assigned.len(), request.tracklist.len(), misses, assigned)
     };
+    let title_conflicts = assigned
+        .iter()
+        .filter(|(track, file)| {
+            let expected = &request.tracklist[**track];
+            let wanted = request.wanted.is_empty()
+                || request.wanted.iter().any(|position| {
+                    expected.disc_number == i64::from(position.disc)
+                        && expected.track_number == i64::from(position.track)
+                });
+            wanted && title_fit(&audio[**file], expected.title.as_deref()) == TitleFit::Conflict
+        })
+        .count();
     let wanted_files = request.wanted.iter().map(|position| {
         let track = request.tracklist.iter().position(|track| {
             track.disc_number == i64::from(position.disc)
@@ -316,6 +330,7 @@ fn judge(
         coverage,
         total,
         duration_misses,
+        title_conflicts,
         quality,
         unknown_quality,
         lone_track,
@@ -813,6 +828,124 @@ mod tests {
         assert_eq!(picks[0].username, "bundled");
         assert_eq!(picks[0].held, 3);
         assert_eq!(picks[0].files.len(), 4);
+    }
+
+    #[test]
+    fn explicit_title_conflicts_are_not_automatic_folder_matches() {
+        let tracklist = [
+            track(1, "Fire Escape", 213.0),
+            track(2, "Walking on a Dream", 237.0),
+        ];
+        let hits = [
+            hit(
+                "wrong",
+                "Music\\DJ Lenzo\\01 Lying on the Hood of Your Car.flac",
+                214.0,
+                true,
+            ),
+            hit("right", "Music\\Singles\\01 Fire Escape.flac", 213.0, true),
+            hit(
+                "right",
+                "Music\\Singles\\02 Walking on a Dream.flac",
+                237.0,
+                true,
+            ),
+        ];
+        let request = RankRequest {
+            tracklist: &tracklist,
+            wanted: &[],
+            single_track: false,
+        };
+        let policy = DownloadPolicy::default();
+
+        let picks = rank_folders(&hits, request, &policy);
+        assert_eq!(
+            picks
+                .iter()
+                .map(|pick| pick.username.as_str())
+                .collect::<Vec<_>>(),
+            ["right"],
+            "an agreeing number and duration cannot override a contradictory title"
+        );
+
+        let review = rank_listing(&hits, request, &policy);
+        assert_eq!(
+            review.len(),
+            2,
+            "manual review retains the ambiguous folder"
+        );
+        let wrong = review
+            .iter()
+            .find(|pick| pick.username == "wrong")
+            .expect("the ambiguous folder remains reviewable");
+        assert_eq!(wrong.coverage, 1);
+        assert_eq!(wrong.title_conflicts, 1);
+    }
+
+    #[test]
+    fn generic_numbered_and_title_matched_offset_files_remain_automatic() {
+        let tracklist = [
+            track(1, "Fire Escape", 213.0),
+            track(2, "Walking on a Dream", 237.0),
+        ];
+        let hits = [
+            hit("generic", "Music\\Singles\\01 Track 1.flac", 213.0, true),
+            hit("generic", "Music\\Singles\\02 Track 2.flac", 237.0, true),
+            hit("offset", "Music\\Singles\\02 Fire Escape.flac", 213.0, true),
+            hit(
+                "offset",
+                "Music\\Singles\\03 Walking on a Dream.flac",
+                237.0,
+                true,
+            ),
+        ];
+        let picks = rank_folders(
+            &hits,
+            RankRequest {
+                tracklist: &tracklist,
+                wanted: &[],
+                single_track: false,
+            },
+            &DownloadPolicy::default(),
+        );
+        let users: Vec<_> = picks.iter().map(|pick| pick.username.as_str()).collect();
+        assert_eq!(users, ["generic", "offset"]);
+        assert!(picks.iter().all(|pick| pick.title_conflicts == 0));
+    }
+
+    #[test]
+    fn a_conflict_outside_a_single_track_request_does_not_block_its_match() {
+        let tracklist = [
+            track(1, "Fire Escape", 213.0),
+            track(2, "Walking on a Dream", 237.0),
+        ];
+        let hits = [
+            hit(
+                "album",
+                "Music\\Singles\\01 Lying on the Hood of Your Car.flac",
+                213.0,
+                true,
+            ),
+            hit(
+                "album",
+                "Music\\Singles\\02 Walking on a Dream.flac",
+                237.0,
+                true,
+            ),
+        ];
+        let wanted = [TrackPosition { disc: 1, track: 2 }];
+        let picks = rank_folders(
+            &hits,
+            RankRequest {
+                tracklist: &tracklist,
+                wanted: &wanted,
+                single_track: true,
+            },
+            &DownloadPolicy::default(),
+        );
+        assert_eq!(picks.len(), 1);
+        assert_eq!(picks[0].title_conflicts, 0);
+        assert_eq!(picks[0].files[0].filename, hits[1].filename);
     }
 
     #[test]
