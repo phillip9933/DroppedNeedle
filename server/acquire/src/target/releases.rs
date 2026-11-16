@@ -4,8 +4,6 @@
 //! first, then those whose file count matches the tracklist. Ties keep the
 //! indexer's order, so the list is the same on every failover.
 
-use std::ops::Range;
-
 use super::SearchTarget;
 use crate::usenet::newznab::IndexerResult;
 use droppedneedle_library::matching::strings::fold;
@@ -49,14 +47,50 @@ impl Title {
         Self { folded, boundaries }
     }
 
-    fn spans<'a>(&'a self, name: &'a str) -> impl Iterator<Item = Range<usize>> + 'a {
-        self.boundaries.iter().copied().filter_map(move |start| {
-            let end = start + name.len();
-            (!name.is_empty()
-                && self.folded[start..].starts_with(name)
-                && self.boundaries.binary_search(&end).is_ok())
-            .then_some(start..end)
-        })
+    fn starts_field_at(&self, start: usize, name: &str) -> bool {
+        let end = start + name.len();
+        !name.is_empty()
+            && self.folded[start..].starts_with(name)
+            && self.boundaries.binary_search(&end).is_ok()
+    }
+
+    fn ends_album_at(&self, end: usize) -> bool {
+        let Some(&next) = self.boundaries.iter().find(|&&at| at > end) else {
+            return true;
+        };
+        let suffix = &self.folded[end..next];
+        // The album can be followed by release metadata. An ordinary word
+        // here is still part of the title ("McCartney and Wings").
+        let year = suffix.len() == 4
+            && suffix
+                .parse::<u16>()
+                .is_ok_and(|year| (1900..2100).contains(&year));
+        let disc_count = suffix.strip_suffix("cd").is_some_and(|count| {
+            !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit())
+        });
+        year || disc_count
+            || matches!(
+                suffix,
+                "flac"
+                    | "mp3"
+                    | "aac"
+                    | "alac"
+                    | "wav"
+                    | "ogg"
+                    | "opus"
+                    | "web"
+                    | "cd"
+                    | "vinyl"
+                    | "sacd"
+                    | "lossless"
+                    | "remaster"
+                    | "remastered"
+                    | "deluxe"
+                    | "expanded"
+                    | "anniversary"
+                    | "edition"
+                    | "reissue"
+            )
     }
 }
 
@@ -64,23 +98,17 @@ fn fit_names(title: &str, artist: &str, album: &str) -> u8 {
     let title = Title::new(title);
     let album = fold(album);
     let artist = Title::new(crate::slskd::query::primary_artist(artist));
-    let mut albums = title.spans(&album).peekable();
-    if albums.peek().is_none() {
-        return 2;
-    }
-    let artists: Vec<_> = title.spans(&artist.folded).collect();
-    if albums.any(|album| {
-        artists
-            .iter()
-            .any(|artist| album.end <= artist.start || artist.end <= album.start)
-    }) {
-        0
-    } else if artist.spans(&album).next().is_some() {
-        // In "Paul McCartney - Ram", the artist alone is not evidence
-        // for the album "McCartney".
-        2
-    } else {
+    let after_artist = artist.folded.len();
+    let album_at =
+        |start| title.starts_field_at(start, &album) && title.ends_album_at(start + album.len());
+    if title.starts_field_at(0, &artist.folded) {
+        // Once the artist is recognized, only the following title field
+        // can name the album, even for a self-titled release.
+        if album_at(after_artist) { 0 } else { 2 }
+    } else if album_at(0) && !artist.starts_field_at(0, &album) {
         1
+    } else {
+        2
     }
 }
 
@@ -107,4 +135,42 @@ pub fn release_fit(hit: &IndexerResult, target: &SearchTarget) -> ReleaseFit {
 pub fn order_releases(mut hits: Vec<IndexerResult>, target: &SearchTarget) -> Vec<IndexerResult> {
     hits.sort_by_cached_key(|hit| release_fit(hit, target));
     hits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_album_title_is_a_field_not_a_substring_of_another_title() {
+        for (title, expected) in [
+            (
+                "Paul.McCartney-Pure.McCartney-Deluxe.Edition-4CD-FLAC-2016-FORSAKEN",
+                2,
+            ),
+            (
+                "Various.Artists.-.Paul.McCartney.in.Jazz.A.Jazz.Tribute.to.Paul.McCartney.2023.FLAC",
+                2,
+            ),
+            (
+                "Paul.McCartney.-.Paul.McCartney.And.Wings.2023.Rock.[FLAC.16-44]-xpost",
+                2,
+            ),
+            ("Paul McCartney - Ram", 2),
+            ("Paul.McCartney-McCartney-1970-FLAC", 0),
+            ("Paul_McCartney_McCartney_Deluxe_Edition_2CD_FLAC", 0),
+            ("Paul McCartney - McCartney (2011 Remaster)", 0),
+        ] {
+            assert_eq!(
+                fit_names(title, "Paul McCartney", "McCartney"),
+                expected,
+                "{title}"
+            );
+        }
+        assert_eq!(fit_names("Dummy.1994.FLAC", "Portishead", "Dummy"), 1);
+        assert_eq!(
+            fit_names("Portishead - Dummy Live at Roseland", "Portishead", "Dummy"),
+            2
+        );
+    }
 }
