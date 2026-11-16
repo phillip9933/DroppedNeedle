@@ -27,6 +27,8 @@ Downloads follow the edition you chose. If the album is already in your library,
 
 When MusicBrainz cannot answer a lookup for the requested edition, automatic acquisition waits and retries the lookup after a backoff. It does not download a folder or ask you to choose a copy without that tracklist. A successful tracklist is kept for later source attempts.
 
+Soulseek starts with a specific album search. It tries broader searches if it still needs a copy with matching tracks and lengths and known quality within your settings. Blocked folders are skipped. If a later search fails or runs out of time, DroppedNeedle can still use the copies it found earlier, including a partial copy. When you pick a copy yourself, folders outside your settings can still be listed.
+
 ## Single tracks
 
 A single track is fetched the way you would do it by hand. DroppedNeedle looks up which album the track is on (the edition you chose for it if you own that album, else the release you asked from, else the main official album rather than a compilation or a live set), searches for that album, picks the peer sharing the most complete album folder, and downloads only the track you asked for. The file is then checked against that album's tracklist. A peer sharing just the one song is only used when nobody shares the album with it; when that happens the download records why. On Usenet, which can't download single files, the album release is fetched and only your track is imported.

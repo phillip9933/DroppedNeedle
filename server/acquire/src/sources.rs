@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
+use tokio::time::{Instant, timeout_at};
 
 use super::client_error::ClientError;
 use super::downloads::TrackPosition;
@@ -34,14 +35,15 @@ use super::downloads::journal::Journal;
 use super::downloads::quarantine::Blocklist;
 use super::downloads::source_tag::SourceTag;
 use super::downloads::sources::{
-    DownloadSource, Materialization, OrphanOwnership, SourceError, SourceHandle, TransferProgress,
+    DownloadSource, Materialization, OrphanOwnership, SOURCE_TIMEOUT, SourceError, SourceHandle,
+    TransferProgress,
 };
 use super::downloads::store::TaskRow;
 use super::landing::ports::LandingLibrary;
 use super::reason::Reason;
 use super::search_jobs::candidates::{Candidate, CandidateRefusal, MAX_PER_SOURCE, Pin};
 use super::search_jobs::pinned;
-use super::slskd::folders::{RankRequest, rank_listing};
+use super::slskd::folders::RankRequest;
 use super::slskd::{EnqueueFile, ReqwestSlskdHttp, SlskdRepository};
 use super::target::reasons::TrackReason;
 use super::target::releases::order_releases;
@@ -215,25 +217,30 @@ impl SlskdSource {
     /// A manual search: the album's folders, ranked against the edition's
     /// tracklist the same way the automatic path ranks them, with folders
     /// outside the band or the recipe last. Blocklisted files are left out.
-    async fn search_album(&self, target: &SearchTarget) -> Result<Vec<Candidate>, SourceError> {
+    async fn search_album(
+        &self,
+        target: &SearchTarget,
+        deadline: Instant,
+    ) -> Result<Vec<Candidate>, SourceError> {
         if !self.repo.is_configured() {
             return Ok(Vec::new());
         }
-        let blocked = blocklist(&self.journal, &SourceTag::Soulseek).await?;
-        let hits: Vec<_> = self
-            .repo
-            .search_album(&target.artist, &target.album_title, target.year)
+        let blocked = timeout_at(deadline, blocklist(&self.journal, &SourceTag::Soulseek))
             .await
-            .map_err(client_error)?
-            .into_iter()
-            .filter(|hit| !blocked.blocks_file(&hit.username, &hit.filename))
-            .collect();
+            .map_err(|_| {
+                SourceError::LocalFault("reading the Soulseek blocklist timed out".to_owned())
+            })??;
         let request = RankRequest {
             tracklist: &target.tracklist,
             wanted: &[],
             single_track: false,
         };
-        Ok(rank_listing(&hits, request, self.repo.policy())
+        let (_, listing) = soulseek::search_album(&self.repo, target, request, deadline, |hit| {
+            !blocked.blocks_file(&hit.username, &hit.filename)
+        })
+        .await
+        .map_err(client_error)?;
+        Ok(listing
             .into_iter()
             .take(MAX_PER_SOURCE)
             .map(Candidate::from_folder)
@@ -436,7 +443,15 @@ impl DownloadSource for SlskdSource {
         &'a self,
         target: &'a SearchTarget,
     ) -> BoxFuture<'a, Result<Vec<Candidate>, SourceError>> {
-        Box::pin(self.search_album(target))
+        Box::pin(self.search_album(target, Instant::now() + SOURCE_TIMEOUT))
+    }
+
+    fn search_until<'a>(
+        &'a self,
+        target: &'a SearchTarget,
+        deadline: Instant,
+    ) -> BoxFuture<'a, Result<Vec<Candidate>, SourceError>> {
+        Box::pin(self.search_album(target, deadline))
     }
 
     fn enqueue<'a>(

@@ -8,14 +8,19 @@
 
 use std::future::Future;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use futures_util::future::BoxFuture;
+use tokio::time::{Instant, timeout_at};
 
 use super::source_tag::SourceTag;
 use crate::landing::Landed;
 use crate::reason::Reason;
 use crate::search_jobs::candidates::Candidate;
 use crate::target::SearchTarget;
+
+/// How long one source may take to answer a search.
+pub(crate) const SOURCE_TIMEOUT: Duration = Duration::from_secs(150);
 
 /// Client correlation handle: soulseek fills
 /// username plus filenames (no batch id); usenet fills the job name before
@@ -153,6 +158,20 @@ pub trait DownloadSource: Send + Sync {
         &'a self,
         target: &'a SearchTarget,
     ) -> BoxFuture<'a, Result<Vec<Candidate>, SourceError>>;
+
+    /// Search within the caller's deadline. Sources that collect results
+    /// over several queries can return the results already found.
+    fn search_until<'a>(
+        &'a self,
+        target: &'a SearchTarget,
+        deadline: Instant,
+    ) -> BoxFuture<'a, Result<Vec<Candidate>, SourceError>> {
+        Box::pin(async move {
+            timeout_at(deadline, self.search(target))
+                .await
+                .map_err(|_| SourceError::Unavailable("album search timed out".to_owned()))?
+        })
+    }
 
     /// Enqueue the task's `candidate_index`-th pick on this source (the
     /// source picks; a manual pick goes first); returns the correlation
