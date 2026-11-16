@@ -4840,6 +4840,99 @@ async fn archive_collection_label_does_not_hold_the_correct_album() {
     assert_eq!(decision.files_imported, 2);
 }
 
+/// A FLAC may have readable tags and stream headers but damaged audio.
+#[tokio::test]
+async fn damaged_flac_audio_fails_over_before_publication() {
+    let release = editions(7, &fixture_lengths()).old;
+    let rig = join_rig(vec![release.clone()]).await;
+    let task_id = "t-damaged-flac";
+    rig.ask(
+        task_id,
+        &release.release_group_id,
+        &release.title,
+        "user",
+        Some(&release.id),
+        None,
+        &[],
+    )
+    .await;
+    let paths: Vec<PathBuf> = (0..release.tracks.len())
+        .map(|index| rig.landed(task_id, &release, index, FIXTURES[index]))
+        .collect();
+    let damaged = &paths[0];
+    let mut bytes = std::fs::read(damaged).expect("fixture reads");
+    bytes.truncate(bytes.len() - 12);
+    std::fs::write(damaged, bytes).expect("truncate audio frames");
+    rig.land(paths).await;
+
+    let decision = rig
+        .acquire
+        .journal
+        .read("test.damaged_flac", |store| {
+            store.latest_import_decision(task_id)
+        })
+        .await
+        .expect("decision reads")
+        .expect("landing recorded");
+    assert_eq!(decision.outcome, ImportOutcome::Rejected, "{decision:?}");
+    assert_eq!(decision.reason_code, Some(Reason::Corrupt), "{decision:?}");
+    assert_eq!(rig.album_count(), 0, "the damaged copy did not publish");
+    assert_eq!(
+        rig.scalar::<i64>("SELECT COUNT(*) FROM download_quarantine WHERE reason = 'corrupt'"),
+        1,
+        "the source is blocked for failover"
+    );
+}
+
+/// A readable FLAC prefixed with an ID3 tag keeps that tag when imported.
+#[tokio::test]
+async fn flac_with_a_leading_id3_tag_imports_without_losing_it() {
+    let release = editions(8, &fixture_lengths()).old;
+    let rig = join_rig(vec![release.clone()]).await;
+    let task_id = "t-prefixed-flac";
+    rig.ask(
+        task_id,
+        &release.release_group_id,
+        &release.title,
+        "user",
+        Some(&release.id),
+        None,
+        &[],
+    )
+    .await;
+    let paths: Vec<PathBuf> = (0..release.tracks.len())
+        .map(|index| rig.landed(task_id, &release, index, FIXTURES[index]))
+        .collect();
+    let mp3 = std::fs::read(fixture("management_full_v23.mp3")).expect("ID3 fixture reads");
+    assert!(mp3.starts_with(b"ID3"));
+    let tag_size = mp3[6..10]
+        .iter()
+        .fold(0usize, |n, byte| (n << 7) | usize::from(*byte));
+    let prefix = &mp3[..10 + tag_size];
+    let mut wrapped = prefix.to_vec();
+    wrapped.extend(std::fs::read(&paths[0]).expect("FLAC fixture reads"));
+    std::fs::write(&paths[0], wrapped).expect("write prefixed FLAC");
+    rig.land(paths).await;
+
+    let decision = rig
+        .acquire
+        .journal
+        .read("test.prefixed_flac", |store| {
+            store.latest_import_decision(task_id)
+        })
+        .await
+        .expect("decision reads")
+        .expect("landing recorded");
+    assert_eq!(decision.outcome, ImportOutcome::Imported, "{decision:?}");
+    assert_eq!(decision.files_imported, 2);
+    let path: String = rig.scalar("SELECT relative_path FROM local_tracks WHERE track_number = 1");
+    assert!(
+        std::fs::read(rig.music.join(path))
+            .expect("placed FLAC reads")
+            .starts_with(prefix)
+    );
+}
+
 type TrackIdentityRow = (
     String,
     Option<String>,

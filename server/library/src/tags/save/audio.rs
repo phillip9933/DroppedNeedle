@@ -4,7 +4,7 @@
 //! - MP3: everything after the ID3v2 tag (its footer included), or the
 //!   whole file when it has none. ID3v1, APE and padding past the tag's
 //!   size count as audio here; the save leaves them alone.
-//! - FLAC: everything after the last metadata block.
+//! - FLAC: everything after the last metadata block and any leading ID3 tag.
 //! - MP4: each top-level `mdat` payload, in order. The save moves boxes
 //!   and patches offsets, so the rest of the file is not compared.
 //! - Ogg Vorbis and Opus: each packet after the first stream's comment
@@ -34,7 +34,13 @@ pub(super) fn audio_digest(format: AudioFormat, bytes: &[u8]) -> Result<AudioDig
     let mut hash = Sha256::new();
     match format {
         AudioFormat::Mp3 => hash.update(&bytes[id3v2_end(bytes)?..]),
-        AudioFormat::Flac => hash.update(&bytes[flac_audio_start(bytes).map_err(no_inventory)?..]),
+        AudioFormat::Flac => {
+            let prefix = id3v2_end(bytes)?;
+            let audio = flac_audio_start(bytes).map_err(no_inventory)?;
+            // The Vorbis write must also preserve the separate ID3 tag.
+            length_prefixed(&mut hash, &bytes[..prefix]);
+            hash.update(&bytes[audio..]);
+        }
         AudioFormat::M4a => {
             for payload in mdat_payloads(bytes).map_err(no_inventory)? {
                 length_prefixed(&mut hash, payload);

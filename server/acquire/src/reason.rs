@@ -435,9 +435,7 @@ impl Reason {
             Self::SizeMismatch => {
                 "A file on disk is not the size the source advertised. It may still be downloading or be damaged."
             }
-            Self::Corrupt => {
-                "None of the audio files could be read; they are damaged or not really audio."
-            }
+            Self::Corrupt => "The audio in one or more files could not be read.",
             Self::NoAudio => "The download contains no music files.",
             Self::Sample => "The files are short samples or previews, not the full tracks.",
             Self::WrongEdition => {

@@ -99,7 +99,7 @@ use super::scan::models::{Availability, EffectivePolicy};
 use super::scan::roots::{LibraryRoot, RootRegistry};
 use super::settings::LibrarySettings;
 use super::tags::read::{HeaderInfo, read_header_from};
-use super::tags::{AudioFormat, TagsError};
+use super::tags::{AudioFormat, TagsError, TrackFile};
 use super::wiring::LibraryCore;
 
 /// Revisions the seal pins while profiles and naming have no store (the
@@ -219,6 +219,8 @@ pub enum ImportError {
     /// The library cannot take files now: no usable root, disk space, an
     /// unfinished managed write, or an I/O failure.
     LocalFault(String),
+    /// The staged download contains damaged audio.
+    Corrupt(String),
     /// A file already sits where an imported file would go.
     Occupied(String),
     /// The album the files join, or the folder its copy sits in, is no
@@ -949,6 +951,22 @@ impl Imports {
                     .map_err(|error| fault(format!("copy into the library failed: {error}")))?;
                 let fingerprint = copy_in(source, &staged)
                     .map_err(|error| fault(format!("copy into the library failed: {error}")))?;
+                if import.origin == ImportOrigin::Download && placement.format == AudioFormat::Flac
+                {
+                    super::tags::probe::verify_flac(TrackFile::new(&root.path, &staged)).map_err(
+                        |error| match error {
+                            TagsError::Decode { reason, .. } => {
+                                let name = placement
+                                    .source
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy();
+                                ImportError::Corrupt(format!("'{name}': {reason}"))
+                            }
+                            other => fault(other.to_string()),
+                        },
+                    )?;
+                }
                 let track = &placement.track;
                 let mut carried = Vec::new();
                 for (sidecar, dest_rel) in sidecar_dests

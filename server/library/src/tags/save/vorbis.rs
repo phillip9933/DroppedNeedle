@@ -12,6 +12,7 @@ use lofty::tag::{TagExt as _, TagType};
 
 use super::document::{FieldDocument, FieldRead, collect_reads};
 use super::edit::{foreign, supersede};
+use super::id3_bytes::id3v2_end;
 use super::kept::{PicturesPlan, TagsKept};
 use super::{PictureSpec, Refusal, TagEdit, TagFormat, lofty_picture, mismatch, save_failed};
 use crate::tags::AudioFormat;
@@ -330,10 +331,13 @@ pub(super) fn flac_audio_start(bytes: &[u8]) -> Result<usize, String> {
 /// Walk a FLAC stream's metadata blocks, handing each block's type and
 /// body to `block`, and return the offset just past the last one.
 fn flac_metadata(bytes: &[u8], mut block: impl FnMut(u8, &[u8])) -> Result<usize, String> {
-    if bytes.len() < 4 || &bytes[..4] != b"fLaC" {
+    // Some FLAC files carry an ID3v2 tag before the native metadata.
+    // Lofty's Vorbis writer splices the metadata after that tag.
+    let prefix = id3v2_end(bytes).map_err(|error| error.to_string())?;
+    if !bytes[prefix..].starts_with(b"fLaC") {
         return Err("not a FLAC stream".to_owned());
     }
-    let mut offset = 4;
+    let mut offset = prefix + 4;
     loop {
         if offset + 4 > bytes.len() {
             return Err("FLAC metadata ends mid-block".to_owned());

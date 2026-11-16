@@ -90,6 +90,7 @@ async fn place_inner(
                 return deferred(Reason::LibraryChanged, detail);
             }
             ImportFailure::LocalFault(detail) => return deferred(Reason::LocalFault, detail),
+            ImportFailure::Corrupt(detail) => return deferred(Reason::Corrupt, detail),
             ImportFailure::FolderMissing(folder) => {
                 return deferred(Reason::LibraryFolderMissing, folder);
             }

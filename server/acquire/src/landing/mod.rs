@@ -53,6 +53,7 @@ use super::downloads::landing_rows::{ImportDecisionRow, ImportOutcome};
 use super::downloads::plan::{PlannedAlbum, TaskPlan};
 use super::downloads::sources::SourceHandle;
 use super::downloads::store::{StoreError, TaskDetails, TaskRow};
+use crate::downloads::quarantine::QuarantineReason;
 use crate::held::store::{
     EntryOrigin, FileState, GroupKey, HeldFile, HeldRoot, HeldRows, NewEntry, NewFile,
     Pairing as HeldPairing,
@@ -825,6 +826,12 @@ impl LandingService {
             Ok(placed) => placed,
             Err(deferred) => {
                 decision.outcome = Outcome::Reject(match deferred.reason {
+                    Reason::Corrupt => Rejection {
+                        code: Reason::Corrupt,
+                        disposition: Disposition::Permanent,
+                        quarantine: Some(QuarantineReason::Corrupt),
+                        detail: deferred.detail,
+                    },
                     // The library changed under the import twice; the next
                     // pass decides file by file again.
                     Reason::LibraryChanged => Rejection {

@@ -211,6 +211,8 @@ pub enum ImportFailure {
     /// Our side cannot take files now (no usable root, disk, a publish
     /// already waiting on recovery). The download stays for a reimport.
     LocalFault(String),
+    /// The downloaded audio is damaged. Try another source.
+    Corrupt(String),
     /// A file already sits where the import would go and the catalog
     /// cannot prove it is this track: hold for a person.
     Occupied(String),

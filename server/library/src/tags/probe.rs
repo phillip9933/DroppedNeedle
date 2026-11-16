@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 use lofty::file::AudioFile as _;
 use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::CodecParameters;
-use symphonia::core::codecs::audio::well_known::CODEC_ID_ALAC;
+use symphonia::core::codecs::audio::well_known::{CODEC_ID_ALAC, CODEC_ID_FLAC};
 use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
 use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -94,6 +94,63 @@ pub fn probe(at: TrackFile<'_>) -> Result<AudioInfo, TagsError> {
         file_size_bytes,
         bit_depth,
     })
+}
+
+/// Verify the lossless stream in a staged download. A readable header does
+/// not show that the frames are intact. Decoder limitations and I/O faults
+/// do not prove a bad source.
+pub(crate) fn verify_flac(at: TrackFile<'_>) -> Result<(), TagsError> {
+    let path = at.path();
+    let invalid = |reason: String| TagsError::Decode {
+        path: path.display().to_string(),
+        reason,
+    };
+    let decode_error = |error: SymphoniaError| match error {
+        SymphoniaError::DecodeError(_) => invalid(error.to_string()),
+        SymphoniaError::IoError(source) if source.kind() == std::io::ErrorKind::UnexpectedEof => {
+            invalid("FLAC ends before its audio is complete".to_owned())
+        }
+        SymphoniaError::IoError(source) => TagsError::Io {
+            path: path.display().to_string(),
+            source,
+        },
+        other => TagsError::Probe {
+            path: path.display().to_string(),
+            reason: other.to_string(),
+        },
+    };
+    let OpenStream {
+        mut reader,
+        track_id,
+        params,
+        ..
+    } = open_reader(at, AudioFormat::Flac)?;
+    if params.codec != CODEC_ID_FLAC {
+        return Err(invalid("file does not contain FLAC audio".to_owned()));
+    }
+    let expected_frames = reader
+        .default_track(TrackType::Audio)
+        .and_then(|track| track.num_frames);
+    let mut decoder = codec_registry()
+        .make_audio_decoder(&params, &AudioDecoderOptions::default().verify(true))
+        .map_err(decode_error)?;
+    let mut frames = 0u64;
+    while let Some(packet) = reader.next_packet().map_err(decode_error)? {
+        if packet.track_id == track_id {
+            frames += decoder.decode(&packet).map_err(decode_error)?.frames() as u64;
+        }
+    }
+    if frames == 0 || expected_frames.is_some_and(|expected| frames != expected) {
+        return Err(invalid(
+            "FLAC sample count does not agree with its header".to_owned(),
+        ));
+    }
+    if decoder.finalize().verify_ok == Some(false) {
+        return Err(invalid(
+            "FLAC audio checksum does not agree with its header".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 struct OpenStream {

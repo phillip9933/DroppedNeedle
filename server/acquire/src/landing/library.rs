@@ -567,6 +567,7 @@ impl LandingLibrary for LibraryLanding {
                     tags_kept: album.tags_kept,
                 }),
                 Err(ImportError::LocalFault(detail)) => Err(ImportFailure::LocalFault(detail)),
+                Err(ImportError::Corrupt(detail)) => Err(ImportFailure::Corrupt(detail)),
                 Err(ImportError::Occupied(detail)) => Err(ImportFailure::Occupied(detail)),
                 Err(ImportError::LibraryChanged(detail)) => {
                     Err(ImportFailure::LibraryChanged(detail))
