@@ -1004,6 +1004,19 @@ impl droppedneedle_acquire::target::lookup::AlbumLookup for Redirecting {
         Box::pin(async move { Ok(found) })
     }
 
+    fn preferred_release<'a>(
+        &'a self,
+        _release_group_mbid: &'a str,
+    ) -> futures_util::future::BoxFuture<
+        'a,
+        Result<
+            Option<droppedneedle_acquire::target::lookup::AlbumRelease>,
+            droppedneedle_acquire::target::lookup::GroupLookupError,
+        >,
+    > {
+        panic!("an explicit edition must bypass the default lookup")
+    }
+
     fn first_release_date<'a>(
         &'a self,
         _release_group_mbid: &'a str,
@@ -1086,5 +1099,161 @@ async fn a_redirected_edition_keeps_its_plan_for_later_targets() {
         lookup.calls.load(std::sync::atomic::Ordering::SeqCst),
         1,
         "MusicBrainz is asked once"
+    );
+}
+
+/// A request without a release still searches and lands against the same
+/// edition. The saved preferences beat the provider's first edition, a
+/// release merge is respected, and later searches reuse the task's plan.
+#[tokio::test]
+async fn a_group_only_download_keeps_its_preferred_edition() {
+    use crate::common::TestPlatform;
+    use droppedneedle_acquire::landing::target_for;
+    use droppedneedle_acquire::target::{
+        Targets,
+        lookup::{AlbumLookup, GroupLookupError, live_albums},
+    };
+    use droppedneedle_kernel::runtime_config::sections::{
+        EditionPreferences, MbSourceMode, MusicBrainzSettings,
+    };
+    use droppedneedle_providers::musicbrainz::MB_API_BASE;
+    use droppedneedle_providers::test_support::ScriptedWire;
+    use droppedneedle_providers::{ProviderEndpoints, Providers};
+
+    const GROUP: &str = "00000000-0000-4000-8000-000000000001";
+    const DIGITAL: &str = "00000000-0000-4000-8000-000000000002";
+    const CD: &str = "00000000-0000-4000-8000-000000000003";
+    const MERGED: &str = "00000000-0000-4000-8000-000000000004";
+    let db = AcquireDb::scratch().unwrap();
+    db.add_user("u-ada", "Ada", "user").await.unwrap();
+    let platform = TestPlatform::on(db.db(), db.path().parent().unwrap())
+        .build()
+        .await;
+    let settings = &platform.settings;
+    settings
+        .save_blocking(MusicBrainzSettings {
+            source_mode: MbSourceMode::Official,
+            selected_source_mode: MbSourceMode::Official,
+            ..Default::default()
+        })
+        .unwrap();
+    settings
+        .save_blocking(EditionPreferences {
+            format_order: vec!["cd".to_owned(), "digital media".to_owned()],
+            ..Default::default()
+        })
+        .unwrap();
+
+    let wire = Arc::new(ScriptedWire::new());
+    let group_url = format!("{MB_API_BASE}/release-group/{GROUP}");
+    let cd_url = format!("{MB_API_BASE}/release/{CD}");
+    let merged_url = format!("{MB_API_BASE}/release/{MERGED}");
+    wire.answer(&group_url, 200, &[], json!({
+        "id": GROUP,
+        "releases": [
+            {"id": DIGITAL, "status": "Official", "country": "XW", "media": [{"format": "Digital Media"}]},
+            {"id": CD, "status": "Official", "country": "US", "media": [{"format": "CD"}]}
+        ]
+    }).to_string());
+    wire.answer(&cd_url, 301, &[("location", &merged_url)], Vec::new());
+    wire.answer(&merged_url, 200, &[], json!({
+        "id": MERGED, "title": "An Album", "release-group": {"id": GROUP, "first-release-date": "2001"},
+        "media": [{"position": 1, "format": "CD", "tracks": [{
+            "id": "00000000-0000-4000-8000-000000000005", "position": 1,
+            "title": "A Song", "recording": {"id": "00000000-0000-4000-8000-000000000006"}
+        }]}]
+    }).to_string());
+    let providers = Providers::over_wire(
+        wire.clone(),
+        platform.clock.clone(),
+        ProviderEndpoints {
+            musicbrainz: MB_API_BASE.to_owned(),
+            ..ProviderEndpoints::closed()
+        },
+    );
+    let lookup = Arc::new(live_albums(
+        &providers,
+        providers.musicbrainz.live_source(settings.live()),
+        settings,
+    ));
+    let journal = Arc::new(Journal::new(db, quiet_ticks()));
+    let dispatch = dispatch_over(journal.clone());
+    let DispatchOutcome::Dispatched { task_id } = dispatch
+        .dispatch(&DispatchRequest {
+            user_id: "u-ada".to_owned(),
+            target: DispatchTarget::Album {
+                release_group_mbid: GROUP.to_owned(),
+            },
+            artist_name: "An Artist".to_owned(),
+            title: "An Album".to_owned(),
+            origin: DispatchOrigin::User,
+            release_mbid: None,
+            wanted: Vec::new(),
+            planned_album: None,
+            idempotency_key: None,
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("the album dispatches");
+    };
+    let targets = Targets::new(journal.clone(), lookup.clone());
+    let task = journal.read_task(&task_id).await.unwrap().unwrap();
+    let first = targets.target(&task).await.expect("first target");
+    assert_eq!(first.tracklist.len(), 1);
+    assert_eq!(first.tracklist[0].title.as_deref(), Some("A Song"));
+    let (details, plan) = journal
+        .read("test.default_edition", move |store| {
+            Ok((store.task_details(&task_id)?, store.task_plan(&task_id)?))
+        })
+        .await
+        .unwrap();
+    assert_eq!(details.release_mbid.as_deref(), Some(MERGED));
+    assert_eq!(
+        target_for(&task, &details, &plan).release_mbid.as_deref(),
+        Some(MERGED)
+    );
+    assert_eq!(plan.release_mbid.as_deref(), Some(MERGED));
+    assert_eq!(plan.expected_tracks, first.tracklist);
+    assert_eq!(
+        lookup.preferred_release(GROUP).await.unwrap().unwrap().id,
+        MERGED
+    );
+
+    settings
+        .save_blocking(EditionPreferences::default())
+        .unwrap();
+    assert_eq!(targets.target(&task).await.unwrap(), first);
+    assert_eq!(
+        wire.sent()
+            .into_iter()
+            .map(|sent| sent.url.path().to_owned())
+            .collect::<Vec<_>>(),
+        [group_url, cd_url, merged_url].map(|url| url
+            .strip_prefix("https://musicbrainz.org")
+            .unwrap()
+            .to_owned())
+    );
+
+    // Preferences still apply to new tasks. A provider reply naming the
+    // same release under a different group must never become their plan.
+    let digital_url = format!("{MB_API_BASE}/release/{DIGITAL}");
+    wire.answer(
+        &digital_url,
+        200,
+        &[],
+        json!({
+            "id": DIGITAL, "release-group": {"id": "00000000-0000-4000-8000-000000000007"}
+        })
+        .to_string(),
+    );
+    assert!(matches!(
+        lookup.preferred_release(GROUP).await,
+        Err(GroupLookupError::Provider(_))
+    ));
+    assert_eq!(
+        wire.sent().len(),
+        4,
+        "new preferences reused the cached group listing"
     );
 }

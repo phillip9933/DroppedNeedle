@@ -21,7 +21,7 @@ use droppedneedle_acquire::landing::library::LibraryLanding;
 use droppedneedle_acquire::readiness::SourceReadiness;
 use droppedneedle_acquire::target::Targets;
 use droppedneedle_acquire::target::lookup::{
-    AlbumLookup, AlbumRelease, LookupError, ReleaseCandidate,
+    AlbumLookup, AlbumRelease, GroupLookupError, LookupError, ReleaseCandidate,
 };
 use droppedneedle_acquire::wiring::ClientLives;
 use droppedneedle_kernel::platform::Platform;
@@ -61,6 +61,13 @@ impl AlbumLookup for FixedAlbums {
         release_mbid: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Option<AlbumRelease>, LookupError>> + Send + 'a>> {
         Box::pin(async move { Ok(self.releases.get(release_mbid).cloned()) })
+    }
+
+    fn preferred_release<'a>(
+        &'a self,
+        _release_group_mbid: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, Result<Option<AlbumRelease>, GroupLookupError>> {
+        Box::pin(async { Ok(None) })
     }
 
     fn first_release_date<'a>(

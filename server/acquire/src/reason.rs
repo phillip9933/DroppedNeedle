@@ -464,9 +464,7 @@ impl Reason {
             Self::SourceFailed => "The source stopped sending before every file arrived.",
             Self::NoSource => "No download source had this release.",
             Self::DownloadFailed => "The download did not finish.",
-            Self::AlbumLookupUnavailable => {
-                "MusicBrainz could not be reached to find the album this track is on."
-            }
+            Self::AlbumLookupUnavailable => "MusicBrainz could not provide the album or its tracklist.",
             Self::RecordingUnknown => "MusicBrainz does not know this recording any more.",
             Self::NoAlbumForRecording => "MusicBrainz lists no album or single with this track.",
             Self::NoAlbumFolder => "Nobody on Soulseek shares the album with this track in it.",

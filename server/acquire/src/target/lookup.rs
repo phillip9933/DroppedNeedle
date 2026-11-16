@@ -1,14 +1,23 @@
 //! What acquisition asks MusicBrainz: which releases carry a recording,
-//! the tracklist of one release, and when a release group first came out. [`AlbumLookup`] is the port;
+//! the tracklist of one release, and the default edition and date of a
+//! release group. [`AlbumLookup`] is the port;
 //! [`MusicBrainzAlbums`] answers it over the shared client. Lookups are
 //! identity critical: an outage is an error, never an empty answer that
 //! would read as "no album".
 
 use futures_util::future::BoxFuture;
 
+use droppedneedle_catalog::metadata::album::GroupDetail;
+use droppedneedle_kernel::runtime_config::ConfigStore;
+use droppedneedle_library::edition_prefs::LivePreferences;
 use droppedneedle_providers::musicbrainz::{
-    Criticality, LiveSource, MbRelease, MusicBrainzView, parse_year,
+    Criticality, LiveSource, MbRelease, MusicBrainzClient, MusicBrainzView, is_valid_mbid,
+    parse_year,
 };
+use droppedneedle_providers::{
+    CacheKey, Fetched, Policy, ProviderCacheStore, RequestPriority, Source,
+};
+use serde::{Deserialize, Serialize};
 
 /// Various Artists: a compilation credit that no Soulseek path carries.
 pub const VARIOUS_ARTISTS_MBID: &str = "89ad4ac3-39f7-470e-963a-56509c546377";
@@ -48,7 +57,7 @@ pub struct ReleaseCandidate {
 }
 
 /// One audio track of a release.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct AlbumTrack {
     /// Disc number (1-based).
     pub disc: u32,
@@ -65,7 +74,7 @@ pub struct AlbumTrack {
 }
 
 /// One release with its audio tracklist.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct AlbumRelease {
     /// Release MBID, lowercase.
     pub id: String,
@@ -88,6 +97,17 @@ pub struct AlbumRelease {
 #[error("musicbrainz lookup failed: {0}")]
 pub struct LookupError(pub String);
 
+/// Why a default album edition could not be resolved.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum GroupLookupError {
+    /// Choosing an edition requires the saved preferences.
+    #[error("could not read edition preferences")]
+    Preferences,
+    /// The provider did not give a usable answer.
+    #[error(transparent)]
+    Provider(#[from] LookupError),
+}
+
 /// The MusicBrainz reads acquisition needs.
 pub trait AlbumLookup: Send + Sync {
     /// Releases carrying one recording; `None` when MusicBrainz does not
@@ -103,6 +123,13 @@ pub trait AlbumLookup: Send + Sync {
         release_mbid: &'a str,
     ) -> BoxFuture<'a, Result<Option<AlbumRelease>, LookupError>>;
 
+    /// The preferred edition with an audio tracklist, for a task without
+    /// an edition. `None` when MusicBrainz has no usable edition.
+    fn preferred_release<'a>(
+        &'a self,
+        release_group_mbid: &'a str,
+    ) -> BoxFuture<'a, Result<Option<AlbumRelease>, GroupLookupError>>;
+
     /// A release group's first release date as MusicBrainz gives it
     /// (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`); `None` when the group is
     /// unknown or undated.
@@ -114,13 +141,74 @@ pub trait AlbumLookup: Send + Sync {
 
 /// [`AlbumLookup`] over the MusicBrainz client.
 pub struct MusicBrainzAlbums {
-    client: MusicBrainzView,
+    client: MusicBrainzClient,
+    source: LiveSource,
+    cache: ProviderCacheStore,
+    preferences: LivePreferences,
 }
 
 impl MusicBrainzAlbums {
-    /// Lookups over one client.
-    pub fn new(client: MusicBrainzView) -> Self {
-        Self { client }
+    fn live_client(&self) -> MusicBrainzView {
+        self.client
+            .live(self.source.clone(), RequestPriority::BackgroundSync)
+    }
+
+    /// Cache exact releases for group resolution, including definite misses,
+    /// but do not cache a reply that failed to prove the release's identity.
+    async fn group_release(
+        &self,
+        client: &MusicBrainzView,
+        namespace: &str,
+        group_mbid: &str,
+        release_mbid: String,
+    ) -> Result<Option<AlbumRelease>, LookupError> {
+        let key = CacheKey::new(
+            Source::MusicBrainz,
+            &[
+                namespace,
+                "acquire_group_release",
+                group_mbid,
+                &release_mbid,
+            ],
+        );
+        let (client, group_mbid) = (client.clone(), group_mbid.to_owned());
+        self.cache
+            .get_or_fetch(
+                &key,
+                Policy::MUSICBRAINZ_ENTITY,
+                RequestPriority::BackgroundSync,
+                move |_| async move {
+                    let Some(found) = client
+                        .lookup_exact_release(&release_mbid, Criticality::IdentityCritical)
+                        .await
+                        .map_err(|error| LookupError(error.to_string()))?
+                    else {
+                        return Ok(Fetched::Missing);
+                    };
+                    let resolved = found
+                        .redirects
+                        .last()
+                        .map_or(release_mbid.as_str(), |hop| hop.to_mbid.as_str());
+                    if !found.entity.id.eq_ignore_ascii_case(resolved)
+                        || !found
+                            .entity
+                            .release_group
+                            .as_ref()
+                            .is_some_and(|group| group.id.eq_ignore_ascii_case(&group_mbid))
+                    {
+                        return Err(LookupError(format!(
+                            "release {release_mbid} did not resolve to an edition of {group_mbid}"
+                        )));
+                    }
+                    Ok(
+                        match album_release(found.entity).filter(|album| !album.tracks.is_empty()) {
+                            Some(album) => Fetched::Found(album),
+                            None => Fetched::Missing,
+                        },
+                    )
+                },
+            )
+            .await
     }
 }
 
@@ -131,7 +219,7 @@ impl AlbumLookup for MusicBrainzAlbums {
     ) -> BoxFuture<'a, Result<Option<Vec<ReleaseCandidate>>, LookupError>> {
         Box::pin(async move {
             let found = self
-                .client
+                .live_client()
                 .lookup_recording(
                     recording_mbid,
                     &["releases", "release-groups"],
@@ -166,11 +254,89 @@ impl AlbumLookup for MusicBrainzAlbums {
     ) -> BoxFuture<'a, Result<Option<AlbumRelease>, LookupError>> {
         Box::pin(async move {
             let found = self
-                .client
+                .live_client()
                 .lookup_exact_release(release_mbid, Criticality::IdentityCritical)
                 .await
                 .map_err(|error| LookupError(error.to_string()))?;
             Ok(found.and_then(|lookup| album_release(lookup.entity)))
+        })
+    }
+
+    fn preferred_release<'a>(
+        &'a self,
+        release_group_mbid: &'a str,
+    ) -> BoxFuture<'a, Result<Option<AlbumRelease>, GroupLookupError>> {
+        Box::pin(async move {
+            if !is_valid_mbid(release_group_mbid) {
+                return Ok(None);
+            }
+            let prefs = self
+                .preferences
+                .current()
+                .ok_or(GroupLookupError::Preferences)?;
+            let (source, namespace) = self
+                .source
+                .cache_source()
+                .ok_or_else(|| LookupError("could not read MusicBrainz settings".to_owned()))?;
+            let group_mbid = release_group_mbid.trim().to_ascii_lowercase();
+            let client = self.client.fixed(source, RequestPriority::BackgroundSync);
+            let key = CacheKey::new(
+                Source::MusicBrainz,
+                &[&namespace, "acquire_group", &group_mbid],
+            );
+            let group = self
+                .cache
+                .get_or_fetch(
+                    &key,
+                    Policy::MUSICBRAINZ_ENTITY,
+                    RequestPriority::BackgroundSync,
+                    {
+                        let (client, mbid) = (client.clone(), group_mbid.clone());
+                        move |_| async move {
+                            let found = client
+                                .lookup_release_group(
+                                    &mbid,
+                                    &["media", "releases"],
+                                    Criticality::IdentityCritical,
+                                )
+                                .await
+                                .map_err(|error| LookupError(error.to_string()))?;
+                            match found {
+                                None => Ok(Fetched::Missing),
+                                Some(found) if found.entity.id.eq_ignore_ascii_case(&mbid) => {
+                                    Ok(Fetched::Found(GroupDetail::from_wire(found.entity)))
+                                }
+                                Some(_) => Err(LookupError(format!(
+                                    "MusicBrainz answered for a different release group than {mbid}"
+                                ))),
+                            }
+                        }
+                    },
+                )
+                .await?;
+            let Some(group) = group else {
+                return Ok(None);
+            };
+            for candidate in group.default_edition_candidates(&prefs) {
+                if !is_valid_mbid(&candidate) {
+                    return Err(LookupError(format!(
+                        "invalid release MBID for group {group_mbid}"
+                    ))
+                    .into());
+                }
+                if let Some(album) = self
+                    .group_release(
+                        &client,
+                        &namespace,
+                        &group_mbid,
+                        candidate.to_ascii_lowercase(),
+                    )
+                    .await?
+                {
+                    return Ok(Some(album));
+                }
+            }
+            Ok(None)
         })
     }
 
@@ -180,7 +346,7 @@ impl AlbumLookup for MusicBrainzAlbums {
     ) -> BoxFuture<'a, Result<Option<String>, LookupError>> {
         Box::pin(async move {
             let found = self
-                .client
+                .live_client()
                 .lookup_release_group(release_group_mbid, &[], Criticality::IdentityCritical)
                 .await
                 .map_err(|error| LookupError(error.to_string()))?;
@@ -197,11 +363,14 @@ impl AlbumLookup for MusicBrainzAlbums {
 pub fn live_albums(
     providers: &droppedneedle_providers::Providers,
     source: LiveSource,
+    config: &ConfigStore,
 ) -> MusicBrainzAlbums {
-    MusicBrainzAlbums::new(providers.musicbrainz.live(
+    MusicBrainzAlbums {
+        client: providers.musicbrainz.clone(),
         source,
-        droppedneedle_providers::RequestPriority::BackgroundSync,
-    ))
+        cache: providers.cache.clone(),
+        preferences: LivePreferences::new(config),
+    }
 }
 
 /// The wire release as acquisition reads it: audio media only, tracks
