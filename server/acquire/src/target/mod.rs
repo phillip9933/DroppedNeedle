@@ -76,8 +76,20 @@ impl SearchTarget {
 pub enum TargetError {
     /// Try later: MusicBrainz is down.
     Unavailable(TrackReason),
+    /// The provider answered but refused or could not prove the requested identity.
+    Refused(TrackReason),
     /// Our side failed: the journal, or a plan that does not read.
     LocalFault(String),
+}
+
+impl From<lookup::LookupError> for TargetError {
+    fn from(error: lookup::LookupError) -> Self {
+        if error.is_retriable() {
+            Self::Unavailable(TrackReason::AlbumLookupUnavailable)
+        } else {
+            Self::Refused(TrackReason::AlbumLookupUnavailable)
+        }
+    }
 }
 
 /// Works out and remembers each task's target.
@@ -190,21 +202,18 @@ impl Targets {
             && let Some(release_mbid) = release.as_deref()
         {
             match self.lookup.release(release_mbid).await {
-                Ok(Some(found)) => {
+                Ok(Some(found)) if !found.tracks.is_empty() => {
                     tracklist = expected_tracks(&found);
                     self.keep_tracklist(task, release_mbid, &found.id, &tracklist)
                         .await;
                 }
-                Ok(None) => tracing::warn!(
-                    task_id = %task.id,
-                    release_mbid,
-                    "MusicBrainz does not know the chosen edition; ranking on file counts"
-                ),
+                Ok(_) => {
+                    tracing::warn!(task_id = %task.id, release_mbid, "the chosen edition has no known audio tracklist");
+                    return Err(TargetError::Refused(TrackReason::AlbumLookupUnavailable));
+                }
                 Err(error) => {
-                    tracing::warn!(task_id = %task.id, %error, "edition tracklist unavailable; waiting for metadata");
-                    return Err(TargetError::Unavailable(
-                        TrackReason::AlbumLookupUnavailable,
-                    ));
+                    tracing::warn!(task_id = %task.id, %error, "edition tracklist lookup failed");
+                    return Err(error.into());
                 }
             }
         }
@@ -318,14 +327,14 @@ impl Targets {
                 no_album: Some(reason),
             }),
         };
-        let unavailable = |error: lookup::LookupError| {
+        let lookup_failed = |error: lookup::LookupError| {
             tracing::warn!(task_id = %task.id, %error, "track album lookup failed");
-            TargetError::Unavailable(TrackReason::AlbumLookupUnavailable)
+            TargetError::from(error)
         };
         let candidates = match lookup
             .recording_releases(&recording)
             .await
-            .map_err(unavailable)?
+            .map_err(lookup_failed)?
         {
             None => return Ok(lone(TrackReason::RecordingUnknown)),
             Some(candidates) => candidates,
@@ -346,7 +355,7 @@ impl Targets {
         }
         let order = choose::release_order(&candidates, &library, details.release_mbid.as_deref());
         for (release_mbid, basis) in order.into_iter().take(MAX_RELEASES_TRIED) {
-            let Some(release) = lookup.release(&release_mbid).await.map_err(unavailable)? else {
+            let Some(release) = lookup.release(&release_mbid).await.map_err(lookup_failed)? else {
                 continue;
             };
             let wanted: Vec<TrackPosition> = release

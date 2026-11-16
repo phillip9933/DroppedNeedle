@@ -144,6 +144,7 @@ pub(super) async fn resolve_target(
 ) -> Result<SearchTarget, SourceError> {
     targets.target(task).await.map_err(|error| match error {
         TargetError::Unavailable(reason) => SourceError::Unavailable(reason.to_string()),
+        TargetError::Refused(reason) => SourceError::rejected(reason, reason.to_string()),
         TargetError::LocalFault(detail) => SourceError::LocalFault(detail),
     })
 }

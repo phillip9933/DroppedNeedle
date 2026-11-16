@@ -85,8 +85,28 @@ pub struct AlbumRelease {
 
 /// MusicBrainz could not answer.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("musicbrainz lookup failed: {0}")]
-pub struct LookupError(pub String);
+#[error("musicbrainz lookup failed: {detail}")]
+pub struct LookupError {
+    detail: String,
+    retriable: bool,
+}
+
+impl LookupError {
+    /// Whether this lookup failed because of a temporary provider problem.
+    #[must_use]
+    pub fn is_retriable(&self) -> bool {
+        self.retriable
+    }
+}
+
+impl From<droppedneedle_providers::ProviderError> for LookupError {
+    fn from(error: droppedneedle_providers::ProviderError) -> Self {
+        Self {
+            detail: error.to_string(),
+            retriable: error.is_retriable(),
+        }
+    }
+}
 
 /// The MusicBrainz reads acquisition needs.
 pub trait AlbumLookup: Send + Sync {
@@ -138,7 +158,7 @@ impl AlbumLookup for MusicBrainzAlbums {
                     Criticality::IdentityCritical,
                 )
                 .await
-                .map_err(|error| LookupError(error.to_string()))?;
+                .map_err(LookupError::from)?;
             Ok(found.map(|lookup| {
                 lookup
                     .entity
@@ -169,7 +189,7 @@ impl AlbumLookup for MusicBrainzAlbums {
                 .client
                 .lookup_exact_release(release_mbid, Criticality::IdentityCritical)
                 .await
-                .map_err(|error| LookupError(error.to_string()))?;
+                .map_err(LookupError::from)?;
             Ok(found.and_then(|lookup| album_release(lookup.entity)))
         })
     }
@@ -183,7 +203,7 @@ impl AlbumLookup for MusicBrainzAlbums {
                 .client
                 .lookup_release_group(release_group_mbid, &[], Criticality::IdentityCritical)
                 .await
-                .map_err(|error| LookupError(error.to_string()))?;
+                .map_err(LookupError::from)?;
             Ok(found
                 .and_then(|lookup| lookup.entity.first_release_date)
                 .filter(|date| !date.trim().is_empty()))

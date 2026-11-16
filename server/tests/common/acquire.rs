@@ -41,6 +41,8 @@ use serde_json::{Value, json};
 pub struct FixedAlbums {
     /// Whether release lookups temporarily fail instead of returning an answer.
     pub unavailable: AtomicBool,
+    /// Whether release lookups return a permanent refusal.
+    pub refused: AtomicBool,
     /// Release lookups made, including failures.
     pub release_calls: AtomicU64,
     /// Recording MBID to its releases.
@@ -67,7 +69,18 @@ impl AlbumLookup for FixedAlbums {
         Box::pin(async move {
             self.release_calls.fetch_add(1, Ordering::SeqCst);
             if self.unavailable.load(Ordering::SeqCst) {
-                return Err(LookupError("metadata temporarily unavailable".to_owned()));
+                return Err(droppedneedle_providers::ProviderError::Unavailable {
+                    provider: "musicbrainz",
+                    retry_after: None,
+                }
+                .into());
+            }
+            if self.refused.load(Ordering::SeqCst) {
+                return Err(droppedneedle_providers::ProviderError::BadRequest {
+                    provider: "musicbrainz",
+                    status: 400,
+                }
+                .into());
             }
             Ok(self.releases.get(release_mbid).cloned())
         })
