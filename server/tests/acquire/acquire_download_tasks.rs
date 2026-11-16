@@ -1249,7 +1249,7 @@ async fn a_group_only_download_keeps_its_preferred_edition() {
     );
     assert!(matches!(
         lookup.preferred_release(GROUP).await,
-        Err(GroupLookupError::Provider(_))
+        Err(GroupLookupError::Provider(error)) if !error.is_retriable()
     ));
     assert_eq!(
         wire.sent().len(),

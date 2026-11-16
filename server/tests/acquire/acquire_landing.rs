@@ -51,7 +51,7 @@ use futures_util::future::BoxFuture;
 use crate::common::TestPlatform;
 use crate::common::acquire::{FixedAlbums, FixedPlugin, save_policy, save_slskd, worker_with};
 use crate::common::auth::{AuthRig, test_principal, with_test_principal};
-use crate::common::bundles::acquire_serving;
+use crate::common::bundles::{acquire_serving, acquire_serving_with_albums};
 use crate::common::library::TestSql as _;
 use crate::common::library::{every_priority, library_at};
 
@@ -4085,17 +4085,19 @@ async fn join_rig_with_fingerprints(
             EffectivePolicy::Automatic,
         )
         .expect("root adds");
-    let (acquire, fixed) = acquire_serving(
+    let releases = Arc::new(Lookup(releases));
+    let (acquire, fixed) = acquire_serving_with_albums(
         &platform,
         &library,
         Arc::new(LibraryLanding::new(
             &library,
-            every_priority(Arc::new(Releases(releases.clone()))),
+            every_priority(Arc::new(Releases(releases.0.clone()))),
         )),
+        Some(releases.clone()),
     );
     let targets = Arc::new(droppedneedle_acquire::target::Targets::new(
         acquire.journal.clone(),
-        Arc::new(Lookup(releases)),
+        releases,
     ));
     JoinRig {
         acquire,

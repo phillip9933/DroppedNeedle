@@ -9,6 +9,7 @@ use droppedneedle_acquire::flows::seams::{FlowEvent, TickSink};
 use droppedneedle_acquire::landing::library::LibraryLanding;
 use droppedneedle_acquire::landing::ports::LandingLibrary;
 use droppedneedle_acquire::plugin_events::FlowTicks;
+use droppedneedle_acquire::target::lookup::AlbumLookup;
 use droppedneedle_acquire::wiring::{AcquirePorts, AcquireStores};
 use droppedneedle_auth::users::UsersDeps;
 use droppedneedle_catalog::artwork::warm::CoverWarm;
@@ -127,6 +128,17 @@ pub fn acquire_serving(
     library: &LibrarySetup,
     landing: Arc<dyn LandingLibrary>,
 ) -> (AcquireSetup, FixedPlugin) {
+    acquire_serving_with_albums(platform, library, landing, None)
+}
+
+/// A scripted album lookup for the worker's searches as well as the
+/// scripted library port for its finished downloads.
+pub fn acquire_serving_with_albums(
+    platform: &Platform,
+    library: &LibrarySetup,
+    landing: Arc<dyn LandingLibrary>,
+    album_lookup: Option<Arc<dyn AlbumLookup>>,
+) -> (AcquireSetup, FixedPlugin) {
     let fixed = FixedPlugin::install(platform, library.core.clone());
     super::acquire::review_off(platform);
     let acquire = acquire_hosted(
@@ -136,6 +148,7 @@ pub fn acquire_serving(
         &collections_at(platform).stores,
         landing,
         fixed.host.clone(),
+        album_lookup,
     );
     (acquire, fixed)
 }
@@ -149,17 +162,26 @@ pub fn acquire_landing_at(
     landing: Arc<dyn LandingLibrary>,
 ) -> AcquireSetup {
     let plugins = idle_host(platform, library.core.clone());
-    acquire_hosted(platform, users, library, collections, landing, plugins)
+    acquire_hosted(
+        platform,
+        users,
+        library,
+        collections,
+        landing,
+        plugins,
+        None,
+    )
 }
 
 /// As [`acquire_landing_at`], with plugins on `plugins`.
-pub fn acquire_hosted(
+fn acquire_hosted(
     platform: &Platform,
     users: UsersDeps,
     library: &LibrarySetup,
     collections: &Stores,
     landing: Arc<dyn LandingLibrary>,
     plugins: Arc<PluginHost>,
+    album_lookup: Option<Arc<dyn AlbumLookup>>,
 ) -> AcquireSetup {
     let outbound = super::closed_outbound();
     let providers = Arc::new(Providers::build(
@@ -176,7 +198,7 @@ pub fn acquire_hosted(
         AcquirePorts {
             library: landing,
             edition_plans: Arc::new(crate::common::library::operations(library)),
-            album_lookup: Arc::new(FixedAlbums::default()),
+            album_lookup: album_lookup.unwrap_or_else(|| Arc::new(FixedAlbums::default())),
             release_poll: Arc::new(droppedneedle_acquire::search::live_release_poll(
                 &providers, mb_source,
             )),

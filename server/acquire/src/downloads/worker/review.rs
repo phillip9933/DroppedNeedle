@@ -118,6 +118,10 @@ impl DownloadWorker {
         let target = match self.targets.target(task).await {
             Ok(target) if target.track.is_none() => target,
             Ok(_) => return Reviewed::Search,
+            Err(crate::target::TargetError::Refused(reason)) => {
+                tracing::warn!(task_id = %task.id, %reason, "search review: metadata refused; allowing the normal failure path");
+                return Reviewed::Search;
+            }
             Err(error) => {
                 tracing::warn!(task_id = %task.id, ?error, "search review: target unavailable; waiting to retry");
                 return Reviewed::Deferred;

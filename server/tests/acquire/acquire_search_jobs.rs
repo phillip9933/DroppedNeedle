@@ -496,6 +496,59 @@ async fn automatic_review_recovers_after_a_tracklist_outage() {
     );
 }
 
+/// A provider refusal takes the bounded failure path instead of leaving a
+/// known-edition request queued forever or searching without its tracklist.
+#[tokio::test]
+async fn a_refused_tracklist_fails_without_searching() {
+    use std::sync::atomic::Ordering;
+
+    for (review, answer) in [false, true]
+        .into_iter()
+        .flat_map(|review| ["refused", "missing", "empty"].map(|answer| (review, answer)))
+    {
+        let mock = MockSlskd::start().await.expect("mock starts");
+        let mut albums = FixedAlbums::default();
+        albums.refused.store(answer == "refused", Ordering::SeqCst);
+        if answer == "empty" {
+            albums.releases.insert(
+                RELEASE.to_owned(),
+                AlbumRelease {
+                    tracks: Vec::new(),
+                    ..album()
+                },
+            );
+        }
+        let rig = rig_with_albums(
+            &mock,
+            review,
+            AcquireDb::scratch().unwrap(),
+            Arc::new(albums),
+        )
+        .await;
+        let task_id = "0123456789abcdef0123456789abcdef";
+        seed_album_task(&rig.journal, task_id, "user").await;
+        rig.worker.run_once(1).await;
+        tokio::time::timeout(crate::common::PATIENCE, async {
+            while rig.worker.reviews_running() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the review finishes");
+        rig.worker.run_once(2).await;
+        let failed = rig.journal.read_task(task_id).await.unwrap().unwrap();
+        assert_eq!(
+            failed.status.as_str(),
+            "failed",
+            "review={review}, answer={answer}"
+        );
+        assert_eq!(failed.outcome_code, Some(Reason::AlbumLookupUnavailable));
+        assert!(failed.search_job_id.is_none());
+        assert!(mock.search_texts().is_empty(), "no blind search");
+        assert!(rig.journal.read_attempts(task_id).await.unwrap().is_empty());
+    }
+}
+
 /// Park `task_id` on a recorded search `job_id` with nothing picked.
 async fn park_on_search(journal: &Journal, task_id: &'static str, job_id: &str) {
     let recorded = JobStore::new(journal.db().clone())

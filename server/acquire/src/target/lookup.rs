@@ -94,8 +94,35 @@ pub struct AlbumRelease {
 
 /// MusicBrainz could not answer.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("musicbrainz lookup failed: {0}")]
-pub struct LookupError(pub String);
+#[error("musicbrainz lookup failed: {detail}")]
+pub struct LookupError {
+    detail: String,
+    retriable: bool,
+}
+
+impl LookupError {
+    fn refused(detail: String) -> Self {
+        Self {
+            detail,
+            retriable: false,
+        }
+    }
+
+    /// Whether this lookup failed because of a temporary provider problem.
+    #[must_use]
+    pub fn is_retriable(&self) -> bool {
+        self.retriable
+    }
+}
+
+impl From<droppedneedle_providers::ProviderError> for LookupError {
+    fn from(error: droppedneedle_providers::ProviderError) -> Self {
+        Self {
+            detail: error.to_string(),
+            retriable: error.is_retriable(),
+        }
+    }
+}
 
 /// Why a default album edition could not be resolved.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -103,6 +130,9 @@ pub enum GroupLookupError {
     /// Choosing an edition requires the saved preferences.
     #[error("could not read edition preferences")]
     Preferences,
+    /// The provider source settings must be readable before choosing an edition.
+    #[error("could not read MusicBrainz settings")]
+    Settings,
     /// The provider did not give a usable answer.
     #[error(transparent)]
     Provider(#[from] LookupError),
@@ -181,7 +211,7 @@ impl MusicBrainzAlbums {
                     let Some(found) = client
                         .lookup_exact_release(&release_mbid, Criticality::IdentityCritical)
                         .await
-                        .map_err(|error| LookupError(error.to_string()))?
+                        .map_err(LookupError::from)?
                     else {
                         return Ok(Fetched::Missing);
                     };
@@ -196,7 +226,7 @@ impl MusicBrainzAlbums {
                             .as_ref()
                             .is_some_and(|group| group.id.eq_ignore_ascii_case(&group_mbid))
                     {
-                        return Err(LookupError(format!(
+                        return Err(LookupError::refused(format!(
                             "release {release_mbid} did not resolve to an edition of {group_mbid}"
                         )));
                     }
@@ -226,7 +256,7 @@ impl AlbumLookup for MusicBrainzAlbums {
                     Criticality::IdentityCritical,
                 )
                 .await
-                .map_err(|error| LookupError(error.to_string()))?;
+                .map_err(LookupError::from)?;
             Ok(found.map(|lookup| {
                 lookup
                     .entity
@@ -257,7 +287,7 @@ impl AlbumLookup for MusicBrainzAlbums {
                 .live_client()
                 .lookup_exact_release(release_mbid, Criticality::IdentityCritical)
                 .await
-                .map_err(|error| LookupError(error.to_string()))?;
+                .map_err(LookupError::from)?;
             Ok(found.and_then(|lookup| album_release(lookup.entity)))
         })
     }
@@ -277,7 +307,7 @@ impl AlbumLookup for MusicBrainzAlbums {
             let (source, namespace) = self
                 .source
                 .cache_source()
-                .ok_or_else(|| LookupError("could not read MusicBrainz settings".to_owned()))?;
+                .ok_or(GroupLookupError::Settings)?;
             let group_mbid = release_group_mbid.trim().to_ascii_lowercase();
             let client = self.client.fixed(source, RequestPriority::BackgroundSync);
             let key = CacheKey::new(
@@ -300,13 +330,13 @@ impl AlbumLookup for MusicBrainzAlbums {
                                     Criticality::IdentityCritical,
                                 )
                                 .await
-                                .map_err(|error| LookupError(error.to_string()))?;
+                                .map_err(LookupError::from)?;
                             match found {
                                 None => Ok(Fetched::Missing),
                                 Some(found) if found.entity.id.eq_ignore_ascii_case(&mbid) => {
                                     Ok(Fetched::Found(GroupDetail::from_wire(found.entity)))
                                 }
-                                Some(_) => Err(LookupError(format!(
+                                Some(_) => Err(LookupError::refused(format!(
                                     "MusicBrainz answered for a different release group than {mbid}"
                                 ))),
                             }
@@ -319,7 +349,7 @@ impl AlbumLookup for MusicBrainzAlbums {
             };
             for candidate in group.default_edition_candidates(&prefs) {
                 if !is_valid_mbid(&candidate) {
-                    return Err(LookupError(format!(
+                    return Err(LookupError::refused(format!(
                         "invalid release MBID for group {group_mbid}"
                     ))
                     .into());
@@ -349,7 +379,7 @@ impl AlbumLookup for MusicBrainzAlbums {
                 .live_client()
                 .lookup_release_group(release_group_mbid, &[], Criticality::IdentityCritical)
                 .await
-                .map_err(|error| LookupError(error.to_string()))?;
+                .map_err(LookupError::from)?;
             Ok(found
                 .and_then(|lookup| lookup.entity.first_release_date)
                 .filter(|date| !date.trim().is_empty()))
