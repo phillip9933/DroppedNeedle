@@ -21,7 +21,7 @@ use droppedneedle_acquire::downloads::SourceTag;
 use droppedneedle_acquire::downloads::journal::Journal;
 use droppedneedle_acquire::downloads::sources::{DownloadSource as _, SourceHandle};
 use droppedneedle_acquire::downloads::store::NewTask;
-use droppedneedle_acquire::target::SearchTarget;
+use droppedneedle_acquire::target::{SearchTarget, soulseek};
 use droppedneedle_kernel::runtime_config::secret_sections::SlskdConnection;
 use droppedneedle_kernel::runtime_config::sections::{
     DownloadPolicy as KernelPolicy, QualityRecipeEntry, RecipeFormat, RecipeQuality,
@@ -308,46 +308,53 @@ async fn a_peer_name_is_one_path_segment() {
     assert_eq!(mock.statuses().requests(), sent, "nothing is sent");
 }
 
-/// Scripted slskd answers, served in order, for the paused-clock test.
-struct ScriptedHttp(Mutex<VecDeque<HttpReply>>);
+/// Scripted slskd answers for tests using the paused clock.
+struct ScriptedHttp {
+    replies: Mutex<VecDeque<HttpReply>>,
+    stall_when_empty: bool,
+}
 
 impl ScriptedHttp {
-    fn next(&self) -> Result<HttpReply, HttpFault> {
-        self.0
-            .lock()
-            .expect("lock")
-            .pop_front()
-            .ok_or_else(|| HttpFault("no scripted answer left".to_owned()))
+    async fn next(&self) -> Result<HttpReply, HttpFault> {
+        let reply = self.replies.lock().expect("lock").pop_front();
+        match reply {
+            Some(reply) => Ok(reply),
+            None if self.stall_when_empty => std::future::pending().await,
+            None => Err(HttpFault("no scripted answer left".to_owned())),
+        }
     }
 }
 
 impl SlskdHttp for ScriptedHttp {
     async fn get(&self, _: &[&str], _: &[(&str, &str)]) -> Result<HttpReply, HttpFault> {
-        self.next()
+        self.next().await
     }
     async fn post(&self, _: &[&str], _: Vec<u8>) -> Result<HttpReply, HttpFault> {
-        self.next()
+        self.next().await
     }
     async fn delete(&self, _: &[&str], _: &[(&str, &str)]) -> Result<HttpReply, HttpFault> {
-        self.next()
+        self.next().await
     }
 }
 
 /// A 429 naming a short wait is waited out in full, then retried.
 #[tokio::test(start_paused = true)]
 async fn a_short_retry_after_is_waited_out_then_retried() {
-    let client = SlskdClient::new(ScriptedHttp(Mutex::new(VecDeque::from([
-        HttpReply {
-            status: 429,
-            retry_after: Some(Duration::from_secs(7)),
-            body: Vec::new(),
-        },
-        HttpReply {
-            status: 200,
-            retry_after: None,
-            body: br#"{"version": {"current": "0.25.1.0"}}"#.to_vec(),
-        },
-    ]))));
+    let client = SlskdClient::new(ScriptedHttp {
+        replies: Mutex::new(VecDeque::from([
+            HttpReply {
+                status: 429,
+                retry_after: Some(Duration::from_secs(7)),
+                body: Vec::new(),
+            },
+            HttpReply {
+                status: 200,
+                retry_after: None,
+                body: br#"{"version": {"current": "0.25.1.0"}}"#.to_vec(),
+            },
+        ])),
+        stall_when_empty: false,
+    });
     let started = tokio::time::Instant::now();
 
     client.health_check().await.expect("retried into success");
@@ -465,11 +472,18 @@ async fn album_ladder() {
 
     let mock = MockSlskd::start().await.expect("mock starts");
     let repo = repository(&mock);
-    let hits = repo
-        .search_album("Radiohead", "OK Computer", Some(1997))
+    let target = SearchTarget {
+        artist: "Radiohead".to_owned(),
+        album_title: "OK Computer".to_owned(),
+        year: Some(1997),
+        tracklist: Vec::new(),
+        wanted: Vec::new(),
+        track: None,
+    };
+    let choice = soulseek::choose(&repo, &target, |_| true)
         .await
         .expect("ladder search succeeds");
-    assert_eq!(hits.len(), 18, "walked: a broader rung fans out");
+    assert_eq!(choice.pick.username, "alice", "a broader rung fans out");
     let texts = mock.search_texts();
     assert!(
         texts.len() >= 2,
@@ -1095,6 +1109,208 @@ async fn soulseek_picks_follow_the_saved_quality_policy() {
     seed_album_task(&journal, "task-flac-only").await;
     worker.run_once(2).await;
     assert_eq!(enqueued_peer(&journal, "task-flac-only").await, "lossless");
+}
+
+fn two_track_album() -> SearchTarget {
+    use droppedneedle_acquire::downloads::ExpectedTrack;
+
+    SearchTarget {
+        artist: "Artist".to_owned(),
+        album_title: "Album".to_owned(),
+        year: None,
+        tracklist: ["Alpha", "Beta"]
+            .iter()
+            .zip(1..)
+            .map(|(title, track_number)| ExpectedTrack {
+                track_number,
+                disc_number: 1,
+                title: Some((*title).to_owned()),
+                duration_seconds: Some(199.0 + track_number as f64),
+                recording_mbid: None,
+                release_track_mbid: None,
+            })
+            .collect(),
+        wanted: Vec::new(),
+        track: None,
+    }
+}
+
+// A nonempty answer can be entirely blocked or refused, and an allowed
+// partial folder should not stop a search for the complete edition.
+#[tokio::test]
+async fn album_ladder_continues_past_unusable_and_partial_folders() {
+    use droppedneedle_acquire::downloads::quarantine::{
+        QUARANTINE_TTL_SECONDS, QuarantineReason, canonical_soulseek_identity,
+    };
+    use droppedneedle_acquire::sources::SlskdSource;
+
+    let mock = MockSlskd::start().await.expect("mock starts");
+    let queries = [
+        "Artist Album 2024",
+        "*rtist Album 2024",
+        "Artist Album",
+        "*rtist Album",
+    ];
+    let blocked = album_peer("blocked", "flac");
+    let refused = album_peer("refused", "mp3");
+    let mut partial = album_peer("partial", "flac");
+    partial["files"].as_array_mut().expect("files").pop();
+    partial["fileCount"] = 1.into();
+    mock.script_query(queries[0], vec![blocked.clone(), refused.clone()]);
+    mock.script_query(queries[1], vec![partial.clone()]);
+    let mut missing_length = album_peer("unconfirmed-length", "flac");
+    missing_length["files"][0]["length"] = serde_json::Value::Null;
+    mock.script_query(queries[2], vec![missing_length]);
+    mock.script_query(
+        queries[3],
+        vec![refused, partial, album_peer("complete", "flac")],
+    );
+
+    let db = AcquireDb::scratch().expect("scratch db");
+    let journal = Arc::new(Journal::new(db, quiet_ticks()));
+    let now = journal.db().now_unix_f64();
+    journal
+        .run("test.quarantine", move |store| {
+            for file in blocked["files"].as_array().expect("blocked peer's files") {
+                let filename = file["filename"].as_str().expect("file name");
+                store.record_quarantine(
+                    "soulseek",
+                    &canonical_soulseek_identity(&format!("blocked/{filename}")),
+                    QuarantineReason::DownloadFailed.as_str(),
+                    None,
+                    now,
+                    QUARANTINE_TTL_SECONDS,
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .expect("quarantine records");
+
+    let saved = one_tier_policy("lossless", RecipeFormat::Flac, RecipeQuality::Cd);
+    let timings = test_policy();
+    let policy = DownloadPolicy {
+        search_timeout: timings.search_timeout,
+        completion_grace: timings.completion_grace,
+        poll_interval: timings.poll_interval,
+        ..DownloadPolicy::from_saved(&saved)
+    };
+    let http = ReqwestSlskdHttp::new(reqwest::Client::new(), &mock.base_url(), MOCK_API_KEY);
+    let mount = temp_mount("ladder");
+    let repo = Arc::new(SlskdRepository::new(
+        SlskdClient::new(http),
+        &mock.base_url(),
+        MOCK_API_KEY,
+        mount.to_path_buf(),
+        policy,
+    ));
+    let target = SearchTarget {
+        year: Some(2024),
+        ..two_track_album()
+    };
+    let blocklist = journal
+        .read_blocklist(&SourceTag::Soulseek, now)
+        .await
+        .expect("blocklist reads");
+    let choice = soulseek::choose(repo.as_ref(), &target, |hit| {
+        !blocklist.blocks_file(&hit.username, &hit.filename)
+    })
+    .await
+    .expect("automatic search finds a usable folder");
+    assert_eq!(choice.pick.username, "complete");
+    assert_eq!(choice.pick.coverage, 2);
+    assert_eq!(mock.search_texts(), queries, "stop at the complete match");
+
+    let source = SlskdSource::new(repo, journal.clone(), no_targets(&journal));
+    let offered: Vec<_> = source
+        .search(&target)
+        .await
+        .expect("manual search runs")
+        .into_iter()
+        .map(|candidate| {
+            let refused = candidate.is_refused();
+            (
+                candidate.view.username.expect("peer is shown"),
+                refused,
+                candidate.view.file_count,
+            )
+        })
+        .collect();
+    assert_eq!(
+        offered,
+        [
+            ("complete".to_owned(), false, 2),
+            ("unconfirmed-length".to_owned(), false, 2),
+            ("partial".to_owned(), false, 1),
+            ("refused".to_owned(), true, 2),
+        ],
+        "keep earlier choices without duplicate files or blocked folders"
+    );
+    assert_eq!(mock.search_texts()[queries.len()..], queries);
+}
+
+/// A transport failure or a timed-out query preserves an earlier ranked
+/// result. When there was no result, the same failures are search errors.
+#[tokio::test(start_paused = true)]
+async fn album_ladder_keeps_results_after_a_failed_or_timed_out_query() {
+    let target = two_track_album();
+    let mut partial = album_peer("partial", "flac");
+    partial["files"].as_array_mut().expect("files").pop();
+    partial["fileCount"] = 1.into();
+    let ok = |value: serde_json::Value| HttpReply {
+        status: 200,
+        retry_after: None,
+        body: serde_json::to_vec(&value).expect("serializes"),
+    };
+    let replies = [
+        ok(serde_json::json!({"id": "search-1"})),
+        ok(serde_json::json!({"id": "search-1", "isComplete": true})),
+        ok(serde_json::json!([partial])),
+    ];
+    let mount = temp_mount("search-deadline");
+    for stall_when_empty in [false, true] {
+        let repository = |replies| {
+            SlskdRepository::new(
+                SlskdClient::new(ScriptedHttp {
+                    replies: Mutex::new(replies),
+                    stall_when_empty,
+                }),
+                "http://unused",
+                MOCK_API_KEY,
+                mount.to_path_buf(),
+                test_policy(),
+            )
+        };
+        let started = tokio::time::Instant::now();
+        let repo = repository(replies.clone().into());
+        let choice = tokio::time::timeout(
+            Duration::from_secs(151),
+            soulseek::choose(&repo, &target, |_| true),
+        )
+        .await
+        .expect("the search has a deadline")
+        .expect("the earlier partial result survives");
+        assert_eq!(choice.pick.username, "partial");
+        assert_eq!(choice.pick.coverage, 1);
+        if stall_when_empty {
+            assert!(started.elapsed() >= Duration::from_secs(150));
+        } else {
+            assert!(started.elapsed().is_zero());
+        }
+
+        let empty_repo = repository(VecDeque::new());
+        let error = tokio::time::timeout(
+            Duration::from_secs(151),
+            soulseek::choose(&empty_repo, &target, |_| true),
+        )
+        .await
+        .expect("the search has a deadline")
+        .expect_err("a first-query failure must surface");
+        assert!(matches!(
+            error,
+            soulseek::SoulseekMiss::Search(ClientError::Unavailable { .. })
+        ));
+    }
 }
 
 // A file counts as audio only when the landing can read it. APE has no

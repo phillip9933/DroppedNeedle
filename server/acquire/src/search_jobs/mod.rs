@@ -28,14 +28,15 @@ pub mod store;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+
+use tokio::time::Instant;
 
 use self::candidates::{Candidate, CandidateRefusal, Pin};
 use self::store::{JobPayload, JobRow, JobStatus, JobStore, NewJob, PickRefusal, PickedTask};
 use super::dispatch::DispatchOrigin;
 use super::downloads::journal::Journal;
 use super::downloads::source_tag::SourceTag;
-use super::downloads::sources::DownloadSource;
+use super::downloads::sources::{DownloadSource, SOURCE_TIMEOUT};
 use super::downloads::store::{NewTask, TaskDetails, TaskRow};
 use super::edition::library_holds;
 use super::requests::error::RequestsError;
@@ -46,9 +47,6 @@ use super::target::{SearchTarget, Targets};
 use crate::downloads::worker::DownloadWorker;
 use droppedneedle_auth::Principal;
 use droppedneedle_kernel::events::{EventHub, SearchJobUpdated, UserNotice, new_event_id};
-
-/// How long one source may take to answer a manual search.
-const SOURCE_TIMEOUT: Duration = Duration::from_secs(150);
 
 /// Why a search came back empty or could not run: a stable code, what
 /// happened and what to do about it.
@@ -625,21 +623,19 @@ pub async fn search_sources(
     job_id: &str,
 ) -> (Vec<Candidate>, usize) {
     let searches = sources.iter().map(|source| async move {
-        let found = tokio::time::timeout(SOURCE_TIMEOUT, source.search(target)).await;
+        let found = source
+            .search_until(target, Instant::now() + SOURCE_TIMEOUT)
+            .await;
         (source.tag().to_string(), found)
     });
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut failed = 0;
     for (source, found) in futures_util::future::join_all(searches).await {
         match found {
-            Ok(Ok(found)) => candidates.extend(found),
-            Ok(Err(error)) => {
+            Ok(found) => candidates.extend(found),
+            Err(error) => {
                 failed += 1;
                 tracing::warn!(job_id, source, %error, "album search: source failed");
-            }
-            Err(_) => {
-                failed += 1;
-                tracing::warn!(job_id, source, "album search: source timed out");
             }
         }
     }

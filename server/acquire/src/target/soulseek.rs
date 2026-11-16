@@ -1,17 +1,22 @@
 //! Search Soulseek for a target and pick the folder to fetch from.
 //!
 //! Albums and single tracks both search with the album query ladder and
-//! rank folders with [`rank_folders`]. A single track only falls back to
+//! rank folders with [`rank_listing`]. A single track only falls back to
 //! the track query ladder when no album folder holds it, and a lone-track
 //! share is taken only when nothing better exists; the caller records the
 //! reason.
 
+use std::collections::HashSet;
+
+use tokio::time::{Instant, timeout_at};
+
 use super::SearchTarget;
 use super::reasons::TrackReason;
-use crate::client_error::ClientError;
+use crate::client_error::{ClientError, Service};
+use crate::downloads::sources::SOURCE_TIMEOUT;
 use crate::reason::Reason;
 use crate::slskd::folders::{FolderPick, RankRequest, rank_folders, rank_listing};
-use crate::slskd::{SearchResult, SlskdHttp, SlskdRepository};
+use crate::slskd::{SearchResult, SlskdHttp, SlskdRepository, album_query_ladder};
 
 /// The folder chosen, and why a lone-track share was used when it was.
 #[derive(Debug, Clone)]
@@ -33,16 +38,65 @@ pub enum SoulseekMiss {
 
 const NO_FOLDER: &str = "slskd has no untried folder for this album";
 
-/// Why no folder could be picked: folders were found but the settings refuse
-/// each of them, or else `reason`.
-fn miss<H: SlskdHttp>(
-    hits: &[SearchResult],
-    request: RankRequest<'_>,
+/// Search from specific to broad, keeping earlier folders for review and
+/// partial downloads. Check for a usable folder after filtering each answer.
+pub(crate) async fn search_album<H: SlskdHttp>(
     repo: &SlskdRepository<H>,
-    reason: Reason,
-    detail: &str,
-) -> SoulseekMiss {
-    if rank_listing(hits, request, repo.policy()).is_empty() {
+    target: &SearchTarget,
+    request: RankRequest<'_>,
+    deadline: Instant,
+    keep: impl Fn(&SearchResult) -> bool,
+) -> Result<(Vec<SearchResult>, Vec<FolderPick>), ClientError> {
+    let mut hits = Vec::new();
+    let mut seen = HashSet::new();
+    let mut listing = Vec::new();
+    for query in album_query_ladder(&target.artist, &target.album_title, target.year) {
+        let answer = timeout_at(deadline, repo.run_search(&query))
+            .await
+            .unwrap_or_else(|_| {
+                Err(ClientError::transport(
+                    Service::Slskd,
+                    "album search timed out".to_owned(),
+                ))
+            });
+        let files = match answer {
+            Ok(files) => files,
+            Err(error) if !listing.is_empty() => {
+                tracing::warn!(%error, "slskd album search stopped with earlier results");
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        let previous = hits.len();
+        hits.extend(
+            files.into_iter().filter(|hit| {
+                keep(hit) && seen.insert((hit.username.clone(), hit.filename.clone()))
+            }),
+        );
+        if hits.len() == previous {
+            continue;
+        }
+        listing = rank_listing(&hits, request, repo.policy());
+        if listing.first().is_some_and(|pick| {
+            !pick.out_of_band
+                && !pick.unknown_quality
+                && if request.single_track {
+                    !pick.lone_track
+                } else if request.wanted.is_empty() {
+                    pick.total == 0 || (pick.coverage == pick.total && pick.duration_misses == 0)
+                } else {
+                    pick.held == request.wanted.len()
+                }
+        }) {
+            break;
+        }
+    }
+    Ok((hits, listing))
+}
+
+/// All the ranked folders are refused, or there was no usable folder at all.
+fn miss(has_listing: bool, reason: Reason, detail: &str) -> SoulseekMiss {
+    if !has_listing {
         return SoulseekMiss::Nothing {
             reason,
             detail: detail.to_owned(),
@@ -67,37 +121,29 @@ pub async fn choose<H: SlskdHttp>(
         single_track: target.track.is_some(),
     };
     let policy = repo.policy();
-    let mut hits: Vec<SearchResult> = Vec::new();
-    if target.has_album() {
-        hits = repo
-            .search_album(&target.artist, &target.album_title, target.year)
-            .await
-            .map_err(SoulseekMiss::Search)?
-            .into_iter()
-            .filter(|hit| keep(hit))
-            .collect();
-        let best = rank_folders(&hits, request, policy).into_iter().next();
-        match (&target.track, best) {
-            (None, Some(pick)) => {
-                return Ok(SoulseekChoice {
-                    pick,
-                    lone_reason: None,
-                });
-            }
-            (None, None) => {
-                return Err(miss(&hits, request, repo, Reason::NoSource, NO_FOLDER));
-            }
-            (Some(_), Some(pick)) if !pick.lone_track => {
-                return Ok(SoulseekChoice {
-                    pick,
-                    lone_reason: None,
-                });
-            }
-            (Some(_), _) => {}
-        }
+    let (mut hits, listing) = if target.has_album() {
+        search_album(
+            repo,
+            target,
+            request,
+            Instant::now() + SOURCE_TIMEOUT,
+            &keep,
+        )
+        .await
+        .map_err(SoulseekMiss::Search)?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let has_listing = !listing.is_empty();
+    let best = listing.into_iter().next().filter(|pick| !pick.out_of_band);
+    if let Some(pick) = best.filter(|pick| target.track.is_none() || !pick.lone_track) {
+        return Ok(SoulseekChoice {
+            pick,
+            lone_reason: None,
+        });
     }
     let Some(track) = target.track.as_ref() else {
-        return Err(miss(&hits, request, repo, Reason::NoSource, NO_FOLDER));
+        return Err(miss(has_listing, Reason::NoSource, NO_FOLDER));
     };
     // No album folder holds the track: search for the track itself. Its
     // results can still turn up an album folder, which wins as usual.
@@ -116,9 +162,7 @@ pub async fn choose<H: SlskdHttp>(
     }
     let Some(pick) = rank_folders(&hits, request, policy).into_iter().next() else {
         return Err(miss(
-            &hits,
-            request,
-            repo,
+            !rank_listing(&hits, request, policy).is_empty(),
             TrackReason::TrackNotFound.into(),
             &TrackReason::TrackNotFound.to_string(),
         ));

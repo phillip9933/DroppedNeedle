@@ -17,7 +17,7 @@ use super::client::SlskdClient;
 use super::http::SlskdHttp;
 use super::models::{SlskdEnqueueResponse, SlskdTransfer, SlskdUserSearchResponse};
 use super::policy::DownloadPolicy;
-use super::query::{album_query_ladder, track_query_ladder};
+use super::query::track_query_ladder;
 use crate::client_error::{ClientError, Service};
 use crate::landing::DownloadsFolder;
 
@@ -231,26 +231,8 @@ impl<T: SlskdHttp> SlskdRepository<T> {
         }
     }
 
-    /// Album acquisition search: escalating query breadth.
-    /// Returns the first rung with results.
-    pub async fn search_album(
-        &self,
-        artist_name: &str,
-        album_title: &str,
-        year: Option<i32>,
-    ) -> Result<Vec<SearchResult>, ClientError> {
-        for query in album_query_ladder(artist_name, album_title, year) {
-            let results = self.run_search(&query).await?;
-            if !results.is_empty() {
-                return Ok(results);
-            }
-        }
-        Ok(Vec::new())
-    }
-
-    /// Track acquisition search: like [`Self::search_album`] but every rung
-    /// keeps the track title so the track matcher can pick the right
-    /// recording.
+    /// Each track query keeps the track title so the matcher can pick the
+    /// right recording.
     pub async fn search_track(
         &self,
         artist_name: &str,
@@ -456,7 +438,7 @@ impl<T: SlskdHttp> SlskdRepository<T> {
 
     /// Run one query rung: start the search, then poll past the search
     /// window by the completion grace.
-    async fn run_search(&self, query: &str) -> Result<Vec<SearchResult>, ClientError> {
+    pub(crate) async fn run_search(&self, query: &str) -> Result<Vec<SearchResult>, ClientError> {
         let _permit = self
             .search_permits
             .acquire()
