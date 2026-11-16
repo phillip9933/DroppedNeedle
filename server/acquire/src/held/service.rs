@@ -1995,7 +1995,7 @@ impl HeldService {
         };
         // Library-side retries and files in the same entry stay with
         // their original action. This pass only settles matching holds.
-        if entry.files.iter().any(|file| retries_by_itself(file)) {
+        if entry.files.iter().any(retries_by_itself) {
             return Ok(());
         }
         let files: Vec<_> = entry
