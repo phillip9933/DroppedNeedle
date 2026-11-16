@@ -16,7 +16,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use super::{Attempt, DownloadWorker, Pass, handled_count};
+use super::{Attempt, DownloadWorker, Pass, handled_count, live_attempt};
 use crate::downloads::quarantine::QuarantineReason;
 use crate::downloads::sources::{DownloadSource, SourceHandle};
 use crate::downloads::state::{AttemptState, TaskStatus};
@@ -116,11 +116,17 @@ impl DownloadWorker {
             return;
         };
         if task.status != TaskStatus::Processing {
+            // A later pass uses this state as proof the client finished.
             let task_id = task.id.clone();
-            self.step("downloads.processing", move |store| {
-                store.transition_task(&task_id, TaskStatus::Processing, now, None)
-            })
-            .await;
+            if self
+                .step("downloads.processing", move |store| {
+                    store.transition_task(&task_id, TaskStatus::Processing, now, None)
+                })
+                .await
+                .is_none()
+            {
+                return;
+            }
         }
         self.spawn_landing(
             slot,
@@ -132,15 +138,15 @@ impl DownloadWorker {
         );
     }
 
-    /// A task left `processing` with no live attempt (a reimport cut off
-    /// by a restart): land the files its kept attempt names again.
+    /// Finish a task already in `processing`, using the same attempt
+    /// after a wait or restart. A reimport uses its preserved attempt.
     pub(super) async fn resume_landing(
         self: &Arc<Self>,
         pass: &Pass,
         task: &TaskRow,
         attempts: &[Attempt],
     ) -> bool {
-        let Some(attempt) = landable_attempt(attempts) else {
+        let Some(attempt) = live_attempt(attempts).or_else(|| landable_attempt(attempts)) else {
             return false;
         };
         let (Some(handle), Some(source)) = (
@@ -157,9 +163,8 @@ impl DownloadWorker {
         let Some(slot) = self.claim(&task.id) else {
             return true;
         };
-        // With the slot held nothing else can land this task; only a task
-        // still `processing` is an interrupted landing (one that settled
-        // since the pass read it is left alone).
+        // With the slot held nothing else can land this task. Recheck
+        // the status in case it settled after the pass read it.
         let task = match self.journal.read_task(&task.id).await {
             Ok(Some(fresh)) if fresh.status == TaskStatus::Processing => fresh,
             Ok(_) => return true,
@@ -168,7 +173,7 @@ impl DownloadWorker {
                 return true;
             }
         };
-        tracing::info!(task_id = %task.id, "resuming an interrupted landing");
+        tracing::debug!(task_id = %task.id, "resuming a landing");
         self.spawn_landing(
             slot,
             task,
