@@ -169,13 +169,10 @@ impl DownloadWorker {
             // A read failure is not "no attempt": leave the task alone.
             return Polled::Answered;
         };
-        if task.status == TaskStatus::Processing
-            && live_attempt(&attempts).is_none()
-            && self.resume_landing(pass, task, &attempts).await
+        if task.status == TaskStatus::Processing && self.resume_landing(pass, task, &attempts).await
         {
-            // A landing the last process left running (a reimport whose
-            // attempt is no longer live) picks up again instead of the
-            // task being requeued for a fresh download.
+            // Processing means the client already reported completion or
+            // a reimport was started. Transfer history may be gone by now.
             return Polled::Answered;
         }
         let Some(attempt) = live_attempt(&attempts).cloned() else {

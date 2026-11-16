@@ -1327,29 +1327,146 @@ impl ReleaseSource for MusicBrainzFailure {
     }
 }
 
-/// A MusicBrainz outage can outlast the landing's ordinary waits. The
-/// original attempt imports once MusicBrainz answers.
+/// A MusicBrainz outage outlasts the ordinary waits and slskd forgets
+/// its finished transfer. After a restart, the same attempt imports.
 #[tokio::test]
 async fn musicbrainz_outage_keeps_the_finished_attempt() {
+    use crate::common::acquire::no_targets;
+    use crate::common::bundles::idle_host;
+    use droppedneedle_kernel::test_support::ManualClock;
+    use droppedneedle_testkit::slskd::MockSlskd;
+
+    const REMOTE: &str = "@@music\\Portishead\\Dummy\\01 - Mysterons.flac";
+    let db = AcquireDb::scratch().expect("scratch db");
+    db.add_user("u-ada", "Ada", "user").await.expect("user");
+    let dir = db.path().parent().expect("scratch dir");
+    let clock = Arc::new(ManualClock::at(1_000));
+    let platform = TestPlatform::on(db.db(), dir)
+        .clock(clock.clone())
+        .build()
+        .await;
+    let (library, _) = library_at(&platform);
+    let music = dir.join("music");
+    std::fs::create_dir_all(&music).expect("music root");
+    library
+        .scans
+        .add_root(
+            Some("music".to_owned()),
+            music.to_string_lossy().into_owned(),
+            EffectivePolicy::Automatic,
+        )
+        .expect("root adds");
+    let downloads = dir.join("slskd");
+    let file = land_file(
+        &downloads.join("Dummy"),
+        "01 - Mysterons.flac",
+        "flac_full_01.flac",
+        "Mysterons",
+        1,
+    );
+    let size = i64::try_from(file.metadata().expect("landed file").len()).expect("fixture size");
+    let mock = MockSlskd::start().await.expect("mock starts");
+    mock.inject_transfer("peer", REMOTE, size, "Completed, Succeeded", None, None);
+    save_slskd(&platform.settings, &mock.base_url());
+
     let searches = Arc::new(AtomicUsize::new(0));
-    let (acquire, worker, music, _grounds) = finished_landing(None, |release| {
-        Arc::new(MusicBrainzFailure {
-            releases: Releases(vec![release]),
-            error: ProviderError::Unavailable {
-                provider: "musicbrainz",
-                retry_after: None,
-            },
-            searches: searches.clone(),
-        })
+    let releases: Arc<dyn ReleaseSource> = Arc::new(MusicBrainzFailure {
+        releases: Releases(vec![release(
+            GOOD_RELEASE,
+            GOOD_GROUP,
+            &["Mysterons"],
+            &[length_ms(&file)],
+        )]),
+        error: ProviderError::Unavailable {
+            provider: "musicbrainz",
+            retry_after: None,
+        },
+        searches: searches.clone(),
+    });
+    let acquire = acquire_over(
+        &platform,
+        &library,
+        Arc::new(LibraryLanding::new(&library, every_priority(releases))),
+    );
+    let make_worker = || {
+        worker_with(
+            &platform,
+            idle_host(&platform, library.core.clone()),
+            acquire.journal.clone(),
+            &platform.settings,
+            downloads.clone(),
+            no_targets(&acquire.journal),
+            acquire.landing.clone(),
+            Default::default(),
+            droppedneedle_kernel::events::EventHub::new(),
+        )
+    };
+    let handle = serde_json::to_string(&SourceHandle {
+        username: "peer".to_owned(),
+        filenames: vec![REMOTE.to_owned()],
+        sizes: vec![size],
+        ..SourceHandle::new(SourceTag::Soulseek)
     })
-    .await;
-    for pass in 1..=12 {
+    .expect("handle");
+    acquire
+        .journal
+        .run("test.seed", move |store| {
+            store.insert_task(&new_task("landing", GOOD_GROUP), 1.0)?;
+            store.insert_attempt(
+                "landing-a0",
+                "landing",
+                "soulseek",
+                0,
+                "",
+                &handle,
+                AttemptState::InUse,
+                1.0,
+            )?;
+            store.transition_task("landing", TaskStatus::Downloading, 1.0, None)
+        })
+        .await
+        .expect("seed");
+
+    let worker = make_worker();
+    worker.run_once(1).await;
+    worker.wait_for_landings().await;
+    assert_eq!(searches.load(Ordering::Relaxed), 1);
+    assert!(file.is_file(), "the original download is still on disk");
+    assert_eq!(
+        acquire
+            .journal
+            .read_task("landing")
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        TaskStatus::Processing
+    );
+    drop(worker);
+    mock.reset();
+    clock.advance(120_000);
+
+    let recovery = run_startup_recovery(&acquire.journal)
+        .await
+        .expect("startup recovery");
+    assert_eq!(
+        (recovery.resumed, recovery.restarted),
+        (1, 0),
+        "{recovery:?}"
+    );
+    let worker = make_worker();
+    for pass in 2..=12 {
         worker.run_once(pass).await;
         worker.wait_for_landings().await;
     }
     let task = acquire.journal.read_task("landing").await.unwrap().unwrap();
     assert_eq!(task.status, TaskStatus::Processing);
     assert_eq!(searches.load(Ordering::Relaxed), 12);
+    assert_eq!(
+        mock.statuses().requests(),
+        0,
+        "metadata checks continue without polling the forgotten transfer"
+    );
     assert_eq!(
         decisions(&acquire, "landing"),
         vec![(
@@ -1372,6 +1489,12 @@ async fn musicbrainz_outage_keeps_the_finished_attempt() {
         .db()
         .one("SELECT COUNT(*) FROM download_tasks", []);
     assert_eq!(tasks, 1);
+    assert!(mock.search_texts().is_empty(), "no replacement was sought");
+    let quarantined: i64 = acquire
+        .db
+        .db()
+        .one("SELECT COUNT(*) FROM download_quarantine", []);
+    assert_eq!(quarantined, 0);
 }
 
 /// Repeated refusals still spend the ordinary waits and keep the files for retry.
