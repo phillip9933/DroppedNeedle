@@ -186,6 +186,8 @@ pub struct DownloadImport {
 pub struct ImportJoin {
     pub album_id: String,
     pub release_mbid: String,
+    /// Refuse the publish if this exact copy no longer has this edition.
+    pub require_edition: bool,
     /// `(release track, track)`: the album's track each file on that
     /// release track replaces, another version of it. That track never
     /// lends the file its id, and what people made on it moves to the
@@ -494,6 +496,7 @@ impl Imports {
             album_id: join.album_id,
             release_mbid: join.release_mbid,
             release_group_mbid: import.release.release_group_id.clone(),
+            require_edition: join.require_edition,
         });
         // A joined file goes beside its copy's files, named as the script
         // names it.

@@ -22,6 +22,7 @@
 //! They are read and removed beneath the import folder, and only while
 //! that folder is still the import folder.
 
+mod assembly;
 pub mod http;
 pub mod service;
 pub mod sql;

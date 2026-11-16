@@ -239,6 +239,9 @@ pub struct AlbumJoin {
     pub release_mbid: String,
     /// The release group of the release the files were matched to.
     pub release_group_mbid: String,
+    /// Keep a verified assembly on the exact copy and edition it matched.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub require_edition: bool,
 }
 
 /// Where an imported file sits on its release.

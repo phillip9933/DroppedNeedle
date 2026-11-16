@@ -7,8 +7,7 @@
 //! than it stays held until "Use this file" says to replace yours. Match
 //! places them on an album a curator picked. Re-check asks AcoustID again.
 //! Discard deletes the held copies. Each acts on the whole entry or the
-//! files named, one batch per download they came from, and claims the
-//! entry first (`held` to `placing`), so a second action, or the prune,
+//! files named, and claims the entry first (`held` to `placing`), so a second action, or the prune,
 //! never runs on it at once. The loop also presses Retry by itself on
 //! files our side could not take, at growing gaps.
 //!
@@ -1388,6 +1387,248 @@ impl HeldService {
         Ok((release, planned))
     }
 
+    /// An explicit Match of a whole entry can fill one library edition from
+    /// several ordinary downloads. A task with its own destination or version
+    /// plan keeps that plan and uses the existing per-download path.
+    async fn assembly_tasks(
+        &self,
+        entry: &Entry,
+        files: &[HeldFile],
+        group: &str,
+    ) -> Result<Vec<TaskRow>, HeldError> {
+        if files.len() != entry.files.len()
+            || files
+                .iter()
+                .any(|file| file.root != HeldRoot::Held || file.source_task_id.is_none())
+        {
+            return Ok(Vec::new());
+        }
+        let mut sources = HashSet::new();
+        let representatives: Vec<&HeldFile> = files
+            .iter()
+            .filter(|file| sources.insert(file.source_task_id.as_deref()))
+            .collect();
+        if representatives.len() < 2 {
+            return Ok(Vec::new());
+        }
+        let mut tasks = Vec::with_capacity(representatives.len());
+        for file in representatives {
+            let (Some(task), Some(target)) = self.task_target(file).await? else {
+                return Ok(Vec::new());
+            };
+            if Some(task.user_id.as_str()) != entry.user_id.as_deref()
+                || !task.release_group_mbid.eq_ignore_ascii_case(group)
+                || !matches!(task.status, TaskStatus::Failed | TaskStatus::Partial)
+                || matches!(
+                    task.origin,
+                    DispatchOrigin::Upgrade | DispatchOrigin::Edition
+                )
+                || target.is_track
+                || target.planned_album.is_some()
+                || !target.album_wanted.is_empty()
+            {
+                return Ok(Vec::new());
+            }
+            tasks.push(task);
+        }
+        Ok(tasks)
+    }
+
+    async fn match_assembly(
+        &self,
+        entry: &Entry,
+        files: &[HeldFile],
+        group: &str,
+        actor: Option<&str>,
+    ) -> Result<Option<Acted>, HeldError> {
+        let tasks = self.assembly_tasks(entry, files, group).await?;
+        if tasks.len() < 2 {
+            return Ok(None);
+        }
+        let group_id = group.to_owned();
+        let copy = self
+            .db
+            .db()
+            .read("held.assembly_edition", move |conn| {
+                droppedneedle_library::identity::reads::copy_for_group(conn, &group_id)
+                    .map_err(DbError::from)
+            })
+            .await?;
+        let Some((copy, pin)) =
+            copy.and_then(|copy| copy.release_mbid.clone().map(|pin| (copy, pin)))
+        else {
+            return Ok(None);
+        };
+        let library = self.library();
+        let release = library
+            .release(&pin, RequestPriority::UserInitiated)
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    entry_id = entry.id,
+                    ?error,
+                    "held assembly edition unavailable"
+                );
+                refused(Reason::MusicbrainzUnavailable)
+            })?
+            .filter(|release| {
+                release.release_group_id.eq_ignore_ascii_case(group) && !release.tracks.is_empty()
+            })
+            .ok_or_else(|| refused(Reason::NoRelease))?;
+
+        let mut track_ids = HashSet::new();
+        let mut positions = HashSet::new();
+        if release.tracks.iter().any(|track| {
+            track.id.trim().is_empty()
+                || !track_ids.insert(track.id.to_ascii_lowercase())
+                || track.position == 0
+                || !positions.insert((track.disc.max(1), track.position))
+        }) {
+            return Err(refused(Reason::NoRelease));
+        }
+
+        let held_root = self.folders.held.clone();
+        let skip = canonical_dirs(&library.library_dirs());
+        let files = files.to_vec();
+        let (root, verified) = tokio::task::spawn_blocking(move || {
+            let root = std::fs::canonicalize(held_root)?;
+            let mut paths: HashMap<PathBuf, HeldFile> = files
+                .into_iter()
+                .filter_map(|file| {
+                    let path = super::below(&root, &file.path)?;
+                    std::fs::symlink_metadata(&path)
+                        .ok()?
+                        .is_file()
+                        .then_some((path, file))
+                })
+                .collect();
+            let candidates: Vec<PathBuf> = paths.keys().cloned().collect();
+            let landing = probe::probe_beneath(&candidates, &skip, Some(&root));
+            if landing.truncated {
+                return Ok((root, None));
+            }
+            let audio = landing
+                .audio
+                .into_iter()
+                .filter_map(|audio| paths.remove(&audio.path).map(|file| (file, audio)))
+                .collect::<Vec<_>>();
+            Ok::<_, std::io::Error>((root, Some(audio)))
+        })
+        .await
+        .map_err(|error| HeldError::Unavailable(error.to_string()))?
+        .map_err(|error| HeldError::Unavailable(error.to_string()))?;
+        let Some(verified) = verified else {
+            return Err(HeldError::Refused(
+                "This entry has too many files to assemble at once. Match the files separately."
+                    .to_owned(),
+            ));
+        };
+        let (slots, audio_error) =
+            super::assembly::best_copies(library.as_ref(), &release, &verified).await;
+        let owned = library.owned(group, Some(&copy.album_id)).await;
+        let mut missing = 0;
+        let mut chosen_files = Vec::new();
+        let mut pairing = intake::Pairing::default();
+        for (track, file) in slots.into_iter().enumerate() {
+            if owned
+                .release_tracks
+                .contains(&release.tracks[track].id.to_ascii_lowercase())
+            {
+                continue;
+            }
+            if let Some(file) = file {
+                pairing.import.push((chosen_files.len(), track));
+                chosen_files.push(file);
+            } else {
+                missing += 1;
+            }
+        }
+        if missing > 0 {
+            if let Some(error) = audio_error {
+                tracing::info!(entry_id = entry.id, %error, "held assembly needs AcoustID");
+                return Err(refused(Reason::AcoustidUnavailable));
+            }
+            return Err(HeldError::Refused(format!(
+                "Could not verify {missing} of this edition's tracks. The held files stayed in place."
+            )));
+        }
+        if chosen_files.is_empty() {
+            return Ok(Some(Acted {
+                message: Some(
+                    "This edition already has every track. The held files stayed in place."
+                        .to_owned(),
+                ),
+                ..Acted::default()
+            }));
+        }
+        let mut records = Vec::with_capacity(chosen_files.len());
+        let mut audio = Vec::with_capacity(chosen_files.len());
+        for index in chosen_files {
+            let (file, landed) = &verified[index];
+            records.push(file.clone());
+            audio.push(IntakeFile {
+                file: landed.clone(),
+                held_for: None,
+            });
+        }
+        let staging = staging_name(entry);
+        let batch = IntakeBatch {
+            files: audio,
+            target: intake::Target {
+                join: Some(PlannedAlbum {
+                    album_id: copy.album_id,
+                    release_mbid: pin,
+                    replace: Vec::new(),
+                }),
+                release,
+                asked: Vec::new(),
+            },
+            origin: Origin::Download {
+                task_id: staging.clone(),
+                upgrade: false,
+                staging: Some(staging),
+                downloads_folders: Some(vec![root]),
+            },
+            gate: Gate::PersonChoseAlbum,
+            owner: actor.map(str::to_owned),
+            sidecars: Vec::new(),
+        };
+        let placement = intake::place_on_edition(library.as_ref(), &batch, pairing).await.map_err(|deferred| {
+            tracing::warn!(entry_id = entry.id, detail = %deferred.detail, "held assembly refused");
+            if deferred.reason == Reason::JournalUnreadable {
+                HeldError::Busy("held assembly import".to_owned())
+            } else {
+                refused(deferred.reason)
+            }
+        })?;
+        let mut acted = Acted::default();
+        let mut consumed = Vec::new();
+        for (file, outcome) in records.into_iter().zip(placement.outcomes) {
+            match outcome {
+                Outcome::Imported { .. } => consumed.push(file),
+                Outcome::Held { reason, .. } => acted.held.push(reason),
+                Outcome::AlreadyOwned { .. } | Outcome::Untouched => acted.held.push(file.reason),
+            }
+        }
+        acted.imported = consumed.len();
+        let imported: Vec<i64> = consumed.iter().map(|file| file.id).collect();
+        let (entry_id, now) = (entry.id, self.now());
+        self.write("held.assembly", move |rows, _| {
+            rows.resolve(entry_id, &imported, FileState::Imported, now)?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| self.record_failed(entry_id, error))?;
+        self.consume(entry, &consumed).await;
+        if acted.imported > 0 {
+            for task in &tasks {
+                self.settle_task(&library, task, &batch.target.release)
+                    .await;
+            }
+        }
+        Ok(Some(acted))
+    }
+
     /// Place a download's held files on the album a curator picked: one
     /// batch per download they came from, each paired by the app.
     async fn match_download(
@@ -1397,6 +1638,9 @@ impl HeldService {
         group: &str,
         actor: Option<&str>,
     ) -> Result<Acted, HeldError> {
+        if let Some(acted) = self.match_assembly(entry, &files, group, actor).await? {
+            return Ok(acted);
+        }
         let library = self.library();
         let mut groups: Vec<Vec<HeldFile>> = Vec::new();
         for file in files {

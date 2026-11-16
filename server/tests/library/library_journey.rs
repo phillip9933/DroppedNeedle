@@ -17146,6 +17146,7 @@ fn join_second_track(
         Some(ImportJoin {
             album_id: album.to_owned(),
             release_mbid,
+            require_edition: false,
             replaced: Vec::new(),
         }),
     )
