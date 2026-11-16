@@ -1,15 +1,110 @@
 //! Assign verified held files to one chosen edition.
 
+use std::collections::HashMap;
+use std::io::{self, Read as _};
+use std::path::{Path, PathBuf};
+
 use droppedneedle_library::identify::sources::AcoustIdUnavailable;
 use droppedneedle_library::matching::score::SAME_MASTER_SECS;
 use droppedneedle_library::matching::{Release, ReleaseTrack};
 use droppedneedle_providers::RequestPriority;
 
 use super::store::HeldFile;
-use crate::landing::ports::LandingLibrary;
-use crate::landing::probe::LandedFile;
+use crate::drop_import::extract::{FREE_SPACE_MARGIN, MAX_ARCHIVE_BYTES};
+use crate::landing::confine;
+use crate::landing::ports::{LandingLibrary, VerifiedSources};
+use crate::landing::probe::{LandedFile, probe_beneath};
 use crate::landing::quality;
 use crate::reason::Reason;
+
+/// Copy the candidates off their original paths before reading tags or
+/// asking AcoustID. The publisher still records each original held path.
+pub(super) fn snapshot(
+    held_root: &Path,
+    files: Vec<HeldFile>,
+    skipped: &[PathBuf],
+) -> io::Result<(VerifiedSources, Vec<(HeldFile, LandedFile)>)> {
+    let held_root = held_root.canonicalize()?;
+    let mut remaining = match droppedneedle_library::adapters::free_bytes_for(&held_root) {
+        Ok(free) => free
+            .saturating_sub(FREE_SPACE_MARGIN)
+            .min(MAX_ARCHIVE_BYTES),
+        Err(error) => {
+            tracing::warn!(%error, "held assembly free space unknown");
+            MAX_ARCHIVE_BYTES
+        }
+    };
+    let root = held_root.join(format!(".assembly-{}", uuid::Uuid::new_v4().simple()));
+    confine::create_private_dir(&held_root, &root)?;
+    let mut snapshots = VerifiedSources {
+        held_root,
+        root,
+        files: HashMap::new(),
+    };
+    let mut candidates = HashMap::new();
+    for file in files {
+        let Some(original) = super::below(&snapshots.held_root, &file.path) else {
+            continue;
+        };
+        if skipped.iter().any(|folder| original.starts_with(folder)) {
+            continue;
+        }
+        let Some(name) = original.file_name() else {
+            continue;
+        };
+        let source =
+            match confine::open_beneath(std::slice::from_ref(&snapshots.held_root), &original) {
+                Ok(source) => source,
+                Err(error) => {
+                    tracing::debug!(file_id = file.id, %error, "held assembly source unreadable");
+                    continue;
+                }
+            };
+        if snapshots.files.contains_key(&original) {
+            continue;
+        }
+        if source.metadata()?.len() > remaining {
+            return Err(snapshot_limit());
+        }
+        let dir = snapshots.root.join(file.id.to_string());
+        let copy = dir.join(name);
+        snapshots.files.insert(original, copy.clone());
+        confine::create_private_dir(&snapshots.root, &dir)?;
+        let mut dest = confine::create_private_file(&snapshots.root, &copy)?;
+        let copied = io::copy(&mut source.take(remaining + 1), &mut dest)?;
+        remaining = remaining.checked_sub(copied).ok_or_else(snapshot_limit)?;
+        candidates.insert(copy, file);
+    }
+    let paths: Vec<_> = candidates.keys().cloned().collect();
+    let landing = probe_beneath(&paths, skipped, Some(&snapshots.root));
+    let audio = landing
+        .audio
+        .into_iter()
+        .filter_map(|audio| candidates.remove(&audio.path).map(|file| (file, audio)))
+        .collect();
+    Ok((snapshots, audio))
+}
+
+fn snapshot_limit() -> io::Error {
+    io::Error::other(
+        "The held files are too large to verify together with the available disk space.",
+    )
+}
+
+/// Unlink the original only while it still contains the published bytes.
+pub(super) fn consume(snapshots: &VerifiedSources, original: &Path) -> io::Result<bool> {
+    let copy = snapshots
+        .files
+        .get(original)
+        .ok_or_else(|| io::Error::other("there is no verified assembly copy for this file"))?;
+    let verified = confine::hash_beneath(std::slice::from_ref(&snapshots.root), copy)?;
+    let held = std::slice::from_ref(&snapshots.held_root);
+    let current = confine::hash_beneath(held, original)?;
+    if current.sha256 != verified.sha256 {
+        return Ok(false);
+    }
+    confine::remove_beneath_if_unchanged(held, original, &current)
+}
 
 /// Best verified file for each track index. A file already held for an
 /// AcoustID decision still needs new audio evidence, even with exact tags.

@@ -216,6 +216,38 @@ pub fn open_beneath(folders: &[PathBuf], path: &Path) -> io::Result<File> {
     beneath::open_file_beneath(holder(folders, path)?, path, RootLinks::Refuse)
 }
 
+/// Create a private directory below a real folder without following links.
+pub(crate) fn create_private_dir(root: &Path, path: &Path) -> io::Result<()> {
+    let (parent, name) = beneath::parent_beneath(root, path, RootLinks::Refuse)?;
+    // SAFETY: the parent descriptor and C name are alive for the call.
+    let status = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Create a new private file below a real folder without following links.
+pub(crate) fn create_private_file(root: &Path, path: &Path) -> io::Result<File> {
+    use std::os::fd::FromRawFd as _;
+    let (parent, name) = beneath::parent_beneath(root, path, RootLinks::Refuse)?;
+    // SAFETY: the parent descriptor and C name are alive for the call.
+    let opened = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            0o600,
+        )
+    };
+    if opened < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: this call owns the new descriptor.
+    Ok(unsafe { File::from_raw_fd(opened) })
+}
+
 /// Remove the file at `path`, beneath whichever of `folders` holds it,
 /// with `unlinkat` on its folder opened as [`open_beneath`] opens it. A
 /// link at `path` itself is removed, never what it points at. Blocking.

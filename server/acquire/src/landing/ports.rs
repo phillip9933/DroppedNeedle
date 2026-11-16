@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
@@ -31,6 +32,10 @@ pub struct PlacedSources(HashMap<PathBuf, HashSet<String>>);
 impl PlacedSources {
     pub(crate) fn insert(&mut self, path: PathBuf, sha256: String) {
         self.0.entry(path).or_default().insert(sha256);
+    }
+
+    pub(crate) fn contains_path(&self, path: &Path) -> bool {
+        self.0.contains_key(path)
     }
 
     pub(crate) fn contains(&self, path: &Path, sha256: &str) -> bool {
@@ -94,6 +99,59 @@ pub struct VersionRow {
     pub tier: &'static str,
 }
 
+/// Private copies used to verify a held assembly. The keys remain the
+/// original paths so a recovered publish can identify the held rows.
+#[derive(Debug)]
+pub struct VerifiedSources {
+    pub(crate) held_root: PathBuf,
+    pub(crate) root: PathBuf,
+    pub(crate) files: HashMap<PathBuf, PathBuf>,
+}
+
+impl VerifiedSources {
+    pub(crate) fn open(&self, original: &Path) -> std::io::Result<std::fs::File> {
+        let copy = self.files.get(original).ok_or_else(|| {
+            std::io::Error::other("there is no verified assembly copy for this file")
+        })?;
+        super::confine::open_beneath(std::slice::from_ref(&self.root), copy)
+    }
+}
+
+impl Drop for VerifiedSources {
+    fn drop(&mut self) {
+        let held = self.held_root.clone();
+        let root = self.root.clone();
+        let copies = std::mem::take(&mut self.files);
+        let remove = move || {
+            let roots = std::slice::from_ref(&held);
+            let remove_dir = |path: &Path| {
+                if let Err(error) = super::confine::remove_dir_beneath(roots, path)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!(%error, "held assembly snapshot directory not removed");
+                }
+            };
+            for copy in copies.into_values() {
+                if let Err(error) = super::confine::remove_beneath(roots, &copy)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!(%error, "held assembly snapshot file not removed");
+                }
+                if let Some(parent) = copy.parent() {
+                    remove_dir(parent);
+                }
+            }
+            remove_dir(&root);
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn_blocking(remove);
+            }
+            Err(_) => remove(),
+        }
+    }
+}
+
 /// A verified download to publish into the library.
 #[derive(Debug, Clone)]
 pub struct ImportRequest {
@@ -107,6 +165,8 @@ pub struct ImportRequest {
     /// read beneath, never through a link below them. `None` for files in
     /// the app's own folders, read by path.
     pub read_beneath: Option<Vec<PathBuf>>,
+    /// The same bytes that were checked for a held assembly.
+    pub verified_sources: Option<Arc<VerifiedSources>>,
     /// The matched release; files are tagged from it.
     pub release: Release,
     /// The library album the files were fetched for, which they join.

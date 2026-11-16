@@ -12,9 +12,9 @@ use std::path::{Component, Path, PathBuf};
 /// More entries than this in one archive is not a purchase.
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
 /// Far above any real purchase, far below a zip bomb.
-const MAX_ARCHIVE_BYTES: u64 = 64 * (1 << 30);
+pub(crate) const MAX_ARCHIVE_BYTES: u64 = 64 * (1 << 30);
 /// Disk kept free beyond an archive's unpacked size.
-const FREE_SPACE_MARGIN: u64 = 512 * (1 << 20);
+pub(crate) const FREE_SPACE_MARGIN: u64 = 512 * (1 << 20);
 /// The unit name for audio dropped without a folder.
 pub const LOOSE_UNIT_NAME: &str = "Loose tracks";
 

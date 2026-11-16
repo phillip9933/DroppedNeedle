@@ -16,7 +16,7 @@ use droppedneedle_library::tags::{AudioFormat, AudioTag, TrackFile, format_for_p
 /// How deep the probe walks a job folder (`Album/CD1/track.flac` is 2).
 const MAX_DEPTH: usize = 4;
 /// More files than this in one landing is not an album download.
-const MAX_FILES: usize = 2_000;
+pub(crate) const MAX_FILES: usize = 2_000;
 
 /// One readable audio file.
 #[derive(Debug, Clone)]

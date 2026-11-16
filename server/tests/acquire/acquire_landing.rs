@@ -3084,6 +3084,7 @@ async fn the_orphan_sweep_keeps_folders_still_needed() {
                 origin: ImportOrigin::Download,
                 staging: None,
                 read_beneath: None,
+                verified_sources: None,
                 release,
                 join: None,
                 files: vec![ImportFile {
@@ -5081,6 +5082,7 @@ async fn a_held_release_track_is_not_given_away() {
         origin: ImportOrigin::Download,
         staging: None,
         read_beneath: None,
+        verified_sources: None,
         release: e.new.clone(),
         join: Some(droppedneedle_library::import::ImportJoin {
             album_id: album.clone(),
@@ -8216,6 +8218,23 @@ async fn held_assembly_case(
 #[tokio::test]
 async fn held_album_assembly_fills_the_chosen_copy_from_two_downloads() {
     let (rig, held, copy, _) = held_assembly_case(false).await;
+    rig.acquire
+        .journal
+        .run("test.old_edition", |store| {
+            store.set_task_details(
+                "t-assembly-a",
+                &droppedneedle_acquire::downloads::store::TaskDetails {
+                    release_mbid: Some(BAD_RELEASE.to_owned()),
+                    ..Default::default()
+                },
+                2.0,
+            )
+        })
+        .await
+        .expect("ordinary request searched another edition");
+    rig.sql(
+        "UPDATE acquire_held_files SET source_task_id = 't-assembly-b' WHERE path = 'lower.mp3'",
+    );
     let viewer = HeldViewer {
         user_id: "u-ada".to_owned(),
         admin: false,
@@ -8227,6 +8246,18 @@ async fn held_album_assembly_fills_the_chosen_copy_from_two_downloads() {
         .await
         .expect("complete verified assembly");
     assert_eq!(result.imported, 2);
+    let task = rig
+        .acquire
+        .journal
+        .read_task("t-assembly-a")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::Completed,
+        "the curator's complete chosen edition satisfies the ordinary request"
+    );
     assert!(!held.join("conflicting.flac").exists());
     assert!(!held.join("best.flac").exists());
     assert!(held.join("lower.mp3").is_file());
@@ -8308,7 +8339,26 @@ async fn held_album_assembly_never_guesses_a_repeated_recordings_slot() {
 
 #[tokio::test]
 async fn held_album_assembly_keeps_files_the_publisher_cannot_place() {
-    let (rig, held, _, _) = held_assembly_case(false).await;
+    let (rig, held, copy, _) = held_assembly_case(false).await;
+    let mut other = release(
+        BAD_RELEASE,
+        GOOD_GROUP,
+        &["Mysterons", "Sour Times", "Strangers"],
+        &[None, None, None],
+    );
+    other.title = "Dummy (another edition)".to_owned();
+    other.tracks[1].id = "6d0b7a1e-0000-4000-8000-000000000015".to_owned();
+    let other_path = "other/02 Sour Times.flac";
+    rig.plant(other_path, 1, &other);
+    rig.scan().await;
+    let other_track = rig.track_at(other_path);
+    let other_copy = rig.album_of(&other_track);
+    assert_ne!(other_copy, copy);
+    rig.set_edition(&other_copy, GOOD_GROUP, BAD_RELEASE, "automatic");
+    rig.place(&other_track, &other, 1, "automatic");
+    rig.sql(
+        "UPDATE acquire_held_files SET source_task_id = 't-assembly-a' WHERE path = 'corrupt.flac'",
+    );
     let occupied = rig.music.join("kept/0102 Sour Times.flac");
     std::fs::write(&occupied, b"already here").expect("occupied destination");
     let viewer = HeldViewer {
@@ -8331,6 +8381,84 @@ async fn held_album_assembly_keeps_files_the_publisher_cannot_place() {
         [],
     );
     assert_eq!(state, "held");
+    let task = rig
+        .acquire
+        .journal
+        .read_task("t-assembly-b")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::Failed,
+        "the other copy's track cannot complete the selected copy"
+    );
+}
+
+/// The bytes checked by the assembly are the bytes staged. A newer file
+/// at the original held path is still listed after the import.
+#[tokio::test]
+async fn held_album_assembly_publishes_verified_bytes_and_keeps_a_changed_original() {
+    let (rig, held, _, fingerprint) = held_assembly_case(false).await;
+    let original = held.join("conflicting.flac");
+    let changed = original.clone();
+    *fingerprint.changed.lock().unwrap() = Some(Box::new(move || {
+        std::fs::write(changed, b"changed after verification").expect("replace held file");
+    }));
+    let viewer = HeldViewer {
+        user_id: "u-ada".to_owned(),
+        admin: false,
+    };
+    let result = rig
+        .acquire
+        .held
+        .match_album(&viewer, 1, GOOD_GROUP, None, "u-ada")
+        .await
+        .expect("the checked snapshot is still usable");
+    assert_eq!(result.imported, 2);
+    assert_eq!(
+        std::fs::read(&original).expect("changed source still exists"),
+        b"changed after verification"
+    );
+    let state: String = rig.acquire.db.db().one(
+        "SELECT state FROM acquire_held_files WHERE path = 'conflicting.flac'",
+        [],
+    );
+    assert_eq!(state, "held");
+    let published_sources: Vec<String> = rig.acquire.db.db().column(
+        "SELECT json_extract(item.value, '$.adopt.source_path') \
+         FROM library_publish_operations op, json_each(op.bundle_json, '$.items') item \
+         WHERE json_extract(item.value, '$.adopt.source_path') IS NOT NULL",
+        [],
+    );
+    assert!(
+        published_sources.contains(&original.to_string_lossy().into_owned()),
+        "the durable publisher record names the original held path"
+    );
+    // Simulate losing the held row update after the successful unlink.
+    assert!(!held.join("best.flac").exists());
+    rig.sql(
+        "UPDATE acquire_held_entries SET state = 'placing' WHERE id = 1;
+         UPDATE acquire_held_files SET state = 'held' WHERE path = 'best.flac'",
+    );
+    rig.acquire.held.recover().await;
+    rig.acquire.held.tend().await;
+    let states: Vec<(String, String)> = rig.acquire.db.db().rows(
+        "SELECT path, state FROM acquire_held_files
+         WHERE path IN ('best.flac', 'conflicting.flac') ORDER BY path",
+        [],
+    );
+    assert_eq!(
+        states,
+        [
+            ("best.flac".to_owned(), "imported".to_owned()),
+            ("conflicting.flac".to_owned(), "held".to_owned()),
+        ]
+    );
+    assert_eq!(
+        std::fs::read(original).unwrap(),
+        b"changed after verification"
+    );
 }
 
 /// The selected copy changes edition during audio verification. The

@@ -2,10 +2,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::{Deferred, Gate, IntakeBatch, Origin, Outcome, Pairing, Placement};
 use crate::landing::ports::{
     ExtraFile, ImportFailure, ImportFile, ImportOrigin, ImportRequest, LandingLibrary,
+    VerifiedSources,
 };
 use crate::landing::probe::LandedFile;
 use crate::landing::quality;
@@ -33,7 +35,7 @@ pub async fn place(
     pairing: Pairing,
     heard: Option<HashMap<String, Vec<String>>>,
 ) -> Result<Placement, Deferred> {
-    place_inner(library, batch, pairing, heard, false).await
+    place_inner(library, batch, pairing, heard, None).await
 }
 
 /// Publish a verified assembly only while its exact copy and edition hold.
@@ -41,8 +43,9 @@ pub(crate) async fn place_on_edition(
     library: &dyn LandingLibrary,
     batch: &IntakeBatch,
     pairing: Pairing,
+    verified_sources: Arc<VerifiedSources>,
 ) -> Result<Placement, Deferred> {
-    place_inner(library, batch, pairing, None, true).await
+    place_inner(library, batch, pairing, None, Some(verified_sources)).await
 }
 
 async fn place_inner(
@@ -50,13 +53,13 @@ async fn place_inner(
     batch: &IntakeBatch,
     pairing: Pairing,
     heard: Option<HashMap<String, Vec<String>>>,
-    require_edition: bool,
+    verified_sources: Option<Arc<VerifiedSources>>,
 ) -> Result<Placement, Deferred> {
     let mut answers = Answers::new(heard);
     let mut retried = false;
     loop {
         let mut planned = plan(library, batch, &pairing, &mut answers).await?;
-        if require_edition {
+        if verified_sources.is_some() {
             let Some(join) = planned.join.as_mut() else {
                 return Err(Deferred {
                     reason: Reason::LibraryChanged,
@@ -66,10 +69,11 @@ async fn place_inner(
             };
             join.require_edition = true;
         }
-        let failure = match import(library, batch, &pairing, planned).await {
-            Ok(placement) => return Ok(placement),
-            Err(failure) => failure,
-        };
+        let failure =
+            match import(library, batch, &pairing, planned, verified_sources.clone()).await {
+                Ok(placement) => return Ok(placement),
+                Err(failure) => failure,
+            };
         let deferred = |reason, detail| {
             Err(Deferred {
                 reason,
@@ -629,6 +633,7 @@ async fn import(
     batch: &IntakeBatch,
     pairing: &Pairing,
     mut planned: Planned,
+    verified_sources: Option<Arc<VerifiedSources>>,
 ) -> Result<Placement, ImportFailure> {
     let mut placement = Placement {
         outcomes: Vec::new(),
@@ -675,6 +680,7 @@ async fn import(
         origin,
         staging,
         read_beneath,
+        verified_sources,
         release: batch.target.release.clone(),
         join: planned.join.clone(),
         files: planned
