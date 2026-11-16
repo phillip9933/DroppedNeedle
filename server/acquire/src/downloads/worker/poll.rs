@@ -470,7 +470,11 @@ impl DownloadWorker {
                 .await;
         }
         let settled_state = match source.discard(handle).await {
-            Ok(_) => AttemptState::Complete,
+            Ok(true) => AttemptState::Complete,
+            Ok(false) => {
+                tracing::warn!(task_id = %task.id, "discard was not confirmed; cleanup will retry");
+                AttemptState::CleanupPending
+            }
             Err(error) => {
                 tracing::warn!(task_id = %task.id, %error, "discard failed; cleanup will retry");
                 AttemptState::CleanupPending
