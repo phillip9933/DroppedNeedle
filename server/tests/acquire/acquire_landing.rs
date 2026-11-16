@@ -4801,6 +4801,45 @@ async fn landing_checks_the_catalog_title_of_a_matched_edition() {
     }
 }
 
+/// A catalog edition label can be absent from otherwise matching audio tags.
+#[tokio::test]
+async fn archive_collection_label_does_not_hold_the_correct_album() {
+    let mut release = editions(6, &fixture_lengths()).old;
+    let album = release.title.clone();
+    release.title = format!("{album} (archive collection)");
+    let rig = join_rig(vec![release.clone()]).await;
+    let task_id = "t-archive-collection";
+    rig.ask(
+        task_id,
+        &release.release_group_id,
+        &album,
+        "user",
+        Some(&release.id),
+        None,
+        &[],
+    )
+    .await;
+    let mut tagged = release.clone();
+    tagged.title = album;
+    let paths = (0..release.tracks.len())
+        .map(|index| rig.landed(task_id, &tagged, index, FIXTURES[index]))
+        .collect();
+    rig.land(paths).await;
+
+    let decision = rig
+        .acquire
+        .journal
+        .read("test.archive_collection", |store| {
+            store.latest_import_decision(task_id)
+        })
+        .await
+        .expect("decision reads")
+        .expect("landing recorded");
+    assert_eq!(decision.outcome, ImportOutcome::Imported, "{decision:?}");
+    assert_eq!(decision.release_mbid.as_deref(), Some(release.id.as_str()));
+    assert_eq!(decision.files_imported, 2);
+}
+
 type TrackIdentityRow = (
     String,
     Option<String>,

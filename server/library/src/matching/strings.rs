@@ -288,14 +288,16 @@ pub fn strip_edition_words(title: &str) -> String {
 }
 
 /// True when a bracketed part names an edition: it holds an edition word
-/// or a disc marker ("Disc 1", "CD2").
+/// or a disc marker ("Disc 1", "CD2"). Recognize "Archive Collection"
+/// as a complete label so "Archive" and "Collection" can still be titles.
 fn names_edition(inner: &str) -> bool {
     let padded = format!(" {inner} ");
     let words: Vec<&str> = inner
         .split_whitespace()
         .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
         .collect();
-    padded.contains(" radio edit ")
+    words == ["archive", "collection"]
+        || padded.contains(" radio edit ")
         || words
             .iter()
             .any(|word| EDITION_WORDS.contains(word) || is_fused_disc(word))
@@ -445,6 +447,14 @@ mod tests {
         assert_eq!(
             strip_edition_words("Songs (From the Basement)"),
             "songs from the basement"
+        );
+        assert_eq!(
+            strip_edition_words("McCartney (Archive Collection)"),
+            "mccartney"
+        );
+        assert_eq!(
+            strip_edition_words("Songs (From the Archive Collection)"),
+            "songs from the archive collection"
         );
         // Disc markers name a part of a set, not the album.
         assert_eq!(
