@@ -1102,9 +1102,9 @@ async fn a_redirected_edition_keeps_its_plan_for_later_targets() {
     );
 }
 
-/// A request without a release still searches and lands against the same
-/// edition. The saved preferences beat the provider's first edition, a
-/// release merge is respected, and later searches reuse the task's plan.
+/// A request without a release searches for the preferred edition. The
+/// saved preferences beat the provider's first edition, a release merge
+/// is respected, and later searches reuse the task's plan.
 #[tokio::test]
 async fn a_group_only_download_keeps_its_preferred_edition() {
     use crate::common::TestPlatform;

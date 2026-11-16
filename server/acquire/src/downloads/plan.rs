@@ -20,6 +20,9 @@ pub struct TaskPlan {
     /// row's asked release no longer answers to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_mbid: Option<String>,
+    /// The server chose this release to search for a group-only request.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preferred_edition: bool,
     /// The release the row asked for when MusicBrainz answered it with
     /// `release_mbid`, so the asked id still answers to the lists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,6 +72,7 @@ impl TaskPlan {
     pub fn for_successor(&self) -> Self {
         Self {
             release_mbid: self.release_mbid.clone(),
+            preferred_edition: self.preferred_edition,
             redirected_from: self.redirected_from.clone(),
             album_wanted: self.album_wanted.clone(),
             planned_album: self.planned_album.clone(),

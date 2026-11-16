@@ -27,7 +27,7 @@ use droppedneedle_library::matching::{
     LocalAlbum, LocalTrack, Release, ReleaseMatch, ReleaseTrack, usable_mbid,
 };
 use droppedneedle_library::matching::{match_release, unknown_recordings};
-use droppedneedle_providers::RequestPriority;
+use droppedneedle_providers::{RequestPriority, musicbrainz::is_valid_mbid};
 
 /// The landing is background work: nobody waits on it.
 const PRIORITY: RequestPriority = RequestPriority::BackgroundSync;
@@ -469,19 +469,29 @@ pub async fn merged_recordings(
 }
 
 /// Candidate releases of the requested group. A pinned edition is the
-/// only candidate: the files are judged against its tracklist and nothing
-/// else (owner rule, the pin is honoured end to end). Without a pin: the
-/// tagged release, then the group's editions from its listing (closest
-/// track count first), else from a title search.
+/// only candidate. A preferred edition can be replaced by a tagged
+/// edition with the same recordings in the same positions. Without an
+/// edition: the tagged release, then the group's editions from its
+/// listing (closest track count first), else from a title search.
 async fn recall(
     library: &dyn LandingLibrary,
     target: &Target,
     local: &LocalAlbum,
 ) -> Result<Vec<Release>, SourceError> {
     let mut releases: Vec<Release> = Vec::new();
-    if let Some(pinned) = target.release_mbid.as_deref() {
-        fetch(library.release(pinned, PRIORITY).await?, &mut releases);
-        return Ok(releases);
+    if let Some(edition) = target.release_mbid.as_deref() {
+        let Some(release) = library.release(edition, PRIORITY).await? else {
+            return Ok(releases);
+        };
+        if target.preferred_edition
+            && let Some(tagged) = local.tagged_release().filter(|id| !release.answers_to(id))
+            && let Some(source) = library.release(&tagged, PRIORITY).await?
+            && source.answers_to(&tagged)
+            && equivalent_edition(&target.release_group_mbid, &release, &source)
+        {
+            return Ok(vec![source]);
+        }
+        return Ok(vec![release]);
     }
     if let Some(tagged) = local.tagged_release()
         && !releases.iter().any(|known| known.answers_to(&tagged))
@@ -517,6 +527,21 @@ async fn recall(
     }
     releases.retain(in_group);
     Ok(releases)
+}
+
+/// The same recordings at the same positions keep missing-track retries
+/// valid against the search edition after a partial import.
+fn equivalent_edition(group: &str, preferred: &Release, source: &Release) -> bool {
+    !group.is_empty()
+        && preferred.release_group_id.eq_ignore_ascii_case(group)
+        && source.release_group_id.eq_ignore_ascii_case(group)
+        && !preferred.tracks.is_empty()
+        && preferred.tracks.len() == source.tracks.len()
+        && preferred.tracks.iter().zip(&source.tracks).all(|(a, b)| {
+            (a.disc, a.position) == (b.disc, b.position)
+                && is_valid_mbid(&a.recording_id)
+                && a.recording_id.eq_ignore_ascii_case(&b.recording_id)
+        })
 }
 
 /// Keep a fetched release unless it is already in the list.
