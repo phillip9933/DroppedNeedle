@@ -17,6 +17,7 @@ mod place;
 use std::path::PathBuf;
 
 pub use self::place::place;
+pub(crate) use self::place::place_on_edition;
 use crate::downloads::plan::PlannedAlbum;
 use crate::landing::probe::LandedFile;
 use crate::landing::specs::Check;

@@ -3814,6 +3814,13 @@ struct JoinRig {
 }
 
 async fn join_rig(releases: Vec<Release>) -> JoinRig {
+    join_rig_with_fingerprints(releases, None).await
+}
+
+async fn join_rig_with_fingerprints(
+    releases: Vec<Release>,
+    fingerprints: Option<Arc<dyn FingerprintSource>>,
+) -> JoinRig {
     let (db, dir, auth) = bare_db().await;
     let config = Arc::new(
         ConfigStore::scratch(&dir, Crypto::from_key_bytes(&[7u8; 32]).expect("key"))
@@ -3823,7 +3830,10 @@ async fn join_rig(releases: Vec<Release>) -> JoinRig {
         .settings(config)
         .build()
         .await;
-    let (library, _) = library_at(&platform);
+    let (mut library, _) = library_at(&platform);
+    if let Some(fingerprints) = fingerprints {
+        library.imports.fingerprints = fingerprints;
+    }
     let music = dir.join("music");
     std::fs::create_dir_all(&music).expect("music root");
     library
@@ -5075,6 +5085,7 @@ async fn a_held_release_track_is_not_given_away() {
         join: Some(droppedneedle_library::import::ImportJoin {
             album_id: album.clone(),
             release_mbid: e.new.id.clone(),
+            require_edition: false,
             replaced: Vec::new(),
         }),
         files: vec![ImportFile {
@@ -8065,4 +8076,298 @@ async fn task_now(
         .into_iter()
         .find(|task| task.row.task.id == id)
         .expect("task")
+}
+
+/// AcoustID hears one recording of the edition and one outside it in
+/// the copy with conflicting tags. Repeated ids are one answer.
+#[derive(Default)]
+struct AssemblyFingerprint {
+    recording: String,
+    changed: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl FingerprintSource for AssemblyFingerprint {
+    fn identify<'a>(
+        &'a self,
+        _tracks: &'a [LocalTrackFacts],
+        _priority: RequestPriority,
+    ) -> BoxFuture<'a, Result<AudioMatches, AcoustIdUnavailable>> {
+        Box::pin(async { Ok(AudioMatches::default()) })
+    }
+
+    fn identify_files<'a>(
+        &'a self,
+        files: &'a [(String, PathBuf)],
+        _priority: RequestPriority,
+    ) -> BoxFuture<'a, HeardFiles> {
+        Box::pin(async move {
+            if let Some(change) = self.changed.lock().unwrap().take() {
+                change();
+            }
+            Ok(files
+                .iter()
+                .filter(|(_, path)| path.file_name().unwrap() == "conflicting.flac")
+                .map(|(id, _)| {
+                    (
+                        id.clone(),
+                        vec![
+                            self.recording.clone(),
+                            BAD_RELEASE.to_owned(),
+                            self.recording.clone(),
+                        ],
+                    )
+                })
+                .collect())
+        })
+    }
+}
+
+/// Two ordinary album tasks have different parts of one chosen edition.
+/// None of their decisions have been reviewed yet.
+async fn held_assembly_case(
+    repeated: bool,
+) -> (JoinRig, PathBuf, String, Arc<AssemblyFingerprint>) {
+    let mut chosen = release(
+        GOOD_RELEASE,
+        GOOD_GROUP,
+        &["Mysterons", "Sour Times", "Strangers"],
+        &[None, None, None],
+    );
+    if repeated {
+        chosen.tracks[2].recording_id = chosen.tracks[1].recording_id.clone();
+    }
+    let fingerprint = Arc::new(AssemblyFingerprint {
+        recording: chosen.tracks[1].recording_id.clone(),
+        ..AssemblyFingerprint::default()
+    });
+    let rig = join_rig_with_fingerprints(vec![chosen.clone()], Some(fingerprint.clone())).await;
+    let library_file = "kept/01 Mysterons.flac";
+    rig.plant(library_file, 0, &chosen);
+    rig.scan().await;
+    let kept = rig.track_at(library_file);
+    let copy = rig.album_of(&kept);
+    rig.set_edition(&copy, GOOD_GROUP, GOOD_RELEASE, "manual");
+    rig.place(&kept, &chosen, 0, "manual");
+
+    let held = rig.acquire.held.folders().held.clone();
+    for (name, fixture, index) in [
+        ("conflicting.flac", FIXTURES[1], 1),
+        ("lower.mp3", "mp3_full_01.mp3", 2),
+        ("best.flac", FIXTURES[0], 2),
+    ] {
+        let track = &chosen.tracks[index];
+        let path = land_file(&held, name, fixture, &track.title, track.position);
+        let recording = if index == 1 {
+            &chosen.tracks[0].recording_id
+        } else {
+            &track.recording_id
+        };
+        save_tags(
+            &path,
+            &[
+                TagEdit::new(TagField::MusicBrainzRecordingId, vec![recording.clone()]),
+                TagEdit::new(TagField::MusicBrainzReleaseTrackId, vec![track.id.clone()]),
+                TagEdit::new(TagField::MusicBrainzReleaseId, vec![chosen.id.clone()]),
+            ],
+        )
+        .expect("candidate tagged");
+    }
+    std::fs::write(held.join("corrupt.flac"), b"broken audio").expect("corrupt fixture");
+    rig.acquire
+        .journal
+        .run("test.assembly_tasks", |store| {
+            for id in ["t-assembly-a", "t-assembly-b"] {
+                store.insert_task(&new_task(id, GOOD_GROUP), 1.0)?;
+                store.transition_task(id, TaskStatus::Failed, 1.0, None)?;
+            }
+            Ok(())
+        })
+        .await
+        .expect("two source tasks");
+    rig.acquire
+        .db
+        .write("test.assembly_held", |tx| {
+            tx.execute(
+                "INSERT INTO acquire_held_entries (id, user_id, origin, group_key, \
+             release_group_mbid, state, created_at, expires_at) VALUES (1, 'u-ada', \
+             'download', ?1, ?2, 'held', 1, 9999999999999)",
+                rusqlite::params![format!("album:{GOOD_GROUP}"), GOOD_GROUP],
+            )?;
+            for (name, task) in [
+                ("conflicting.flac", "t-assembly-a"),
+                ("lower.mp3", "t-assembly-a"),
+                ("best.flac", "t-assembly-b"),
+                ("corrupt.flac", "t-assembly-b"),
+            ] {
+                tx.execute(
+                    "INSERT INTO acquire_held_files (entry_id, root, path, original_name, \
+                 reason, source, source_task_id, state, created_at) VALUES \
+                 (1, 'held', ?1, ?1, 'tag_mismatch', 'soulseek', ?2, 'held', 1)",
+                    [name, task],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .expect("held entry");
+    (rig, held, copy, fingerprint)
+}
+
+#[tokio::test]
+async fn held_album_assembly_fills_the_chosen_copy_from_two_downloads() {
+    let (rig, held, copy, _) = held_assembly_case(false).await;
+    let viewer = HeldViewer {
+        user_id: "u-ada".to_owned(),
+        admin: false,
+    };
+    let result = rig
+        .acquire
+        .held
+        .match_album(&viewer, 1, GOOD_GROUP, None, "u-ada")
+        .await
+        .expect("complete verified assembly");
+    assert_eq!(result.imported, 2);
+    assert!(!held.join("conflicting.flac").exists());
+    assert!(!held.join("best.flac").exists());
+    assert!(held.join("lower.mp3").is_file());
+    assert_eq!(
+        std::fs::read(held.join("corrupt.flac")).unwrap(),
+        b"broken audio"
+    );
+    let stored: Vec<(String, String, String)> = rig.acquire.db.db().rows(
+        "SELECT t.title, t.file_format, x.release_mbid FROM local_tracks t \
+         JOIN local_track_external_identities x ON x.local_track_id = t.id \
+         WHERE t.local_album_id = ?1 AND t.availability = 'indexed' ORDER BY t.title",
+        [&copy],
+    );
+    assert_eq!(
+        stored,
+        ["Mysterons", "Sour Times", "Strangers"]
+            .map(|title| { (title.to_owned(), "flac".to_owned(), GOOD_RELEASE.to_owned()) })
+    );
+    let durable_joins: Vec<i64> = rig.acquire.db.db().column(
+        "SELECT json_extract(item.value, '$.adopt.join.require_edition') \
+         FROM library_publish_operations op, json_each(op.bundle_json, '$.items') item \
+         WHERE json_extract(item.value, '$.adopt.join.album_id') = ?1",
+        [&copy],
+    );
+    assert_eq!(
+        durable_joins,
+        [1, 1],
+        "resumed commits retain the strict join"
+    );
+    let pin: String = rig.acquire.db.db().one(
+        "SELECT release_mbid FROM local_album_external_identities WHERE local_album_id = ?1",
+        [&copy],
+    );
+    assert_eq!(pin, GOOD_RELEASE);
+    let states: Vec<(String, String)> = rig.acquire.db.db().rows(
+        "SELECT path, state FROM acquire_held_files ORDER BY path",
+        [],
+    );
+    assert_eq!(
+        states,
+        [
+            ("best.flac", "imported"),
+            ("conflicting.flac", "imported"),
+            ("corrupt.flac", "held"),
+            ("lower.mp3", "held"),
+        ]
+        .map(|(path, state)| (path.to_owned(), state.to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn held_album_assembly_never_guesses_a_repeated_recordings_slot() {
+    let (rig, held, _, _) = held_assembly_case(true).await;
+    let viewer = HeldViewer {
+        user_id: "u-ada".to_owned(),
+        admin: false,
+    };
+    let error = rig
+        .acquire
+        .held
+        .match_album(&viewer, 1, GOOD_GROUP, None, "u-ada")
+        .await
+        .expect_err("one fingerprint cannot pick between the two slots");
+    assert!(
+        error
+            .to_string()
+            .starts_with("Could not verify 1 of this edition's tracks")
+    );
+    for name in ["conflicting.flac", "best.flac", "lower.mp3", "corrupt.flac"] {
+        assert!(held.join(name).is_file(), "{name} stays held");
+    }
+    assert_eq!(files_under(&rig.music, "flac").len(), 1);
+    let held_count: i64 = rig.acquire.db.db().one(
+        "SELECT COUNT(*) FROM acquire_held_files WHERE state = 'held'",
+        [],
+    );
+    assert_eq!(held_count, 4);
+}
+
+#[tokio::test]
+async fn held_album_assembly_keeps_files_the_publisher_cannot_place() {
+    let (rig, held, _, _) = held_assembly_case(false).await;
+    let occupied = rig.music.join("kept/0102 Sour Times.flac");
+    std::fs::write(&occupied, b"already here").expect("occupied destination");
+    let viewer = HeldViewer {
+        user_id: "u-ada".to_owned(),
+        admin: false,
+    };
+    let result = rig
+        .acquire
+        .held
+        .match_album(&viewer, 1, GOOD_GROUP, None, "u-ada")
+        .await
+        .expect("the other verified file can still publish");
+    assert_eq!(result.imported, 1);
+    assert!(held.join("conflicting.flac").is_file());
+    assert!(held.join("lower.mp3").is_file());
+    assert!(held.join("corrupt.flac").is_file());
+    assert_eq!(std::fs::read(occupied).unwrap(), b"already here");
+    let state: String = rig.acquire.db.db().one(
+        "SELECT state FROM acquire_held_files WHERE path = 'conflicting.flac'",
+        [],
+    );
+    assert_eq!(state, "held");
+}
+
+/// The selected copy changes edition during audio verification. The
+/// publisher puts the files back even though the copy's folder still fits.
+#[tokio::test]
+async fn held_album_assembly_does_not_publish_on_a_changed_edition() {
+    let (rig, held, copy, fingerprint) = held_assembly_case(false).await;
+    let db = rig.acquire.db.db().clone();
+    *fingerprint.changed.lock().unwrap() = Some(Box::new(move || {
+        db.run_sql(&format!(
+            "UPDATE local_album_external_identities SET release_mbid = '{BAD_RELEASE}' \
+             WHERE local_album_id = '{copy}'"
+        ))
+        .expect("edition selection changes");
+    }));
+    let viewer = HeldViewer {
+        user_id: "u-ada".to_owned(),
+        admin: false,
+    };
+    let refused = rig
+        .acquire
+        .held
+        .match_album(&viewer, 1, GOOD_GROUP, None, "u-ada")
+        .await
+        .expect_err("the chosen release changed");
+    assert!(
+        refused
+            .to_string()
+            .contains(Reason::LibraryChanged.message())
+    );
+    for name in ["conflicting.flac", "best.flac", "lower.mp3", "corrupt.flac"] {
+        assert!(held.join(name).is_file(), "{name} stays held");
+    }
+    assert_eq!(files_under(&rig.music, "flac").len(), 1);
+    let held_count: i64 = rig.acquire.db.db().one(
+        "SELECT COUNT(*) FROM acquire_held_files WHERE state = 'held'",
+        [],
+    );
+    assert_eq!(held_count, 4);
 }

@@ -572,6 +572,16 @@ fn adopt_track(
         Some(join) => joined_album(conn, join)?,
         None => None,
     };
+    if let Some(join) = &adoption.join
+        && join.require_edition
+        && joined
+            .as_ref()
+            .is_none_or(|joined| !joined.placed || joined.album_id != join.album_id)
+    {
+        return Err(PublishError::JoinChanged(
+            "the chosen copy or edition changed while its held files were placed".into(),
+        ));
+    }
     if adoption.join.is_some() {
         let at_path: Option<(String, String)> = conn
             .query_row(

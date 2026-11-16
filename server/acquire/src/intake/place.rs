@@ -33,10 +33,39 @@ pub async fn place(
     pairing: Pairing,
     heard: Option<HashMap<String, Vec<String>>>,
 ) -> Result<Placement, Deferred> {
+    place_inner(library, batch, pairing, heard, false).await
+}
+
+/// Publish a verified assembly only while its exact copy and edition hold.
+pub(crate) async fn place_on_edition(
+    library: &dyn LandingLibrary,
+    batch: &IntakeBatch,
+    pairing: Pairing,
+) -> Result<Placement, Deferred> {
+    place_inner(library, batch, pairing, None, true).await
+}
+
+async fn place_inner(
+    library: &dyn LandingLibrary,
+    batch: &IntakeBatch,
+    pairing: Pairing,
+    heard: Option<HashMap<String, Vec<String>>>,
+    require_edition: bool,
+) -> Result<Placement, Deferred> {
     let mut answers = Answers::new(heard);
     let mut retried = false;
     loop {
-        let planned = plan(library, batch, &pairing, &mut answers).await?;
+        let mut planned = plan(library, batch, &pairing, &mut answers).await?;
+        if require_edition {
+            let Some(join) = planned.join.as_mut() else {
+                return Err(Deferred {
+                    reason: Reason::LibraryChanged,
+                    detail: "the chosen copy for the held assembly was not available".to_owned(),
+                    outage: false,
+                });
+            };
+            join.require_edition = true;
+        }
         let failure = match import(library, batch, &pairing, planned).await {
             Ok(placement) => return Ok(placement),
             Err(failure) => failure,
@@ -456,11 +485,13 @@ async fn plan(
             album_id: copy.album_id.clone(),
             release_mbid: copy.release_mbid.clone(),
             replaced: replaced_versions,
+            require_edition: false,
         }),
         (None, [(album_id, release_mbid)]) if !release_mbid.is_empty() => Some(ImportJoin {
             album_id: album_id.clone(),
             release_mbid: release_mbid.clone(),
             replaced: Vec::new(),
+            require_edition: false,
         }),
         _ => None,
     };
