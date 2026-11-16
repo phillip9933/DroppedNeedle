@@ -46,7 +46,7 @@ use super::search_jobs::pinned;
 use super::slskd::folders::RankRequest;
 use super::slskd::{EnqueueFile, ReqwestSlskdHttp, SlskdRepository};
 use super::target::reasons::TrackReason;
-use super::target::releases::order_releases;
+use super::target::releases::{order_releases, release_fit};
 use super::target::soulseek::{self, SoulseekMiss};
 use super::target::{SearchTarget, TargetError, Targets};
 use super::usenet::indexer::{Indexer, IndexerQuery};
@@ -539,9 +539,9 @@ impl SabnzbdSource {
         }
     }
 
-    /// What an automatic pick has to go on: [`Self::listed`] split into the
-    /// releases it may take and those outside the download settings. Nobody
-    /// waits on a pick, so the indexers are asked at background priority.
+    /// Automatic album picks require title evidence before checking what
+    /// the download settings allow. The indexers are asked at background
+    /// priority.
     async fn candidates(
         &self,
         query: &IndexerQuery<'_>,
@@ -559,6 +559,10 @@ impl SabnzbdSource {
         self.listed(query, RequestPriority::BackgroundSync)
             .await
             .into_iter()
+            .filter(|hit| match query {
+                IndexerQuery::Album(target) => release_fit(hit, target).names_album(),
+                IndexerQuery::Track { .. } => true,
+            })
             .partition(|hit| self.refusals(hit, &names).is_empty())
     }
 
@@ -810,29 +814,41 @@ impl SabnzbdSource {
         }
         let blocked = blocklist(&self.journal, &SourceTag::Usenet).await?;
         let pick = match pin {
-            // The release a person picked, found again by its identity (even
-            // outside the download settings: they judged it): the NZB link
-            // is never stored.
-            Some(Pin::Release { identity }) => self
-                .unblocked_albums(&target, &blocked, RequestPriority::BackgroundSync)
-                .await
-                .into_iter()
-                .find(|hit| usenet_identity(&hit.usenet.title, hit.usenet.size_bytes) == identity)
-                .ok_or_else(|| {
-                    SourceError::rejected(
+            // Find the saved pick again by identity: the NZB link is never
+            // stored. A person's pick can be outside the settings.
+            Some(Pin::Release { identity }) => {
+                let hit = self
+                    .unblocked_albums(&target, &blocked, RequestPriority::BackgroundSync)
+                    .await
+                    .into_iter()
+                    .find(|hit| {
+                        usenet_identity(&hit.usenet.title, hit.usenet.size_bytes) == identity
+                    })
+                    .ok_or_else(|| {
+                        SourceError::rejected(
+                            Reason::NoSource,
+                            "The selected Usenet release is no longer listed by your indexers.",
+                        )
+                    })?;
+                if !task.picked_by_person && !release_fit(&hit, &target).names_album() {
+                    return Err(SourceError::rejected(
                         Reason::NoSource,
-                        "The Usenet release you picked is no longer listed by your indexers.",
-                    )
-                })?,
+                        "The saved Usenet result does not clearly name the requested album.",
+                    ));
+                }
+                hit
+            }
             _ => {
                 let tried = tried_releases(&self.journal, task_id, &SourceTag::Usenet).await?;
                 self.pick(&task, &target, &automatic, &tried)
                     .await
                     .map_err(|reason| {
-                        SourceError::rejected(
-                            reason,
-                            format!("usenet has no candidate {candidate_index} for {task_id}"),
-                        )
+                        let detail = if reason == Reason::NoSource && target.track.is_none() {
+                            "No untried Usenet result clearly names the requested album.".to_owned()
+                        } else {
+                            format!("usenet has no candidate {candidate_index} for {task_id}")
+                        };
+                        SourceError::rejected(reason, detail)
                     })?
             }
         };

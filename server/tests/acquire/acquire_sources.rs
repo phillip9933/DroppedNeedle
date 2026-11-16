@@ -371,22 +371,28 @@ async fn slskd_still_enqueues_a_human_pinned_candidate_without_a_tracklist() {
     );
 }
 
-/// A Newznab feed with one release whose NZB the SABnzbd mock serves.
-fn feed(nzb_url: &str) -> Router {
-    let body = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
- <channel>
-  <newznab:response offset="0" total="1"/>
-  <item>
-   <title>Portishead - Dummy (1994) [FLAC]</title>
-   <guid>dummy-flac</guid>
+/// A Newznab feed whose releases share the SABnzbd mock's NZB.
+fn feed_releases(nzb_url: &str, titles: &[&str]) -> Router {
+    let items: String = titles
+        .iter()
+        .enumerate()
+        .map(|(index, title)| {
+            format!(
+                r#"<item>
+   <title>{title}</title>
+   <guid>test-release-{index}</guid>
    <enclosure url="{nzb_url}" length="314572800" type="application/x-nzb"/>
    <newznab:attr name="category" value="3040"/>
    <newznab:attr name="size" value="314572800"/>
    <newznab:attr name="files" value="12"/>
-  </item>
- </channel>
+  </item>"#
+            )
+        })
+        .collect();
+    let body = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+ <channel>{items}</channel>
 </rss>"#
     );
     Router::new().route(
@@ -408,9 +414,12 @@ fn feed(nzb_url: &str) -> Router {
 async fn sabnzbd_conforms() {
     let mock = SabnzbdMock::new();
     let (sab, _sab_server) = serve_loopback(mock.router()).await.expect("mock serves");
-    let (indexer, _indexer_server) = serve_loopback(feed(&format!("{sab}/nzb/good")))
-        .await
-        .expect("feed serves");
+    let (indexer, _indexer_server) = serve_loopback(feed_releases(
+        &format!("{sab}/nzb/good"),
+        &["Portishead - Dummy (1994) [FLAC]"],
+    ))
+    .await
+    .expect("feed serves");
     let dir = ScratchDir::new("source-sabnzbd");
     let mount = dir.join("complete");
     let policy = UsenetPolicy::v2_defaults();
@@ -506,6 +515,214 @@ async fn usenet_does_not_auto_enqueue_an_album_without_its_tracklist() {
     assert!(matches!(error, SourceError::Unavailable(_)), "{error}");
     assert!(mock.state().add_file_requests.is_empty());
     assert!(mock.state().add_url_requests.is_empty());
+}
+
+/// An automatic Usenet pick needs album evidence even after a better
+/// release was tried. A person can still take an ambiguous result.
+#[tokio::test]
+async fn usenet_automatic_picks_require_album_evidence() {
+    use droppedneedle_acquire::downloads::{sources::SourceError, state::AttemptState};
+    use droppedneedle_acquire::reason::Reason;
+    use droppedneedle_acquire::search_jobs::candidates::{CandidateNoteCode, CandidateTier};
+    use droppedneedle_acquire::search_jobs::store::{JobPayload, JobStatus, JobStore, NewJob};
+    use droppedneedle_acquire::usenet::newznab::usenet_identity;
+
+    const TASK: &str = "t-album-evidence";
+    const WRONG: &str = "The Smiths - Hatful of Hollow [FLAC]";
+    const RIGHT: &str = "The.Smiths.-.The.Smiths.[FLAC]";
+    const SIZE: u64 = 314_572_800;
+    let mock = SabnzbdMock::new();
+    let (sab, _sab_server) = serve_loopback(mock.router()).await.expect("mock serves");
+    let (indexer, _indexer_server) = serve_loopback(feed_releases(
+        &format!("{sab}/nzb/good"),
+        &[
+            WRONG,
+            RIGHT,
+            "Spirit [FLAC]",
+            "Bjork-Joga.[FLAC]",
+            "Homogenic [FLAC]",
+        ],
+    ))
+    .await
+    .expect("indexer serves");
+    let dir = ScratchDir::new("source-usenet-album-evidence");
+    let policy = UsenetPolicy::v2_defaults();
+    let queue = SabnzbdQueue::new(
+        SabnzbdClient::new(
+            reqwest::Client::new(),
+            grab_http(),
+            &sab,
+            "SABKEY",
+            3,
+            Duration::from_millis(1),
+        ),
+        &sab,
+        "SABKEY",
+        dir.join("complete"),
+        policy.clone(),
+    );
+    let journal = journal_with_task(TASK, "The Smiths", "The Smiths").await;
+    let source = SabnzbdSource::new(
+        Arc::new(queue),
+        vec![Arc::new(NewznabIndexer::new(
+            vec![NewznabIndexerEntry {
+                client: newznab_indexers().client(
+                    "test",
+                    "Test",
+                    &format!("{indexer}/api"),
+                    "NZKEY",
+                ),
+                id: "test".to_owned(),
+                name: "Test".to_owned(),
+                categories: vec![3040],
+                enabled: true,
+                priority: 1,
+                limit: 100,
+            }],
+            WAIT,
+            WAIT,
+        ))],
+        policy,
+        journal.clone(),
+        None,
+        targets_with_dummy_tracklist(&journal, &[TASK]).await,
+    );
+
+    let correct = source
+        .enqueue(TASK, 0)
+        .await
+        .expect("the matching title enqueues");
+    assert_eq!(correct.release_identity, usenet_identity(RIGHT, SIZE));
+    let tried = serde_json::to_string(&correct).expect("handle encodes");
+    journal
+        .run("test.tried", move |store| {
+            store.insert_attempt(
+                "tried",
+                TASK,
+                "usenet",
+                0,
+                &correct.job_name,
+                &tried,
+                AttemptState::Complete,
+                1_700_000_000.0,
+            )
+        })
+        .await
+        .expect("first attempt recorded");
+    let miss = source
+        .enqueue(TASK, 1)
+        .await
+        .expect_err("ambiguous title cannot fill in");
+    assert!(
+        matches!(
+            miss,
+            SourceError::Rejected {
+                reason: Reason::NoSource,
+                ..
+            }
+        ),
+        "{miss}"
+    );
+    assert_eq!(mock.state().add_file_requests.len(), 1);
+    mock.state().queue_slots.clear();
+
+    for (artist, title, published, note) in [
+        (
+            "Artist",
+            "It",
+            "Spirit [FLAC]",
+            "The release title does not clearly name this album.",
+        ),
+        (
+            "Björk",
+            "Jóga",
+            "Bjork-Joga.[FLAC]",
+            "The release title names this album and artist.",
+        ),
+        (
+            "Björk",
+            "Homogenic",
+            "Homogenic [FLAC]",
+            "The release title names this album but not the artist.",
+        ),
+    ] {
+        let listed = source
+            .search(&album(artist, title))
+            .await
+            .expect("manual search");
+        assert_eq!(
+            listed
+                .iter()
+                .find(|hit| hit.view.title == published)
+                .expect("candidate listed")
+                .view
+                .note
+                .text,
+            note,
+        );
+    }
+
+    let candidates = source
+        .search(&album("The Smiths", "The Smiths"))
+        .await
+        .expect("searches");
+    let wrong = candidates
+        .iter()
+        .find(|hit| hit.view.title == WRONG)
+        .expect("still listed");
+    assert_eq!(wrong.view.tier, CandidateTier::Possible);
+    assert_eq!(wrong.view.note.code, CandidateNoteCode::TitleUnclear);
+    assert!(!wrong.is_refused());
+    let jobs = JobStore::new(journal.db().clone());
+    jobs.insert(NewJob {
+        id: "job-evidence".to_owned(),
+        user_id: "u1".to_owned(),
+        artist_name: "The Smiths".to_owned(),
+        album_title: "The Smiths".to_owned(),
+        year: None,
+        release_group_mbid: Some("rg-1".to_owned()),
+        release_mbid: None,
+    })
+    .await
+    .expect("job inserts");
+    jobs.finish(
+        "job-evidence",
+        JobStatus::Completed,
+        JobPayload {
+            candidates: vec![wrong.clone()],
+            ..JobPayload::default()
+        },
+        None,
+    )
+    .await
+    .expect("job finished");
+
+    for picked_by_person in [false, true] {
+        journal
+            .run("test.link_candidate", move |store| {
+                store.link_candidate(
+                    TASK,
+                    "usenet",
+                    None,
+                    "job-evidence",
+                    0,
+                    picked_by_person,
+                    1_700_000_000.0,
+                )
+            })
+            .await
+            .expect("pin links");
+        let result = source.enqueue(TASK, 0).await;
+        if picked_by_person {
+            assert_eq!(
+                result.expect("a person's pick is allowed").release_identity,
+                usenet_identity(WRONG, SIZE)
+            );
+        } else {
+            assert!(result.is_err(), "a stale automatic pick is rejected");
+            assert_eq!(mock.state().add_file_requests.len(), 1);
+        }
+    }
 }
 
 /// A native indexer's release is fetched through that indexer's client, so
