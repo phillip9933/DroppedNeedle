@@ -17,10 +17,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use droppedneedle_acquire::db::AcquireDb;
-use droppedneedle_acquire::downloads::SourceTag;
 use droppedneedle_acquire::downloads::journal::Journal;
 use droppedneedle_acquire::downloads::sources::{DownloadSource as _, SourceHandle};
 use droppedneedle_acquire::downloads::store::NewTask;
+use droppedneedle_acquire::downloads::{SourceTag, TaskPlan};
 use droppedneedle_acquire::target::{SearchTarget, soulseek};
 use droppedneedle_kernel::runtime_config::secret_sections::SlskdConnection;
 use droppedneedle_kernel::runtime_config::sections::{
@@ -868,26 +868,18 @@ async fn failover_walks_every_peer() {
     use droppedneedle_acquire::sources::SlskdSource;
 
     let mock = MockSlskd::start().await.expect("mock starts");
+    let mut partial = album_peer("bob", "mp3");
+    partial["files"].as_array_mut().expect("files").pop();
+    partial["fileCount"] = 1.into();
+    let mut below_band = album_peer("charlie", "mp3");
+    for file in below_band["files"].as_array_mut().expect("files") {
+        file["bitRate"] = 128.into();
+    }
+    mock.script_responses(vec![album_peer("alice", "flac"), partial, below_band]);
     let db = AcquireDb::scratch().expect("scratch db");
     db.add_user("u1", "U", "user").await.expect("user seeds");
-    let journal = std::sync::Arc::new(Journal::new(db, quiet_ticks()));
-    journal
-        .run("test.seed", |store| {
-            store.insert_task(
-                &NewTask {
-                    id: "t1".to_owned(),
-                    user_id: "u1".to_owned(),
-                    artist_name: "Massive Attack".to_owned(),
-                    album_title: "Blue Lines".to_owned(),
-                    release_group_mbid: "rg-1".to_owned(),
-                    origin: "user".to_owned(),
-                    retry_count: 0,
-                },
-                1.0,
-            )
-        })
-        .await
-        .expect("task seeds");
+    let journal = Arc::new(Journal::new(db, quiet_ticks()));
+    seed_album_task(&journal, "t1").await;
     let source = SlskdSource::new(
         std::sync::Arc::new(repository(&mock)),
         journal.clone(),
@@ -942,7 +934,7 @@ async fn failover_walks_every_peer() {
         "no peer is tried twice: {peers:?}"
     );
     // Charlie's 128 kbps MP3 is below the default band, so it is never
-    // offered; every other canned peer is tried.
+    // offered; every other peer is tried.
     assert_eq!(
         distinct,
         ["alice", "bob"],
@@ -1021,6 +1013,15 @@ async fn seed_album_task(journal: &Journal, task_id: &'static str) {
                     retry_count: 0,
                 },
                 1_000.0,
+            )?;
+            store.set_task_plan(
+                task_id,
+                &TaskPlan {
+                    release_mbid: Some("44444444-4444-4444-8444-444444444444".to_owned()),
+                    expected_tracks: two_track_album().tracklist,
+                    ..TaskPlan::default()
+                },
+                1_000.0,
             )
         })
         .await
@@ -1070,21 +1071,12 @@ async fn soulseek_picks_follow_the_saved_quality_policy() {
         droppedneedle_kernel::events::EventHub::new(),
     )
     .await;
-    let target = SearchTarget {
-        artist: "Artist".to_owned(),
-        album_title: "Album".to_owned(),
-        year: None,
-        tracklist: Vec::new(),
-        wanted: Vec::new(),
-        track: None,
-    };
-
     seed_album_task(&journal, "task-mp3-only").await;
     worker.run_once(1).await;
     assert_eq!(enqueued_peer(&journal, "task-mp3-only").await, "lossy");
     let sources = worker.sources_now();
     let offered: Vec<(String, bool)> = sources[0]
-        .search(&target)
+        .search(&two_track_album())
         .await
         .expect("search runs")
         .into_iter()
