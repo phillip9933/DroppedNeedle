@@ -1250,7 +1250,7 @@ impl HeldService {
                         .announce_import(&release.release_group_id, count, job_source(entry));
                     self.drops.tidy_item(item).await;
                 }
-                (None, Some(task)) => self.settle_task(&library, &task, &release).await,
+                (None, Some(task)) => self.settle_task(&library, &task, &release, None).await,
                 (None, None) => {}
             }
         }
@@ -1487,42 +1487,22 @@ impl HeldService {
             return Err(refused(Reason::NoRelease));
         }
 
-        let held_root = self.folders.held.clone();
-        let skip = canonical_dirs(&library.library_dirs());
-        let files = files.to_vec();
-        let (root, verified) = tokio::task::spawn_blocking(move || {
-            let root = std::fs::canonicalize(held_root)?;
-            let mut paths: HashMap<PathBuf, HeldFile> = files
-                .into_iter()
-                .filter_map(|file| {
-                    let path = super::below(&root, &file.path)?;
-                    std::fs::symlink_metadata(&path)
-                        .ok()?
-                        .is_file()
-                        .then_some((path, file))
-                })
-                .collect();
-            let candidates: Vec<PathBuf> = paths.keys().cloned().collect();
-            let landing = probe::probe_beneath(&candidates, &skip, Some(&root));
-            if landing.truncated {
-                return Ok((root, None));
-            }
-            let audio = landing
-                .audio
-                .into_iter()
-                .filter_map(|audio| paths.remove(&audio.path).map(|file| (file, audio)))
-                .collect::<Vec<_>>();
-            Ok::<_, std::io::Error>((root, Some(audio)))
-        })
-        .await
-        .map_err(|error| HeldError::Unavailable(error.to_string()))?
-        .map_err(|error| HeldError::Unavailable(error.to_string()))?;
-        let Some(verified) = verified else {
+        if files.len() > probe::MAX_FILES {
             return Err(HeldError::Refused(
                 "This entry has too many files to assemble at once. Match the files separately."
                     .to_owned(),
             ));
-        };
+        }
+        let held_root = self.folders.held.clone();
+        let skip = canonical_dirs(&library.library_dirs());
+        let candidates = files.to_vec();
+        let (snapshots, verified) = tokio::task::spawn_blocking(move || {
+            super::assembly::snapshot(&held_root, candidates, &skip)
+        })
+        .await
+        .map_err(|error| HeldError::Unavailable(error.to_string()))?
+        .map_err(|error| HeldError::Unavailable(error.to_string()))?;
+        let snapshots = Arc::new(snapshots);
         let (slots, audio_error) =
             super::assembly::best_copies(library.as_ref(), &release, &verified).await;
         let owned = library.owned(group, Some(&copy.album_id)).await;
@@ -1565,18 +1545,23 @@ impl HeldService {
         let mut audio = Vec::with_capacity(chosen_files.len());
         for index in chosen_files {
             let (file, landed) = &verified[index];
-            records.push(file.clone());
+            let original = super::below(&snapshots.held_root, &file.path)
+                .ok_or_else(|| HeldError::Refused("Invalid held assembly path.".to_owned()))?;
+            records.push((file.clone(), original.clone()));
+            let mut landed = landed.clone();
+            landed.path = original;
             audio.push(IntakeFile {
-                file: landed.clone(),
+                file: landed,
                 held_for: None,
             });
         }
         let staging = staging_name(entry);
+        let album_id = copy.album_id;
         let batch = IntakeBatch {
             files: audio,
             target: intake::Target {
                 join: Some(PlannedAlbum {
-                    album_id: copy.album_id,
+                    album_id: album_id.clone(),
                     release_mbid: pin,
                     replace: Vec::new(),
                 }),
@@ -1587,13 +1572,20 @@ impl HeldService {
                 task_id: staging.clone(),
                 upgrade: false,
                 staging: Some(staging),
-                downloads_folders: Some(vec![root]),
+                downloads_folders: None,
             },
             gate: Gate::PersonChoseAlbum,
             owner: actor.map(str::to_owned),
             sidecars: Vec::new(),
         };
-        let placement = intake::place_on_edition(library.as_ref(), &batch, pairing).await.map_err(|deferred| {
+        let placement = intake::place_on_edition(
+            library.as_ref(),
+            &batch,
+            pairing,
+            snapshots.clone(),
+        )
+        .await
+        .map_err(|deferred| {
             tracing::warn!(entry_id = entry.id, detail = %deferred.detail, "held assembly refused");
             if deferred.reason == Reason::JournalUnreadable {
                 HeldError::Busy("held assembly import".to_owned())
@@ -1602,16 +1594,39 @@ impl HeldService {
             }
         })?;
         let mut acted = Acted::default();
-        let mut consumed = Vec::new();
-        for (file, outcome) in records.into_iter().zip(placement.outcomes) {
+        let mut placed = Vec::new();
+        for ((file, original), outcome) in records.into_iter().zip(placement.outcomes) {
             match outcome {
-                Outcome::Imported { .. } => consumed.push(file),
+                Outcome::Imported { .. } => placed.push((file, original)),
                 Outcome::Held { reason, .. } => acted.held.push(reason),
                 Outcome::AlreadyOwned { .. } | Outcome::Untouched => acted.held.push(file.reason),
             }
         }
-        acted.imported = consumed.len();
-        let imported: Vec<i64> = consumed.iter().map(|file| file.id).collect();
+        acted.imported = placed.len();
+        let (imported, remaining) = tokio::task::spawn_blocking(move || {
+            let mut imported = Vec::new();
+            let mut remaining = Vec::new();
+            for (file, original) in placed {
+                match super::assembly::consume(&snapshots, &original) {
+                    Ok(true) => imported.push(file.id),
+                    Ok(false) => remaining.push(file.reason),
+                    Err(error) => {
+                        tracing::warn!(file_id = file.id, %error, "held assembly original not removed");
+                        remaining.push(file.reason);
+                    }
+                }
+            }
+            (imported, remaining)
+        })
+        .await
+        .map_err(|error| self.record_failed(entry.id, HeldError::Unavailable(error.to_string())))?;
+        if !remaining.is_empty() {
+            acted.message = Some(
+                "Imported the verified copies. Some originals changed or could not be removed and remain held."
+                    .to_owned(),
+            );
+            acted.held.extend(remaining);
+        }
         let (entry_id, now) = (entry.id, self.now());
         self.write("held.assembly", move |rows, _| {
             rows.resolve(entry_id, &imported, FileState::Imported, now)?;
@@ -1619,10 +1634,9 @@ impl HeldService {
         })
         .await
         .map_err(|error| self.record_failed(entry_id, error))?;
-        self.consume(entry, &consumed).await;
         if acted.imported > 0 {
             for task in &tasks {
-                self.settle_task(&library, task, &batch.target.release)
+                self.settle_task(&library, task, &batch.target.release, Some(&album_id))
                     .await;
             }
         }
@@ -1800,7 +1814,7 @@ impl HeldService {
             if let Some(task) = task
                 && acted.imported > 0
             {
-                self.settle_task(&library, &task, &release).await;
+                self.settle_task(&library, &task, &release, None).await;
             }
         }
         Ok(acted)
@@ -1814,6 +1828,7 @@ impl HeldService {
         library: &Arc<dyn LandingLibrary>,
         task: &TaskRow,
         release: &Release,
+        exact_copy: Option<&str>,
     ) {
         if !matches!(task.status, TaskStatus::Failed | TaskStatus::Partial) {
             return;
@@ -1832,14 +1847,15 @@ impl HeldService {
             }
         }
         if task.download_type != "track" {
-            let owned = library.owned(&release.release_group_id, None).await;
+            let owned = library.owned(&release.release_group_id, exact_copy).await;
             let whole = release.tracks.iter().all(|track| {
                 owned
                     .release_tracks
                     .contains(&track.id.to_ascii_lowercase())
-                    || owned
-                        .recordings
-                        .contains(&track.recording_id.to_ascii_lowercase())
+                    || (exact_copy.is_none()
+                        && owned
+                            .recordings
+                            .contains(&track.recording_id.to_ascii_lowercase()))
             });
             if !whole {
                 return;
@@ -2046,14 +2062,16 @@ impl HeldService {
                     continue;
                 }
             };
+            let placed = Arc::new(placed);
             let mut committed = Vec::new();
             let mut absent = Vec::new();
             for file in &entry.files {
                 let Ok(Some(path)) = self.located(&entry, file).await else {
                     continue;
                 };
-                // A discard cut off after it removed the copy: the row goes
-                // too. A folder that is not there says nothing about a file.
+                // A cut-off action may have already unlinked the held
+                // file. Its publisher record distinguishes an import from
+                // a discard. An unavailable folder says nothing about it.
                 let folder_there = match self.folders.dir(file.root) {
                     Some(dir) => tokio::fs::try_exists(dir).await.unwrap_or(false),
                     None => true,
@@ -2064,16 +2082,63 @@ impl HeldService {
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound
                     )
                 {
+                    if file.root == HeldRoot::Held {
+                        let relative = file.path.clone();
+                        let original = path.clone();
+                        let placed = placed.clone();
+                        let published = tokio::task::spawn_blocking(move || {
+                            let (_, real) = real_held_path(&original, &relative)?;
+                            Ok::<_, std::io::Error>(
+                                placed.contains_path(&original) || placed.contains_path(&real),
+                            )
+                        })
+                        .await;
+                        match published {
+                            Ok(Ok(true)) => {
+                                committed.push(file.clone());
+                                continue;
+                            }
+                            Ok(Ok(false)) => {}
+                            Ok(Err(error)) => {
+                                tracing::debug!(file_id = file.id, %error, "cut-off held folder unavailable");
+                                continue;
+                            }
+                            Err(error) => {
+                                tracing::warn!(file_id = file.id, %error, "cut-off held folder check did not run");
+                                continue;
+                            }
+                        }
+                    }
                     absent.push(file.id);
                     continue;
                 }
                 let relative = file.path.clone();
                 let original = path.clone();
-                let hashed = tokio::task::spawn_blocking(move || hash_held(&path, &relative)).await;
-                if let Ok(Ok((real, sha))) = hashed
-                    && (placed.contains(&original, &sha) || placed.contains(&real, &sha))
-                {
-                    committed.push(file.clone());
+                let own_held_copy = file.root == HeldRoot::Held;
+                let placed = placed.clone();
+                let matched = tokio::task::spawn_blocking(move || {
+                    let (root, real, hashed) = hash_held(&path, &relative)?;
+                    if !placed.contains(&original, &hashed.sha256)
+                        && !placed.contains(&real, &hashed.sha256)
+                    {
+                        return Ok(false);
+                    }
+                    if own_held_copy {
+                        confine::remove_beneath_if_unchanged(&[root], &real, &hashed)
+                    } else {
+                        Ok(true)
+                    }
+                })
+                .await;
+                match matched {
+                    Ok(Ok(true)) => committed.push(file.clone()),
+                    Ok(Ok(false)) => {}
+                    Ok(Err(error)) => {
+                        tracing::debug!(file_id = file.id, %error, "cut-off held file kept");
+                    }
+                    Err(error) => {
+                        tracing::warn!(file_id = file.id, %error, "cut-off held file check did not run");
+                    }
                 }
             }
             let ids: Vec<i64> = committed.iter().map(|file| file.id).collect();
@@ -2096,6 +2161,7 @@ impl HeldService {
                         imported = committed.len(),
                         "held action cut off by a restart finished"
                     );
+                    committed.retain(|file| file.root != HeldRoot::Held);
                     self.consume(&entry, &committed).await;
                     self.forget_cut_off(entry_id);
                 }
@@ -2286,10 +2352,15 @@ fn refused(reason: Reason) -> HeldError {
     HeldError::Refused(format!("{} {}", reason.message(), reason.action()))
 }
 
-/// The real path and SHA-256 of the held file at `path`, at `relative` below
-/// its folder: read beneath that folder's real path, never through a link
-/// below it. Blocking.
-fn hash_held(path: &Path, relative: &str) -> std::io::Result<(PathBuf, String)> {
+/// The real path and hash of the held file at `relative` below its
+/// resolved folder, along with the folder for a confined unlink. Blocking.
+fn hash_held(path: &Path, relative: &str) -> std::io::Result<(PathBuf, PathBuf, confine::Hashed)> {
+    let (root, at) = real_held_path(path, relative)?;
+    let hash = confine::hash_beneath(std::slice::from_ref(&root), &at)?;
+    Ok((root, at, hash))
+}
+
+fn real_held_path(path: &Path, relative: &str) -> std::io::Result<(PathBuf, PathBuf)> {
     let depth = Path::new(relative).components().count();
     let folder = path
         .ancestors()
@@ -2299,8 +2370,7 @@ fn hash_held(path: &Path, relative: &str) -> std::io::Result<(PathBuf, String)> 
     let real = std::fs::canonicalize(folder)?;
     let at = super::below(&real, relative)
         .ok_or_else(|| std::io::Error::other("held file path is not below its folder"))?;
-    let hash = confine::hash_beneath(&[real], &at)?.sha256;
-    Ok((at, hash))
+    Ok((real, at))
 }
 
 /// Read files off the async workers, never entering the library.

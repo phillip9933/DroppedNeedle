@@ -507,15 +507,22 @@ impl LandingLibrary for LibraryLanding {
             };
             let join = request.join;
             let beneath = request.read_beneath;
+            let verified = request.verified_sources;
             let sidecars = request.sidecars;
-            let done = tokio::task::spawn_blocking(move || match beneath {
-                Some(folders) => library.import_with_sidecars(
+            let done = tokio::task::spawn_blocking(move || match (verified, beneath) {
+                (Some(verified), _) => library.import_with_sidecars(
+                    &import,
+                    join,
+                    &|path| verified.open(path),
+                    &sidecars,
+                ),
+                (None, Some(folders)) => library.import_with_sidecars(
                     &import,
                     join,
                     &|path| super::confine::open_beneath(&folders, path),
                     &sidecars,
                 ),
-                None => library.import_download_joined(&import, join),
+                (None, None) => library.import_download_joined(&import, join),
             })
             .await
             .map_err(|error| ImportFailure::LocalFault(format!("import did not run: {error}")))?;

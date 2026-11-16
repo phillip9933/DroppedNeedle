@@ -277,6 +277,7 @@ impl Rig {
                 origin: ImportOrigin::Folder,
                 staging: None,
                 read_beneath: Some(vec![self.folder()]),
+                verified_sources: None,
                 release: release(),
                 join: None,
                 files: files
