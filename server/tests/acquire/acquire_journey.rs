@@ -221,7 +221,16 @@ async fn acquire_request_and_follow_approvals() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn acquire_held_request_starts_when_a_source_is_saved() {
-    let app = TestApp::start("held").await;
+    // A definite metadata miss permits a group-only search; an outage waits.
+    let (metadata, _server) = droppedneedle_testkit::usenet::serve_loopback(
+        axum::Router::new().fallback(|| async { StatusCode::NOT_FOUND }),
+    )
+    .await
+    .expect("metadata mock starts");
+    let mut outbound = crate::common::closed_outbound();
+    outbound.musicbrainz = metadata.clone();
+    outbound.brainzmash = metadata;
+    let app = TestApp::start_with("held", outbound).await;
     let admin = app.login_admin().await;
     let molly = app.login_user("molly").await.authorization;
 
