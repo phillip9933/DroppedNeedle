@@ -194,7 +194,8 @@ pub trait DownloadSource: Send + Sync {
     -> BoxFuture<'a, Result<Landed, SourceError>>;
 
     /// Remove transfer/history records after local cleanup is durable.
-    /// Best-effort: callers log and continue on failure.
+    /// `true` confirms the full cleanup; `false` means it is incomplete or
+    /// unconfirmed, so cleanup must stay journaled for another pass.
     fn discard<'a>(&'a self, handle: &'a SourceHandle) -> BoxFuture<'a, Result<bool, SourceError>>;
 
     /// Abort a live batch. Returns false when nothing was running.

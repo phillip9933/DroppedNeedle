@@ -127,7 +127,7 @@ impl DownloadWorker {
             return;
         }
         match source.discard(&handle).await {
-            Ok(_) => {
+            Ok(true) => {
                 let attempt_id = attempt.id.clone();
                 let revision = attempt.row_revision;
                 let disposition = attempt.disposition;
@@ -143,6 +143,11 @@ impl DownloadWorker {
                     )
                 })
                 .await;
+            }
+            Ok(false) => {
+                tracing::warn!(attempt_id = %attempt.id, "cleanup discard was not confirmed");
+                self.defer_cleanup(attempt, "discard_not_confirmed", now)
+                    .await;
             }
             Err(error) => {
                 tracing::warn!(attempt_id = %attempt.id, %error, "cleanup discard failed");

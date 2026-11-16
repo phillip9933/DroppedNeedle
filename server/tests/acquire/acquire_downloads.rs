@@ -947,6 +947,94 @@ async fn failing_cleanup_shows_on_service_health_until_it_clears() {
     assert!(health.current(Instant::now()).is_empty());
 }
 
+#[tokio::test]
+async fn incomplete_discard_stays_pending_and_retries_until_confirmed() {
+    let db = AcquireDb::scratch().unwrap();
+    db.add_user("u1", "brief", "user").await.unwrap();
+    let journal = Arc::new(Journal::new(db.clone(), quiet_ticks()));
+    journal
+        .run("test.seed", |store| {
+            store.insert_task(&new_task("t1"), 1_000.0)?;
+            store.transition_task("t1", TaskStatus::Cancelled, 1_000.0, None)?;
+            store.insert_attempt(
+                "t1-a0",
+                "t1",
+                "plugin:fixed",
+                0,
+                "fixed-t1-0",
+                "{}",
+                AttemptState::CleanupPending,
+                1_000.0,
+            )?;
+            let attempt = store.get_attempt("t1-a0")?.unwrap();
+            store.transition_attempt(
+                "t1-a0",
+                attempt.row_revision,
+                AttemptState::CleanupPending,
+                1_000.0,
+                Some(AttemptDisposition::Discard),
+                None,
+                true,
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let dir = db.path().parent().unwrap().to_path_buf();
+    let platform = crate::common::TestPlatform::on(db.db(), &dir).build().await;
+    let (library, _) = crate::common::library::library_at(&platform);
+    let source = crate::common::acquire::FixedPlugin::install(&platform, library.core.clone());
+    source.serve(&dir.join("staging/downloads"), &[]);
+    // The source may have removed some of a batch but cannot confirm all
+    // client records are gone.
+    source.incomplete_discards(true);
+    let worker = crate::common::acquire::worker_with(
+        &platform,
+        source.host.clone(),
+        journal.clone(),
+        &platform.settings,
+        dir.join("slskd"),
+        Arc::new(droppedneedle_acquire::target::Targets::new(
+            journal.clone(),
+            Arc::new(crate::common::acquire::FixedAlbums::default()),
+        )),
+        Arc::new(droppedneedle_acquire::landing::LandingService::new(
+            journal.clone(),
+            Arc::new(
+                droppedneedle_acquire::landing::library::LibraryLanding::new(
+                    &library,
+                    library.imports.releases.clone(),
+                ),
+            ),
+            platform.settings.live(),
+            dir.join("held"),
+            platform.settings.live(),
+            platform.settings.live(),
+        )),
+        Default::default(),
+        droppedneedle_kernel::events::EventHub::new(),
+    );
+
+    worker.run_once(1).await;
+    let attempt = journal.read_attempts("t1").await.unwrap().remove(0);
+    assert_eq!(attempt.state, AttemptState::CleanupPending);
+    assert_eq!(attempt.disposition, AttemptDisposition::Discard);
+    assert_eq!(attempt.error_code.as_deref(), Some("discard_not_confirmed"));
+    assert_eq!(attempt.cleanup_failures, 1);
+
+    source.incomplete_discards(false);
+    db.write("test.due", |tx| {
+        tx.execute("UPDATE download_attempts SET next_retry_at = 0", [])?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    worker.run_once(2).await;
+    let attempt = journal.read_attempts("t1").await.unwrap().remove(0);
+    assert_eq!(attempt.state, AttemptState::Complete);
+    assert_eq!(attempt.disposition, AttemptDisposition::Discard);
+}
+
 const HELD_GROUP: &str = "6d0b7a1e-0000-4000-8000-0000000000a1";
 const HELD_RELEASE: &str = "6d0b7a1e-0000-4000-8000-0000000000a2";
 

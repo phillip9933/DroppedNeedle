@@ -186,6 +186,13 @@ impl FixedPlugin {
     pub fn fail_discards(&self, fail: bool) {
         self.connection.discard_fails.store(fail, Ordering::Relaxed);
     }
+
+    /// Make every later discard report that cleanup is incomplete.
+    pub fn incomplete_discards(&self, incomplete: bool) {
+        self.connection
+            .discard_incomplete
+            .store(incomplete, Ordering::Relaxed);
+    }
 }
 
 /// Save `settings`' download policy as `change` leaves it. The worker reads
@@ -323,6 +330,7 @@ struct FixedConnection {
     files: Mutex<Vec<PathBuf>>,
     searches: AtomicU64,
     discard_fails: AtomicBool,
+    discard_incomplete: AtomicBool,
 }
 
 impl FixedConnection {
@@ -370,6 +378,7 @@ impl FixedConnection {
                     fault: Fault::Local,
                 });
             }
+            methods::DISCARD if self.discard_incomplete.load(Ordering::Relaxed) => json!(false),
             methods::DISCARD | methods::ABORT => json!(true),
             _ => Value::Null,
         })
