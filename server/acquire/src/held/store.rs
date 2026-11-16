@@ -951,7 +951,19 @@ impl<'c> HeldRows<'c> {
             .collect()
     }
 
-    /// Every copy in the held folder an open entry still names.
+    /// Page the open downloads whose album has since appeared in the library.
+    pub fn duplicate_candidates(
+        &self,
+        after: i64,
+        limit: i64,
+    ) -> rusqlite::Result<Vec<(i64, Option<String>)>> {
+        let mut query = self.conn.prepare_cached(sql::DUPLICATE_CANDIDATES.text())?;
+        query
+            .query_map(params![after, limit], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect()
+    }
+
+    /// Every open held copy or resolved duplicate still named for recovery.
     pub fn held_folder_paths(&self) -> rusqlite::Result<HashSet<String>> {
         let mut statement = self.conn.prepare_cached(sql::HELD_FOLDER_PATHS.text())?;
         let rows = statement

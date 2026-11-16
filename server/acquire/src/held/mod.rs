@@ -23,6 +23,7 @@
 //! that folder is still the import folder.
 
 mod assembly;
+mod duplicates;
 pub mod http;
 pub mod service;
 pub mod sql;

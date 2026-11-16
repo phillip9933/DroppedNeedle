@@ -444,6 +444,37 @@ impl LandingLibrary for LibraryLanding {
         })
     }
 
+    fn audio_in_group<'a>(
+        &'a self,
+        group: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<(PathBuf, PathBuf)>, DbError>> {
+        Box::pin(async move {
+            let group = group.to_ascii_lowercase();
+            let files = self
+                .library
+                .db
+                .read("landing.group_audio", move |conn| {
+                    read_rows(conn, sql::GROUP_AUDIO.text(), [group], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })
+                    .map_err(DbError::from)
+                })
+                .await?;
+            let registry = self.library.core.live_registry();
+            Ok(files
+                .into_iter()
+                .filter_map(|(id, relative)| {
+                    let root = registry
+                        .roots()
+                        .iter()
+                        .find(|root| root.id == id && root.policy != EffectivePolicy::Excluded)?;
+                    let path = crate::held::below(&root.path, &relative)?;
+                    Some((root.path.clone(), path))
+                })
+                .collect())
+        })
+    }
+
     fn library_dirs(&self) -> Vec<PathBuf> {
         self.library
             .core

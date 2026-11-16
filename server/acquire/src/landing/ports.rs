@@ -340,6 +340,15 @@ pub trait LandingLibrary: Send + Sync {
         Box::pin(async { Ok(HashMap::new()) })
     }
 
+    /// Indexed audio paths and their roots from one already-owned album group.
+    /// Callers still have to open the physical file beneath its root.
+    fn audio_in_group<'a>(
+        &'a self,
+        _group: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<(PathBuf, PathBuf)>, DbError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
     /// The library root folders; landed paths inside them are refused.
     fn library_dirs(&self) -> Vec<PathBuf>;
 

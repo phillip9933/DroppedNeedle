@@ -18,6 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -59,6 +60,8 @@ const PRUNE_BATCH: i64 = 200;
 
 /// Entries one pass retries at most; the rest wait for the next.
 const RETRY_BATCH: i64 = 20;
+/// Entries with audio to compare in one prune pass.
+const DUPLICATE_BATCH: i64 = 20;
 
 /// Why an action on the held list did not happen. The sentences are shown
 /// as they are.
@@ -180,6 +183,7 @@ pub struct HeldService {
     /// Entries a restart found claimed: the action on them stopped part
     /// way, and the prune finishes them once the library's writes settle.
     cut_off: Mutex<Vec<i64>>,
+    duplicate_cursor: AtomicI64,
 }
 
 impl HeldService {
@@ -198,6 +202,7 @@ impl HeldService {
             folders,
             site,
             cut_off: Mutex::new(Vec::new()),
+            duplicate_cursor: AtomicI64::new(0),
         }
     }
 
@@ -1940,9 +1945,96 @@ impl HeldService {
     /// how many entries expired.
     pub async fn tend(&self) -> usize {
         self.finish_cut_off().await;
+        self.reconcile_duplicates().await;
         let expired = self.expire_due().await;
         self.retry_due().await;
         expired
+    }
+
+    /// A different download or an upload may already have brought these
+    /// files into the library. Remove the verified copies from review and
+    /// keep their original files for recovery.
+    async fn reconcile_duplicates(&self) {
+        let after = self.duplicate_cursor.load(Ordering::Relaxed);
+        let entries = match self
+            .read("held.duplicate_candidates", move |rows| {
+                rows.duplicate_candidates(after, DUPLICATE_BATCH)
+            })
+            .await
+        {
+            Ok(entries) => entries,
+            Err(error) => {
+                tracing::warn!(%error, "held duplicate check waits for the database");
+                return;
+            }
+        };
+        let cursor = if entries.len() == DUPLICATE_BATCH as usize {
+            entries.last().map_or(0, |entry| entry.0)
+        } else {
+            0
+        };
+        self.duplicate_cursor.store(cursor, Ordering::Relaxed);
+        for (id, user_id) in entries {
+            let viewer = Viewer {
+                admin: user_id.is_none(),
+                user_id: user_id.unwrap_or_default(),
+            };
+            let Ok(entry) = self.claim(&viewer, id).await else {
+                continue;
+            };
+            if let Err(error) = self.resolve_duplicates(&entry).await {
+                tracing::warn!(entry_id = id, %error, "held duplicate check could not run");
+            }
+            self.release(id).await;
+        }
+    }
+
+    async fn resolve_duplicates(&self, entry: &Entry) -> Result<(), HeldError> {
+        let Some(group) = entry.release_group_mbid.as_deref() else {
+            return Ok(());
+        };
+        let files: Vec<_> = entry
+            .files
+            .iter()
+            .filter(|file| file.root == HeldRoot::Held)
+            .cloned()
+            .collect();
+        if files.is_empty() {
+            return Ok(());
+        }
+        let paths = self.library().audio_in_group(group).await?;
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let root = self.folders.held.clone();
+        let ids = tokio::task::spawn_blocking(move || {
+            super::duplicates::confirmed(&root, &files, &paths)
+        })
+        .await
+        .map_err(|error| HeldError::Unavailable(error.to_string()))?;
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let (id, now) = (entry.id, self.now());
+        let count = self
+            .write("held.resolve_duplicates", move |rows, _| {
+                for file in &ids {
+                    rows.rehold(
+                        *file,
+                        Reason::AlreadyOwned,
+                        Some("verified identical audio"),
+                    )?;
+                }
+                Ok(rows.resolve(id, &ids, FileState::AlreadyOwned, now)?)
+            })
+            .await?;
+        tracing::info!(
+            entry_id = id,
+            group,
+            count,
+            "verified download duplicates resolved"
+        );
+        Ok(())
     }
 
     /// Retry each due entry's files held for a library reason, exactly as

@@ -168,10 +168,17 @@ droppedneedle_kernel::sql! {
              JOIN drop_import_jobs j ON j.id = i.job_id \
              WHERE f.root = 'import' AND f.state = 'held' AND e.state IN " + OPEN + " \
              AND j.source = 'import_folder' AND j.staging_dir = ?1";
-    /// Every copy in the held folder an open entry still names.
+    /// Download entries whose group now has an indexed album. Page in id order.
+    pub(super) DUPLICATE_CANDIDATES = "SELECT e.id, e.user_id FROM acquire_held_entries e \
+             WHERE e.id > ?1 AND e.state = 'held' AND e.origin = 'download' \
+               AND EXISTS (SELECT 1 FROM local_album_external_identities a \
+                           WHERE a.release_group_mbid = e.release_group_mbid) \
+             ORDER BY e.id LIMIT ?2";
+    /// Open held copies and verified duplicates kept for recovery.
     pub(super) HELD_FOLDER_PATHS = "SELECT f.path FROM acquire_held_files f \
-             JOIN acquire_held_entries e ON e.id = f.entry_id \
-             WHERE f.root = 'held' AND f.state = 'held' AND e.state IN " + OPEN;
+             JOIN acquire_held_entries e ON e.id = f.entry_id WHERE f.root = 'held' \
+             AND ((f.state = 'held' AND e.state IN " + OPEN + ") \
+                  OR (f.state = 'already_owned' AND f.reason = 'already_owned'))";
     /// The open entry of drop item `?1`.
     pub(super) ENTRY_OF_ITEM = ENTRY_ROW + " WHERE drop_item_id = ?1 AND state IN " + OPEN;
     /// Add `?2` imported files to drop item `?1`.
