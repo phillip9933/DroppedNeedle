@@ -178,6 +178,15 @@ impl LiveSource {
             .read()
             .map(|settings| format!("{}:g{}", settings.source_id, settings.generation))
     }
+
+    /// Read the source and its cache namespace from the same settings snapshot.
+    pub fn cache_source(&self) -> Option<(MbSource, String)> {
+        let settings = self.settings.read()?;
+        Some((
+            MbSource::from_settings(&settings, &self.official, &self.brainzmash),
+            format!("{}:g{}", settings.source_id, settings.generation),
+        ))
+    }
 }
 
 /// Operation class from the degradation matrix. A dead MusicBrainz fails

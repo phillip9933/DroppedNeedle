@@ -36,7 +36,7 @@ use droppedneedle_plugins::host::PluginHost;
 use droppedneedle_providers::Providers;
 
 use super::Probe as _;
-use super::acquire::FixedPlugin;
+use super::acquire::{FixedAlbums, FixedPlugin};
 
 /// Flow outcomes sent nowhere, for rigs that build the download journal
 /// or the acquisition stores by hand.
@@ -176,10 +176,7 @@ pub fn acquire_hosted(
         AcquirePorts {
             library: landing,
             edition_plans: Arc::new(crate::common::library::operations(library)),
-            album_lookup: Arc::new(droppedneedle_acquire::target::lookup::live_albums(
-                &providers,
-                mb_source.clone(),
-            )),
+            album_lookup: Arc::new(FixedAlbums::default()),
             release_poll: Arc::new(droppedneedle_acquire::search::live_release_poll(
                 &providers, mb_source,
             )),
