@@ -254,7 +254,7 @@ async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
             .view
             .note
             .text
-            .contains("names a different track")
+            .contains("file title or version label conflicts with this edition")
     );
     assert!(matches!(
         jobs.get(&stranger, &job_id).await,
