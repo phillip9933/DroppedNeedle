@@ -198,6 +198,21 @@ const LATE_ALLOWED: &[(&str, &str, &str)] = &[
         "one health pass's SABnzbd queue, there only while the section sets one up",
     ),
     (
+        "acquire/src/intake/place.rs",
+        "verified_sources",
+        "private snapshots for one held assembly, absent for ordinary imports; not a service",
+    ),
+    (
+        "acquire/src/intake/place.rs",
+        "verified_sources",
+        "the same assembly snapshots, passed to the publishing step",
+    ),
+    (
+        "acquire/src/landing/ports.rs",
+        "verified_sources",
+        "one import's snapshot lifetime guard, present only for a held assembly",
+    ),
+    (
         "acquire/src/probes.rs",
         "slskd",
         "one health pass's slskd client, there only while the section sets one up",
