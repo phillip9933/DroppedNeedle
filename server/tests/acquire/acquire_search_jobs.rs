@@ -311,6 +311,83 @@ async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
     ));
 }
 
+#[tokio::test]
+async fn an_offline_picked_peer_falls_back_to_an_eligible_folder() {
+    let mock = MockSlskd::start().await.expect("mock starts");
+    let folder = "@@music\\Massive Attack\\Blue Lines";
+    let mut wrong = peer("wrong", folder, &[0, 1, 2, 3]);
+    wrong["files"][0]["filename"] = json!(format!("{folder}\\01 Teardrop.flac"));
+    mock.script_responses(vec![
+        peer("offline", folder, &[0, 1, 2, 3]),
+        wrong,
+        peer("alternate", folder, &[0, 1, 2, 3]),
+    ]);
+    let rig = rig(&mock, false).await;
+    let owner = principal("u1");
+    let mut updates = rig.events.subscribe("u1");
+    let StartOutcome::Searching(job_id) = rig
+        .jobs
+        .start(
+            &owner,
+            AlbumSearch {
+                artist_name: "Massive Attack".to_owned(),
+                album_title: "Blue Lines".to_owned(),
+                year: Some(1991),
+                release_group_mbid: Some(GROUP.to_owned()),
+                release_mbid: Some(RELEASE.to_owned()),
+            },
+        )
+        .await
+        .expect("search starts")
+    else {
+        panic!("expected a search job");
+    };
+    let candidate = tokio::time::timeout(crate::common::PATIENCE, async {
+        loop {
+            let view = rig.jobs.get(&owner, &job_id).await.expect("job reads");
+            if view.row.status != JobStatus::Searching {
+                break view
+                    .payload
+                    .expect("candidates decode")
+                    .candidates
+                    .into_iter()
+                    .find(|c| c.view.username.as_deref() == Some("offline"))
+                    .expect("offline peer is still listed")
+                    .view
+                    .candidate_index;
+            }
+            updates.next().await.expect("the hub stays open");
+        }
+    })
+    .await
+    .expect("the search settles");
+    let task_id = rig
+        .jobs
+        .pick(&owner, &job_id, candidate, false)
+        .await
+        .expect("pick starts");
+    mock.set_offline_peer("offline");
+    rig.worker.run_once(1).await;
+    let handles = rig
+        .journal
+        .read_source_handles(
+            &task_id,
+            &droppedneedle_acquire::downloads::SourceTag::Soulseek,
+        )
+        .await
+        .expect("handles read");
+    let [handle] = handles.as_slice() else {
+        panic!("expected one successful enqueue, got {handles:?}");
+    };
+    let handle: SourceHandle = serde_json::from_str(handle).expect("handle decodes");
+    assert_eq!(handle.username, "alternate");
+    assert_eq!(handle.filenames.len(), 4);
+    assert!(
+        !handle.pinned,
+        "the fallback may not inherit the manual override"
+    );
+}
+
 /// Search review: an automatic download with no recommended candidate
 /// waits on its search instead of grabbing, stays parked across passes,
 /// and the owner's pick resumes that same download.

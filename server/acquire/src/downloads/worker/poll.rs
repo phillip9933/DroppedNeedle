@@ -70,14 +70,6 @@ pub(super) struct PollMemory {
     pub(super) give_way_from: f64,
 }
 
-/// Whether a person picked the copy this attempt fetches: they picked
-/// the task's candidate from a search, it is on the attempt's source, and
-/// this is that source's first attempt, the one the pick is enqueued as
-/// (later ones search). A copy the automatic search review took is not.
-fn picked_by_hand(task: &TaskRow, attempt: &AttemptRow) -> bool {
-    task.picked_by_person && attempt.source == task.source && attempt.candidate_index == 0
-}
-
 /// The original handle owns the whole batch, including files to cancel.
 pub(super) fn completed_subset(
     handle: &SourceHandle,
@@ -229,7 +221,7 @@ impl DownloadWorker {
                 // counting as never started.
                 let materialized = soulseek && progress.total_bytes.is_some();
                 let give_way_waited = (soulseek
-                    && !picked_by_hand(task, &attempt.row)
+                    && !(task.picked_by_person && handle.pinned)
                     && handled_count(&attempts, None) < pass.config.max_failover_attempts)
                     .then_some(now - memory.give_way_from);
                 let sample = PollSample {

@@ -47,7 +47,7 @@ use super::slskd::folders::RankRequest;
 use super::slskd::{EnqueueFile, ReqwestSlskdHttp, SlskdRepository};
 use super::target::reasons::TrackReason;
 use super::target::releases::{order_releases, release_fit};
-use super::target::soulseek::{self, SoulseekMiss};
+use super::target::soulseek::{self, SoulseekChoice, SoulseekMiss};
 use super::target::{SearchTarget, TargetError, Targets};
 use super::usenet::indexer::{Indexer, IndexerQuery};
 use super::usenet::newznab::{IndexerResult, usenet_identity};
@@ -63,7 +63,8 @@ fn client_error(error: ClientError) -> SourceError {
         ClientError::BadRequest { .. } | ClientError::Decode { .. } => {
             SourceError::rejected(Reason::DownloadFailed, error.to_string())
         }
-        ClientError::Auth { .. }
+        ClientError::PeerOffline
+        | ClientError::Auth { .. }
         | ClientError::Redirected { .. }
         | ClientError::NotFound { .. }
         | ClientError::RateLimited { .. }
@@ -344,61 +345,114 @@ impl SlskdSource {
                 .collect(),
             _ => Vec::new(),
         };
-        let pinned_pick = !picked.is_empty();
-        // The query ladder can broaden to artist-only results; without a
-        // tracklist only a human's exact file pin identifies the album.
-        if task.download_type == "album"
-            && target.tracklist.is_empty()
-            && !(task.picked_by_person && pinned_pick)
-        {
-            return Err(SourceError::Unavailable(
-                TrackReason::AlbumLookupUnavailable.to_string(),
-            ));
-        }
-        let payload: Vec<EnqueueFile> = if picked.is_empty() {
-            let keep = |hit: &super::slskd::SearchResult| {
-                !blocked.blocks_file(&hit.username, &hit.filename) && !tried.contains(&hit.username)
-            };
-            let choice = soulseek::choose(self.repo.as_ref(), &target, keep)
-                .await
-                .map_err(|miss| match miss {
-                    SoulseekMiss::Search(error) => client_error(error),
-                    SoulseekMiss::Nothing { reason, detail } => {
-                        SourceError::rejected(reason, detail)
+        // Bound offline failover within one enqueue. Keep exclusions local
+        // to this search so a peer can be tried again once it is back.
+        const MAX_PEER_ATTEMPTS: usize = 3;
+        let mut picked = (!picked.is_empty()).then_some(picked);
+        let mut choices = Vec::<SoulseekChoice>::new().into_iter();
+        let mut deadline = None;
+        let mut offline = false;
+        for _ in 0..MAX_PEER_ATTEMPTS {
+            let (payload, pinned, lone_reason) = if let Some(files) = picked.take().filter(|_| {
+                task.download_type != "album"
+                    || !target.tracklist.is_empty()
+                    || task.picked_by_person
+            }) {
+                (files, true, None)
+            } else {
+                // A pin without a tracklist is allowed only when a person
+                // picked that exact folder. It cannot authorize another.
+                if task.download_type == "album" && target.tracklist.is_empty() {
+                    return Err(if offline {
+                        client_error(ClientError::PeerOffline)
+                    } else {
+                        SourceError::Unavailable(TrackReason::AlbumLookupUnavailable.to_string())
+                    });
+                }
+                let pick = match choices
+                    .by_ref()
+                    .find(|choice| !tried.contains(&choice.pick.username))
+                {
+                    Some(pick) => pick,
+                    None => {
+                        let keep = |hit: &super::slskd::SearchResult| {
+                            !blocked.blocks_file(&hit.username, &hit.filename)
+                                && !tried.contains(&hit.username)
+                        };
+                        let end = *deadline.get_or_insert_with(|| Instant::now() + SOURCE_TIMEOUT);
+                        choices = soulseek::choices(self.repo.as_ref(), &target, end, keep)
+                            .await
+                            .map_err(|miss| match miss {
+                                SoulseekMiss::Search(error) => client_error(error),
+                                SoulseekMiss::Nothing { .. } if offline => {
+                                    client_error(ClientError::PeerOffline)
+                                }
+                                SoulseekMiss::Nothing { reason, detail } => {
+                                    SourceError::rejected(reason, detail)
+                                }
+                            })?
+                            .into_iter();
+                        let Some(choice) = choices.next() else {
+                            return Err(SourceError::rejected(
+                                Reason::NoSource,
+                                "slskd has no other eligible peer",
+                            ));
+                        };
+                        choice
                     }
-                })?;
-            if let Some(reason) = choice.lone_reason {
-                self.targets.record_lone_track(&task, reason);
+                };
+                let files = pick
+                    .pick
+                    .files
+                    .into_iter()
+                    .filter(|hit| {
+                        !by_name
+                            || crate::landing::matching::position_in_name(&hit.filename)
+                                .is_none_or(|position| missing.contains(&position))
+                    })
+                    .map(|hit| EnqueueFile {
+                        username: hit.username,
+                        filename: hit.filename,
+                        size: hit.size,
+                    })
+                    .collect();
+                (files, false, pick.lone_reason)
+            };
+            let Some(first) = payload.first() else {
+                return Err(SourceError::rejected(
+                    Reason::NoSource,
+                    "slskd's best remaining peer has none of the missing tracks",
+                ));
+            };
+            match self.enqueue_files(&payload, pinned).await {
+                Err(ClientError::PeerOffline) => {
+                    tracing::info!(task_id, peer = %first.username, "slskd peer went offline before enqueue");
+                    tried.push(first.username.clone());
+                    offline = true;
+                }
+                outcome => {
+                    if outcome.is_ok()
+                        && let Some(reason) = lone_reason
+                    {
+                        self.targets.record_lone_track(&task, reason);
+                    }
+                    return outcome.map_err(client_error);
+                }
             }
-            choice
-                .pick
-                .files
-                .iter()
-                .filter(|hit| {
-                    !by_name
-                        || crate::landing::matching::position_in_name(&hit.filename)
-                            .is_none_or(|position| missing.contains(&position))
-                })
-                .map(|hit| EnqueueFile {
-                    username: hit.username.clone(),
-                    filename: hit.filename.clone(),
-                    size: hit.size,
-                })
-                .collect()
-        } else {
-            picked
-        };
-        if payload.is_empty() {
-            return Err(SourceError::rejected(
-                Reason::NoSource,
-                "slskd's best remaining peer has none of the missing tracks",
-            ));
         }
+        Err(client_error(ClientError::PeerOffline))
+    }
+
+    async fn enqueue_files(
+        &self,
+        payload: &[EnqueueFile],
+        pinned: bool,
+    ) -> Result<SourceHandle, ClientError> {
         let advertised: HashMap<&str, i64> = payload
             .iter()
             .map(|file| (file.filename.as_str(), file.size))
             .collect();
-        let handle = self.repo.enqueue(&payload).await.map_err(client_error)?;
+        let handle = self.repo.enqueue(payload).await?;
         let sizes = handle
             .filenames
             .iter()
@@ -408,7 +462,7 @@ impl SlskdSource {
             sizes,
             username: handle.username,
             filenames: handle.filenames,
-            pinned: pinned_pick,
+            pinned,
             ..SourceHandle::new(SourceTag::Soulseek)
         })
     }

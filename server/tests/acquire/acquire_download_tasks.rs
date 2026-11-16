@@ -663,9 +663,13 @@ async fn queued_past_the_wait(
     discards_fail: bool,
 ) -> (Vec<(i64, String)>, Option<Reason>, usize) {
     use droppedneedle_acquire::downloads::store::TaskDetails;
+    use droppedneedle_acquire::search_jobs::candidates::Candidate;
     use droppedneedle_acquire::search_jobs::store::{
         JobPayload, JobStore, NewJob, PickedTask, ReviewOutcome,
     };
+    use droppedneedle_acquire::slskd::folders::{RankRequest, rank_folders};
+    use droppedneedle_acquire::slskd::repository::parse_search_responses;
+    use droppedneedle_acquire::slskd::{DownloadPolicy, SlskdUserSearchResponse};
     use droppedneedle_kernel::test_support::ManualClock;
 
     let scratch = AcquireDb::scratch().unwrap();
@@ -673,21 +677,23 @@ async fn queued_past_the_wait(
     let db = AcquireDb::new(scratch.db().clone(), clock.clone());
     db.add_user("u-ada", "Ada", "user").await.unwrap();
     let journal = Arc::new(Journal::new(db.clone(), quiet_ticks()));
+    let track = ExpectedTrack {
+        track_number: 1,
+        disc_number: 1,
+        title: Some("Track".to_owned()),
+        duration_seconds: Some(200.0),
+        recording_mbid: None,
+        release_track_mbid: None,
+    };
+    let expected_tracks = vec![track.clone()];
     journal
-        .run("test.seed", |store| {
+        .run("test.seed", move |store| {
             store.insert_task(&task("t-slow"), 1_800_000_000.0)?;
             store.set_task_plan(
                 "t-slow",
                 &TaskPlan {
                     release_mbid: Some("55555555-5555-4555-8555-555555555555".to_owned()),
-                    expected_tracks: vec![ExpectedTrack {
-                        track_number: 1,
-                        disc_number: 1,
-                        title: Some("Track".to_owned()),
-                        duration_seconds: Some(200.0),
-                        recording_mbid: None,
-                        release_track_mbid: None,
-                    }],
+                    expected_tracks,
                     ..TaskPlan::default()
                 },
                 1_800_000_000.0,
@@ -704,10 +710,24 @@ async fn queued_past_the_wait(
         release_group_mbid: Some("rg-1".to_owned()),
         release_mbid: None,
     };
-    let payload = || JobPayload {
-        release_mbid: None,
-        tracks_total: None,
-        candidates: Vec::new(),
+    let payload = || {
+        let response: SlskdUserSearchResponse = serde_json::from_value(soulseek_peer(0)).unwrap();
+        let picks = rank_folders(
+            &parse_search_responses(&[response]),
+            RankRequest {
+                album_title: "album",
+                tracklist: std::slice::from_ref(&track),
+                wanted: &[],
+                single_track: false,
+            },
+            &DownloadPolicy::default(),
+        );
+        assert_eq!(picks.len(), 1);
+        JobPayload {
+            release_mbid: None,
+            tracks_total: Some(1),
+            candidates: picks.into_iter().map(Candidate::from_folder).collect(),
+        }
     };
     let jobs = JobStore::new(db);
     let peer = Some("peer-0".to_owned());
