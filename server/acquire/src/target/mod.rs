@@ -113,7 +113,7 @@ impl Targets {
         if task.download_type == "track" {
             self.track_target(task, &details, &plan).await
         } else {
-            Ok(self.album_target(task, &details, &plan).await)
+            self.album_target(task, &details, &plan).await
         }
     }
 
@@ -165,7 +165,7 @@ impl Targets {
         task: &TaskRow,
         details: &TaskDetails,
         plan: &TaskPlan,
-    ) -> SearchTarget {
+    ) -> Result<SearchTarget, TargetError> {
         let release = details
             .release_mbid
             .clone()
@@ -189,8 +189,6 @@ impl Targets {
         if tracklist.is_empty()
             && let Some(release_mbid) = release.as_deref()
         {
-            // An album still downloads when MusicBrainz is down; it is only
-            // ranked on file counts until the tracklist can be read.
             match self.lookup.release(release_mbid).await {
                 Ok(Some(found)) => {
                     tracklist = expected_tracks(&found);
@@ -202,14 +200,15 @@ impl Targets {
                     release_mbid,
                     "MusicBrainz does not know the chosen edition; ranking on file counts"
                 ),
-                Err(error) => tracing::warn!(
-                    task_id = %task.id,
-                    %error,
-                    "edition tracklist unavailable; ranking on file counts"
-                ),
+                Err(error) => {
+                    tracing::warn!(task_id = %task.id, %error, "edition tracklist unavailable; waiting for metadata");
+                    return Err(TargetError::Unavailable(
+                        TrackReason::AlbumLookupUnavailable,
+                    ));
+                }
             }
         }
-        SearchTarget {
+        Ok(SearchTarget {
             artist: task.artist_name.clone(),
             album_title: task.album_title.clone(),
             year: details.year,
@@ -217,7 +216,7 @@ impl Targets {
             wanted,
             tracklist,
             track: None,
-        }
+        })
     }
 
     /// Keep an album's tracklist in its plan, under the release MusicBrainz
