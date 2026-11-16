@@ -231,7 +231,6 @@ pub fn file_specs() -> Vec<Box<dyn ImportSpec>> {
         Box::new(WalkFinished),
         Box::new(NotSample),
         Box::new(WrongEdition),
-        Box::new(WrongAlbum),
         Box::new(QualityAllowed),
         Box::new(UpgradeFloor),
     ]
@@ -242,6 +241,7 @@ pub fn match_specs() -> Vec<Box<dyn ImportSpec>> {
     vec![
         Box::new(ReleaseFound),
         Box::new(PinnedEdition),
+        Box::new(WrongAlbum),
         Box::new(IdsAgree),
         Box::new(CloseAlbumMatch),
         Box::new(ArtistEvidence),
@@ -575,10 +575,9 @@ const NOISE_WORDS: &[&str] = &[
     "khz",
 ];
 
-/// Most tagged files name another album by the same artist: their
-/// album titles carry words the
-/// requested title does not. Untagged files never count, so an untagged
-/// rip falls through to matching.
+/// Most tagged files name another album by the same artist. Compare
+/// against the requested title and the catalog title of a verified match
+/// in the requested group, which can have a different localized title.
 struct WrongAlbum;
 
 impl ImportSpec for WrongAlbum {
@@ -593,18 +592,36 @@ impl ImportSpec for WrongAlbum {
         }
         let artist_words = words(&target.artist_name);
         let wanted = content_words(&target.album_title, &artist_words);
+        let catalog_title = subject
+            .matched
+            .and_then(MatchSummary::best)
+            .filter(|found| {
+                !target.release_group_mbid.is_empty()
+                    && found
+                        .release
+                        .release_group_id
+                        .eq_ignore_ascii_case(&target.release_group_mbid)
+                    && !found.scored.pairs.is_empty()
+                    && found.scored.names_agree
+                    && found.scored.library_distance() <= ACCEPT_ALBUM
+            })
+            .map(|found| fold(&found.release.title))
+            .filter(|title| !title.is_empty());
         let tagged: Vec<_> = subject
             .landing
             .audio
             .iter()
             .filter(|file| !album_tag(file).is_empty())
             .collect();
-        if tagged.is_empty() {
-            return Verdict::accept();
-        }
         let wrong = tagged
             .iter()
             .filter(|file| {
+                if catalog_title
+                    .as_ref()
+                    .is_some_and(|title| *title == fold(album_tag(file)))
+                {
+                    return false;
+                }
                 let artist = file
                     .tag
                     .album_artist

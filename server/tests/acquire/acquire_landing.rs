@@ -4731,6 +4731,76 @@ async fn only_a_preferred_edition_can_land_as_an_equivalent_edition() {
     }
 }
 
+/// A release's catalog title can differ from the requested group's title.
+#[tokio::test]
+async fn landing_checks_the_catalog_title_of_a_matched_edition() {
+    let lengths = fixture_lengths();
+    for (tag, expected) in [
+        (
+            "FINAL FANTASY VIII: Original Soundtrack",
+            ImportOutcome::Imported,
+        ),
+        (
+            "FINAL FANTASY VII: Original Soundtrack",
+            ImportOutcome::Rejected,
+        ),
+    ] {
+        let mut release = editions(5, &lengths).old;
+        release.title = "FINAL FANTASY VIII: Original Soundtrack".to_owned();
+        let rig = join_rig(vec![release.clone()]).await;
+        let task_id = "t-localized-title";
+        rig.ask(
+            task_id,
+            &release.release_group_id,
+            "FINAL FANTASY VIII オリジナル・サウンドトラック",
+            "user",
+            Some(&release.id),
+            None,
+            &[],
+        )
+        .await;
+        let paths = release
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| {
+                let path = rig.landed(task_id, &release, index, FIXTURES[index]);
+                save_tags(
+                    &path,
+                    &[
+                        TagEdit::new(TagField::Album, vec![tag.to_owned()]),
+                        TagEdit::new(TagField::MusicBrainzReleaseId, vec![release.id.clone()]),
+                        TagEdit::new(
+                            TagField::MusicBrainzRecordingId,
+                            vec![track.recording_id.clone()],
+                        ),
+                    ],
+                )
+                .expect("download tags");
+                path
+            })
+            .collect();
+        rig.land(paths).await;
+        let decision = rig
+            .acquire
+            .journal
+            .read("test.localized_title", move |store| {
+                store.latest_import_decision(task_id)
+            })
+            .await
+            .expect("decision reads")
+            .expect("landing recorded");
+        assert_eq!(decision.outcome, expected, "{decision:?}");
+        if expected == ImportOutcome::Rejected {
+            assert_eq!(decision.reason_code, Some(Reason::WrongAlbum));
+            assert_eq!(rig.album_count(), 0);
+        } else {
+            assert_eq!(rig.task(task_id).await.status, TaskStatus::Completed);
+            assert_eq!(decision.release_mbid.as_deref(), Some(release.id.as_str()));
+        }
+    }
+}
+
 type TrackIdentityRow = (
     String,
     Option<String>,
