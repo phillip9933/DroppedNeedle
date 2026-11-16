@@ -13,20 +13,21 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::acquire::no_targets;
+use crate::common::acquire::{FixedAlbums, no_targets};
 use axum::Router;
 use axum::http::{StatusCode, header};
 use axum::routing::get;
 use droppedneedle_acquire::db::AcquireDb;
 use droppedneedle_acquire::downloads::journal::Journal;
-use droppedneedle_acquire::downloads::store::NewTask;
+use droppedneedle_acquire::downloads::store::{NewTask, TaskDetails};
 use droppedneedle_acquire::downloads::{DownloadSource, SourceHandle, SourceTag};
 use droppedneedle_acquire::plugin_source::{PluginDownloadSource, ReleasePolicy};
 use droppedneedle_acquire::slskd::{
     DownloadPolicy, ReqwestSlskdHttp, SlskdClient, SlskdRepository,
 };
 use droppedneedle_acquire::sources::{SabnzbdSource, SlskdSource};
-use droppedneedle_acquire::target::SearchTarget;
+use droppedneedle_acquire::target::lookup::{AlbumRelease, AlbumTrack};
+use droppedneedle_acquire::target::{SearchTarget, Targets};
 use droppedneedle_acquire::usenet::indexer::{Indexer, IndexerQuery, PluginIndexers};
 use droppedneedle_acquire::usenet::newznab::{NewznabIndexer, NewznabIndexerEntry};
 use droppedneedle_acquire::usenet::policy::UsenetPolicy;
@@ -72,6 +73,63 @@ async fn journal_with_task(task_id: &str, artist: &str, album: &str) -> Arc<Jour
         .await
         .expect("task inserts");
     journal
+}
+
+/// Targets for source-flow tests that intentionally exercise automatic picks.
+async fn targets_with_dummy_tracklist(journal: &Arc<Journal>, task_ids: &[&str]) -> Arc<Targets> {
+    let task_ids: Vec<String> = task_ids
+        .iter()
+        .map(|task_id| (*task_id).to_owned())
+        .collect();
+    journal
+        .run("test.seed_tracklist", move |store| {
+            for task_id in task_ids {
+                store.set_task_details(
+                    &task_id,
+                    &TaskDetails {
+                        release_mbid: Some("test-release".to_owned()),
+                        ..TaskDetails::default()
+                    },
+                    1_700_000_000.0,
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .expect("release details seed");
+    let release = AlbumRelease {
+        id: "test-release".to_owned(),
+        title: "Dummy".to_owned(),
+        release_group_mbid: "rg-1".to_owned(),
+        artist: "Portishead".to_owned(),
+        various_artists: false,
+        year: Some(1994),
+        tracks: vec![
+            AlbumTrack {
+                disc: 1,
+                position: 1,
+                title: "Mysterons".to_owned(),
+                duration_seconds: Some(300.0),
+                recording_mbid: "recording-1".to_owned(),
+                release_track_mbid: "release-track-1".to_owned(),
+            },
+            AlbumTrack {
+                disc: 1,
+                position: 2,
+                title: "Sour Times".to_owned(),
+                duration_seconds: Some(250.0),
+                recording_mbid: "recording-2".to_owned(),
+                release_track_mbid: "release-track-2".to_owned(),
+            },
+        ],
+    };
+    Arc::new(Targets::new(
+        journal.clone(),
+        Arc::new(FixedAlbums {
+            releases: HashMap::from([("test-release".to_owned(), release)]),
+            ..FixedAlbums::default()
+        }),
+    ))
 }
 
 /// Drive one source the way the worker does and check what every source
@@ -152,9 +210,165 @@ async fn slskd_conforms() {
     let source = Arc::new(SlskdSource::new(
         Arc::new(repo),
         journal.clone(),
-        no_targets(&journal),
+        targets_with_dummy_tracklist(&journal, &["t-slskd"]).await,
     ));
     conforms(source, SourceTag::Soulseek, "t-slskd", |_| {}).await;
+}
+
+#[tokio::test]
+async fn slskd_does_not_auto_enqueue_an_album_without_its_tracklist() {
+    use droppedneedle_acquire::downloads::sources::SourceError;
+
+    let mock = MockSlskd::start().await.expect("mock starts");
+    mock.script_responses(vec![json!({
+        "username": "peer", "hasFreeUploadSlot": true, "uploadSpeed": 1_000_000,
+        "queueLength": 0, "fileCount": 1, "lockedFileCount": 0, "lockedFiles": [], "token": 1,
+        "files": [
+            {"filename": "@@music\\Utada\\SCIENCE FICTION\\01 unrelated.flac", "size": 4,
+             "extension": "flac", "bitDepth": 16, "sampleRate": 44100, "length": 300}
+        ],
+    })]);
+    let dir = ScratchDir::new("source-slskd-unknown-edition");
+    let repo = SlskdRepository::new(
+        SlskdClient::new(ReqwestSlskdHttp::new(
+            reqwest::Client::new(),
+            &mock.base_url(),
+            MOCK_API_KEY,
+        )),
+        &mock.base_url(),
+        MOCK_API_KEY,
+        dir.join("downloads"),
+        DownloadPolicy::default(),
+    );
+    let journal = journal_with_task("t-unknown-edition", "Utada Hikaru", "One Last Kiss").await;
+    let source = SlskdSource::new(Arc::new(repo), journal.clone(), no_targets(&journal));
+
+    let error = source
+        .enqueue("t-unknown-edition", 0)
+        .await
+        .expect_err("no verified tracklist must hold an automatic album enqueue");
+    assert!(matches!(error, SourceError::Unavailable(_)), "{error}");
+    assert!(
+        mock.search_texts().is_empty(),
+        "no broad artist-only search starts"
+    );
+}
+
+#[tokio::test]
+async fn slskd_still_enqueues_a_human_pinned_candidate_without_a_tracklist() {
+    use droppedneedle_acquire::search_jobs::candidates::{
+        Candidate, CandidateFile, CandidateNote, CandidateNoteCode, CandidateTier, Pin, PinnedFile,
+        SearchCandidateView,
+    };
+    use droppedneedle_acquire::search_jobs::store::{JobPayload, JobStatus, JobStore, NewJob};
+
+    let mock = MockSlskd::start().await.expect("mock starts");
+    let dir = ScratchDir::new("source-slskd-human-pick");
+    let repo = SlskdRepository::new(
+        SlskdClient::new(ReqwestSlskdHttp::new(
+            reqwest::Client::new(),
+            &mock.base_url(),
+            MOCK_API_KEY,
+        )),
+        &mock.base_url(),
+        MOCK_API_KEY,
+        dir.join("downloads"),
+        DownloadPolicy::default(),
+    );
+    let journal = journal_with_task("t-human-pick", "Utada Hikaru", "One Last Kiss").await;
+    let jobs = JobStore::new(journal.db().clone());
+    jobs.insert(NewJob {
+        id: "human-pick".to_owned(),
+        user_id: "u1".to_owned(),
+        artist_name: "Utada Hikaru".to_owned(),
+        album_title: "One Last Kiss".to_owned(),
+        year: None,
+        release_group_mbid: Some("rg-1".to_owned()),
+        release_mbid: None,
+    })
+    .await
+    .expect("job inserts");
+    let filename = "@@music\\Utada\\SCIENCE FICTION\\01 owner-picked.flac";
+    let candidate = Candidate {
+        view: SearchCandidateView {
+            candidate_index: 0,
+            source: "soulseek".to_owned(),
+            title: "SCIENCE FICTION".to_owned(),
+            tier: CandidateTier::Possible,
+            note: CandidateNote {
+                code: CandidateNoteCode::NoTracklist,
+                text: "The edition's tracklist could not be read to compare them.".to_owned(),
+            },
+            refusal: Vec::new(),
+            username: Some("peer".to_owned()),
+            files: vec![CandidateFile {
+                filename: filename.to_owned(),
+                size: 4,
+                extension: "flac".to_owned(),
+                bitrate: None,
+                duration_seconds: Some(300.0),
+            }],
+            file_count: 1,
+            size_bytes: 4,
+            tracks_matched: None,
+            length_misses: None,
+            tracks_total: None,
+            format: Some("FLAC 16-bit".to_owned()),
+            has_free_slot: Some(true),
+            queue_length: Some(0),
+            upload_speed: Some(1_000_000),
+            indexer: None,
+            posted_at: None,
+            grabs: None,
+            score: None,
+        },
+        pin: Pin::Soulseek {
+            username: "peer".to_owned(),
+            folder: "@@music\\Utada\\SCIENCE FICTION".to_owned(),
+            files: vec![PinnedFile {
+                filename: filename.to_owned(),
+                size: 4,
+            }],
+        },
+    };
+    jobs.finish(
+        "human-pick",
+        JobStatus::Completed,
+        JobPayload {
+            release_mbid: None,
+            tracks_total: None,
+            candidates: vec![candidate],
+        },
+        None,
+    )
+    .await
+    .expect("job finishes");
+    journal
+        .run("test.link_candidate", |store| {
+            store.link_candidate(
+                "t-human-pick",
+                "soulseek",
+                Some("peer"),
+                "human-pick",
+                0,
+                true,
+                1_700_000_000.0,
+            )
+        })
+        .await
+        .expect("candidate links");
+
+    let source = SlskdSource::new(Arc::new(repo), journal.clone(), no_targets(&journal));
+    let handle = source
+        .enqueue("t-human-pick", 0)
+        .await
+        .expect("a person's pinned choice is fetched");
+    assert_eq!(handle.filenames, vec![filename]);
+    assert!(handle.pinned);
+    assert!(
+        mock.search_texts().is_empty(),
+        "the source uses the stored pin"
+    );
 }
 
 /// A Newznab feed with one release whose NZB the SABnzbd mock serves.
@@ -234,7 +448,7 @@ async fn sabnzbd_conforms() {
         policy,
         journal.clone(),
         None,
-        no_targets(&journal),
+        targets_with_dummy_tracklist(&journal, &["t-sab"]).await,
     ));
     conforms(source, SourceTag::Usenet, "t-sab", |handle| {
         // SABnzbd finishes the job into its complete folder.
@@ -250,6 +464,48 @@ async fn sabnzbd_conforms() {
         );
     })
     .await;
+}
+
+#[tokio::test]
+async fn usenet_does_not_auto_enqueue_an_album_without_its_tracklist() {
+    use droppedneedle_acquire::downloads::sources::SourceError;
+
+    let mock = SabnzbdMock::new();
+    let (sab, _sab_server) = serve_loopback(mock.router()).await.expect("mock serves");
+    let dir = ScratchDir::new("source-usenet-unknown-edition");
+    let policy = UsenetPolicy::v2_defaults();
+    let queue = Arc::new(SabnzbdQueue::new(
+        SabnzbdClient::new(
+            reqwest::Client::new(),
+            grab_http(),
+            &sab,
+            "SABKEY",
+            3,
+            Duration::from_millis(1),
+        ),
+        &sab,
+        "SABKEY",
+        dir.join("complete"),
+        policy.clone(),
+    ));
+    let journal =
+        journal_with_task("t-usenet-unknown-edition", "Utada Hikaru", "One Last Kiss").await;
+    let source = SabnzbdSource::new(
+        queue,
+        Vec::new(),
+        policy,
+        journal.clone(),
+        None,
+        no_targets(&journal),
+    );
+
+    let error = source
+        .enqueue("t-usenet-unknown-edition", 0)
+        .await
+        .expect_err("no verified tracklist must hold an automatic album enqueue");
+    assert!(matches!(error, SourceError::Unavailable(_)), "{error}");
+    assert!(mock.state().add_file_requests.is_empty());
+    assert!(mock.state().add_url_requests.is_empty());
 }
 
 /// A native indexer's release is fetched through that indexer's client, so
@@ -318,7 +574,7 @@ async fn a_usenet_pick_grabs_through_its_indexer() {
         policy,
         journal.clone(),
         None,
-        no_targets(&journal),
+        targets_with_dummy_tracklist(&journal, &["t-grab"]).await,
     );
     source.enqueue("t-grab", 0).await.expect("enqueues");
     assert_eq!(mock.state().add_file_requests.len(), 1);
@@ -455,7 +711,7 @@ async fn a_copy_turned_down_as_not_better_is_not_picked_again() {
         policy,
         journal.clone(),
         None,
-        no_targets(&journal),
+        targets_with_dummy_tracklist(&journal, &["t-next"]).await,
     );
 
     let picked = source.enqueue("t-next", 0).await.expect("enqueues");
