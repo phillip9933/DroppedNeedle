@@ -13,13 +13,18 @@
 	import type { DownloadTask } from '$lib/features/downloads/queries/types';
 	import StatusChip from '$lib/ui/StatusChip.svelte';
 
-	let { task }: { task: DownloadTask } = $props();
+	let { task, remoteQueued }: { task: DownloadTask; remoteQueued?: boolean } = $props();
 
 	// A failed/partial task that auto-retries shows the retry treatment; otherwise the
 	// normal status. (retryDisplay reads next_retry_at/retry_max from the backend.)
 	const retry = $derived(retryDisplay(task));
 	const derivedStatus = $derived(derivedDownloadStatus(task));
 	const settled = $derived(isSettled(task));
+	const waiting = $derived(
+		derivedStatus === 'downloading' &&
+			task.source === 'soulseek' &&
+			(remoteQueued ?? task.remote_queued)
+	);
 	const cfg = $derived(
 		retry
 			? retryBadgeConfig[retry.kind]
@@ -34,6 +39,7 @@
 		if (derivedStatus === 'partial')
 			return `Partial - ${task.files_completed}/${task.files_total} tracks`;
 		if (settled) return settledBadgeConfig.label;
+		if (waiting) return "Waiting in peer's queue";
 		return downloadStatusConfig[derivedStatus].label;
 	});
 
@@ -44,7 +50,7 @@
 		if (settled) return 'neutral';
 		switch (derivedStatus) {
 			case 'downloading':
-				return 'action';
+				return waiting ? 'warning' : 'action';
 			case 'processing':
 				return 'info';
 			case 'completed':

@@ -70,7 +70,7 @@
 					<h3 class="hero__title">
 						<a href={albumHref(task.release_group_mbid)} class="hero__link">{task.album_title}</a>
 					</h3>
-					<DownloadStatusBadge {task} />
+					<DownloadStatusBadge {task} remoteQueued={stream.state.source?.remote_queued} />
 				</div>
 				<p class="hero__by">
 					{#if task.artist_mbid}

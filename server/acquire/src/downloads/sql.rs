@@ -167,6 +167,11 @@ droppedneedle_kernel::sql! {
     pub(super) ATTEMPT_BY_ID = ATTEMPT_ROW + " WHERE id = ?1";
     /// One attempt's stored client handle (`?1`).
     pub(super) ATTEMPT_HANDLE = "SELECT handle_json FROM download_attempts WHERE id = ?1";
+    /// Record the exact subset that finished before partial landing. Still
+    /// retain the full client handle for cleanup.
+    pub(super) SAVE_LANDING_HANDLE = "UPDATE download_attempts \
+             SET handle_json = ?1, updated_at = ?2, row_revision = row_revision + 1 \
+             WHERE id = ?3 AND row_revision = ?4 AND state IN ('acquiring', 'in_use')";
     /// A task's attempts (`?1`), oldest first.
     pub(super) ATTEMPTS_FOR_TASK = ATTEMPT_ROW + " WHERE task_id = ?1 \
              ORDER BY candidate_index, created_at";

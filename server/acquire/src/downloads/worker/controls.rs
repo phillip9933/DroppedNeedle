@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use super::poll::completed_subset;
 use super::retry::successor_row;
 use super::{DownloadWorker, Pass, handled_count, live_attempt};
 use crate::downloads::queue_rows::{ProgressColumns, RetryStop};
@@ -77,9 +78,7 @@ impl DownloadWorker {
             files_failed: i64::from(progress.files_failed),
             queue_position_start: progress.queue_position_start,
             queue_position_end: progress.queue_position_end,
-            remote_queued: progress.downloaded_bytes == 0
-                && !progress.has_active_transfer
-                && !progress.all_terminal,
+            remote_queued: progress.remote_queued,
         };
         let task_id = task.id.clone();
         let stored = columns.clone();
@@ -179,10 +178,9 @@ impl DownloadWorker {
     /// move to the next ranked source. `expected_candidate_index` makes a
     /// double click or a stale page harmless: once the task moved on, the
     /// old index no longer matches and nothing happens. The live client
-    /// status is checked first, so a transfer that started moving bytes
-    /// since the page rendered is left alone. The peer is not blocklisted:
-    /// it was only slow, and the next search skips it because this task
-    /// already tried it.
+    /// status is checked first, so an active transfer is left alone.
+    /// When some files have finished, verify and import them before
+    /// asking the next copy for the missing tracks.
     pub async fn next_source(
         self: &Arc<Self>,
         task_id: &str,
@@ -243,26 +241,35 @@ impl DownloadWorker {
             .poll(&handle)
             .await
             .map_err(|error| NextSourceError::Unavailable(error.to_string()))?;
-        if progress.downloaded_bytes > 0 {
-            return Err(NextSourceError::Conflict(
-                "The transfer has already started.",
-            ));
-        }
-        if progress.has_active_transfer || progress.all_terminal {
+        if !progress.remote_queued || progress.has_active_transfer || progress.all_terminal {
             return Err(NextSourceError::Conflict(
                 "The download is no longer waiting in a remote queue.",
             ));
         }
-        self.fail_over(
-            pass.now,
-            &task,
-            &attempt.row,
-            source,
-            &handle,
-            TaskOutcome::new(Reason::MovedOn, NEXT_SOURCE_NOTE),
-            None,
-        )
-        .await;
+        if let Some(partial) = completed_subset(&handle, &progress) {
+            if pass.library.is_some() {
+                return Err(NextSourceError::Conflict(
+                    "The library is not ready to import the finished files.",
+                ));
+            }
+            self.start_landing(&task, &attempt.row, source, &partial, pass.now)
+                .await;
+        } else if progress.downloaded_bytes > 0 {
+            return Err(NextSourceError::Conflict(
+                "The transfer has started but has no finished audio files yet.",
+            ));
+        } else {
+            self.fail_over(
+                pass.now,
+                &task,
+                &attempt.row,
+                source,
+                &handle,
+                TaskOutcome::new(Reason::MovedOn, NEXT_SOURCE_NOTE),
+                None,
+            )
+            .await;
+        }
         tracing::info!(task_id = %task.id, "download moved to the next source by hand");
         self.wake();
         self.journal

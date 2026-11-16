@@ -34,6 +34,10 @@ pub struct SourceHandle {
     pub username: String,
     /// Exact enqueued filenames.
     pub filenames: Vec<String>,
+    /// Enqueued filenames confirmed complete when a Soulseek batch only
+    /// partly finished. The full batch stays with the attempt for cleanup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_subset: Option<Vec<String>>,
     /// Client job name.
     pub job_name: String,
     /// SABnzbd's own job id, once the add returned one. Polls and cleanup
@@ -69,6 +73,7 @@ impl SourceHandle {
             source,
             username: String::new(),
             filenames: Vec::new(),
+            completed_subset: None,
             job_name: String::new(),
             nzo_id: String::new(),
             plugin_token: String::new(),
@@ -88,6 +93,8 @@ pub struct TransferProgress {
     pub all_succeeded: bool,
     /// At least one transfer is actively moving bytes right now.
     pub has_active_transfer: bool,
+    /// The unfinished Soulseek files are waiting in the peer's queue.
+    pub remote_queued: bool,
     /// Total bytes downloaded so far across the batch.
     pub downloaded_bytes: u64,
     /// Filenames that completed successfully.

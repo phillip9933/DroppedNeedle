@@ -115,23 +115,43 @@ impl DownloadWorker {
         let Some(slot) = self.claim(&task.id) else {
             return;
         };
-        if task.status != TaskStatus::Processing {
-            // A later pass uses this state as proof the client finished.
+        let attempt = if task.status != TaskStatus::Processing {
+            // Save the confirmed subset with the processing state so a
+            // restart reads those same files even without client history.
+            let handle_json = if handle.completed_subset.is_some() {
+                match serde_json::to_string(handle) {
+                    Ok(json) => Some(json),
+                    Err(error) => {
+                        tracing::warn!(task_id = %task.id, %error, "partial landing handle does not encode");
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
             let task_id = task.id.clone();
-            if self
+            let attempt = attempt.clone();
+            let Some(attempt) = self
                 .step("downloads.processing", move |store| {
-                    store.transition_task(&task_id, TaskStatus::Processing, now, None)
+                    let attempt = match handle_json {
+                        Some(json) => store.save_landing_handle(&attempt, &json, now)?,
+                        None => attempt,
+                    };
+                    store.transition_task(&task_id, TaskStatus::Processing, now, None)?;
+                    Ok(attempt)
                 })
                 .await
-                .is_none()
-            {
+            else {
                 return;
-            }
-        }
+            };
+            attempt
+        } else {
+            attempt.clone()
+        };
         self.spawn_landing(
             slot,
             task.clone(),
-            attempt.clone(),
+            attempt,
             source.clone(),
             handle.clone(),
             Origin::Poll,
@@ -307,23 +327,28 @@ impl DownloadWorker {
             }
             LandingResult::Imported { complete: false } | LandingResult::Held { .. } => {
                 if origin == Origin::Poll && self.can_fail_over(task).await {
-                    // A release that finished but did not deliver what
-                    // was asked is blocklisted before the failover, so the
-                    // next candidate is a different source; held rows stay.
+                    // A partial transfer can supply good files. Once
+                    // verified, only its missing tracks need a new source.
+                    let (outcome, quarantine) = if handle.completed_subset.is_some() {
+                        (
+                            TaskOutcome::new(
+                                Reason::TracksMissing,
+                                "some of the peer's transfers did not finish",
+                            ),
+                            None,
+                        )
+                    } else {
+                        (
+                            TaskOutcome::new(
+                                Reason::TracksMissing,
+                                "the download did not deliver every requested track",
+                            ),
+                            Some(QuarantineReason::VerifyFailed),
+                        )
+                    };
                     self.forget_landing(&task.id);
-                    self.fail_over(
-                        now,
-                        task,
-                        attempt,
-                        source,
-                        handle,
-                        TaskOutcome::new(
-                            Reason::TracksMissing,
-                            "the download did not deliver every requested track",
-                        ),
-                        Some(QuarantineReason::VerifyFailed),
-                    )
-                    .await;
+                    self.fail_over(now, task, attempt, source, handle, outcome, quarantine)
+                        .await;
                     return;
                 }
                 self.settle_short(task, attempt, &report.result, now).await;

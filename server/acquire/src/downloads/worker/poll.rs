@@ -78,6 +78,23 @@ fn picked_by_hand(task: &TaskRow, attempt: &AttemptRow) -> bool {
     task.picked_by_person && attempt.source == task.source && attempt.candidate_index == 0
 }
 
+/// The original handle owns the whole batch, including files to cancel.
+pub(super) fn completed_subset(
+    handle: &SourceHandle,
+    progress: &crate::downloads::sources::TransferProgress,
+) -> Option<SourceHandle> {
+    progress
+        .succeeded_filenames
+        .iter()
+        .any(|name| {
+            droppedneedle_library::tags::format_for_path(std::path::Path::new(name)).is_ok()
+        })
+        .then(|| SourceHandle {
+            completed_subset: Some(progress.succeeded_filenames.clone()),
+            ..handle.clone()
+        })
+}
+
 impl DownloadWorker {
     /// Poll every live task through the watchdog. Each source's tasks are
     /// polled in their own round, the rounds side by side, so a client that
@@ -330,7 +347,27 @@ impl DownloadWorker {
     ) {
         use crate::downloads::watchdog::WatchdogOutcome;
         let now = pass.now;
-        let (reason, text) = match pass.watchdog.evaluate_with(&sample, give_way_waited) {
+        let verdict = pass.watchdog.evaluate_with(&sample, give_way_waited);
+        let partial_batch = verdict == WatchdogOutcome::Terminal
+            || (progress.remote_queued
+                && matches!(
+                    verdict,
+                    WatchdogOutcome::QueuedTimeout | WatchdogOutcome::Deadline
+                ));
+        if partial_batch
+            && attempt.source == SourceTag::Soulseek
+            && let Some(partial) = completed_subset(handle, &progress)
+        {
+            if pass.library.is_some() {
+                // Keep the files until the library can accept them.
+                self.touch_poll(&task.id, now).await;
+            } else {
+                self.start_landing(task, attempt, source, &partial, now)
+                    .await;
+            }
+            return;
+        }
+        let (reason, text) = match verdict {
             WatchdogOutcome::Continue => {
                 self.record_progress(pass, task, &progress).await;
                 return;

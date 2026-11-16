@@ -172,7 +172,7 @@
 				{/if}
 			</p>
 			<div class="row__chips">
-				<DownloadStatusBadge {task} />
+				<DownloadStatusBadge {task} remoteQueued={stream.state.source?.remote_queued} />
 				{#if task.source === 'usenet'}
 					<StatusChip size="xs">Usenet</StatusChip>
 				{/if}

@@ -291,6 +291,7 @@ impl PluginDownloadSource {
             source: self.tag.clone(),
             username: handle.username,
             filenames: handle.filenames,
+            completed_subset: None,
             job_name: handle.job_name,
             nzo_id: handle.nzo_id,
             plugin_token: handle.plugin_token,

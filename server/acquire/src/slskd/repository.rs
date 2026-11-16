@@ -86,6 +86,7 @@ pub struct TaskStatus {
     pub progress_percent: f64,
     pub succeeded_filenames: Vec<String>,
     pub has_active_transfer: bool,
+    pub remote_queued: bool,
     pub matched_transfers: usize,
     pub queue_position_start: Option<i64>,
     pub queue_position_end: Option<i64>,
@@ -768,6 +769,7 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
     let mut failed = 0;
     let mut succeeded_filenames = Vec::new();
     let mut has_active_transfer = false;
+    let mut remote_queued = false;
     let mut queue_positions: Vec<i64> = Vec::new();
 
     for transfer in latest_transfer_per_file(transfers) {
@@ -805,6 +807,8 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
             failed += 1;
         } else if flags.contains("inprogress") || flags.contains("initializing") {
             has_active_transfer = true;
+        } else if flags.contains("queued") && flags.contains("remotely") {
+            remote_queued = true;
         }
     }
 
@@ -843,12 +847,44 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
         bytes_total,
         bytes_downloaded,
         progress_percent: progress,
-        succeeded_filenames,
+        succeeded_filenames: enqueued_successes(handle, &succeeded_filenames),
         has_active_transfer,
+        remote_queued: remote_queued && !has_active_transfer,
         matched_transfers: transfers.len(),
         queue_position_start: queue_positions.iter().min().copied(),
         queue_position_end: queue_positions.iter().max().copied(),
     }
+}
+
+/// Keep the exact enqueued spellings (and their advertised sizes) for
+/// the completed subset. An NFC-equivalent spelling is safe only when
+/// unambiguous on both sides, as in the transfer-record matcher.
+fn enqueued_successes(handle: &TaskHandle, succeeded: &[String]) -> Vec<String> {
+    let exact: HashSet<String> = succeeded
+        .iter()
+        .map(|name| exact_transfer_path(name))
+        .collect();
+    let counts = |names: &[String]| {
+        let mut counts = HashMap::new();
+        for name in names {
+            *counts.entry(normalised_path(name)).or_insert(0) += 1;
+        }
+        counts
+    };
+    let enqueued_counts = counts(&handle.filenames);
+    let succeeded_counts = counts(succeeded);
+    handle
+        .filenames
+        .iter()
+        .filter(|name| {
+            if exact.contains(&exact_transfer_path(name)) {
+                return true;
+            }
+            let key = normalised_path(name);
+            enqueued_counts.get(&key) == Some(&1) && succeeded_counts.get(&key) == Some(&1)
+        })
+        .cloned()
+        .collect()
 }
 
 /// Whether the downloads mount holds any file:

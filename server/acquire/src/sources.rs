@@ -198,6 +198,13 @@ impl SlskdSource {
             super::slskd::repository::TaskHandle::new(&handle.username, handle.filenames.clone());
         let mut paths = Vec::new();
         for (index, filename) in handle.filenames.iter().enumerate() {
+            if handle
+                .completed_subset
+                .as_ref()
+                .is_some_and(|completed| !completed.contains(filename))
+            {
+                continue;
+            }
             let size = handle.sizes.get(index).copied().filter(|size| *size > 0);
             if let Some(path) = self
                 .repo
@@ -421,6 +428,7 @@ impl SlskdSource {
             has_active_transfer: status.has_active_transfer,
             downloaded_bytes: status.bytes_downloaded.max(0) as u64,
             succeeded_filenames: status.succeeded_filenames,
+            remote_queued: status.remote_queued,
             queue_position_start: status.queue_position_start,
             queue_position_end: status.queue_position_end,
             total_bytes: (status.bytes_total > 0).then_some(status.bytes_total as u64),
@@ -912,6 +920,7 @@ impl SabnzbdSource {
             all_succeeded: status.status == "completed",
             has_active_transfer: status.has_active_transfer,
             downloaded_bytes: status.bytes_downloaded,
+            remote_queued: false,
             succeeded_filenames: if status.status == "completed" {
                 vec![handle.job_name.clone()]
             } else {

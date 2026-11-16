@@ -101,7 +101,7 @@
 					</p>
 				{/if}
 			{:else}
-				<DownloadStatusBadge {task} />
+				<DownloadStatusBadge {task} remoteQueued={stream.state.source?.remote_queued} />
 			{/if}
 			{#if showBar}
 				<div class="mt-1.5 max-w-sm">

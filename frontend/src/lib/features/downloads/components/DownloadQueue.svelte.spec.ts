@@ -198,6 +198,39 @@ describe('a held file retried by itself', () => {
 	});
 });
 
+it('shows when a partially downloaded Soulseek album is waiting for the remaining tracks', async () => {
+	fakeApi({
+		'GET /api/v3/downloads/tasks': {
+			items: [
+				task('partial-wait', {
+					status: 'downloading',
+					downloaded_bytes: 90_000_000,
+					total_size_bytes: 110_000_000,
+					files_total: 11,
+					files_completed: 9,
+					progress_percent: 82,
+					remote_queued: true,
+					candidate_index: 0,
+					has_next_source: true
+				})
+			],
+			page: 1,
+			page_size: 100
+		},
+		'GET /api/v3/held': { entries: [] }
+	});
+	await renderWithQuery(DownloadQueue, {});
+
+	const hero = page.getByRole('region', { name: 'Now pressing' });
+	await expect.element(hero.getByLabelText("Status: Waiting in peer's queue")).toBeVisible();
+	await expect
+		.element(hero.getByText("Remaining tracks are waiting in the peer's queue"))
+		.toBeVisible();
+	await expect
+		.element(hero.getByRole('button', { name: 'Try the next ranked download source' }))
+		.toHaveTextContent('Keep finished tracks and move on');
+});
+
 describe('finished downloads on the Downloads queue', () => {
 	it('files a settled stop with finished work and counts only real misses', async () => {
 		fakeApi({

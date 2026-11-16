@@ -48,9 +48,8 @@
 	const attemptNumber = $derived(live?.attempt_number || task.attempt_number);
 	const attemptTotal = $derived(live?.attempt_total || task.attempt_total);
 	const hasNext = $derived(live?.has_next_source ?? task.has_next_source);
-	const isQueued = $derived(
-		source === 'soulseek' && remoteQueued && task.status === 'downloading' && bytesDownloaded === 0
-	);
+	const isQueued = $derived(source === 'soulseek' && remoteQueued && task.status === 'downloading');
+	const partialWait = $derived(isQueued && bytesDownloaded > 0);
 	const canTryNext = $derived(isQueued && hasNext && candidateIndex !== null);
 
 	const quality = $derived.by(() => {
@@ -149,7 +148,11 @@
 			disabled={nextSource.isPending}
 			aria-label="Try the next ranked download source"
 		>
-			{nextSource.isPending ? 'Switching…' : 'Try next source'}
+			{nextSource.isPending
+				? 'Switching…'
+				: partialWait
+					? 'Keep finished tracks and move on'
+					: 'Try next source'}
 		</Button>
 	{/if}
 	{#if actionMessage}
@@ -174,7 +177,11 @@
 				</dl>
 			{/if}
 			{#if isQueued}
-				<p class="source-panel__note">Waiting in the peer's queue</p>
+				<p class="source-panel__note">
+					{partialWait
+						? "Remaining tracks are waiting in the peer's queue"
+						: "Waiting in the peer's queue"}
+				</p>
 			{/if}
 			{#if fallbackLine}
 				<p class="source-panel__note source-panel__note--warn">
@@ -200,7 +207,11 @@
 				<p class="source-quality">{quality}</p>
 			{/if}
 			<p class="mt-0.5 text-xs text-muted">
-				{isQueued ? `Waiting for Soulseek · ${queueLabel}` : 'Downloading from Soulseek'}
+				{partialWait
+					? `Remaining tracks waiting · ${queueLabel}`
+					: isQueued
+						? `Waiting for Soulseek · ${queueLabel}`
+						: 'Downloading from Soulseek'}
 			</p>
 		</div>
 

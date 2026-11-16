@@ -855,6 +855,28 @@ impl<'conn> DownloadStore<'conn> {
         Ok(handle.filter(|text| !text.is_empty()))
     }
 
+    /// Persist the files the poll confirmed complete, ahead of landing.
+    pub(super) fn save_landing_handle(
+        &self,
+        attempt: &AttemptRow,
+        handle_json: &str,
+        now: f64,
+    ) -> Result<AttemptRow, StoreError> {
+        let changed = self.conn.execute(
+            sql::SAVE_LANDING_HANDLE.text(),
+            rusqlite::params![handle_json, ms(now), attempt.id, attempt.row_revision],
+        )?;
+        if changed == 1
+            && let Some(row) = self.get_attempt(&attempt.id)?
+        {
+            return Ok(row);
+        }
+        Err(StoreError::InvalidTransition(format!(
+            "attempt {} changed before partial landing",
+            attempt.id
+        )))
+    }
+
     /// Stored handles of a task's attempts on one source.
     pub fn source_handles(&self, task_id: &str, source: &str) -> Result<Vec<String>, StoreError> {
         self.rows(
