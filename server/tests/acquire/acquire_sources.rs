@@ -26,7 +26,7 @@ use droppedneedle_acquire::slskd::{
     DownloadPolicy, ReqwestSlskdHttp, SlskdClient, SlskdRepository,
 };
 use droppedneedle_acquire::sources::{SabnzbdSource, SlskdSource};
-use droppedneedle_acquire::target::lookup::{AlbumRelease, AlbumTrack};
+use droppedneedle_acquire::target::lookup::{AlbumRelease, AlbumTrack, album_release};
 use droppedneedle_acquire::target::{SearchTarget, Targets};
 use droppedneedle_acquire::usenet::indexer::{Indexer, IndexerQuery, PluginIndexers};
 use droppedneedle_acquire::usenet::newznab::{NewznabIndexer, NewznabIndexerEntry};
@@ -39,6 +39,7 @@ use droppedneedle_kernel::runtime_config::sections::PluginConfig;
 use droppedneedle_plugins::host::PluginHost;
 use droppedneedle_plugins::process::ProcessLauncher;
 use droppedneedle_plugins::runtime::RuntimeState;
+use droppedneedle_providers::musicbrainz::MbRelease;
 use droppedneedle_providers::newznab::NewznabIndexers;
 use droppedneedle_providers::{ProviderEndpoints, Providers, RequestPriority};
 use droppedneedle_testkit::slskd::{MOCK_API_KEY, MockSlskd};
@@ -51,6 +52,74 @@ use crate::common::ScratchDir;
 use crate::common::bundles::quiet_ticks;
 
 const WAIT: Duration = Duration::from_secs(5);
+
+#[test]
+fn acquisition_omits_known_video_tracks_but_keeps_audio_and_catalog_counts() {
+    let mut mixed: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/musicbrainz/release_names_sakamoto.json"
+    )))
+    .expect("recorded MusicBrainz release");
+    mixed["release-group"] = json!({"id": "c0ffee00-0000-4000-8000-00000000d100"});
+    let medium = &mut mixed["media"][0];
+    let wire_tracks = medium["tracks"].as_array().expect("medium tracks");
+    let total_tracks = wire_tracks.len();
+    let video_tracks = wire_tracks
+        .iter()
+        .filter(|track| track["recording"]["video"] == true)
+        .count();
+    assert!(video_tracks > 0, "fixture records known video tracks");
+    // A combined format is not a video-only medium. Track-level evidence
+    // must retain its audio while omitting its video-only tracks.
+    medium["format"] = json!("CD+DVD-Video");
+    let release: MbRelease = serde_json::from_value(mixed).expect("release model");
+    let audio_tracks = total_tracks - video_tracks;
+
+    let acquisition = album_release(release.clone()).expect("acquisition release");
+    assert_eq!(acquisition.tracks.len(), audio_tracks);
+    let library = droppedneedle_library::identify::sources::release_from_wire(release, Vec::new())
+        .expect("library release");
+    assert_eq!(library.tracks.len(), audio_tracks);
+    assert_eq!(
+        library
+            .media
+            .iter()
+            .map(|medium| medium.track_count)
+            .sum::<u32>(),
+        total_tracks as u32,
+        "catalog media retains MusicBrainz' full count"
+    );
+
+    let mut dvd_audio: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/musicbrainz/release_standard.json"
+    )))
+    .expect("recorded audio release");
+    let audio_count: usize = dvd_audio["media"]
+        .as_array()
+        .expect("media")
+        .iter()
+        .map(|medium| medium["tracks"].as_array().expect("tracks").len())
+        .sum();
+    for medium in dvd_audio["media"].as_array_mut().expect("media") {
+        medium["format"] = json!("DVD-Audio");
+    }
+    let dvd_audio: MbRelease = serde_json::from_value(dvd_audio).expect("DVD-Audio model");
+    assert_eq!(
+        album_release(dvd_audio.clone())
+            .expect("DVD-Audio acquisition release")
+            .tracks
+            .len(),
+        audio_count
+    );
+    assert_eq!(
+        droppedneedle_library::identify::sources::release_from_wire(dvd_audio, Vec::new())
+            .expect("DVD-Audio library release")
+            .tracks
+            .len(),
+        audio_count
+    );
+}
 
 /// A journal on a scratch database holding one album task.
 async fn journal_with_task(task_id: &str, artist: &str, album: &str) -> Arc<Journal> {
