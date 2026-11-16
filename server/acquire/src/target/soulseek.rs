@@ -95,11 +95,18 @@ pub(crate) async fn search_album<H: SlskdHttp>(
 }
 
 /// All the ranked folders are refused, or there was no usable folder at all.
-fn miss(has_listing: bool, reason: Reason, detail: &str) -> SoulseekMiss {
+fn miss(has_listing: bool, has_title_conflict: bool, reason: Reason, detail: &str) -> SoulseekMiss {
     if !has_listing {
         return SoulseekMiss::Nothing {
             reason,
             detail: detail.to_owned(),
+        };
+    }
+    if has_title_conflict {
+        return SoulseekMiss::Nothing {
+            reason,
+            detail: "slskd has folders, but their file titles or version labels conflict with this edition"
+                .to_owned(),
         };
     }
     SoulseekMiss::Nothing {
@@ -116,6 +123,7 @@ pub async fn choose<H: SlskdHttp>(
     keep: impl Fn(&SearchResult) -> bool,
 ) -> Result<SoulseekChoice, SoulseekMiss> {
     let request = RankRequest {
+        album_title: &target.album_title,
         tracklist: &target.tracklist,
         wanted: &target.wanted,
         single_track: target.track.is_some(),
@@ -135,6 +143,7 @@ pub async fn choose<H: SlskdHttp>(
         (Vec::new(), Vec::new())
     };
     let has_listing = !listing.is_empty();
+    let has_title_conflict = listing.iter().any(|pick| pick.title_conflicts > 0);
     let best = rank_folders(&hits, request, policy).into_iter().next();
     if let Some(pick) = best.filter(|pick| target.track.is_none() || !pick.lone_track) {
         return Ok(SoulseekChoice {
@@ -143,7 +152,12 @@ pub async fn choose<H: SlskdHttp>(
         });
     }
     let Some(track) = target.track.as_ref() else {
-        return Err(miss(has_listing, Reason::NoSource, NO_FOLDER));
+        return Err(miss(
+            has_listing,
+            has_title_conflict,
+            Reason::NoSource,
+            NO_FOLDER,
+        ));
     };
     // No album folder holds the track: search for the track itself. Its
     // results can still turn up an album folder, which wins as usual.
@@ -161,8 +175,10 @@ pub async fn choose<H: SlskdHttp>(
         }
     }
     let Some(pick) = rank_folders(&hits, request, policy).into_iter().next() else {
+        let review = rank_listing(&hits, request, policy);
         return Err(miss(
-            !rank_listing(&hits, request, policy).is_empty(),
+            !review.is_empty(),
+            review.iter().any(|pick| pick.title_conflicts > 0),
             TrackReason::TrackNotFound.into(),
             &TrackReason::TrackNotFound.to_string(),
         ));
@@ -173,4 +189,28 @@ pub async fn choose<H: SlskdHttp>(
         None
     };
     Ok(SoulseekChoice { pick, lone_reason })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_conflict_misses_name_the_actual_reason() {
+        let SoulseekMiss::Nothing { detail, .. } =
+            miss(true, true, Reason::TrackNotFound, "no track folder")
+        else {
+            unreachable!("miss stays a no-source answer");
+        };
+        assert!(detail.contains("titles or version labels conflict"));
+        assert!(!detail.contains("quality settings"));
+
+        let SoulseekMiss::Nothing { detail, reason } =
+            miss(true, false, Reason::NoSource, "no album folder")
+        else {
+            unreachable!("miss stays a no-source answer");
+        };
+        assert_eq!(reason, Reason::NothingAllowed);
+        assert!(detail.contains("quality settings"));
+    }
 }

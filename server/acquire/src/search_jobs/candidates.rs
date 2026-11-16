@@ -83,7 +83,7 @@ pub enum CandidateNoteCode {
     Complete,
     /// The folder misses some of the edition's tracks.
     Incomplete,
-    /// A numbered file names a different track than the edition.
+    /// A file title or version label conflicts with the edition.
     TitleConflict,
     /// Some track lengths are off the edition's.
     Lengths,
@@ -524,10 +524,10 @@ fn folder_note(pick: &FolderPick) -> (CandidateTier, CandidateNote) {
     }
     if pick.title_conflicts > 0 {
         let text = if pick.title_conflicts == 1 {
-            "1 numbered file names a different track than this edition.".to_owned()
+            "1 file title or version label conflicts with this edition.".to_owned()
         } else {
             format!(
-                "{} numbered files name different tracks than this edition.",
+                "{} file titles or version labels conflict with this edition.",
                 pick.title_conflicts
             )
         };

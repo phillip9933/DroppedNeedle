@@ -11,7 +11,7 @@ use super::matching::{FilePlan, MatchSummary, plan_holding};
 use super::probe::Landing;
 use super::specs::{
     Check, QualityPolicy, Rejection, Subject, Target, Verdict, artist_conflicts, file_specs,
-    match_specs, run, worst,
+    match_specs, run, version_conflicts, worst,
 };
 
 /// What to do with a landing.
@@ -78,10 +78,13 @@ pub fn decide(
     let outcome = match worst(&checks).map(outcome_of) {
         Some(outcome) => outcome,
         None => {
-            let conflicting = matched
+            let mut conflicting = matched
                 .best()
                 .map(|found| artist_conflicts(target, landing, found))
                 .unwrap_or_default();
+            if let Some(found) = matched.best() {
+                conflicting.extend(version_conflicts(target, landing, found));
+            }
             Outcome::Import(plan_holding(
                 matched,
                 target,
