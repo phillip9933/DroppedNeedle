@@ -154,9 +154,17 @@ async fn look_finishes(updates: &mut Subscription, worker: &DownloadWorker) {
 #[tokio::test]
 async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
     let mock = MockSlskd::start().await.expect("mock starts");
+    let mut complete = peer("complete", "@@music\\MA\\Blue Lines (1991)", &[0, 1, 2, 3]);
+    complete["files"].as_array_mut().expect("files").insert(
+        0,
+        json!({
+            "filename": "@@music\\MA\\Blue Lines (1991)\\cover.jpg",
+            "size": 1024, "extension": "jpg"
+        }),
+    );
     mock.script_responses(vec![
         peer("halfway", "@@music\\Massive Attack\\Blue Lines", &[0, 1]),
-        peer("complete", "@@music\\MA\\Blue Lines (1991)", &[0, 1, 2, 3]),
+        complete,
     ]);
 
     let Rig {
@@ -202,6 +210,11 @@ async fn manual_search_ranks_folders_and_fetches_the_picked_one() {
     assert_eq!(view.row.status, JobStatus::Completed);
     let payload = view.payload.expect("candidates decode");
     assert_eq!(payload.tracks_total, Some(4));
+    assert_eq!(
+        payload.candidates[0].view.format.as_deref(),
+        Some("FLAC 16-bit"),
+        "cover art cannot label the album's audio format"
+    );
     let ranked: Vec<_> = payload
         .candidates
         .iter()
