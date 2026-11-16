@@ -77,9 +77,9 @@ pub(crate) async fn search_album<H: SlskdHttp>(
             continue;
         }
         listing = rank_listing(&hits, request, repo.policy());
-        if listing.first().is_some_and(|pick| {
-            !pick.out_of_band
-                && !pick.unknown_quality
+        let automatic = rank_folders(&hits, request, repo.policy());
+        if automatic.first().is_some_and(|pick| {
+            !pick.unknown_quality
                 && if request.single_track {
                     !pick.lone_track
                 } else if request.wanted.is_empty() {
@@ -135,7 +135,7 @@ pub async fn choose<H: SlskdHttp>(
         (Vec::new(), Vec::new())
     };
     let has_listing = !listing.is_empty();
-    let best = listing.into_iter().next().filter(|pick| !pick.out_of_band);
+    let best = rank_folders(&hits, request, policy).into_iter().next();
     if let Some(pick) = best.filter(|pick| target.track.is_none() || !pick.lone_track) {
         return Ok(SoulseekChoice {
             pick,
