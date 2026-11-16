@@ -1141,6 +1141,36 @@ fn two_track_album() -> SearchTarget {
 }
 
 #[tokio::test]
+async fn album_search_can_find_a_copy_listed_with_different_punctuation() {
+    let mock = MockSlskd::start().await.expect("mock starts");
+    mock.script_responses(Vec::new());
+    let title_only = "Album 1959 1986";
+    let mut wrong = album_peer("wrong", "flac");
+    wrong["files"][0]["filename"] = "@@music\\Artist\\Album\\01 Other Song.flac".into();
+    mock.script_query(title_only, vec![wrong, album_peer("correct", "flac")]);
+    let repo = repository(&mock);
+    let target = SearchTarget {
+        album_title: "Album 1959–1986".to_owned(),
+        year: Some(2024),
+        ..two_track_album()
+    };
+
+    let choice = first_soulseek_choice(&repo, &target, |_| true)
+        .await
+        .expect("the punctuation-neutral title finds a copy");
+    assert_eq!(choice.pick.username, "correct");
+    assert_eq!(choice.pick.coverage, 2);
+    assert_eq!(
+        mock.search_texts(),
+        [
+            "Artist Album 1959–1986 2024",
+            "Artist Album 1959 1986",
+            title_only
+        ]
+    );
+}
+
+#[tokio::test]
 async fn automatic_pick_skips_a_numbered_file_with_a_conflicting_title() {
     let mock = MockSlskd::start().await.expect("mock starts");
     let queries = ["Artist Album 2024", "*rtist Album 2024"];
