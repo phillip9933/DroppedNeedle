@@ -337,6 +337,16 @@ impl SlskdSource {
             _ => Vec::new(),
         };
         let pinned_pick = !picked.is_empty();
+        // The query ladder can broaden to artist-only results; without a
+        // tracklist only a human's exact file pin identifies the album.
+        if task.download_type == "album"
+            && target.tracklist.is_empty()
+            && !(task.picked_by_person && pinned_pick)
+        {
+            return Err(SourceError::Unavailable(
+                TrackReason::AlbumLookupUnavailable.to_string(),
+            ));
+        }
         let payload: Vec<EnqueueFile> = if picked.is_empty() {
             let keep = |hit: &super::slskd::SearchResult| {
                 !blocked.blocks_file(&hit.username, &hit.filename) && !tried.contains(&hit.username)
@@ -787,8 +797,18 @@ impl SabnzbdSource {
             Err(error) => return Err(sab_error(error)),
         }
         let target = resolve_target(&self.targets, &task).await?;
-        let blocked = blocklist(&self.journal, &SourceTag::Usenet).await?;
         let pinned_pick = matches!(pin, Some(Pin::Release { .. }));
+        // A title and file-count fit cannot identify an edition when the
+        // tracklist is missing; only a human's exact release pin can.
+        if task.download_type == "album"
+            && target.tracklist.is_empty()
+            && !(task.picked_by_person && pinned_pick)
+        {
+            return Err(SourceError::Unavailable(
+                TrackReason::AlbumLookupUnavailable.to_string(),
+            ));
+        }
+        let blocked = blocklist(&self.journal, &SourceTag::Usenet).await?;
         let pick = match pin {
             // The release a person picked, found again by its identity (even
             // outside the download settings: they judged it): the NZB link
