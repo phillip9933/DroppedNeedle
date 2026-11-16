@@ -940,7 +940,13 @@ pub fn release_from_wire(wire: MbRelease, old_ids: Vec<String>) -> Result<Releas
             title: medium.title.clone().filter(|title| !title.is_empty()),
             track_count: medium.track_count.unwrap_or(medium.tracks.len() as u32),
         });
+        if medium.is_video_only() {
+            continue;
+        }
         for (track_index, track) in medium.tracks.iter().enumerate() {
+            if track.is_video() {
+                continue;
+            }
             let recording = track.recording.as_ref().ok_or_else(|| {
                 SourceError::refused(format!("track {} arrived without its recording", track.id))
             })?;

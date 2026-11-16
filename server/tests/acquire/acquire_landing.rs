@@ -18,7 +18,7 @@ use droppedneedle_acquire::downloads::landing_rows::{ImportDecisionRow, ImportOu
 use droppedneedle_acquire::downloads::queue_rows::Viewer as HeldViewer;
 use droppedneedle_acquire::downloads::sources::SourceHandle;
 use droppedneedle_acquire::downloads::state::{AttemptState, TaskStatus};
-use droppedneedle_acquire::downloads::store::{NewTask, TaskOutcome};
+use droppedneedle_acquire::downloads::store::{NewTask, TaskDetails, TaskOutcome};
 use droppedneedle_acquire::downloads::worker::{DownloadWorker, run_startup_recovery};
 use droppedneedle_acquire::downloads::{PlannedAlbum, ReplaceVersion, TaskPlan};
 use droppedneedle_acquire::intake::{self, Gate};
@@ -44,7 +44,7 @@ use droppedneedle_library::scan::EffectivePolicy;
 use droppedneedle_library::tags::TagField;
 use droppedneedle_library::tags::save::{TagEdit, save_tags};
 use droppedneedle_library::wiring::LibrarySetup;
-use droppedneedle_providers::musicbrainz::is_valid_mbid;
+use droppedneedle_providers::musicbrainz::{MbRelease, is_valid_mbid};
 use droppedneedle_providers::{ProviderError, RequestPriority};
 use futures_util::future::BoxFuture;
 
@@ -1240,6 +1240,168 @@ async fn finished_landing(
         .await
         .expect("seed");
     (acquire, worker, music, (platform, db))
+}
+
+#[tokio::test]
+async fn a_video_only_track_does_not_hold_a_finished_audio_album_open() {
+    use droppedneedle_acquire::target::lookup::{AlbumRelease, album_release};
+
+    let mut wire: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/musicbrainz/release_standard.json"
+    )))
+    .expect("recorded release");
+    let video_wire: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/musicbrainz/release_names_sakamoto.json"
+    )))
+    .expect("recorded release with video markers");
+    let video = video_wire["media"][0]["tracks"]
+        .as_array()
+        .expect("video fixture tracks")
+        .iter()
+        .find(|track| track["recording"]["video"] == true)
+        .expect("video-marked track")
+        .clone();
+
+    let db = AcquireDb::scratch().expect("database");
+    db.add_user("u-ada", "Ada", "user").await.expect("user");
+    let dir = db.path().parent().expect("database folder").to_path_buf();
+    let downloads = dir.join("downloads");
+    let file = land_file(
+        &downloads.join("job"),
+        "01 - Mysterons.flac",
+        "flac_full_01.flac",
+        "Mysterons",
+        1,
+    );
+    let duration = length_ms(&file).expect("audio duration");
+
+    wire["id"] = serde_json::json!(GOOD_RELEASE);
+    wire["title"] = serde_json::json!("Dummy");
+    wire["release-group"]["id"] = serde_json::json!(GOOD_GROUP);
+    let portishead_credit = serde_json::json!([{
+        "artist": {
+            "id": "8f6bd1e4-fbe1-4f50-aa9b-94c450ec0f11",
+            "name": "Portishead"
+        },
+        "name": "Portishead"
+    }]);
+    wire["artist-credit"] = portishead_credit.clone();
+    let mut audio = wire["media"][0]["tracks"][0].clone();
+    audio["title"] = serde_json::json!("Mysterons");
+    audio["length"] = serde_json::json!(duration);
+    audio["artist-credit"] = portishead_credit.clone();
+    audio["recording"]["title"] = serde_json::json!("Mysterons");
+    audio["recording"]["length"] = serde_json::json!(duration);
+    audio["recording"]["artist-credit"] = portishead_credit;
+    audio["recording"]["video"] = serde_json::json!(false);
+    wire["media"] = serde_json::json!([
+        {
+            "position": 1,
+            "format": "CD",
+            "track-count": 1,
+            "tracks": [audio]
+        },
+        {
+            "position": 2,
+            "format": "CD+DVD-Video",
+            "track-count": 1,
+            "tracks": [video]
+        }
+    ]);
+    let wire: MbRelease = serde_json::from_value(wire).expect("mixed CD and DVD-Video release");
+    let acquire_release: AlbumRelease = album_release(wire.clone()).expect("acquire release");
+    let library_release =
+        droppedneedle_library::identify::sources::release_from_wire(wire, Vec::new())
+            .expect("library release");
+    assert_eq!(
+        library_release
+            .media
+            .iter()
+            .map(|medium| medium.track_count)
+            .sum::<u32>(),
+        2,
+        "catalog counts still include the video medium"
+    );
+
+    let platform = TestPlatform::on(db.db(), &dir).build().await;
+    let (library, _) = library_at(&platform);
+    let music = dir.join("music");
+    std::fs::create_dir_all(&music).expect("music folder");
+    library
+        .scans
+        .add_root(
+            Some("music".to_owned()),
+            music.to_string_lossy().into_owned(),
+            EffectivePolicy::Automatic,
+        )
+        .expect("library root");
+    let mut albums = FixedAlbums::default();
+    albums
+        .releases
+        .insert(acquire_release.id.clone(), acquire_release);
+    let library_releases: Arc<dyn ReleaseSource> = Arc::new(Releases(vec![library_release]));
+    let (acquire, fixed) = acquire_serving_with_albums(
+        &platform,
+        &library,
+        Arc::new(LibraryLanding::new(
+            &library,
+            every_priority(library_releases),
+        )),
+        Some(Arc::new(albums)),
+    );
+    fixed.serve(&downloads, std::slice::from_ref(&file));
+    let handle = serde_json::to_string(&SourceHandle {
+        filenames: vec![file.to_string_lossy().into_owned()],
+        job_name: "fixed-video-0".to_owned(),
+        ..SourceHandle::new(SourceTag::Plugin("fixed".to_owned()))
+    })
+    .expect("handle");
+    acquire
+        .journal
+        .run("test.seed", move |store| {
+            store.insert_task(&new_task("video", GOOD_GROUP), 1.0)?;
+            store.set_task_details(
+                "video",
+                &TaskDetails {
+                    release_mbid: Some(GOOD_RELEASE.to_owned()),
+                    ..TaskDetails::default()
+                },
+                1.0,
+            )?;
+            store.set_task_plan(
+                "video",
+                &TaskPlan {
+                    release_mbid: Some(GOOD_RELEASE.to_owned()),
+                    ..TaskPlan::default()
+                },
+                1.0,
+            )?;
+            store.insert_attempt(
+                "video-a0",
+                "video",
+                "plugin:fixed",
+                0,
+                "fixed-video-0",
+                &handle,
+                AttemptState::InUse,
+                1.0,
+            )?;
+            store.transition_task("video", TaskStatus::Downloading, 1.0, None)
+        })
+        .await
+        .expect("seed");
+
+    acquire.worker.run_once(1).await;
+    acquire.worker.wait_for_landings().await;
+    let task = acquire.journal.read_task("video").await.unwrap().unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::Completed,
+        "a video-only track is not missing"
+    );
+    assert_eq!(files_under(&music, "flac").len(), 1);
 }
 
 /// An AcoustID outage makes a tagged download wait (no waits spent, the wait

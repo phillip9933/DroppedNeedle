@@ -143,6 +143,31 @@ pub struct Medium {
     pub tracks: Vec<Track>,
 }
 
+impl Medium {
+    /// Whether the declared format is known to hold video rather than
+    /// downloadable audio. Missing and unrecognized formats stay eligible.
+    #[must_use]
+    pub fn is_video_only(&self) -> bool {
+        const VIDEO_FORMATS: [&str; 12] = [
+            "dvd",
+            "dvd-video",
+            "blu-ray",
+            "hd-dvd",
+            "hdv",
+            "vhs",
+            "betamax",
+            "video cd",
+            "video-cd",
+            "vcd",
+            "svcd",
+            "laserdisc",
+        ];
+        self.format.as_deref().is_some_and(|format| {
+            VIDEO_FORMATS.contains(&format.trim().to_ascii_lowercase().as_str())
+        })
+    }
+}
+
 /// Recording reference inside release tracks.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct RecordingRef {
@@ -156,6 +181,10 @@ pub struct RecordingRef {
     /// Recording length in milliseconds.
     #[serde(default)]
     pub length: Option<u64>,
+    /// MusicBrainz' recording-level video marker; absent or null means
+    /// unknown, not audio or video (`release_names_sakamoto.json`, 2026-10-15).
+    #[serde(default)]
+    pub video: Option<bool>,
     /// Recording artist credit: fallback only; a present release-track
     /// credit wins (live 2026-07-31: Bach on the track, Gould on the
     /// recording of the same Goldberg track).
@@ -202,6 +231,14 @@ pub struct Track {
 }
 
 impl Track {
+    /// Whether the linked recording is explicitly marked as video.
+    #[must_use]
+    pub fn is_video(&self) -> bool {
+        self.recording
+            .as_ref()
+            .is_some_and(|recording| recording.video == Some(true))
+    }
+
     /// Edition title: release-track title first, recording title fallback.
     pub fn display_title(&self) -> Option<&str> {
         self.title

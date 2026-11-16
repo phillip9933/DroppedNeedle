@@ -22,23 +22,6 @@ use serde::{Deserialize, Serialize};
 /// Various Artists: a compilation credit that no Soulseek path carries.
 pub const VARIOUS_ARTISTS_MBID: &str = "89ad4ac3-39f7-470e-963a-56509c546377";
 
-/// Medium formats that carry video, not downloadable audio.
-/// DVD-Audio stays.
-const VIDEO_FORMATS: [&str; 12] = [
-    "dvd",
-    "dvd-video",
-    "blu-ray",
-    "hd-dvd",
-    "hdv",
-    "vhs",
-    "betamax",
-    "video cd",
-    "video-cd",
-    "vcd",
-    "svcd",
-    "laserdisc",
-];
-
 /// One release carrying a recording, with the fields release choice ranks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseCandidate {
@@ -427,16 +410,16 @@ pub fn album_release(release: MbRelease) -> Option<AlbumRelease> {
         .to_owned();
     let mut tracks = Vec::new();
     for (index, medium) in release.media.iter().enumerate() {
-        let video = medium.format.as_deref().is_some_and(|format| {
-            VIDEO_FORMATS.contains(&format.trim().to_ascii_lowercase().as_str())
-        });
-        if video {
+        if medium.is_video_only() {
             continue;
         }
         let disc = medium
             .position
             .unwrap_or_else(|| u32::try_from(index + 1).unwrap_or(1));
         for track in &medium.tracks {
+            if track.is_video() {
+                continue;
+            }
             let (Some(position), Some(recording)) = (track.position, track.recording.as_ref())
             else {
                 continue;
