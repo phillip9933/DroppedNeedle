@@ -48,8 +48,9 @@ pub struct RankRequest<'a> {
     /// then judged on their audio file count.
     pub tracklist: &'a [ExpectedTrack],
     /// Positions to fetch. For a single track these must all be present;
-    /// for an album, empty means the whole folder, otherwise the folder
-    /// gives whichever of them it holds (the tracks a short landing missed).
+    /// for an album, empty means all matched tracks (the whole folder when
+    /// the tracklist is unknown), otherwise the folder gives whichever of
+    /// them it holds (the tracks a short landing missed).
     pub wanted: &'a [TrackPosition],
     /// A single-track download: lone-track shares rank last.
     pub single_track: bool,
@@ -78,8 +79,8 @@ pub struct FolderPick {
     /// Wanted tracks (single track or a subset of the album) asked of a
     /// folder that holds little of the album.
     pub lone_track: bool,
-    /// Of the wanted positions, how many this folder holds (all of its
-    /// audio files when nothing in particular is wanted).
+    /// How many of the requested tracks this folder can supply (its audio
+    /// file count when the tracklist is unknown).
     pub held: usize,
     /// What the search shows of a file to fetch is outside the band or the
     /// recipe.
@@ -255,22 +256,17 @@ fn judge(
         assigned.get(&track).map(|file| audio[*file].hit.clone())
     });
     let to_fetch: Vec<SearchResult> = if request.wanted.is_empty() {
-        // A bonus file the recipe does not list is no reason to refuse the
-        // album it sits beside: with a tracklist to say which files are the
-        // album, it is left behind.
-        let paired: Vec<&str> = assigned
+        if total > 0 && assigned.is_empty() {
+            return None;
+        }
+        let paired: BTreeSet<&str> = assigned
             .values()
             .map(|file| audio[*file].hit.filename.as_str())
             .collect();
         files
             .iter()
             .filter(|hit| {
-                request.tracklist.is_empty()
-                    || paired.contains(&hit.filename.as_str())
-                    || landing_format(&hit.extension).is_none_or(|format| {
-                        policy.recipe_fit(format, hit.bitrate, hit.bit_depth, hit.sample_rate)
-                            != RecipeFit::Outside
-                    })
+                total == 0 || !is_audio(&hit.extension) || paired.contains(hit.filename.as_str())
             })
             .map(|hit| (*hit).clone())
             .collect()
@@ -758,6 +754,65 @@ mod tests {
             4,
             "disc folders: every disc is fetched"
         );
+    }
+
+    #[test]
+    fn known_album_fetches_only_matched_audio_and_keeps_sidecars() {
+        let tracklist = [track(1, "Alpha", 200.0), track(2, "Beta", 210.0)];
+        let hits = [
+            hit("bundled", "Share\\Album\\01 Alpha.flac", 200.0, false),
+            hit("bundled", "Share\\Album\\02 Beta.flac", 210.0, false),
+            hit("bundled", "Share\\Album\\03 Interview.flac", 300.0, false),
+            SearchResult {
+                extension: "jpg".to_owned(),
+                ..hit("bundled", "Share\\Album\\cover.jpg", 0.0, false)
+            },
+            hit("clean", "Share\\Album\\01 Alpha.flac", 200.0, true),
+            hit("clean", "Share\\Album\\02 Beta.flac", 210.0, true),
+            hit(
+                "unrelated",
+                "Share\\Another Album\\01 Drone.flac",
+                400.0,
+                true,
+            ),
+        ];
+        let request = RankRequest {
+            tracklist: &tracklist,
+            wanted: &[],
+            single_track: false,
+        };
+        let policy = DownloadPolicy::default();
+        for picks in [
+            rank_folders(&hits, request, &policy),
+            rank_listing(&hits, request, &policy),
+        ] {
+            let users: Vec<_> = picks.iter().map(|pick| pick.username.as_str()).collect();
+            assert_eq!(users, ["clean", "bundled"]);
+            assert_eq!(picks[1].coverage, 2);
+            assert_eq!(picks[1].held, 2);
+            let names: Vec<_> = picks[1]
+                .files
+                .iter()
+                .map(|hit| hit.filename.as_str())
+                .collect();
+            assert_eq!(
+                names,
+                [
+                    "Share\\Album\\01 Alpha.flac",
+                    "Share\\Album\\02 Beta.flac",
+                    "Share\\Album\\cover.jpg",
+                ]
+            );
+        }
+
+        let unknown = RankRequest {
+            tracklist: &[],
+            ..request
+        };
+        let picks = rank_folders(&hits, unknown, &policy);
+        assert_eq!(picks[0].username, "bundled");
+        assert_eq!(picks[0].held, 3);
+        assert_eq!(picks[0].files.len(), 4);
     }
 
     #[test]
