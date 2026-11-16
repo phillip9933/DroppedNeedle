@@ -232,6 +232,7 @@ impl SlskdSource {
                 SourceError::LocalFault("reading the Soulseek blocklist timed out".to_owned())
             })??;
         let request = RankRequest {
+            album_title: &target.album_title,
             tracklist: &target.tracklist,
             wanted: &[],
             single_track: false,

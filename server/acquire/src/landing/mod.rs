@@ -770,7 +770,13 @@ impl LandingService {
                 detail: found
                     .scored
                     .pair_for(*file)
-                    .and_then(|pair| specs::artist_conflict(target, landing, found, pair))
+                    .and_then(|pair| {
+                        specs::artist_conflict(target, landing, found, pair).or_else(|| {
+                            let track = found.release.tracks.get(pair.track)?;
+                            let file = landing.audio.get(pair.local)?;
+                            specs::track_version_conflict(target, &found.release, track, file)
+                        })
+                    })
                     .unwrap_or_else(|| {
                         "the file's tags name a different track than the release has here"
                             .to_owned()

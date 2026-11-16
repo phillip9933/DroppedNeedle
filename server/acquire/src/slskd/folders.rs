@@ -44,6 +44,8 @@ const CLOSE_LENGTH_SECONDS: f64 = 3.0;
 /// What the ranking is asked for.
 #[derive(Debug, Clone, Copy)]
 pub struct RankRequest<'a> {
+    /// The release title whose version is wanted.
+    pub album_title: &'a str,
     /// The release's tracks. Empty when no release is known: folders are
     /// then judged on their audio file count.
     pub tracklist: &'a [ExpectedTrack],
@@ -259,7 +261,20 @@ fn judge(
                     expected.disc_number == i64::from(position.disc)
                         && expected.track_number == i64::from(position.track)
                 });
-            wanted && title_fit(&audio[**file], expected.title.as_deref()) == TitleFit::Conflict
+            let file_folder = folder_of(&audio[**file].hit.filename).0;
+            let folder_name = file_folder
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&file_folder);
+            wanted
+                && (crate::track_version::context_conflict(
+                    &[expected.title.as_deref().unwrap_or_default()],
+                    &[request.album_title],
+                    &[&audio[**file].raw],
+                    &[folder_name],
+                )
+                .is_some()
+                    || title_fit(&audio[**file], expected.title.as_deref()) == TitleFit::Conflict)
         })
         .count();
     let wanted_files = request.wanted.iter().map(|position| {
@@ -641,6 +656,7 @@ mod tests {
             flac("02 One Love.flac", 288.0),
         ];
         let request = |tracklist| RankRequest {
+            album_title: "",
             tracklist,
             wanted: &[],
             single_track: false,
@@ -720,6 +736,7 @@ mod tests {
         let picks = rank_folders(
             &hits,
             RankRequest {
+                album_title: "",
                 tracklist: &tracklist,
                 wanted: &wanted,
                 single_track: true,
@@ -756,6 +773,7 @@ mod tests {
         let picks = rank_folders(
             &hits,
             RankRequest {
+                album_title: "",
                 tracklist: &tracklist,
                 wanted: &[],
                 single_track: false,
@@ -792,6 +810,7 @@ mod tests {
             ),
         ];
         let request = RankRequest {
+            album_title: "",
             tracklist: &tracklist,
             wanted: &[],
             single_track: false,
@@ -821,6 +840,7 @@ mod tests {
         }
 
         let unknown = RankRequest {
+            album_title: "",
             tracklist: &[],
             ..request
         };
@@ -852,6 +872,7 @@ mod tests {
             ),
         ];
         let request = RankRequest {
+            album_title: "",
             tracklist: &tracklist,
             wanted: &[],
             single_track: false,
@@ -883,6 +904,82 @@ mod tests {
     }
 
     #[test]
+    fn opposing_album_version_labels_block_automatic_picks_but_stay_reviewable() {
+        let tracklist = [track(1, "Smoke & Ribbons", 213.0)];
+        let hits = [hit(
+            "studio",
+            "Music\\Smoke & Ribbons (Studio Version)\\01 Smoke & Ribbons.flac",
+            213.0,
+            true,
+        )];
+        let request = RankRequest {
+            album_title: "Smoke & Ribbons (Acoustic Version)",
+            tracklist: &tracklist,
+            wanted: &[],
+            single_track: false,
+        };
+
+        assert!(
+            rank_folders(&hits, request, &DownloadPolicy::default()).is_empty(),
+            "a complete, same-length studio folder cannot satisfy an acoustic release"
+        );
+        let review = rank_listing(&hits, request, &DownloadPolicy::default());
+        assert_eq!(review.len(), 1, "the explicit mismatch stays reviewable");
+        assert_eq!(review[0].title_conflicts, 1);
+
+        let same_version = [hit(
+            "acoustic",
+            "Music\\Smoke & Ribbons [Acoustic] (Remastered 2023)\\01 Smoke & Ribbons.flac",
+            213.0,
+            true,
+        )];
+        let picks = rank_folders(&same_version, request, &DownloadPolicy::default());
+        assert_eq!(
+            picks.len(),
+            1,
+            "formatting and remaster labels stay compatible"
+        );
+    }
+
+    #[test]
+    fn stitched_discs_use_each_files_own_version_folder() {
+        let mut tracklist = vec![track(1, "Alpha", 200.0), track(1, "Beta", 210.0)];
+        tracklist[1].disc_number = 2;
+        let hits = [
+            hit(
+                "stitched",
+                "Music\\Album (Acoustic Version) (Disc 1)\\01 Alpha.flac",
+                200.0,
+                true,
+            ),
+            hit(
+                "stitched",
+                "Music\\Album (Studio Version) (Disc 2)\\01 Beta.flac",
+                210.0,
+                true,
+            ),
+        ];
+        let request = RankRequest {
+            album_title: "Album (Acoustic Version)",
+            tracklist: &tracklist,
+            wanted: &[],
+            single_track: false,
+        };
+
+        assert!(
+            rank_folders(&hits, request, &DownloadPolicy::default()).is_empty(),
+            "the second disc's own studio label must not inherit the first disc's acoustic folder"
+        );
+        let review = rank_listing(&hits, request, &DownloadPolicy::default());
+        assert!(
+            review
+                .iter()
+                .any(|pick| pick.files.len() == 2 && pick.title_conflicts == 1),
+            "the joined candidate must inspect the second disc's own folder label"
+        );
+    }
+
+    #[test]
     fn generic_numbered_and_title_matched_offset_files_remain_automatic() {
         let tracklist = [
             track(1, "Fire Escape", 213.0),
@@ -902,6 +999,7 @@ mod tests {
         let picks = rank_folders(
             &hits,
             RankRequest {
+                album_title: "",
                 tracklist: &tracklist,
                 wanted: &[],
                 single_track: false,
@@ -937,6 +1035,7 @@ mod tests {
         let picks = rank_folders(
             &hits,
             RankRequest {
+                album_title: "",
                 tracklist: &tracklist,
                 wanted: &wanted,
                 single_track: true,

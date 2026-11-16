@@ -1305,6 +1305,74 @@ pub fn artist_conflicts(
         .collect()
 }
 
+/// Files whose explicit track-version labels contradict the matched release.
+/// A matching embedded release or recording MBID is stronger evidence than
+/// contradictory title tags and leaves the file to the existing identity
+/// checks.
+pub fn version_conflicts(
+    target: &Target,
+    landing: &Landing,
+    found: &FoundRelease,
+) -> HashSet<usize> {
+    if target.album_version {
+        return HashSet::new();
+    }
+    found
+        .scored
+        .pairs
+        .iter()
+        .filter(|pair| {
+            !matches!(
+                pair.support,
+                Support::EmbeddedId | Support::TrackIdElsewhere
+            )
+        })
+        .filter(|pair| {
+            let Some(file) = landing.audio.get(pair.local) else {
+                return false;
+            };
+            let Some(track) = found.release.tracks.get(pair.track) else {
+                return false;
+            };
+            track_version_conflict(target, &found.release, track, file).is_some()
+        })
+        .map(|pair| pair.local)
+        .collect()
+}
+
+/// The opposing explicit labels on one file and its expected track, if any.
+pub fn track_version_conflict(
+    target: &Target,
+    release: &droppedneedle_library::matching::Release,
+    track: &droppedneedle_library::matching::ReleaseTrack,
+    file: &super::probe::LandedFile,
+) -> Option<String> {
+    let file_title = file_name_parts(file).2;
+    let folder = file
+        .path
+        .parent()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let album = if album_tag(file).is_empty() {
+        folder.as_str()
+    } else {
+        album_tag(file)
+    };
+    crate::track_version::context_conflict(
+        &[
+            target.track_title.as_deref().unwrap_or_default(),
+            &track.title,
+        ],
+        &[&target.album_title, &release.title],
+        &[&file.tag.title, &file_title],
+        &[album],
+    )
+    .map(|(wanted, have)| {
+        format!("the file is labeled {have}, but the requested release is labeled {wanted}")
+    })
+}
+
 /// Why the file of `pair` is another song by someone else: its artist tag
 /// shares no words with the requested artist, the release's artist or the
 /// track's own credit (one side's words must hold the other's, so
@@ -1458,6 +1526,17 @@ impl ImportSpec for RightTrack {
         let Some(pair) = found.requested_pair(target) else {
             return wrong("no landed file is the requested track".to_owned());
         };
+        let track = &found.release.tracks[pair.track];
+        let file = &subject.landing.audio[pair.local];
+        if !target.album_version
+            && !matches!(
+                pair.support,
+                Support::EmbeddedId | Support::TrackIdElsewhere
+            )
+            && let Some(detail) = track_version_conflict(target, &found.release, track, file)
+        {
+            return wrong(detail);
+        }
         match wrong_track(found, pair, subject.landing) {
             Some(detail) => wrong(detail),
             None => Verdict::accept(),
@@ -1625,6 +1704,244 @@ mod tests {
             content_words("Led Zeppelin II", &artist),
             vec!["ii"],
             "content words"
+        );
+    }
+
+    #[test]
+    fn right_track_rejects_opposing_release_version_labels() {
+        use super::super::matching::{FoundRelease, MatchState, MatchSummary};
+        use super::super::probe::{LandedFile, Landing};
+        use droppedneedle_library::matching::distance::Distance;
+        use droppedneedle_library::matching::score::{ReleaseMatch, Support, TrackPair};
+        use droppedneedle_library::matching::{Release, ReleaseTrack};
+        use droppedneedle_library::tags::read::HeaderInfo;
+        use droppedneedle_library::tags::{AudioFormat, AudioTag};
+
+        let release = Release {
+            id: "release-acoustic".to_owned(),
+            release_group_id: "group-acoustic".to_owned(),
+            title: "Smoke & Ribbons (Acoustic Version)".to_owned(),
+            tracks: vec![
+                ReleaseTrack {
+                    id: "release-track".to_owned(),
+                    recording_id: "recording".to_owned(),
+                    title: "Smoke & Ribbons".to_owned(),
+                    length_ms: Some(213_000),
+                    ..ReleaseTrack::default()
+                },
+                ReleaseTrack {
+                    id: "release-track-two".to_owned(),
+                    recording_id: "recording-two".to_owned(),
+                    title: "B-Side".to_owned(),
+                    disc: 1,
+                    position: 2,
+                    absolute_position: 2,
+                    length_ms: Some(180_000),
+                    ..ReleaseTrack::default()
+                },
+            ],
+            ..Release::default()
+        };
+        let matched = MatchSummary {
+            state: MatchState::Matched,
+            found: Some(FoundRelease {
+                release,
+                scored: ReleaseMatch {
+                    distance: Distance::default(),
+                    pairs: vec![
+                        TrackPair {
+                            local: 0,
+                            track: 0,
+                            distance: 0.0,
+                            support: Support::Description,
+                        },
+                        TrackPair {
+                            local: 1,
+                            track: 1,
+                            distance: 0.0,
+                            support: Support::Description,
+                        },
+                    ],
+                    unmatched: Vec::new(),
+                    missing: Vec::new(),
+                    conflicts: Vec::new(),
+                    names_agree: true,
+                    disputed: Vec::new(),
+                    overruled: Vec::new(),
+                },
+            }),
+            considered: Vec::new(),
+            owned: super::super::ports::OwnedTracks::default(),
+            album_copies: HashMap::new(),
+        };
+        let landing = Landing {
+            audio: vec![LandedFile {
+                path: PathBuf::from("/tmp/01 Smoke & Ribbons.flac"),
+                format: AudioFormat::Flac,
+                tag: AudioTag {
+                    title: "Smoke & Ribbons".to_owned(),
+                    album: "Smoke & Ribbons (Studio Version)".to_owned(),
+                    ..AudioTag::default()
+                },
+                header: HeaderInfo {
+                    duration_seconds: Some(213.0),
+                    duration_measured: true,
+                    ..HeaderInfo::default()
+                },
+                size_bytes: 1,
+            }],
+            ..Landing::default()
+        };
+        let target = Target {
+            album_title: "Smoke & Ribbons (Acoustic Version)".to_owned(),
+            release_group_mbid: "group-acoustic".to_owned(),
+            is_track: true,
+            recording_mbid: Some("recording".to_owned()),
+            track_title: Some("Smoke & Ribbons".to_owned()),
+            ..Target::default()
+        };
+        let policy = QualityPolicy::default();
+        let verdict = RightTrack.check(&Subject {
+            target: &target,
+            landing: &landing,
+            policy: &policy,
+            matched: Some(&matched),
+            heard: None,
+        });
+
+        assert!(
+            matches!(verdict, Verdict::Reject(_)),
+            "an explicit studio label contradicts the requested acoustic release: {verdict:?}"
+        );
+
+        let mut same_version = landing.clone();
+        same_version.audio[0].tag.album = "Smoke & Ribbons [Acoustic] (Remastered 2023)".to_owned();
+        let verdict = RightTrack.check(&Subject {
+            target: &target,
+            landing: &same_version,
+            policy: &policy,
+            matched: Some(&matched),
+            heard: None,
+        });
+        assert!(matches!(verdict, Verdict::Accept { .. }), "{verdict:?}");
+
+        let mut identity_proven = matched.clone();
+        identity_proven
+            .found
+            .as_mut()
+            .expect("release found")
+            .scored
+            .pairs[0]
+            .support = Support::EmbeddedId;
+        let verdict = RightTrack.check(&Subject {
+            target: &target,
+            landing: &landing,
+            policy: &policy,
+            matched: Some(&identity_proven),
+            heard: None,
+        });
+        assert!(
+            matches!(verdict, Verdict::Accept { .. }),
+            "a matching embedded recording ID outranks conflicting text labels: {verdict:?}"
+        );
+        let mut corrected_identity = matched.clone();
+        corrected_identity
+            .found
+            .as_mut()
+            .expect("release found")
+            .scored
+            .pairs[0]
+            .support = Support::TrackIdElsewhere;
+        let verdict = RightTrack.check(&Subject {
+            target: &target,
+            landing: &landing,
+            policy: &policy,
+            matched: Some(&corrected_identity),
+            heard: None,
+        });
+        assert!(
+            matches!(verdict, Verdict::Accept { .. }),
+            "a corrected release-track ID with matching recording evidence also outranks text: {verdict:?}"
+        );
+
+        let mut album_target = target.clone();
+        album_target.album_title = "Smoke & Ribbons".to_owned();
+        album_target.artist_name = "Artist".to_owned();
+        album_target.is_track = false;
+        album_target.recording_mbid = None;
+        album_target.track_title = None;
+        let mut album_matched = matched.clone();
+        let album_release = &mut album_matched.found.as_mut().expect("release found").release;
+        album_release.title = "Smoke & Ribbons".to_owned();
+        album_release.tracks[0].title = "Smoke & Ribbons (Acoustic Version)".to_owned();
+        let mut album_landing = landing.clone();
+        album_landing.audio[0].tag.title = "Smoke & Ribbons (Studio)".to_owned();
+        album_landing.audio[0].tag.album = "Smoke & Ribbons".to_owned();
+        album_landing.audio[0].tag.artist = "Artist".to_owned();
+        album_landing.audio[0].tag.album_artist = Some("Artist".to_owned());
+        album_landing.audio.push(LandedFile {
+            path: PathBuf::from("/tmp/02 B-Side.flac"),
+            format: AudioFormat::Flac,
+            tag: AudioTag {
+                title: "B-Side".to_owned(),
+                artist: "Artist".to_owned(),
+                album: "Smoke & Ribbons".to_owned(),
+                album_artist: Some("Artist".to_owned()),
+                ..AudioTag::default()
+            },
+            header: HeaderInfo {
+                duration_seconds: Some(180.0),
+                duration_measured: true,
+                ..HeaderInfo::default()
+            },
+            size_bytes: 1,
+        });
+        let decision = super::super::decision::decide(
+            &album_target,
+            &album_landing,
+            &policy,
+            &album_matched,
+            None,
+            Vec::new(),
+        );
+        let super::super::decision::Outcome::Import(plan) = decision.outcome else {
+            panic!("one conflicting track should be held, not reject the album: {decision:?}");
+        };
+        assert_eq!(plan.held, [(0, 0)]);
+        assert_eq!(plan.import, [(1, 1)]);
+
+        let mut album_identity_proven = album_matched.clone();
+        album_identity_proven
+            .found
+            .as_mut()
+            .expect("release found")
+            .scored
+            .pairs[0]
+            .support = Support::EmbeddedId;
+        assert!(
+            version_conflicts(
+                &album_target,
+                &album_landing,
+                album_identity_proven.best().unwrap()
+            )
+            .is_empty(),
+            "verified recording identity outranks conflicting text labels"
+        );
+        album_identity_proven
+            .found
+            .as_mut()
+            .expect("release found")
+            .scored
+            .pairs[0]
+            .support = Support::TrackIdElsewhere;
+        assert!(
+            version_conflicts(
+                &album_target,
+                &album_landing,
+                album_identity_proven.best().unwrap()
+            )
+            .is_empty(),
+            "a corrected release-track ID with matching recording evidence also exempts the file"
         );
     }
 
