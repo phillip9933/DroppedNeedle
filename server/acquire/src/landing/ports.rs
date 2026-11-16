@@ -6,7 +6,7 @@
 //! and the staged publisher); tests bind a scripted fake.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use futures_util::future::BoxFuture;
 
@@ -22,6 +22,22 @@ pub struct OwnedTracks {
     pub release_tracks: HashSet<String>,
     /// Recording MBIDs (lowercase).
     pub recordings: HashSet<String>,
+}
+
+/// Original paths and content hashes of files confirmed by the publisher.
+#[derive(Debug, Default)]
+pub struct PlacedSources(HashMap<PathBuf, HashSet<String>>);
+
+impl PlacedSources {
+    pub(crate) fn insert(&mut self, path: PathBuf, sha256: String) {
+        self.0.entry(path).or_default().insert(sha256);
+    }
+
+    pub(crate) fn contains(&self, path: &Path, sha256: &str) -> bool {
+        self.0
+            .get(path)
+            .is_some_and(|hashes| hashes.contains(sha256))
+    }
 }
 
 pub use droppedneedle_library::import::ExtraSource as ExtraFile;
@@ -298,14 +314,19 @@ pub trait LandingLibrary: Send + Sync {
     /// read, which is not an answer.
     fn publish_settled<'a>(&'a self, task_id: &'a str) -> BoxFuture<'a, Result<bool, String>>;
 
-    /// The content hashes (lower-case hex SHA-256) of the files that writes
-    /// staged under `staging` put into the library, once every write from
-    /// that staging folder is over; `None` while one still waits for
-    /// recovery. A file whose hash is listed is in the library, so a
-    /// person's import cut off by a restart never places it twice. An error
-    /// means the publish journal could not be read.
+    /// Source content hashes of imports staged under `staging`, once the
+    /// publisher has finished. Includes imported sidecars, whose original
+    /// paths are not in the journal.
     fn placed_sources<'a>(
         &'a self,
         staging: &'a str,
     ) -> BoxFuture<'a, Result<Option<HashSet<String>>, String>>;
+
+    /// The original paths and SHA-256 hashes of files a publish under
+    /// `staging` committed. `None` while a write still waits for recovery.
+    /// An error means the publish journal could not be read.
+    fn placed_audio_sources<'a>(
+        &'a self,
+        staging: &'a str,
+    ) -> BoxFuture<'a, Result<Option<PlacedSources>, String>>;
 }

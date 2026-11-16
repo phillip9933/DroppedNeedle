@@ -10,7 +10,8 @@ use futures_util::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension, Params, params};
 
 use super::ports::{
-    ImportFailure, ImportReceipt, ImportRequest, LandingLibrary, OwnedCopy, OwnedTracks, VersionRow,
+    ImportFailure, ImportReceipt, ImportRequest, LandingLibrary, OwnedCopy, OwnedTracks,
+    PlacedSources, VersionRow,
 };
 use super::sql;
 use crate::downloads::plan::PlannedAlbum;
@@ -561,14 +562,7 @@ impl LandingLibrary for LibraryLanding {
             if !self.publish_settled(staging).await? {
                 return Ok(None);
             }
-            // An import stages under `<hidden prefix>import/<name>/` below
-            // the library root (the held list's names need no escaping) and
-            // records the hash of each file it copied in as the row's
-            // source hash.
-            let folder = format!(
-                "{}import/{staging}/",
-                droppedneedle_library::publish::HIDDEN_PREFIX
-            );
+            let folder = import_staging_prefix(staging);
             let hashes: Vec<String> = self
                 .library
                 .db
@@ -581,6 +575,45 @@ impl LandingLibrary for LibraryLanding {
             Ok(Some(hashes.into_iter().collect()))
         })
     }
+
+    fn placed_audio_sources<'a>(
+        &'a self,
+        staging: &'a str,
+    ) -> BoxFuture<'a, Result<Option<PlacedSources>, String>> {
+        Box::pin(async move {
+            if !self.publish_settled(staging).await? {
+                return Ok(None);
+            }
+            let folder = import_staging_prefix(staging);
+            let sources = self
+                .library
+                .db
+                .read("landing.placed_audio_sources", move |conn| {
+                    read_rows(
+                        conn,
+                        sql::PLACED_AUDIO_SOURCES.text(),
+                        [folder],
+                        sql::PlacedSourceRow::read,
+                    )
+                    .map_err(DbError::from)
+                })
+                .await
+                .map_err(|error| format!("publish journal unreadable: {error}"))?;
+            let mut placed = PlacedSources::default();
+            for source in sources {
+                placed.insert(PathBuf::from(source.original_path), source.source_sha256);
+            }
+            Ok(Some(placed))
+        })
+    }
+}
+
+/// The recorded relative path prefix for files imported under `staging`.
+fn import_staging_prefix(staging: &str) -> String {
+    format!(
+        "{}import/{staging}/",
+        droppedneedle_library::publish::HIDDEN_PREFIX
+    )
 }
 
 #[cfg(test)]
