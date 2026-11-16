@@ -60,6 +60,15 @@ pub struct ImportFile {
 
 pub use droppedneedle_library::import::ImportOrigin;
 
+/// A stored audio file, with its position on an indexed album.
+#[derive(Debug)]
+pub struct IndexedAudio {
+    pub root: PathBuf,
+    pub path: PathBuf,
+    pub disc: i64,
+    pub track: i64,
+}
+
 /// A library file holding a track an upgrade may replace.
 #[derive(Debug, Clone)]
 pub struct OwnedCopy {
@@ -347,7 +356,7 @@ pub trait LandingLibrary: Send + Sync {
     fn audio_in_group<'a>(
         &'a self,
         _group: &'a str,
-    ) -> BoxFuture<'a, Result<Vec<(PathBuf, PathBuf)>, DbError>> {
+    ) -> BoxFuture<'a, Result<Vec<IndexedAudio>, DbError>> {
         Box::pin(async { Ok(Vec::new()) })
     }
 

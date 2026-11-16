@@ -6,12 +6,12 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use droppedneedle_kernel::db::backup::read_sha256;
 
 use super::{below, store::HeldFile};
-use crate::landing::confine;
+use crate::landing::{confine, ports::IndexedAudio};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 enum Proof {
@@ -79,14 +79,16 @@ fn proof(root: &Path, path: &Path) -> io::Result<Proof> {
 
 /// IDs with the same audio as an indexed file of this album. Unreadable,
 /// unmounted, synthetic or changed files prove nothing.
-pub(super) fn confirmed(
-    root: &Path,
-    files: &[HeldFile],
-    library: &[(PathBuf, PathBuf)],
-) -> Vec<i64> {
+pub(super) fn confirmed(root: &Path, files: &[HeldFile], library: &[IndexedAudio]) -> Vec<i64> {
     let owned: HashSet<_> = library
         .iter()
-        .filter_map(|(root, path)| proof(root, path).ok())
+        .filter_map(|file| {
+            Some((
+                file.disc.max(1),
+                file.track,
+                proof(&file.root, &file.path).ok()?,
+            ))
+        })
         .collect();
     if owned.is_empty() {
         return Vec::new();
@@ -95,7 +97,9 @@ pub(super) fn confirmed(
         .iter()
         .filter_map(|file| {
             let path = below(root, &file.path)?;
-            let duplicate = owned.contains(&proof(root, &path).ok()?);
+            let disc = file.pairing.disc_number.unwrap_or(1).max(1);
+            let track = file.pairing.track_number.filter(|track| *track > 0)?;
+            let duplicate = owned.contains(&(disc, track, proof(root, &path).ok()?));
             duplicate.then_some(file.id)
         })
         .collect()

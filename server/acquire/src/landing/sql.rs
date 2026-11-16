@@ -28,7 +28,7 @@ droppedneedle_kernel::sql! {
          OR b.id = (SELECT COALESCE(retired_into_album_id, id) \
          FROM local_albums WHERE id = ?2))";
     /// Indexed audio files of an owned group.
-    pub(super) GROUP_AUDIO = "SELECT t.root_id, t.relative_path " + OWNED_TRACKS_FROM;
+    pub(super) GROUP_AUDIO = "SELECT t.root_id, t.relative_path, t.disc_number, t.track_number " + OWNED_TRACKS_FROM;
     /// Indexed tracks of one release group: release track and recording
     /// (sealed identity first, then the file's own tags) and quality facts.
     pub(super) GROUP_TRACKS = "SELECT \

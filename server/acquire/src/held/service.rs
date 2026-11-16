@@ -1944,8 +1944,8 @@ impl HeldService {
     /// files our side could not take where their next try is due. Answers
     /// how many entries expired.
     pub async fn tend(&self) -> usize {
-        self.finish_cut_off().await;
         self.reconcile_duplicates().await;
+        self.finish_cut_off().await;
         let expired = self.expire_due().await;
         self.retry_due().await;
         expired
@@ -1993,10 +1993,18 @@ impl HeldService {
         let Some(group) = entry.release_group_mbid.as_deref() else {
             return Ok(());
         };
+        // Library-side retries and files in the same entry stay with
+        // their original action. This pass only settles matching holds.
+        if entry.files.iter().any(|file| retries_by_itself(file)) {
+            return Ok(());
+        }
         let files: Vec<_> = entry
             .files
             .iter()
-            .filter(|file| file.root == HeldRoot::Held)
+            .filter(|file| {
+                file.root == HeldRoot::Held
+                    && matches!(file.reason, Reason::WeakMatch | Reason::TagMismatch)
+            })
             .cloned()
             .collect();
         if files.is_empty() {
@@ -2017,15 +2025,10 @@ impl HeldService {
         }
         let (id, now) = (entry.id, self.now());
         let count = self
-            .write("held.resolve_duplicates", move |rows, _| {
-                for file in &ids {
-                    rows.rehold(
-                        *file,
-                        Reason::AlreadyOwned,
-                        Some("verified identical audio"),
-                    )?;
-                }
-                Ok(rows.resolve(id, &ids, FileState::AlreadyOwned, now)?)
+            .db
+            .db()
+            .write(Lane::Background, "held.resolve_duplicates", move |tx| {
+                Ok::<_, HeldError>(HeldRows::new(tx).resolve_duplicates(id, now, &ids)?)
             })
             .await?;
         tracing::info!(

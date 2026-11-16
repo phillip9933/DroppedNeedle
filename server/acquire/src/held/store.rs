@@ -639,6 +639,21 @@ impl<'c> HeldRows<'c> {
         Ok(moved)
     }
 
+    /// Record verified copies together, emitting one change per file.
+    pub fn resolve_duplicates(
+        &self,
+        entry_id: i64,
+        now: i64,
+        ids: &[i64],
+    ) -> rusqlite::Result<usize> {
+        let count = self.conn.execute(
+            sql::RESOLVE_DUPLICATES.text(),
+            params![entry_id, now, serde_json::json!(ids).to_string()],
+        )?;
+        self.settle(entry_id, now)?;
+        Ok(count)
+    }
+
     /// Resolve an open entry none of whose files is held any more; its
     /// drop item, if any, is settled with it.
     fn settle(&self, entry_id: i64, now: i64) -> rusqlite::Result<()> {

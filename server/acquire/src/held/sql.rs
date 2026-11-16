@@ -73,6 +73,13 @@ droppedneedle_kernel::sql! {
     /// Resolve held file `?1` as `?2` at `?3`.
     pub(super) RESOLVE_FILE = "UPDATE acquire_held_files SET state = ?2, resolved_at = ?3 \
              WHERE id = ?1 AND state = 'held'";
+    /// Record the verified IDs (`?3`, a JSON list) in a claimed entry.
+    pub(super) RESOLVE_DUPLICATES = "UPDATE acquire_held_files \
+             SET state = 'already_owned', \
+                 reason_detail = 'verified identical audio', resolved_at = ?2 \
+             WHERE entry_id = ?1 AND state = 'held' \
+               AND id IN (SELECT value FROM json_each(?3)) \
+               AND EXISTS (SELECT 1 FROM acquire_held_entries e WHERE e.id = ?1 AND e.state = 'placing')";
     /// Entry `?1` is resolved at `?2` once none of its files is held.
     pub(super) SETTLE_ENTRY = "UPDATE acquire_held_entries SET state = 'resolved', \
              resolved_at = ?2 WHERE id = ?1 AND state IN " + OPEN + " \
@@ -178,7 +185,7 @@ droppedneedle_kernel::sql! {
     pub(super) HELD_FOLDER_PATHS = "SELECT f.path FROM acquire_held_files f \
              JOIN acquire_held_entries e ON e.id = f.entry_id WHERE f.root = 'held' \
              AND ((f.state = 'held' AND e.state IN " + OPEN + ") \
-                  OR (f.state = 'already_owned' AND f.reason = 'already_owned'))";
+                  OR (f.state = 'already_owned' AND f.reason_detail = 'verified identical audio'))";
     /// The open entry of drop item `?1`.
     pub(super) ENTRY_OF_ITEM = ENTRY_ROW + " WHERE drop_item_id = ?1 AND state IN " + OPEN;
     /// Add `?2` imported files to drop item `?1`.

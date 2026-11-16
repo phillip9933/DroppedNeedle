@@ -10,8 +10,8 @@ use futures_util::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension, Params, params};
 
 use super::ports::{
-    ImportFailure, ImportReceipt, ImportRequest, LandingLibrary, OwnedCopy, OwnedTracks,
-    PlacedSources, VersionRow,
+    ImportFailure, ImportReceipt, ImportRequest, IndexedAudio, LandingLibrary, OwnedCopy,
+    OwnedTracks, PlacedSources, VersionRow,
 };
 use super::sql;
 use crate::downloads::plan::PlannedAlbum;
@@ -447,7 +447,7 @@ impl LandingLibrary for LibraryLanding {
     fn audio_in_group<'a>(
         &'a self,
         group: &'a str,
-    ) -> BoxFuture<'a, Result<Vec<(PathBuf, PathBuf)>, DbError>> {
+    ) -> BoxFuture<'a, Result<Vec<IndexedAudio>, DbError>> {
         Box::pin(async move {
             let group = group.to_ascii_lowercase();
             let files = self
@@ -455,7 +455,12 @@ impl LandingLibrary for LibraryLanding {
                 .db
                 .read("landing.group_audio", move |conn| {
                     read_rows(conn, sql::GROUP_AUDIO.text(), [group], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
                     })
                     .map_err(DbError::from)
                 })
@@ -463,13 +468,18 @@ impl LandingLibrary for LibraryLanding {
             let registry = self.library.core.live_registry();
             Ok(files
                 .into_iter()
-                .filter_map(|(id, relative)| {
+                .filter_map(|(id, relative, disc, track)| {
                     let root = registry
                         .roots()
                         .iter()
                         .find(|root| root.id == id && root.policy != EffectivePolicy::Excluded)?;
                     let path = crate::held::below(&root.path, &relative)?;
-                    Some((root.path.clone(), path))
+                    Some(IndexedAudio {
+                        root: root.path.clone(),
+                        path,
+                        disc,
+                        track,
+                    })
                 })
                 .collect())
         })

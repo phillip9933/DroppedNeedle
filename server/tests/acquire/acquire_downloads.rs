@@ -1310,6 +1310,67 @@ impl HeldRig {
 }
 
 #[tokio::test]
+async fn verified_duplicates_leave_review_without_deleting_originals() {
+    let rig = HeldRig::new(vec![held_release()]).await;
+    let release = held_release();
+    held_copy(
+        &rig.held_dir,
+        "first.flac",
+        "flac_full_01.flac",
+        "Mysterons",
+        1,
+    );
+    seed_held(
+        &rig.db,
+        "task:first",
+        "held",
+        vec![(
+            "first.flac",
+            release.tracks[0].clone(),
+            Reason::TargetOccupied,
+        )],
+    )
+    .await;
+    rig.acquire.held.tend().await;
+    assert_eq!(held_file(&rig.db, "first.flac").0, "imported");
+
+    held_copy(
+        &rig.held_dir,
+        "same.flac",
+        "flac_full_01.flac",
+        "Mysterons",
+        1,
+    );
+    held_copy(
+        &rig.held_dir,
+        "different-position.flac",
+        "flac_full_01.flac",
+        "Sour Times",
+        2,
+    );
+    seed_held(
+        &rig.db,
+        "task:compare",
+        "held",
+        vec![
+            ("same.flac", release.tracks[0].clone(), Reason::WeakMatch),
+            (
+                "different-position.flac",
+                release.tracks[1].clone(),
+                Reason::WeakMatch,
+            ),
+        ],
+    )
+    .await;
+    rig.acquire.held.tend().await;
+    assert_eq!(held_file(&rig.db, "same.flac").0, "already_owned");
+    assert_eq!(held_file(&rig.db, "different-position.flac").0, "held");
+    rig.acquire.held.recover().await;
+    assert!(rig.held_dir.join("same.flac").is_file());
+    assert!(rig.held_dir.join("different-position.flac").is_file());
+}
+
+#[tokio::test]
 async fn held_files_the_library_could_not_take_are_retried_by_themselves() {
     use droppedneedle_kernel::clock::Clock as _;
 
