@@ -1,12 +1,12 @@
 //! Which release a single track is fetched as part of.
 //!
 //! A recording usually sits on many releases: the album in several
-//! editions, singles, compilations, live sets. The order tried is: an
-//! edition the library has chosen for one of those albums (so a track
-//! request fills the album the user already holds, in the edition they
-//! picked), then the release the user requested it from, then the best
-//! official release (Official, not live or remix, no secondary types,
-//! Album before EP before Single, earliest). The secondary-type penalty
+//! editions, singles, compilations, live sets. The order tried is: the
+//! release the user requested it from, then an edition the library has
+//! chosen for one of those albums, then the best official release (Official,
+//! not live or remix, no secondary types, Album before EP before Single,
+//! earliest). Without an explicit release, the library edition comes first.
+//! The secondary-type penalty
 //! ranks ahead of the primary type, so a compilation or soundtrack album
 //! falls behind the artist's own release: a download is named after that
 //! release, not after a compilation that lists the track.
@@ -35,7 +35,13 @@ pub fn release_order(
             out.push((id, basis));
         }
     };
-    // Library editions that carry this recording: a person's choice first.
+    // An explicit request names the release the person wants this track from.
+    // It takes precedence over another album carrying the same recording.
+    // The caller validates the release tracklist before accepting it.
+    if let Some(requested) = requested {
+        push(requested, EditionBasis::RequestedRelease, &mut out);
+    }
+    // Without an explicit requested release, prefer the library's edition.
     let mut chosen: Vec<&ChosenEdition> = library
         .values()
         .filter(|edition| on_recording.contains(edition.release_mbid.as_str()))
@@ -48,12 +54,6 @@ pub fn release_order(
     });
     for edition in chosen {
         push(&edition.release_mbid, edition.basis, &mut out);
-    }
-    // The release the user asked from, even when the recording lookup
-    // left it out (MusicBrainz caps linked releases); the tracklist check
-    // proves it carries the recording.
-    if let Some(requested) = requested {
-        push(requested, EditionBasis::RequestedRelease, &mut out);
     }
     let mut ranked: Vec<&ReleaseCandidate> = candidates.iter().collect();
     ranked.sort_by_key(|candidate| {
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn library_edition_then_request_then_album_before_compilation() {
+    fn explicit_track_request_precedes_library_edition_and_default_order_is_unchanged() {
         let candidates = vec![
             candidate("comp", "g-comp", "Album", &["Compilation"]),
             candidate("single", "g-single", "Single", &[]),
@@ -139,11 +139,16 @@ mod tests {
                 basis: EditionBasis::Manual,
             },
         );
-        let order = release_order(&candidates, &library, Some("single"));
-        assert_eq!(order[0], ("deluxe".to_owned(), EditionBasis::Manual));
+        let explicit = release_order(&candidates, &library, Some("single"));
         assert_eq!(
-            order[1],
+            explicit[0],
             ("single".to_owned(), EditionBasis::RequestedRelease)
+        );
+        assert_eq!(explicit[1], ("deluxe".to_owned(), EditionBasis::Manual));
+        assert_eq!(
+            release_order(&candidates, &library, None)[0],
+            ("deluxe".to_owned(), EditionBasis::Manual),
+            "without an explicit request, the chosen library edition still wins"
         );
 
         // Official still decides first: an official compilation beats a
