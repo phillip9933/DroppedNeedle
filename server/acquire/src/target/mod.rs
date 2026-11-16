@@ -1,10 +1,10 @@
 //! What one download task fetches: the release, its tracklist, and the
 //! positions wanted from it.
 //!
-//! An album task fetches its chosen edition (see [`crate::edition`]);
-//! its tracklist comes from MusicBrainz once and is kept in the task's
-//! plan, so every source ranks candidates against it and the landing
-//! verifies against the same release.
+//! An album task searches for its chosen edition (see [`crate::edition`]).
+//! Its tracklist comes from MusicBrainz once and is kept in the task's
+//! plan, so every source ranks candidates against it. For a group-only
+//! request the plan records that this is the server's preferred edition.
 //!
 //! A single-track task is fetched the way a person would search by hand:
 //! the recording is resolved to an album ([`choose`]: the library's
@@ -212,6 +212,7 @@ impl Targets {
             }
         };
         let (task_id, group_mbid) = (task.id.clone(), release_group_mbid.clone());
+        let task_origin = task.origin;
         let clock = self.journal.db().clock().clone();
         self.journal
             .run("downloads.target.default_edition", move |store| {
@@ -231,6 +232,11 @@ impl Targets {
                     details.release_mbid = Some(release_mbid.clone());
                     details.year = details.year.or(found.year);
                     plan.release_mbid = Some(release_mbid);
+                    plan.preferred_edition = !matches!(
+                        task_origin,
+                        crate::dispatch::DispatchOrigin::Edition
+                            | crate::dispatch::DispatchOrigin::Upgrade
+                    );
                     plan.redirected_from = None;
                     plan.expected_tracks = expected_tracks(&found);
                     plan.album_wanted.clear();
@@ -317,6 +323,7 @@ impl Targets {
                 let mut plan = store.task_plan(&task_id)?;
                 if !(plan.is_for(&asked) || plan.is_for(&found)) {
                     plan.planned_album = None;
+                    plan.preferred_edition = false;
                 }
                 plan.redirected_from = (!asked.eq_ignore_ascii_case(&found)).then_some(asked);
                 plan.release_mbid = Some(found);

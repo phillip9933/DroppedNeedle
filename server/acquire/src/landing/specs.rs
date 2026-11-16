@@ -131,8 +131,10 @@ pub struct Target {
     pub artist_name: String,
     pub album_title: String,
     pub release_group_mbid: String,
-    /// The pinned edition, when the ask pinned one.
+    /// The requested, chosen or preferred edition.
     pub release_mbid: Option<String>,
+    /// A group-only request may land an equivalent edition.
+    pub preferred_edition: bool,
     pub year: Option<i32>,
     /// A single-track download.
     pub is_track: bool,
@@ -795,9 +797,8 @@ impl ImportSpec for ReleaseFound {
     }
 }
 
-/// With a pinned edition, files whose own tags name another release are
-/// another edition: rejected, so the next source is tried. Untagged files
-/// are judged by the pinned tracklist alone.
+/// Files whose own tags name a different edition from the one recalled
+/// are rejected, so the next source is tried.
 struct PinnedEdition;
 
 impl ImportSpec for PinnedEdition {

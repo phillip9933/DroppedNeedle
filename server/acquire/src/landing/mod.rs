@@ -357,6 +357,7 @@ impl LandingService {
         // that does not read is never taken as none: the landing waits.
         if let Some(planned) = &target.planned_album {
             target.release_mbid = Some(planned.release_mbid.trim().to_ascii_lowercase());
+            target.preferred_edition = false;
         } else if !target.release_group_mbid.is_empty() {
             let pin = match library.chosen_edition(&target.release_group_mbid).await {
                 Ok(pin) => pin,
@@ -378,6 +379,7 @@ impl LandingService {
                     tracing::info!(task_id = %task.id, %pin, "landing follows the album's chosen edition");
                 }
                 target.release_mbid = Some(pin);
+                target.preferred_edition = false;
             }
         }
         // Sizes key on the exact reported file, never on a bare name: two
@@ -1201,16 +1203,23 @@ impl LandingService {
 
 /// What the task asked for, from its row, details, and plan.
 pub fn target_for(task: &TaskRow, details: &TaskDetails, plan: &TaskPlan) -> Target {
+    let release_mbid = details
+        .release_mbid
+        .clone()
+        .or_else(|| plan.release_mbid.clone())
+        .map(|mbid| mbid.trim().to_ascii_lowercase())
+        .filter(|mbid| !mbid.is_empty());
+    let preferred_edition = plan.preferred_edition
+        && task.download_type == "album"
+        && plan.album_wanted.is_empty()
+        && plan.planned_album.is_none()
+        && release_mbid.as_deref().is_some_and(|id| plan.is_for(id));
     Target {
         artist_name: task.artist_name.clone(),
         album_title: task.album_title.clone(),
         release_group_mbid: task.release_group_mbid.trim().to_ascii_lowercase(),
-        release_mbid: details
-            .release_mbid
-            .clone()
-            .or_else(|| plan.release_mbid.clone())
-            .map(|mbid| mbid.trim().to_ascii_lowercase())
-            .filter(|mbid| !mbid.is_empty()),
+        release_mbid,
+        preferred_edition,
         year: details.year,
         is_track: task.download_type == "track",
         recording_mbid: task

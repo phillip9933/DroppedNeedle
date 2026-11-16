@@ -3966,7 +3966,10 @@ fn fixture_lengths() -> Vec<Option<u64>> {
 }
 
 /// Acquisition's view of the same releases, for the album target rewrite.
-struct Lookup(Vec<Release>);
+struct Lookup {
+    releases: Vec<Release>,
+    prefer_first: bool,
+}
 
 impl droppedneedle_acquire::target::lookup::AlbumLookup for Lookup {
     fn recording_releases<'a>(
@@ -3994,7 +3997,7 @@ impl droppedneedle_acquire::target::lookup::AlbumLookup for Lookup {
     > {
         use droppedneedle_acquire::target::lookup::{AlbumRelease, AlbumTrack};
         let found = self
-            .0
+            .releases
             .iter()
             .find(|release| release.answers_to(release_mbid))
             .map(|release| AlbumRelease {
@@ -4022,7 +4025,7 @@ impl droppedneedle_acquire::target::lookup::AlbumLookup for Lookup {
 
     fn preferred_release<'a>(
         &'a self,
-        _release_group_mbid: &'a str,
+        release_group_mbid: &'a str,
     ) -> BoxFuture<
         'a,
         Result<
@@ -4030,7 +4033,17 @@ impl droppedneedle_acquire::target::lookup::AlbumLookup for Lookup {
             droppedneedle_acquire::target::lookup::GroupLookupError,
         >,
     > {
-        Box::pin(async { Ok(None) })
+        Box::pin(async move {
+            if self.prefer_first
+                && let Some(release) = self
+                    .releases
+                    .iter()
+                    .find(|release| release.release_group_id == release_group_mbid)
+            {
+                return Ok(self.release(&release.id).await?);
+            }
+            Ok(None)
+        })
     }
 
     fn first_release_date<'a>(
@@ -4086,13 +4099,16 @@ async fn join_rig_with_fingerprints(
             EffectivePolicy::Automatic,
         )
         .expect("root adds");
-    let releases = Arc::new(Lookup(releases));
+    let releases = Arc::new(Lookup {
+        releases,
+        prefer_first: false,
+    });
     let (acquire, fixed) = acquire_serving_with_albums(
         &platform,
         &library,
         Arc::new(LibraryLanding::new(
             &library,
-            every_priority(Arc::new(Releases(releases.0.clone()))),
+            every_priority(Arc::new(Releases(releases.releases.clone()))),
         )),
         Some(releases.clone()),
     );
@@ -4442,6 +4458,114 @@ impl JoinRig {
              FROM library_play_history p WHERE p.id = ?1",
             rusqlite::params![format!("play-{track}"), track],
         )
+    }
+}
+
+/// A preferred search edition can land as a verified equivalent edition.
+/// A requested edition, another album and a different recording cannot.
+#[tokio::test]
+async fn only_a_preferred_edition_can_land_as_an_equivalent_edition() {
+    let lengths = fixture_lengths();
+    for (scenario, explicit, other_group, other_recording) in [
+        (1, false, false, false),
+        (2, true, false, false),
+        (3, false, true, false),
+        (4, false, false, true),
+    ] {
+        let e = editions(scenario, &lengths);
+        let mut landed = if other_group { e.other } else { e.new2 };
+        if other_recording {
+            landed.tracks[1].recording_id = mb(scenario, 3, 10);
+        }
+        let rig = join_rig(vec![e.old.clone(), landed.clone()]).await;
+        let task_id = "t-edition-intent";
+        rig.ask(
+            task_id,
+            &e.group,
+            &e.old.title,
+            "user",
+            explicit.then_some(e.old.id.as_str()),
+            None,
+            &[],
+        )
+        .await;
+        let targets = droppedneedle_acquire::target::Targets::new(
+            rig.acquire.journal.clone(),
+            Arc::new(Lookup {
+                releases: vec![e.old.clone()],
+                prefer_first: true,
+            }),
+        );
+        let task = rig.task(task_id).await;
+        targets
+            .target(&task)
+            .await
+            .expect("preferred search target");
+        assert_eq!(rig.plan(task_id).await.release_mbid, Some(e.old.id));
+
+        let paths: Vec<_> = landed
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| {
+                let path = rig.landed(task_id, &landed, index, FIXTURES[index]);
+                save_tags(
+                    &path,
+                    &[
+                        TagEdit::new(TagField::MusicBrainzReleaseId, vec![landed.id.clone()]),
+                        TagEdit::new(
+                            TagField::MusicBrainzReleaseGroupId,
+                            vec![landed.release_group_id.clone()],
+                        ),
+                        TagEdit::new(
+                            TagField::MusicBrainzRecordingId,
+                            vec![track.recording_id.clone()],
+                        ),
+                        TagEdit::new(TagField::MusicBrainzReleaseTrackId, vec![track.id.clone()]),
+                    ],
+                )
+                .expect("download names its own edition");
+                path
+            })
+            .collect();
+        rig.land(paths).await;
+
+        let task = rig.task(task_id).await;
+        let decision = rig
+            .acquire
+            .journal
+            .read("test.edition_intent", move |store| {
+                store.latest_import_decision(task_id)
+            })
+            .await
+            .expect("landing reads")
+            .expect("landing recorded");
+        if scenario == 1 {
+            assert_eq!(decision.outcome, ImportOutcome::Imported, "{decision:?}");
+            assert_eq!(task.status, TaskStatus::Completed);
+            assert_eq!(decision.release_mbid.as_deref(), Some(landed.id.as_str()));
+            for track in &landed.tracks {
+                let kept: i64 = rig.acquire.db.db().one(
+                    "SELECT COUNT(*) FROM local_track_external_identities ti
+                     JOIN local_tracks t ON t.id = ti.local_track_id
+                     JOIN local_album_external_identities ai ON ai.local_album_id = t.local_album_id
+                     WHERE ai.release_mbid = ?1 AND ti.release_track_mbid = ?2",
+                    [&landed.id, &track.id],
+                );
+                assert_eq!(kept, 1, "the track is placed on its source edition");
+            }
+        } else {
+            assert_eq!(
+                decision.reason_code,
+                Some(Reason::NotPinnedEdition),
+                "{decision:?}"
+            );
+            assert_eq!(
+                rig.album_count(),
+                0,
+                "scenario {scenario} imported an album"
+            );
+        }
     }
 }
 
@@ -7364,7 +7488,10 @@ impl IntakeCase {
         let (acquire, fixed) = acquire_serving(&platform, &library, port);
         let targets = Arc::new(droppedneedle_acquire::target::Targets::new(
             acquire.journal.clone(),
-            Arc::new(Lookup(releases)),
+            Arc::new(Lookup {
+                releases,
+                prefer_first: false,
+            }),
         ));
         let rig = JoinRig {
             acquire,
