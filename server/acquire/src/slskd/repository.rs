@@ -7,9 +7,10 @@
 //! transfers by `TaskHandle(source="soulseek", username, filenames)`.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use droppedneedle_library::tags::format_for_path;
 use tokio::sync::Semaphore;
 use unicode_normalization::UnicodeNormalization;
 
@@ -78,6 +79,7 @@ pub struct SearchResult {
 pub struct TaskStatus {
     /// `completed` | `partial` | `failed` | `downloading` | `queued`.
     pub status: String,
+    /// Audio files only. Sidecars still participate in transfer status and bytes.
     pub files_total: usize,
     pub files_completed: usize,
     pub files_failed: usize,
@@ -748,7 +750,15 @@ fn parse_datetime(text: &str) -> Option<i64> {
     Some(midnight + hour * 3600 + minute * 60 + second - offset_seconds)
 }
 
-/// Per-file status from matched transfer records.
+/// Whether a Soulseek filename can be read as audio by the landing.
+fn is_audio_filename(filename: &str) -> bool {
+    let name = filename.rsplit(['/', '\\']).next().unwrap_or(filename);
+    format_for_path(Path::new(name)).is_ok()
+}
+
+/// Per-file status from matched transfer records. The numbers shown as
+/// tracks count audio only. The batch verdict, bytes and successful
+/// filename list still account for sidecars.
 /// File-level verdicts judge each file only by its latest attempt; byte
 /// totals stay sum-over-all-records on purpose so cumulative progress
 /// keeps counting prior attempts. A "succeeded" flag only counts when the
@@ -758,7 +768,12 @@ fn parse_datetime(text: &str) -> Option<i64> {
 /// to the flag verdict.
 #[must_use]
 pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> TaskStatus {
-    let files_total = handle.filenames.len();
+    let file_count = handle.filenames.len();
+    let files_total = handle
+        .filenames
+        .iter()
+        .filter(|name| is_audio_filename(name))
+        .count();
     let bytes_total: i64 = transfers.iter().map(|transfer| transfer.size).sum();
     let bytes_downloaded: i64 = transfers
         .iter()
@@ -767,12 +782,16 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
 
     let mut completed = 0;
     let mut failed = 0;
+    let mut audio_completed = 0;
+    let mut audio_failed = 0;
     let mut succeeded_filenames = Vec::new();
     let mut has_active_transfer = false;
     let mut remote_queued = false;
     let mut queue_positions: Vec<i64> = Vec::new();
 
-    for transfer in latest_transfer_per_file(transfers) {
+    let latest = latest_transfer_per_file(transfers);
+    for transfer in &latest {
+        let audio = usize::from(is_audio_filename(&transfer.filename));
         let flags = state_flags(&transfer.state);
         if let Some(place) = transfer.place_in_queue
             && place >= 0
@@ -788,9 +807,11 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
                     has_active_transfer = true;
                 } else {
                     failed += 1;
+                    audio_failed += audio;
                 }
             } else {
                 completed += 1;
+                audio_completed += audio;
                 succeeded_filenames.push(transfer.filename.clone());
             }
         } else if flags.contains("errored")
@@ -805,6 +826,7 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
             // a terminal count and the task waits out the full queued timeout
             // instead of failing over on the next poll.
             failed += 1;
+            audio_failed += audio;
         } else if flags.contains("inprogress") || flags.contains("initializing") {
             has_active_transfer = true;
         } else if flags.contains("queued") && flags.contains("remotely") {
@@ -821,12 +843,11 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
     // Terminal only once every enqueued file has a terminal matched
     // transfer, so a not-yet-materialised record can't trigger a premature
     // terminal state.
-    let latest_count = latest_transfer_per_file(transfers).len();
     let all_terminal = !transfers.is_empty()
-        && (completed + failed) == latest_count
-        && (completed + failed) >= files_total
-        && files_total > 0;
-    let status = if all_terminal && failed == 0 && completed == files_total {
+        && (completed + failed) == latest.len()
+        && (completed + failed) >= file_count
+        && file_count > 0;
+    let status = if all_terminal && failed == 0 && completed == file_count {
         "completed"
     } else if all_terminal && completed > 0 {
         "partial"
@@ -842,8 +863,8 @@ pub fn aggregate_status(handle: &TaskHandle, transfers: &[&SlskdTransfer]) -> Ta
     TaskStatus {
         status,
         files_total,
-        files_completed: completed,
-        files_failed: failed,
+        files_completed: audio_completed,
+        files_failed: audio_failed,
         bytes_total,
         bytes_downloaded,
         progress_percent: progress,

@@ -35,6 +35,7 @@ async fn queued_tail_refills(client_timeout: bool) {
     const GROUP: &str = "6d0b7a1e-0000-4000-8000-000000000001";
     const RELEASE: &str = "6d0b7a1e-0000-4000-8000-000000000002";
     const COMPLETE: &str = "@@music\\Portishead\\Dummy\\01 - Mysterons.flac";
+    const COVER: &str = r"@@music\Portishead\Dummy\cover.jpg";
     const WAITING: &str = "@@music\\Portishead\\Dummy\\02 - Sour Times.flac";
 
     let db = AcquireDb::scratch().expect("scratch database");
@@ -104,6 +105,7 @@ async fn queued_tail_refills(client_timeout: bool) {
         None,
         None,
     );
+    slskd.inject_transfer("slow", COVER, 25, "Completed, Succeeded", None, None);
     slskd.inject_transfer_progress("slow", WAITING, sizes[1], 0, "Queued, Remotely", None, None);
     let peer_files = [COMPLETE, WAITING]
         .into_iter()
@@ -143,8 +145,8 @@ async fn queued_tail_refills(client_timeout: bool) {
     );
     let handle = serde_json::to_string(&SourceHandle {
         username: "slow".to_owned(),
-        filenames: vec![COMPLETE.to_owned(), WAITING.to_owned()],
-        sizes: sizes.to_vec(),
+        filenames: vec![COMPLETE.to_owned(), WAITING.to_owned(), COVER.to_owned()],
+        sizes: vec![sizes[0], sizes[1], 25],
         ..SourceHandle::new(SourceTag::Soulseek)
     })
     .expect("handle encodes");
@@ -181,6 +183,23 @@ async fn queued_tail_refills(client_timeout: bool) {
         .expect("seed task");
 
     worker.run_once(1).await;
+    let progress = acquire
+        .journal
+        .read("test.queue", |store| store.queue_task(TASK))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(progress.extras.files_total, 2, "cover is not a track");
+    assert_eq!(
+        progress.extras.files_completed, 1,
+        "only one audio file finished"
+    );
+    assert_eq!(
+        progress.task.downloaded_bytes,
+        sizes[0] + 25,
+        "cover still transfers"
+    );
+
     clock.advance(299_000);
     worker.run_once(2).await;
     assert_eq!(
