@@ -25,6 +25,7 @@
 mod assembly;
 mod duplicates;
 pub mod http;
+mod review;
 pub mod service;
 pub mod sql;
 pub mod store;

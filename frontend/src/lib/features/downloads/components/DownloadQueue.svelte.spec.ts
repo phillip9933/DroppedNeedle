@@ -56,6 +56,7 @@ const download: HeldEntry = {
 	album_title: 'Drift',
 	created_at: 1,
 	expires_at: DOWNLOAD_EXPIRES,
+	requires_decision: true,
 	files: [file(1), file(2)]
 };
 
@@ -70,6 +71,7 @@ const upload: HeldEntry = {
 	album_title: 'Tidewater',
 	created_at: 2,
 	expires_at: UPLOAD_EXPIRES,
+	requires_decision: true,
 	files: [
 		file(3, { source: 'upload', source_task_id: null }),
 		file(4, { source: 'upload', source_task_id: null })
@@ -170,6 +172,28 @@ describe('the held list on the Downloads queue', () => {
 			await expect.element(card.getByRole('button', { name: 'Match…' })).toBeVisible();
 			await expect.element(card.getByRole('button', { name: 'Discard all' })).toBeVisible();
 		}
+	});
+
+	it('keeps optional files available without counting them as a decision', async () => {
+		fakeApi({
+			'GET /api/v3/downloads/tasks': {
+				items: [task('task-1', { held_for_review: true, status: 'failed' })],
+				page: 1,
+				page_size: 100
+			},
+			'GET /api/v3/held': { entries: [{ ...download, requires_decision: false }, upload] }
+		});
+		await renderWithQuery(DownloadQueue, {});
+
+		await expect.element(page.getByText('1 to decide', { exact: true })).toBeVisible();
+		await expect.element(page.getByRole('heading', { name: 'Drift' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { name: /Needs you/ })).not.toBeInTheDocument();
+
+		const kept = page.getByRole('button', { name: /Kept copies/ });
+		await kept.click();
+		const copy = page.getByRole('article').filter({ hasText: 'Drift' });
+		await expect.element(copy.getByRole('button', { name: 'Match…' })).toBeVisible();
+		await expect.element(page.getByText('1 to decide', { exact: true })).toBeVisible();
 	});
 });
 

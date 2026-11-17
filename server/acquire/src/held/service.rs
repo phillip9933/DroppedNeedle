@@ -256,15 +256,20 @@ impl HeldService {
     ) -> Result<Vec<Entry>, HeldError> {
         let owner = (!(all && viewer.admin)).then(|| viewer.user_id.clone());
         let admin = viewer.admin;
-        self.read("held.list", move |rows| {
-            rows.list(
-                owner.as_deref(),
-                admin,
-                release_group_mbid.as_deref(),
-                task_id.as_deref(),
-            )
-        })
-        .await
+        self.db.db().read("held.list", move |conn| {
+            let mut entries = HeldRows::new(conn).list(
+                owner.as_deref(), admin, release_group_mbid.as_deref(), task_id.as_deref(),
+            )?;
+            for entry in &mut entries {
+                match super::review::optional_copy(conn, entry) {
+                    Ok(optional) => entry.requires_decision = !optional,
+                    Err(error) => {
+                        tracing::warn!(entry_id = entry.id, %error, "could not verify that the held copy is optional");
+                    }
+                }
+            }
+            Ok(entries)
+        }).await
     }
 
     /// For each entry holding a better copy that waits on an album's match,

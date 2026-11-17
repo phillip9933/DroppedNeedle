@@ -8860,6 +8860,114 @@ impl FingerprintSource for AssemblyFingerprint {
 
 /// Two ordinary album tasks have different parts of one chosen edition.
 /// None of their decisions have been reviewed yet.
+#[tokio::test]
+async fn held_album_copies_are_optional_only_after_the_exact_edition_is_complete() {
+    use droppedneedle_acquire::downloads::ExpectedTrack;
+
+    let chosen = release(GOOD_RELEASE, GOOD_GROUP, &TITLES[..2], &[None, None]);
+    let rig = join_rig(vec![chosen.clone()]).await;
+    let first = "kept/01 Mysterons.flac";
+    let second = "kept/02 Sour Times.flac";
+    rig.plant(first, 0, &chosen);
+    rig.plant(second, 1, &chosen);
+    rig.scan().await;
+    let first_id = rig.track_at(first);
+    let second_id = rig.track_at(second);
+    rig.set_edition(&rig.album_of(&first_id), GOOD_GROUP, GOOD_RELEASE, "manual");
+    rig.place(&first_id, &chosen, 0, "manual");
+    // A second indexed file for track one cannot make the album complete.
+    rig.place(&second_id, &chosen, 0, "manual");
+
+    let expected_tracks = chosen
+        .tracks
+        .iter()
+        .map(|track| ExpectedTrack {
+            track_number: i64::from(track.position),
+            disc_number: i64::from(track.disc),
+            duration_seconds: None,
+            recording_mbid: Some(track.recording_id.clone()),
+            title: Some(track.title.clone()),
+            release_track_mbid: Some(track.id.clone()),
+        })
+        .collect();
+    rig.acquire
+        .journal
+        .run("test.optional_held", move |store| {
+            store.insert_task(&new_task("t-held-copy", GOOD_GROUP), 1.0)?;
+            store.set_task_plan(
+                "t-held-copy",
+                &TaskPlan {
+                    release_mbid: Some(GOOD_RELEASE.to_owned()),
+                    expected_tracks,
+                    ..TaskPlan::default()
+                },
+                1.0,
+            )
+        })
+        .await
+        .expect("the source task is saved");
+    let held_copy = land_file(
+        &rig.acquire.held.folders().held,
+        "copy.flac",
+        FIXTURES[0],
+        "Mysterons",
+        1,
+    );
+    rig.sql(&format!("INSERT INTO acquire_held_entries (id,user_id,origin,group_key,release_group_mbid,state,created_at,expires_at) \
+        VALUES (1,'u-ada','download','album:{GOOD_GROUP}','{GOOD_GROUP}','held',1,9999999999999); \
+        INSERT INTO acquire_held_files (entry_id,root,path,original_name,release_mbid,disc_number,track_number,reason,source,source_task_id,state,created_at) \
+        VALUES (1,'held','copy.flac','copy.flac','{GOOD_RELEASE}',1,1,'weak_match','soulseek','t-held-copy','held',1);"));
+
+    let ada = test_principal("u-ada", Role::User, "sess-ada", SessionKind::Standard);
+    let listed = || async {
+        let (status, body) = held_call(&rig.acquire, "GET", "/api/v3/held", None, &ada).await;
+        assert_eq!(status, 200, "{body}");
+        let entry = &body["entries"][0];
+        assert_eq!(entry["files"][0]["original_name"], "copy.flac");
+        entry["requires_decision"].as_bool().expect("review status")
+    };
+    assert!(listed().await, "duplicate placements leave a track missing");
+    rig.place(&second_id, &chosen, 1, "manual");
+    assert!(
+        !listed().await,
+        "every track of the exact edition is covered"
+    );
+    rig.sql("UPDATE acquire_held_files SET track_number = 3 WHERE entry_id = 1");
+    assert!(listed().await, "extra material still asks for a decision");
+    rig.sql(&format!("UPDATE acquire_held_files SET track_number = 1, release_mbid = '{BAD_RELEASE}' WHERE entry_id = 1"));
+    assert!(
+        listed().await,
+        "a different release still asks for a decision"
+    );
+    rig.sql(&format!(
+        "UPDATE acquire_held_files SET release_mbid = '{GOOD_RELEASE}' WHERE entry_id = 1; \
+        UPDATE download_tasks SET origin = 'upgrade' WHERE id = 't-held-copy';"
+    ));
+    assert!(listed().await, "an upgrade still asks for a decision");
+    rig.sql(
+        "UPDATE download_tasks SET origin = 'user' WHERE id = 't-held-copy'; \
+        UPDATE acquire_held_files SET reason = 'tag_mismatch' WHERE entry_id = 1;",
+    );
+    assert!(
+        listed().await,
+        "unpaired files with contradictory tags stay in review"
+    );
+    rig.sql(&format!(
+        "UPDATE acquire_held_files SET release_track_mbid = '{}' WHERE entry_id = 1",
+        chosen.tracks[0].id
+    ));
+    assert!(
+        !listed().await,
+        "a paired file for the complete edition stays available without a decision"
+    );
+    rig.sql("UPDATE acquire_held_files SET reason = 'fingerprint_mismatch' WHERE entry_id = 1");
+    assert!(
+        listed().await,
+        "a conflicting fingerprint still needs a decision"
+    );
+    assert!(held_copy.is_file(), "the held copy stays available");
+}
+
 async fn held_assembly_case(
     repeated: bool,
 ) -> (JoinRig, PathBuf, String, Arc<AssemblyFingerprint>) {

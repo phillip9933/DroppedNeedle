@@ -32,9 +32,10 @@
 	const query = getDownloadsQuery();
 	const isAdmin = $derived(authStore.isAdmin);
 	const quarantineQuery = getQuarantineQuery(() => isAdmin);
-	// Every download and upload whose files wait for a decision, one entry each.
 	const heldQuery = getHeldEntriesQuery();
 	const held = $derived(heldQuery.data?.entries ?? []);
+	const needsDecision = $derived(held.filter((entry) => entry.requires_decision !== false));
+	const keptCopies = $derived(held.filter((entry) => entry.requires_decision === false));
 	const heldTaskIds = $derived(
 		new Set(
 			held.flatMap((entry) =>
@@ -58,7 +59,7 @@
 		);
 	}
 	const recheckEntryIds = $derived(
-		held
+		needsDecision
 			.filter((entry) => entry.files.some((file) => file.actions.includes('recheck')))
 			.map((entry) => entry.id)
 	);
@@ -106,13 +107,14 @@
 			{ n: sections.now_spinning.length, label: 'spinning', tone: 'live' },
 			{ n: sections.wanted.length, label: 'still hunting', tone: 'wait' },
 			{ n: sections.needs_you.length, label: 'needs you', tone: 'wait' },
-			{ n: held.length, label: 'to decide', tone: 'wait' },
+			{ n: needsDecision.length, label: 'to decide', tone: 'wait' },
 			{ n: sections.cueing.length, label: 'cueing up', tone: 'quiet' },
 			{ n: crateCount, label: 'in your crate', tone: 'done' }
 		].filter((p) => p.n > 0)
 	);
 
 	let historyOpen = $state(false);
+	let keptCopiesOpen = $state(false);
 	let quarantineOpen = $state(false);
 </script>
 
@@ -205,9 +207,9 @@
 		{/if}
 
 		<!-- HELD: files waiting for a decision -->
-		{#if held.length > 0}
+		{#if needsDecision.length > 0}
 			<section>
-				<QueueSectionHead title="To decide" aside="files kept" count={held.length}>
+				<QueueSectionHead title="To decide" aside="files kept" count={needsDecision.length}>
 					{#snippet actions()}
 						{#if recheckEntryIds.length > 0}
 							<Button
@@ -224,7 +226,7 @@
 					{/snippet}
 				</QueueSectionHead>
 				<div class="space-y-3">
-					{#each held as entry (entry.id)}
+					{#each needsDecision as entry (entry.id)}
 						<HeldEntryCard {entry} retryTaskId={verdictTaskOf(entry)} />
 					{/each}
 				</div>
@@ -240,6 +242,25 @@
 						<DownloadItem {task} />
 					{/each}
 				</div>
+			</section>
+		{/if}
+
+		{#if keptCopies.length > 0}
+			<section>
+				<QueueSectionHead
+					title="Kept copies"
+					note="complete editions"
+					count={keptCopies.length}
+					open={keptCopiesOpen}
+					ontoggle={() => (keptCopiesOpen = !keptCopiesOpen)}
+				/>
+				{#if keptCopiesOpen}
+					<div class="space-y-3">
+						{#each keptCopies as entry (entry.id)}
+							<HeldEntryCard {entry} retryTaskId={verdictTaskOf(entry)} />
+						{/each}
+					</div>
+				{/if}
 			</section>
 		{/if}
 

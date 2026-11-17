@@ -179,6 +179,9 @@ pub struct HeldEntryResponse {
     /// The library album whose match a person should check before the
     /// better copy held here can go in: its "Check this album" target.
     pub check_album_id: Option<String>,
+    /// Whether the Downloads queue should ask for a decision. Optional
+    /// copies for complete editions are still listed and actionable.
+    pub requires_decision: bool,
     pub files: Vec<HeldFileResponse>,
 }
 
@@ -188,6 +191,7 @@ impl From<Entry> for HeldEntryResponse {
         Self {
             next_retry_at: entry.retry_at.filter(|_| retries),
             check_album_id: None,
+            requires_decision: entry.requires_decision,
             id: entry.id,
             origin: entry.origin,
             state: entry.state,
@@ -203,7 +207,7 @@ impl From<Entry> for HeldEntryResponse {
     }
 }
 
-/// Entries waiting for a decision, newest first.
+/// Held entries, newest first, including optional copies.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct HeldListResponse {
     pub entries: Vec<HeldEntryResponse>,
@@ -332,8 +336,7 @@ fn id_of(text: &str) -> Result<i64, ApiError> {
         .map_err(|_| ApiError::from(RequestsError::NotFound))
 }
 
-/// Entries waiting for your decision, newest first, with when each
-/// expires. `GET /api/v3/held`.
+/// Held entries, newest first, with when each expires. `GET /api/v3/held`.
 #[utoipa::path(
     get,
     tag = "held",

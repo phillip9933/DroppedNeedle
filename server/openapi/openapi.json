@@ -7737,7 +7737,7 @@
         "tags": [
           "held"
         ],
-        "summary": "Entries waiting for your decision, newest first, with when each\nexpires. `GET /api/v3/held`.",
+        "summary": "Held entries, newest first, with when each expires. `GET /api/v3/held`.",
         "operationId": "list_handler",
         "parameters": [
           {
@@ -46827,6 +46827,7 @@
           "origin",
           "state",
           "created_at",
+          "requires_decision",
           "files"
         ],
         "properties": {
@@ -46903,6 +46904,10 @@
               "string",
               "null"
             ]
+          },
+          "requires_decision": {
+            "type": "boolean",
+            "description": "Whether the Downloads queue should ask for a decision. Optional\ncopies for complete editions are still listed and actionable."
           },
           "state": {
             "$ref": "#/components/schemas/EntryState",
@@ -47086,7 +47091,7 @@
       },
       "HeldListResponse": {
         "type": "object",
-        "description": "Entries waiting for a decision, newest first.",
+        "description": "Held entries, newest first, including optional copies.",
         "required": [
           "entries"
         ],

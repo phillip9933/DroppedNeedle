@@ -270,6 +270,8 @@ pub struct Entry {
     /// When the held loop next retries its files our side could not take;
     /// `None` for at its next pass.
     pub retry_at: Option<i64>,
+    /// Computed for the queue using the current library and download plan.
+    pub requires_decision: bool,
     pub files: Vec<HeldFile>,
 }
 
@@ -289,6 +291,7 @@ impl Entry {
             created_at: row.get(10)?,
             expires_at: row.get(11)?,
             retry_at: row.get(12)?,
+            requires_decision: true,
             files: Vec::new(),
         })
     }

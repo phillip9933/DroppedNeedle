@@ -31,7 +31,7 @@ droppedneedle_kernel::sql! {
     pub(super) GROUP_AUDIO = "SELECT t.root_id, t.relative_path, t.disc_number, t.track_number " + OWNED_TRACKS_FROM;
     /// Indexed tracks of one release group: release track and recording
     /// (sealed identity first, then the file's own tags) and quality facts.
-    pub(super) GROUP_TRACKS = "SELECT \
+    pub(crate) GROUP_TRACKS = "SELECT \
          lower(COALESCE(ti.release_track_mbid, t.embedded_release_track_mbid, '')), \
          lower(COALESCE(" + (recording_mbid!("ti", "t")) + ", '')), \
          t.file_format, t.bit_rate, t.bit_depth " + OWNED_TRACKS_FROM + IN_ALBUM;

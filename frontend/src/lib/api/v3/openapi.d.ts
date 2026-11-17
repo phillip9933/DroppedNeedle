@@ -2620,10 +2620,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Entries waiting for your decision, newest first, with when each
-         *     expires. `GET /api/v3/held`.
-         */
+        /** Held entries, newest first, with when each expires. `GET /api/v3/held`. */
         get: operations["list_handler"];
         put?: never;
         post?: never;
@@ -14972,6 +14969,11 @@ export interface components {
             /** @description The song, for a track download. */
             recording_mbid?: string | null;
             release_group_mbid?: string | null;
+            /**
+             * @description Whether the Downloads queue should ask for a decision. Optional
+             *     copies for complete editions are still listed and actionable.
+             */
+            requires_decision: boolean;
             /** @description `held` while it waits, `placing` while an action runs on it. */
             state: components["schemas"]["EntryState"];
         };
@@ -15034,7 +15036,7 @@ export interface components {
         HeldFilesRequest: {
             file_ids?: number[] | null;
         };
-        /** @description Entries waiting for a decision, newest first. */
+        /** @description Held entries, newest first, including optional copies. */
         HeldListResponse: {
             entries: components["schemas"]["HeldEntryResponse"][];
         };

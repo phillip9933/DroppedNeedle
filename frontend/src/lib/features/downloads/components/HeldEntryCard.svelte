@@ -143,7 +143,12 @@
 	</Button>
 {/snippet}
 
-<Card as="article" variant="bordered" padding="md" class="border-warning/60! sm:p-5">
+<Card
+	as="article"
+	variant="bordered"
+	padding="md"
+	class="{entry.requires_decision !== false ? 'border-warning/60!' : ''} sm:p-5"
+>
 	<div class="flex items-start gap-3 sm:gap-4">
 		{#if !compact}
 			<div class="relative size-16 shrink-0 overflow-hidden rounded-sm sm:size-22">

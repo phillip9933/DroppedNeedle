@@ -48,6 +48,7 @@ const leftover: HeldEntry = {
 	album_title: null,
 	created_at: 1,
 	expires_at: null,
+	requires_decision: true,
 	files: [file(1), file(2)]
 };
 
