@@ -7,6 +7,7 @@ use std::sync::Arc;
 use super::poll::PollMemory;
 use super::{Attempt, DownloadWorker, Pass, failover_exhausted, handled_count, live_attempt};
 use crate::dispatch::DispatchOrigin;
+use crate::downloads::ownership::AlbumCoverage;
 use crate::downloads::sources::{DownloadSource, SourceError, SourceHandle};
 use crate::downloads::state::{AttemptDisposition, AttemptState, TaskStatus};
 use crate::downloads::store::{AttemptRow, StoreError, TaskOutcome, TaskRow};
@@ -186,13 +187,6 @@ impl DownloadWorker {
         if self.landing_in_flight(&task.id) {
             return false;
         }
-        if Self::parked(task) {
-            if task.origin == DispatchOrigin::Upgrade {
-                self.settle_upgrade(task, now).await;
-            }
-            // Any other parked task waits for its owner's pick.
-            return false;
-        }
         if task.artist_name.trim().is_empty() && task.album_title.trim().is_empty() {
             // Edition asks carry no searchable names until the catalog
             // port lands; warn once per task and leave the row queued.
@@ -231,6 +225,15 @@ impl DownloadWorker {
                 store.transition_task(&task_id, TaskStatus::Downloading, now, None)
             })
             .await;
+            return false;
+        }
+        if self.stop_if_complete(task, now).await {
+            return false;
+        }
+        if Self::parked(task) {
+            if task.origin == DispatchOrigin::Upgrade {
+                self.settle_upgrade(task, now).await;
+            }
             return false;
         }
         let handled = handled_count(&attempts, None);
@@ -330,11 +333,62 @@ impl DownloadWorker {
         false
     }
 
+    /// Leave a completed edition in the library and fulfil its request
+    /// before looking at download sources. Recheck ownership when settling
+    /// the task so a concurrent edition change or manual pick stands.
+    async fn stop_if_complete(&self, task: &TaskRow, now: f64) -> bool {
+        let Some(coverage) = self
+            .read_step("downloads.album_coverage", {
+                let task = task.clone();
+                move |store| store.album_coverage(&task, None)
+            })
+            .await
+        else {
+            return true;
+        };
+        let resolved = match coverage {
+            AlbumCoverage::Fetch => return false,
+            AlbumCoverage::Complete => None,
+            AlbumCoverage::NeedsTracklist(release) => {
+                let expected = self.targets.edition_tracklist(&release).await;
+                Some((release, expected))
+            }
+        };
+        let task_id = task.id.clone();
+        self.step("downloads.already_complete", move |store| {
+            let Some(current) = store.get_task(&task_id)? else {
+                return Ok(true);
+            };
+            if current.status != TaskStatus::Queued {
+                return Ok(true);
+            }
+            let evidence = resolved
+                .as_ref()
+                .map(|(id, tracks)| (id.as_str(), tracks.as_slice()));
+            if !matches!(
+                store.album_coverage(&current, evidence)?,
+                AlbumCoverage::Complete
+            ) {
+                return Ok(false);
+            }
+            store.transition_task(
+                &task_id,
+                TaskStatus::Completed,
+                now,
+                Some(TaskOutcome::new(
+                    Reason::AlreadyInLibrary,
+                    "every track of the requested edition is already in the library",
+                )),
+            )?;
+            Ok(true)
+        })
+        .await
+        .unwrap_or(true)
+    }
+
     /// Settle a parked upgrade: it never waits for a pick. Doing nothing
-    /// keeps the library copy, so it ends as stopped with "no better copy",
-    /// and the album rests under the upgrade back-off before the sweep
-    /// looks again. A person's request that joined the upgrade keeps it
-    /// waiting for their pick, as any request does.
+    /// keeps the library copy and ends the task with "no better copy".
+    /// A person's request that joined the upgrade still waits for a pick.
     async fn settle_upgrade(&self, task: &TaskRow, now: f64) {
         let task_id = task.id.clone();
         self.step("downloads.settle_upgrade", move |store| {

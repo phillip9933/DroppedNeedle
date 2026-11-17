@@ -45,7 +45,7 @@ pub struct GroupCopy {
 }
 
 impl GroupCopy {
-    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+    pub(crate) fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             track_id: row.get(0)?,
             album_id: row.get(1)?,

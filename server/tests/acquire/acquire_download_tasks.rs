@@ -133,6 +133,14 @@ async fn idle_worker(journal: &Arc<Journal>) -> Arc<DownloadWorker> {
 /// The production worker over `journal` with Soulseek on, at `mock`, and
 /// the search review off.
 async fn soulseek_worker(journal: &Arc<Journal>, mock: &MockSlskd) -> Arc<DownloadWorker> {
+    soulseek_worker_with_albums(journal, mock, FixedAlbums::default()).await
+}
+
+async fn soulseek_worker_with_albums(
+    journal: &Arc<Journal>,
+    mock: &MockSlskd,
+    albums: FixedAlbums,
+) -> Arc<DownloadWorker> {
     let settings = settings_beside(journal);
     save_slskd(&settings, &mock.base_url());
     review_off_in(&settings);
@@ -141,7 +149,7 @@ async fn soulseek_worker(journal: &Arc<Journal>, mock: &MockSlskd) -> Arc<Downlo
         journal.clone(),
         &settings,
         staging_for(journal).join("slskd"),
-        Arc::new(FixedAlbums::default()),
+        Arc::new(albums),
         None,
         droppedneedle_kernel::events::EventHub::new(),
     )
@@ -371,15 +379,7 @@ async fn failed_retry_insert_retries_next_pass() {
     assert_eq!(task_count(&db), 2, "the next pass spawns the successor");
 }
 
-// One live download per album, retries included: a failed task whose
-// album another user's download already fetches, or the library already
-// holds, spawns no retry. It stops, and its row says why. A failed task
-// with neither still retries.
-#[tokio::test]
-async fn a_retry_stops_once_the_album_is_on_its_way_or_in() {
-    let db = AcquireDb::scratch().unwrap();
-    db.add_user("u-ada", "Ada", "user").await.unwrap();
-    db.add_user("u-bob", "Bob", "user").await.unwrap();
+async fn seed_complete_copy(db: &AcquireDb) {
     db.write("test.seed_library", |tx| {
         tx.execute_batch(
             "INSERT INTO local_artists (id, display_name, folded_name, kind, created_at, updated_at)
@@ -394,13 +394,108 @@ async fn a_retry_stops_once_the_album_is_on_its_way_or_in() {
                VALUES ('tr1', 'al1', 'r1', 'a.mp3', 'a.mp3', 'h', 1, 0, 's', 'T', 't', 'T', 't',
                  'mp3', 320, 'scan', 0, 'automatic', 'indexed');
              INSERT INTO local_album_external_identities
-               (local_album_id, release_group_mbid, decision_source, selected_at)
-               VALUES ('al1', 'rg-held', 'automatic', 0);",
+               (local_album_id, release_group_mbid, release_mbid, decision_source, selected_at)
+               VALUES ('al1', 'rg-held', 'complete-release', 'automatic', 0);
+             INSERT INTO local_track_external_identities
+               (local_track_id, recording_mbid, release_mbid, release_track_mbid, decision_source, selected_at)
+               VALUES ('tr1', 'rec-1', 'complete-release', 'release-track-1', 'automatic', 0);",
         )?;
         Ok(())
     })
     .await
     .unwrap();
+}
+
+fn download_plan(edition: &str, tracks: usize) -> TaskPlan {
+    TaskPlan {
+        release_mbid: Some(edition.to_owned()),
+        expected_tracks: (1..=tracks)
+            .map(|track| ExpectedTrack {
+                track_number: track as i64,
+                disc_number: 1,
+                duration_seconds: Some(200.0),
+                recording_mbid: Some(format!("rec-{track}")),
+                title: Some("Track".to_owned()),
+                release_track_mbid: Some(format!("release-track-{track}")),
+            })
+            .collect(),
+        ..TaskPlan::default()
+    }
+}
+
+#[tokio::test]
+async fn the_worker_skips_source_search_only_for_a_complete_requested_edition() {
+    use droppedneedle_acquire::target::lookup::{AlbumRelease, AlbumTrack};
+
+    for (id, origin, edition, track_count, searches) in [
+        ("ordinary", "user", "complete-release", 1, false),
+        ("fresh", "user", "complete-release", 0, false),
+        ("retry", "retry", "complete-release", 1, false),
+        ("partial", "user", "complete-release", 2, true),
+        ("different", "user", "other-release", 1, true),
+        ("upgrade", "upgrade", "complete-release", 1, true),
+    ] {
+        let db = AcquireDb::scratch().unwrap();
+        db.add_user("u-ada", "Ada", "user").await.unwrap();
+        seed_complete_copy(&db).await;
+        let journal = Arc::new(Journal::new(db, quiet_ticks()));
+        journal
+            .run("test.seed_check", move |store| {
+                let row = NewTask {
+                    release_group_mbid: "rg-held".to_owned(),
+                    origin: origin.to_owned(),
+                    ..task(id)
+                };
+                store.insert_task(&row, 1_000.0)?;
+                store.set_task_plan(id, &download_plan(edition, track_count), 1_000.0)
+            })
+            .await
+            .unwrap();
+        let mock = MockSlskd::start().await.unwrap();
+        mock.script_responses(vec![soulseek_peer(0)]);
+        let mut albums = FixedAlbums::default();
+        if track_count == 0 {
+            albums.releases.insert(
+                edition.to_owned(),
+                AlbumRelease {
+                    id: edition.to_owned(),
+                    title: "album".to_owned(),
+                    release_group_mbid: "rg-held".to_owned(),
+                    artist: "artist".to_owned(),
+                    various_artists: false,
+                    year: None,
+                    tracks: vec![AlbumTrack {
+                        disc: 1,
+                        position: 1,
+                        title: "Track".to_owned(),
+                        duration_seconds: Some(200.0),
+                        recording_mbid: "rec-1".to_owned(),
+                        release_track_mbid: "release-track-1".to_owned(),
+                    }],
+                },
+            );
+        }
+        let worker = soulseek_worker_with_albums(&journal, &mock, albums).await;
+        worker.run_once(1).await;
+        assert_eq!(!mock.search_texts().is_empty(), searches, "{id}");
+        if !searches {
+            let row = journal.read_task(id).await.unwrap().unwrap();
+            assert_eq!(row.status, TaskStatus::Completed);
+            assert_eq!(row.outcome_code, Some(Reason::AlreadyInLibrary));
+        }
+    }
+}
+
+// One live download per album, retries included: a failed task whose
+// album another user's download already fetches, or the library already
+// holds, spawns no retry. It stops, and its row says why. A failed task
+// with neither still retries.
+#[tokio::test]
+async fn a_retry_stops_once_the_album_is_on_its_way_or_in() {
+    let db = AcquireDb::scratch().unwrap();
+    db.add_user("u-ada", "Ada", "user").await.unwrap();
+    db.add_user("u-bob", "Bob", "user").await.unwrap();
+    seed_complete_copy(&db).await;
     let journal = Arc::new(Journal::new(db.clone(), quiet_ticks()));
     journal
         .run("test.seed", |store| {
@@ -414,6 +509,9 @@ async fn a_retry_stops_once_the_album_is_on_its_way_or_in() {
                     ..task(id)
                 };
                 store.insert_task(&row, 1_000.0)?;
+                if id == "t-held" {
+                    store.set_task_plan(id, &download_plan("complete-release", 1), 1_000.0)?;
+                }
                 store.transition_task(
                     id,
                     TaskStatus::Failed,

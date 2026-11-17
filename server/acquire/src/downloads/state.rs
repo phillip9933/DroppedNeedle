@@ -133,7 +133,10 @@ pub fn can_transition(from: TaskStatus, to: TaskStatus) -> bool {
     match from {
         TaskStatus::Queued => matches!(
             to,
-            TaskStatus::Downloading | TaskStatus::Failed | TaskStatus::Cancelled
+            TaskStatus::Downloading
+                | TaskStatus::Completed
+                | TaskStatus::Failed
+                | TaskStatus::Cancelled
         ),
         // Downloading/Processing fall back to Queued when the poll pass
         // finds no pollable attempt or fails an attempt over; Queued fails

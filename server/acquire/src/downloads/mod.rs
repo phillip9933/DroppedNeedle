@@ -28,6 +28,7 @@ pub mod http;
 pub mod journal;
 pub mod landing_rows;
 pub mod orphans;
+mod ownership;
 pub mod plan;
 pub mod quarantine;
 pub mod queue;

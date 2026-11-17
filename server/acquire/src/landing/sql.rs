@@ -40,7 +40,7 @@ droppedneedle_kernel::sql! {
     /// and the release its identity names, the copy's release track and
     /// recording, and its quality facts, in the order `GroupCopy::from_row`
     /// reads them.
-    pub(super) GROUP_COPIES = "SELECT " + GROUP_COPY_COLUMNS + " " + OWNED_TRACKS_FROM + IN_ALBUM;
+    pub(crate) GROUP_COPIES = "SELECT " + GROUP_COPY_COLUMNS + " " + OWNED_TRACKS_FROM + IN_ALBUM;
     /// What [`GROUP_COPIES`] reads.
     fragment GROUP_COPY_COLUMNS = "t.id, b.id, \
          lower(COALESCE(ai.release_mbid, t.embedded_release_mbid, '')), \

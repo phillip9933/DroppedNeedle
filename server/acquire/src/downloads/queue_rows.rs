@@ -13,6 +13,7 @@ use droppedneedle_kernel::db::statement::ListLen;
 use rusqlite::{OptionalExtension as _, Row, params};
 
 use super::landing_rows::ImportOutcome;
+use super::ownership::AlbumCoverage;
 use super::sql;
 use super::state::TaskStatus;
 use super::store::{DownloadStore, NewTask, StoreError, TaskRow};
@@ -237,10 +238,10 @@ impl DownloadStore<'_> {
         if landed_short {
             return Ok(false);
         }
-        Ok(droppedneedle_library::identity::reads::group_owned(
-            self.conn,
-            task.release_group_mbid.trim(),
-        )?)
+        Ok(matches!(
+            self.album_coverage(task, None)?,
+            AlbumCoverage::Complete
+        ))
     }
 
     /// Stop the retries of a failed or short task by itself because
