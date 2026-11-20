@@ -72,6 +72,7 @@ async function connect(page: Page) {
 					{ id: 'sam', display_name: 'Sam' }
 				]
 			});
+		if (path === '/me/section-prefs') return json({ pages: { home: [] } });
 		if (path === '/home') return json({ sections: [], refreshing: false });
 		if (path === '/library/albums')
 			return json({

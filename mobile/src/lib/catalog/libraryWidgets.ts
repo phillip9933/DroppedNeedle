@@ -22,7 +22,14 @@ export async function recentListens(session: Session) {
 		shelf?.source === 'local' && shelf.type === 'tracks'
 			? shelf.items.filter((i) => i.kind === 'track')
 			: [];
-	return { listens, refreshing: home.refreshing };
+	if (section) return { listens, refreshing: home.refreshing, disabled: false };
+	const prefs = await getJson<Schema['SectionPrefsResponse']>(
+		session,
+		path('/api/v3/me/section-prefs')
+	).catch(() => null);
+	const disabled =
+		prefs?.pages?.home?.find((item) => item.key === 'recently_played')?.enabled === false;
+	return { listens, refreshing: home.refreshing && !disabled, disabled };
 }
 
 export async function findListen(session: Session, listen: Listen) {

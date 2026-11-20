@@ -21,6 +21,7 @@ test('browse a library artist, open their album and keep a favorite across views
 			favorite,
 			art_missing: true
 		};
+		if (path === '/me/section-prefs') return json({ pages: { home: [] } });
 		if (path === '/home') return json({ sections: [], refreshing: false });
 		if (path === '/library/albums')
 			return json({
