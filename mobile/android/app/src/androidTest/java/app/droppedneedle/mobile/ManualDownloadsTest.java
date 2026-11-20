@@ -3,6 +3,10 @@ package app.droppedneedle.mobile;
 import static org.junit.Assert.*;
 
 import android.content.Context;
+import android.content.ComponentName;
+import android.content.pm.PackageManager;
+import android.content.pm.ServiceInfo;
+import android.os.Build;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import java.io.IOException;
@@ -17,6 +21,7 @@ import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
+import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.json.JSONArray;
@@ -49,6 +54,12 @@ public final class ManualDownloadsTest {
         @Override public void cancel(String owner) { pending = false; }
         @Override public boolean pending(String owner) { return pending; }
     }
+    @Test public void onlyAndroidFourteenAndLaterExposeTheUserInitiatedTransferService() throws Exception {
+        ComponentName service = new ComponentName(context.getPackageName(), "app.droppedneedle.mobile.ManualDownloadJob");
+        ServiceInfo info = context.getPackageManager().getServiceInfo(service, PackageManager.MATCH_DISABLED_COMPONENTS);
+        assertEquals(Build.VERSION.SDK_INT >= 34, info.enabled);
+        assertEquals("android.permission.BIND_JOB_SERVICE", info.permission);
+    }
     @Before public void open() throws Exception {
         store.configure(store.options().put("unmeteredOnly", false));
         reopen();
@@ -77,16 +88,23 @@ public final class ManualDownloadsTest {
             sink.finish();
         }
     }
-    private Call.Factory http(int code) {
+    private static Response wavResponse(Request request, int code, String declaredType) {
+        byte[] audio = OfflinePlaybackTest.wav();
+        Response.Builder response = new Response.Builder().request(request).protocol(Protocol.HTTP_1_1)
+                .code(code).message("Fixture response").header("Content-Length", Integer.toString(audio.length))
+                .body(ResponseBody.create(MediaType.get("audio/wav"), audio));
+        if (declaredType != null) response.header("Content-Type", declaredType);
+        return response.build();
+    }
+    private Call.Factory http(int code) { return http(code, "audio/wav"); }
+    private Call.Factory http(int code, String declaredType) {
         return new OkHttpClient.Builder().addInterceptor(chain -> {
             requests.incrementAndGet();
             assertEquals("Bearer " + first.token, chain.request().header("Authorization"));
             assertEquals("identity", chain.request().header("Accept-Encoding"));
             assertEquals("raw", chain.request().url().queryParameter("format"));
             assertTrue(chain.request().url().toString().startsWith(BASE + "/api/v3/stream/local/"));
-            return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
-                    .code(code).message("Fixture response")
-                    .body(ResponseBody.create(MediaType.get("audio/wav"), OfflinePlaybackTest.wav())).build();
+            return wavResponse(chain.request(), code, declaredType);
         }).build();
     }
     private boolean run(Call.Factory http) {
@@ -131,6 +149,14 @@ public final class ManualDownloadsTest {
         assertEquals("cached", store.snapshot().getJSONArray("items").getJSONObject(0).getString("origin"));
         assertNull(queue.next(store.account));
         assertEquals(0, requests.get());
+
+        jobs.refuse = false;
+        enqueue("missing-content-type");
+        assertFalse(run(http(200, null)));
+        JSONObject result = downloads.status(store);
+        assertEquals("failed", result.getString("state"));
+        assertTrue(result.getString("lastError").contains("without playable audio"));
+        assertEquals(1, store.snapshot().getJSONArray("items").length());
     }
 
     @Test public void cancellationStopsActiveCallAndKeepsEarlierFiles() throws Exception {
@@ -143,8 +169,7 @@ public final class ManualDownloadsTest {
             requested.countDown();
             try { if (!release.await(8, TimeUnit.SECONDS)) throw new IOException("Timed out"); }
             catch (InterruptedException stopped) { throw new IOException(stopped); }
-            return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
-                    .code(200).message("OK").body(ResponseBody.create(MediaType.get("audio/wav"), OfflinePlaybackTest.wav())).build();
+            return wavResponse(chain.request(), 200, "audio/wav");
         }).build();
         CompletableFuture<Boolean> transfer = CompletableFuture.supplyAsync(() -> run(waiting));
         try {

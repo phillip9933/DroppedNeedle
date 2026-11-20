@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="false"
@@ -38,6 +39,7 @@
             </intent-filter>
         </service>
         <service android:name=".ManualDownloadJob" android:exported="true"
+            android:enabled="@bool/uses_user_initiated_transfers" tools:targetApi="34"
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name=".ManualDownloadCancel" android:exported="false" />
         <receiver android:name=".HeadsetPlayReceiver" android:exported="true"
