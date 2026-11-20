@@ -75,7 +75,7 @@ async function request<T>(
 	path: string,
 	options: {
 		session?: Session;
-		method?: 'GET' | 'POST';
+		method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 		body?: unknown;
 		artwork?: boolean;
 	} = {}
@@ -159,6 +159,17 @@ export function getJson<T>(session: Session, path: string): Promise<T> {
 }
 export function postJson<T>(session: Session, path: string, body?: unknown): Promise<T> {
 	return request(session.serverUrl, path, { session, method: 'POST', body });
+}
+export function mutateJson<T>(
+	session: Session,
+	path: string,
+	method: 'PUT' | 'PATCH' | 'DELETE',
+	body?: unknown
+): Promise<T> {
+	return request(session.serverUrl, path, { session, method, body });
+}
+export function putJson<T>(session: Session, path: string, body?: unknown): Promise<T> {
+	return mutateJson(session, path, 'PUT', body);
 }
 export function getArtwork(session: Session, path: string): Promise<string> {
 	return request(session.serverUrl, path, { session, artwork: true });

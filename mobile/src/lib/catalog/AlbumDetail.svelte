@@ -14,6 +14,10 @@
 		type Edition,
 		type OnPlay
 	} from './catalog';
+	import LibraryRadio from './LibraryRadio.svelte';
+	import RequestSong from './RequestSong.svelte';
+	import TrackActions from './TrackActions.svelte';
+	import Favorite from './Favorite.svelte';
 	import Cover from './Cover.svelte';
 	import TrackList from './TrackList.svelte';
 	let {
@@ -39,6 +43,7 @@
 		editionsError = $state(''),
 		requestError = $state(''),
 		receipt = $state('');
+	let showEditions = $state(false);
 	let listed = $state<Awaited<ReturnType<typeof editionTracks>> | null>(null),
 		listError = $state(''),
 		listBusy = $state(false);
@@ -137,14 +142,30 @@
 {:else if busy}<p role="status">Loading album…</p>
 {:else if tracks.length}
 	<button class="primary" onclick={() => onplay(tracks, 0)}><Play size={18} /> Play album</button>
-	<TrackList {tracks} {onplay} />
+	<TrackActions {session} {tracks} label="Album actions" />
+	{#if album.localId && album.favorite !== undefined}<Favorite
+			{session}
+			kind="album"
+			id={album.localId}
+			value={album.favorite}
+		/>{/if}
+	<TrackList {session} {tracks} {onplay} />
+	{#if album.group}<button
+			class="text-button"
+			aria-expanded={showEditions}
+			onclick={() => {
+				showEditions = !showEditions;
+				if (showEditions && !choices.length) void loadChoices();
+			}}>Browse editions</button
+		>{/if}
 {:else if album.imported}
 	<p>This requested copy has no playable files in the library.</p>
 	<button class="secondary" onclick={load}>Refresh album</button>
 {:else if receipt || album.requested}
 	<p role="status">{receipt || 'This album has been requested.'}</p>
 	<button class="primary" onclick={onrequests}>View requests</button>
-{:else if album.group}
+{:else if !album.group}<p>This album has no playable tracks.</p>{/if}
+{#if album.group && ((showEditions && tracks.length > 0) || (!busy && !error && !tracks.length && !album.imported && !album.requested && !receipt))}
 	{#if editionsError}<p role="alert">Editions could not be loaded. {editionsError}</p>
 		<button class="secondary" disabled={loadingEditions || sending} onclick={loadChoices}
 			>Reload editions</button
@@ -158,9 +179,9 @@
 				>{/each}
 		</select>
 	</label>
-	<button class="primary" disabled={sending || loadingEditions} onclick={submit}
-		>{sending ? 'Requesting…' : 'Request album'}</button
-	>
+	{#if !tracks.length}<button class="primary" disabled={sending || loadingEditions} onclick={submit}
+			>{sending ? 'Requesting…' : 'Request album'}</button
+		>{/if}
 	{#if requestError}<p role="alert">{requestError}</p>{/if}
 	{#if listBusy}<p role="status">Loading track list…</p>
 	{:else if listError}<p role="alert">{listError}</p>
@@ -169,9 +190,28 @@
 			{#each listed.tracks as t (t)}<li>
 					<span>{t.disc_number > 1 ? t.disc_number + '.' : ''}{t.position}</span>
 					{t.title}
+					{#if !tracks.length && t.recording_id}<RequestSong
+							{session}
+							song={{
+								recording_mbid: t.recording_id,
+								track_title: t.title,
+								artist_name: album.artist,
+								album_title: album.title,
+								release_group_mbid: album.group,
+								release_mbid: selected,
+								duration_seconds: t.length == null ? null : Math.round(t.length / 1000)
+							}}
+						/>{/if}
 				</li>{/each}
 		</ol>{/if}
-{:else}<p>This album has no playable tracks.</p>{/if}
+{/if}
+
+{#if album.group && !busy && !error}<LibraryRadio
+		{session}
+		seedType="album"
+		seedId={album.group}
+		{onplay}
+	/>{/if}
 
 <style>
 	.detail {
