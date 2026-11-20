@@ -49,6 +49,9 @@
 		Genres: Tags
 	};
 	let browser = $state<LibraryBrowser>();
+	export function getPlaybackAvailability() {
+		return browser?.getPlaybackAvailability();
+	}
 	export function getHeader() {
 		return detail ? undefined : browser?.getHeader();
 	}

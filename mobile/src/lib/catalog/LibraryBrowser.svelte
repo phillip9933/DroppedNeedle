@@ -519,6 +519,9 @@
 			actionError = errorMessage(cause);
 		}
 	}
+	export function getPlaybackAvailability() {
+		return availability !== 'all' ? availability : disconnected ? 'offline' : undefined;
+	}
 	export function getHeader() {
 		return categoryHeader;
 	}

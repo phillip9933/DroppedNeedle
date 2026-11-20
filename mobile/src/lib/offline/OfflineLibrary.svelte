@@ -28,6 +28,9 @@
 		notice = $state(''),
 		error = $state('');
 	let section: HTMLElement;
+	export function getPlaybackAvailability() {
+		return view;
+	}
 	const matching = $derived(
 		items.filter(
 			(i) =>
