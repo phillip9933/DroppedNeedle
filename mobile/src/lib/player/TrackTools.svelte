@@ -148,6 +148,7 @@
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
+		justify-content: var(--cell-justify, flex-start);
 		gap: 0.35rem;
 	}
 	.stars button {

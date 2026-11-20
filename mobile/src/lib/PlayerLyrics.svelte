@@ -81,14 +81,14 @@
 
 <style>
 	.lines button {
-		text-align: start;
+		text-align: var(--cell-align, start);
 		padding: 0.4rem 0;
 		width: 100%;
 		color: inherit;
 	}
 	details {
 		width: 100%;
-		text-align: left;
+		text-align: var(--cell-align, start);
 	}
 	summary {
 		cursor: pointer;
