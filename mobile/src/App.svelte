@@ -9,6 +9,7 @@
 	import {
 		changeScreen,
 		interfacePreferences,
+		readStartScreen,
 		type BrowseDestination,
 		type Destination
 	} from './lib/appearance/interface';
@@ -203,17 +204,24 @@
 	});
 	async function connected(next: Session) {
 		let restoreError: unknown;
+		let hasCurrentTrack = false;
 		try {
 			await player.restore(next);
-			queueScope = await restoredQueueSource(next, get(player).tracks);
+			const queue = get(player);
+			hasCurrentTrack = !!queue.tracks[queue.index];
+			queueScope = await restoredQueueSource(next, queue.tracks);
 		} catch (error) {
 			restoreError = error;
 		}
-		const offline =
-			offlineSupported && (!navigator.onLine || (await preferredOffline(next).catch(() => false)));
+		const start = readStartScreen(next);
+		if (start === 'automatic') {
+			const offline =
+				offlineSupported &&
+				(!navigator.onLine || (await preferredOffline(next).catch(() => false)));
+			tab = offline ? 'offline' : 'home';
+		} else tab = start === 'player' ? 'library' : start;
 		session = next;
-		tab = offline ? 'offline' : 'home';
-		panel = 'catalog';
+		panel = start === 'player' && hasCurrentTrack ? 'player' : 'catalog';
 		catalogVisit++;
 		focusMain();
 		if (restoreError) report(restoreError);

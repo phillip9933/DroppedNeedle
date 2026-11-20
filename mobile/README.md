@@ -16,7 +16,7 @@ Server administrators can add browser sign-in by building the DN web frontend wi
 
 Open **Settings → Screen layouts** and choose Home, Library, Discover, or Now Playing. Each screen has its own saved layout. **Restore default layout** loads a fresh draft, **Save layout** applies it, and **Cancel** discards it.
 
-Home opens after sign-in. When an Android phone is disconnected or set to offline-only playback, it starts in Offline music. On Home, combine Library and Discover sections, such as recently added albums, recently played songs, Top picks for you, or genres. In a screen’s editor, add or remove a section and use the arrows to reorder it. The sliders beside a section control its preview and display.
+By default, Home opens after sign-in and Offline music opens when the phone is disconnected or set to offline-only playback. On Home, combine Library and Discover sections, such as recently added albums, recently played songs, Top picks for you, or genres. In a screen’s editor, add or remove a section and use the arrows to reorder it. The sliders beside a section control its preview and display.
 
 Each section can show its contents directly on the screen. Choose **List** or **Grid** and set **Columns** from one to six. Items divide the available width evenly, including on phones. **Row density** sets the spacing and **Preview rows** sets how many rows appear inline. For example, Top picks can show two rows of six covers while Recently played uses one song per row. Tap an item to open it, or tap the section heading to browse the full collection with its filters and actions.
 
@@ -101,6 +101,8 @@ Open **Settings → Themes** to choose DN’s **Dark**, **Light**, **Midnight** 
 Under **Settings → Interface and navigation**, choose **Solid Theme Color** for opaque buttons and panels, **Glass** for a clear tint and reflective edge, or **Blur** for a frosted background with adjustable strength. Dock or float the navigation bar and pin up to five destinations. Tap the top-left menu or swipe right from the left edge for hidden destinations, offline music, settings and audio output. Screen transitions can use a quick or gentle fade, or be switched off. They respect the device’s reduced-motion preference.
 
 Swipe left on the expanded artwork or mini-player for the next track. Swipe right for the previous-track action. A tap on the mini-player opens Now Playing. You can turn off track swipes under **Player gestures** in the interface settings.
+
+Choose **Start screen** in the same settings to open Home, Library or Now Playing when the app launches. **Now Playing** opens the restored song at its saved position and takes you to Library when the queue is empty. **Automatic** opens Home when connected and Offline music when offline. Each listener can choose a start screen for their DN server on this device.
 
 Use **Import colors from a web style** to preview compatible colors and corner radius from your current account CSS or a saved version. Choose the palette and select **Apply palette to this device**. The preview lists web rules that the phone does not support. Under **Edit or share theme**, copy or paste a custom theme as JSON and select **Apply theme**. Existing custom themes and the original Studio and Paper presets remain available. Custom JSON applies on this device. DN’s web CSS editor is available under **Settings → Web tools → Custom CSS and saved styles**.
 

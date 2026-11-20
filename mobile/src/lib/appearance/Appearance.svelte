@@ -255,7 +255,7 @@
 				<button class="secondary" disabled={busy} onclick={signOut}>Sign out</button>{/if}
 		{:else if page === 'equalizer' && session && Capacitor.getPlatform() === 'android'}<EqualizerSettings
 			/>
-		{:else if page === 'interface'}<InterfaceSettings offline={offlineSupported} />
+		{:else if page === 'interface'}<InterfaceSettings {session} offline={offlineSupported} />
 		{:else if page === 'offline' && session && offlineSupported}<OfflineSettings {session} />
 		{:else if page === 'playback' && session}<PlaybackSettings {session} />
 		{:else if page === 'themes'}<ThemeSettings {session} />
