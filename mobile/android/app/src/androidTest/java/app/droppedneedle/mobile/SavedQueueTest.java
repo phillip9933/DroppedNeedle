@@ -31,6 +31,27 @@ public final class SavedQueueTest {
         return result.get(5, TimeUnit.SECONDS);
     }
 
+    @Test public void aHeadsetProbePreservesAnUnmatchedArchiveAndItsOriginalAccount() throws Exception {
+        String server = "https://queue-fixture.invalid/dn";
+        SecretKey owner = SavedQueue.key(server, "fixture-a"), different = SavedQueue.key(server, "fixture-b");
+        SavedQueue saved = new SavedQueue(isolated);
+        try {
+            saved.write(owner, new JSONObject().put("userId", "listener").put("revision", "r")
+                    .put("tracks", new JSONArray().put("Song")).put("position", 100), true);
+            saved.write(owner, new JSONObject().put("revision", "r").put("position", 700), false);
+            CompletableFuture<Boolean> written = new CompletableFuture<>();
+            saved.afterWrite(() -> written.complete(true));
+            assertTrue(written.get(5, TimeUnit.SECONDS));
+            File file = new File(dir, "playback-queue.v1");
+            assertTrue(file.renameTo(new File(dir, "playback-queue.v1.bak")));
+            assertTrue(SavedQueue.exists(isolated));
+            assertNull(saved.inspect(different));
+            JSONObject actual = load(owner);
+            assertEquals("listener", actual.getString("userId"));
+            assertEquals(700, actual.getInt("position"));
+        } finally { saved.clear(); load(owner); dir.delete(); }
+    }
+
     @Test public void checkpointIsEncryptedAndRequiresTheSameServerAndSession() throws Exception {
         String server = "https://dn.example/tenant";
         String token = "fixture-session";

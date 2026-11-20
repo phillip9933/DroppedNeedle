@@ -25,6 +25,9 @@ import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -91,6 +94,7 @@ public final class PlaybackService extends MediaSessionService {
     private SecretKey queueKey;
     private String revision;
     private long generation;
+    private SettableFuture<MediaSession.MediaItemsWithStartPosition> headsetPlay;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable checkpoint = this::checkpoint;
 
@@ -106,6 +110,7 @@ public final class PlaybackService extends MediaSessionService {
         if (revision == null) return;
         JSObject state = new JSObject();
         state.put("revision", revision);
+        if (access != null && access.userId != null) state.put("userId", access.userId);
         state.put("index", player.getCurrentMediaItemIndex());
         state.put("position", Math.max(0, player.getCurrentPosition()));
         state.put("repeat", repeatMode());
@@ -250,6 +255,10 @@ public final class PlaybackService extends MediaSessionService {
             }
         });
         MediaSession.Callback callback = new MediaSession.Callback() {
+            @Override public ListenableFuture<MediaSession.MediaItemsWithStartPosition> onPlaybackResumption(
+                    MediaSession mediaSession, MediaSession.ControllerInfo controller) {
+                return resumeHeadset(controller);
+            }
             @Override public MediaSession.ConnectionResult onConnect(
                     MediaSession mediaSession, MediaSession.ControllerInfo controller) {
                 Player.Commands commands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
@@ -361,6 +370,7 @@ public final class PlaybackService extends MediaSessionService {
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
+        cancelHeadset();
         generation++;
         Access next = new Access(this, address, token, userId);
         next.profiles.migrate(profiles);
@@ -417,8 +427,61 @@ public final class PlaybackService extends MediaSessionService {
                 account.token, account.offline);
     }
 
+    private MediaSession.MediaItemsWithStartPosition restoreArchive(Access next, JSONObject record, boolean headset)
+            throws JSONException {
+        JSArray queue = new JSArray(record.getJSONArray("tracks").toString());
+        int index = record.getInt("index"), repeat = record.getInt("repeat");
+        long position = Math.max(0, record.getLong("position"));
+        String savedRevision = record.getString("revision");
+        if (index < 0 || index >= queue.length() || repeat < Player.REPEAT_MODE_OFF || repeat > Player.REPEAT_MODE_ALL)
+            throw new JSONException("Invalid saved cursor");
+        ArrayList<MediaItem> checked = items(next, queue);
+        LibraryWindow window;
+        try { window = LibraryWindow.parse(record.optJSONObject("continuation"), checked.size()); }
+        catch (JSONException badCursor) { window = null; }
+        if (headset && (next.offline.offlineOnly() || StreamProfiles.active(this) == StreamProfiles.Path.OFFLINE)
+                && next.offline.playable(checked.get(index).localConfiguration.uri.toString()) == null)
+            throw new IllegalArgumentException("The current song is unavailable offline.");
+        remember(next, checked);
+        attach(next);
+        pager.attach(window, next.base, next.apiPath, next.token);
+        setRepeat(repeat);
+        revision = savedRevision;
+        return new MediaSession.MediaItemsWithStartPosition(checked, index, position);
+    }
+    private ListenableFuture<MediaSession.MediaItemsWithStartPosition> resumeHeadset(MediaSession.ControllerInfo controller) {
+        if ((!controller.isTrusted() && controller.getUid() != android.os.Process.myUid())
+                || !HeadsetAccount.unlocked(this) || !SavedQueue.exists(this) || headsetPlay != null)
+            return Futures.immediateFailedFuture(new IllegalStateException("No eligible playback session."));
+        SettableFuture<MediaSession.MediaItemsWithStartPosition> result = SettableFuture.create();
+        headsetPlay = result;
+        saved.forHeadset(this, (owner, record) -> {
+            if (headsetPlay != result) return;
+            headsetPlay = null;
+            try {
+                if (owner == null || record == null || !HeadsetAccount.unlocked(this) || player.getMediaItemCount() != 0)
+                    throw new IllegalArgumentException("No eligible playback session.");
+                Access next = new Access(this, owner.server.toString(), owner.token, owner.userId);
+                result.set(restoreArchive(next, record, true));
+            } catch (JSONException | IllegalArgumentException unavailable) {
+                result.setException(new IllegalStateException("No eligible playback session."));
+                if (player.getMediaItemCount() == 0) player.pause();
+            }
+        });
+        return result;
+    }
+    private void cancelHeadset() {
+        if (headsetPlay == null) return;
+        SettableFuture<MediaSession.MediaItemsWithStartPosition> old = headsetPlay;
+        headsetPlay = null;
+        old.cancel(false);
+        // Media3 1.8 forwards Play to the player after a failed resumption, even for an empty queue.
+        if (player.getMediaItemCount() == 0) player.pause();
+    }
+
     void restore(String address, String token, @Nullable String userId, @Nullable JSONObject profiles,
             Runnable complete, Runnable superseded) throws JSONException {
+        cancelHeadset();
         Access next = new Access(this, address, token, userId);
         next.profiles.migrate(profiles);
         long version = ++generation;
@@ -438,25 +501,16 @@ public final class PlaybackService extends MediaSessionService {
         }
         saved.load(SavedQueue.key(next.base.toString(), next.token), record -> {
             if (version != generation) { superseded.run(); return; }
+            // A headset request can arrive while this signed-in restore is reading the old archive.
+            // Resolve it before another account's paused queue is placed on the player.
+            cancelHeadset();
             if (record != null) {
                 try {
-                    JSArray queue = new JSArray(record.getJSONArray("tracks").toString());
-                    int index = record.getInt("index");
-                    int repeat = record.getInt("repeat");
-                    String savedRevision = record.getString("revision");
-                    if (index < 0 || index >= queue.length() || repeat < Player.REPEAT_MODE_OFF
-                            || repeat > Player.REPEAT_MODE_ALL) throw new JSONException("Invalid saved cursor");
-                    ArrayList<MediaItem> checked = items(next, queue);
-                    remember(next, checked);
-                    LibraryWindow window;
-                    try { window = LibraryWindow.parse(record.optJSONObject("continuation"), checked.size()); }
-                    catch (JSONException badCursor) { window = null; }
-                    attach(next);
                     player.pause();
-                    pager.attach(window, next.base, next.apiPath, next.token);
-                    setRepeat(repeat);
-                    player.setMediaItems(checked, index, Math.max(0, record.getLong("position")));
-                    revision = savedRevision;
+                    MediaSession.MediaItemsWithStartPosition restored = restoreArchive(next, record, false);
+                    player.setMediaItems(restored.mediaItems, restored.startIndex, restored.startPositionMs);
+                    // An older queue gets its verified owner only through a normal signed-in app restore.
+                    if (!record.has("userId") && next.userId != null) save(true);
                     // Preparing a paused restoration would fetch audio before the listener presses play.
                 } catch (JSONException | IllegalArgumentException e) {
                     command("clear", -1, -1);
@@ -477,6 +531,7 @@ public final class PlaybackService extends MediaSessionService {
     void afterWrite(Runnable complete) { saved.afterWrite(complete); }
 
     void command(String action, double value, int to) {
+        cancelHeadset();
         sleep.check();
         int count = player.getMediaItemCount();
         int item = (int) value;
@@ -625,6 +680,7 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        cancelHeadset();
         generation++;
         save(false);
         queueKey = null;
