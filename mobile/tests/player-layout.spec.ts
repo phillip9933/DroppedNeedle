@@ -220,4 +220,15 @@ test('current track tools rate, favorite and inspect DN audio and save songs whi
 	await dialog.getByRole('button', { name: 'Add 2 tracks' }).click();
 	await expect(dialog.getByText('Added 2 tracks to Road.')).toBeVisible();
 	expect(calls.playlistPosts).toEqual([['t0'], ['t0', 't1']]);
+	await dialog.getByRole('button', { name: 'Done' }).click();
+	await page.getByRole('button', { name: 'Clear upcoming' }).click();
+	await expect(page.locator('[data-part=play-queue] li')).toHaveCount(1);
+	await expect(page.locator('[data-part=play-queue] [aria-current=true]')).toContainText(
+		'Night Train'
+	);
+	await page.getByRole('button', { name: 'Hide play queue' }).click();
+	await expect(page.getByRole('slider', { name: 'Playback position' })).toHaveValue('32');
+	await expect(
+		page.locator('[data-part=transport]').getByRole('button', { name: 'Play', exact: true })
+	).toBeVisible();
 });

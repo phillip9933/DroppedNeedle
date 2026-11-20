@@ -264,6 +264,9 @@ public final class PlaybackService extends MediaSessionService {
                 player.setRepeatMode(repeat == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL
                         : repeat == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
                 break;
+            case "clearUpcoming":
+                player.removeMediaItems(player.getCurrentMediaItemIndex() + 1, count);
+                break;
             case "shuffleUpcoming":
                 int start = player.getCurrentMediaItemIndex() + 1;
                 if (start + 1 >= count) break;
@@ -310,7 +313,7 @@ public final class PlaybackService extends MediaSessionService {
             default:
                 throw new IllegalArgumentException("Unknown playback command.");
         }
-        save("move".equals(action) || "remove".equals(action) || "shuffleUpcoming".equals(action));
+        save("move".equals(action) || "remove".equals(action) || "shuffleUpcoming".equals(action) || "clearUpcoming".equals(action));
     }
 
     private boolean showsPauseControl() {
