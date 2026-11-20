@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Capacitor } from '@capacitor/core';
 	import { CheckSquare, Download, Music2, Play, Trash2 } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { player, type PlayerTrack } from '../player';
 	import TrackActions from '../catalog/TrackActions.svelte';
 	import FeedbackStatus from './FeedbackStatus.svelte';
+	import ManualDownloads from './ManualDownloads.svelte';
 	import {
 		watchOfflineMedia,
 		offlineSnapshot,
@@ -87,10 +89,10 @@
 		error = '';
 		notice = '';
 		try {
-			await action();
+			const result = await action();
 			selected = null;
 			remove = null;
-			notice = receipt;
+			notice = typeof result === 'string' ? result : receipt;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not complete this action.';
 		} finally {
@@ -101,6 +103,12 @@
 
 <section bind:this={section} aria-label="Offline music" data-part="offline-music">
 	<h1>Offline music</h1>
+	{#if Capacitor.getPlatform() === 'android' && session.userId}
+		{#key JSON.stringify([session.serverUrl, session.userId])}<ManualDownloads
+				serverUrl={session.serverUrl}
+				userId={session.userId}
+			/>{/key}
+	{/if}
 	<FeedbackStatus {session} />
 	<div class="bar" role="group" aria-label="Offline collection">
 		<button aria-pressed={view === 'downloaded'} onclick={() => choose('downloaded')}
@@ -159,7 +167,8 @@
 							run(async () => {
 								const result = await saveOfflineTracks(session, picked);
 								if (result.failed) throw Error(result.message);
-							}, 'Saved offline.')}>Keep downloads</button
+								return result.message;
+							})}>Keep downloads</button
 					>{/if}
 				<button
 					class="secondary"
@@ -229,7 +238,8 @@
 									run(async () => {
 										const result = await saveOfflineTracks(session, [entry.track]);
 										if (result.failed) throw Error(result.message);
-									}, 'Saved offline.')}><Download size={18} /></button
+										return result.message;
+									})}><Download size={18} /></button
 							>{/if}
 						<button
 							class="icon-button"

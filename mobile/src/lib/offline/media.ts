@@ -100,6 +100,24 @@ export async function saveOfflineTracks(
 ) {
 	const owner = account(session);
 	const unique = [...new Map(tracks.map((t) => [t.id, t])).values()];
+	signal?.throwIfAborted();
+	if (Capacitor.getPlatform() === 'android' && unique.length) {
+		const result = await nativeMedia.enqueueManual({
+			...owner,
+			tracks: unique.map((track) => retainedTrack(track, owner.serverUrl))
+		});
+		const { saved, queued, alreadyQueued, failed } = result;
+		const count = (n: number) => n.toLocaleString() + (n === 1 ? ' song' : ' songs');
+		const message = [
+			saved && count(saved) + ' saved offline.',
+			queued && count(queued) + ' queued for download.',
+			alreadyQueued && count(alreadyQueued) + ' already in the download queue.',
+			failed && count(failed) + ' could not be saved. ' + result.status.lastError
+		]
+			.filter(Boolean)
+			.join(' ');
+		return { saved, queued: queued + alreadyQueued, failed, message };
+	}
 	let saved = 0,
 		failed = 0,
 		lastError = '';
@@ -131,6 +149,7 @@ export async function saveOfflineTracks(
 	const success = saved + (saved === 1 ? ' song saved offline.' : ' songs saved offline.');
 	return {
 		saved,
+		queued: 0,
 		failed,
 		message: failed ? (saved ? success + ' ' : '') + failed + ' failed. ' + lastError : success
 	};

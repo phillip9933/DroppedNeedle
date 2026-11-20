@@ -1,15 +1,37 @@
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import type { PlayerTrack } from '../player';
 import type { OfflineBridge } from './web';
 
 type Account = { serverUrl: string; userId: string };
 export type HistoryStatus = { enabled: boolean; pending: number };
+export type ManualStatus = {
+	state:
+		'idle' | 'queued' | 'downloading' | 'waitingNetwork' | 'waitingOffline' | 'failed' | 'complete';
+	total: number;
+	saved: number;
+	pending: number;
+	failed: number;
+	lastError: string;
+	current?: Pick<PlayerTrack, 'id' | 'title' | 'artist'>;
+	failures?: Array<Pick<PlayerTrack, 'id' | 'title' | 'artist'> & { reason: string }>;
+};
 export const nativeMedia = registerPlugin<
 	OfflineBridge & {
+		enqueueManual(batch: Account & { tracks: PlayerTrack[] }): Promise<{
+			saved: number;
+			queued: number;
+			alreadyQueued: number;
+			failed: number;
+			status: ManualStatus;
+		}>;
+		manualStatus(owner: Account): Promise<ManualStatus>;
+		cancelManual(owner: Account): Promise<ManualStatus>;
+		retryManual(owner: Account): Promise<ManualStatus>;
 		historySettings(owner: Account): Promise<HistoryStatus>;
 		setOfflineHistory(change: Account & { enabled: boolean }): Promise<HistoryStatus>;
 		discardOfflineHistory(owner: Account): Promise<HistoryStatus>;
 		addListener(
-			event: 'historyChanged' | 'mediaChanged',
+			event: 'historyChanged' | 'mediaChanged' | 'manualChanged',
 			update: () => void
 		): Promise<PluginListenerHandle>;
 	}
