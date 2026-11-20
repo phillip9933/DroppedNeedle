@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
+	import { playerWidgets } from '../player/layout';
 	import { ArrowUp, ArrowDown, Minus, Plus, SlidersHorizontal } from '@lucide/svelte';
 	import {
 		available,
 		boardNames,
 		defaults,
 		sectionTitle,
-		type Board,
+		type LayoutTarget,
 		type Section
 	} from './layout';
 	let {
@@ -14,8 +15,12 @@
 		sections,
 		onsave,
 		onback
-	}: { board: Board; sections: Section[]; onsave: (items: Section[]) => void; onback: () => void } =
-		$props();
+	}: {
+		board: LayoutTarget;
+		sections: Section[];
+		onsave: (items: Section[]) => void;
+		onback: () => void;
+	} = $props();
 	let draft = $state<Section[]>(untrack(() => sections.map((s) => ({ ...s }))));
 	let options = $state('');
 	let filter = $state('');
@@ -35,7 +40,10 @@
 		draft = next;
 	}
 	async function add(id: string) {
-		draft = [...draft, { id, title: '', preview: true }];
+		draft = [
+			...draft,
+			{ id, title: '', preview: playerWidgets.find((w) => w.id === id)?.enabled ?? true }
+		];
 		options = id;
 		await tick();
 		const row = list.querySelector<HTMLElement>('[data-section-id="' + CSS.escape(id) + '"]');
@@ -111,7 +119,9 @@
 							</select></label
 						>
 						<label class="check"
-							><input type="checkbox" bind:checked={item.preview} />Show a preview</label
+							><input type="checkbox" bind:checked={item.preview} />{playerWidgets.find(
+								(w) => w.id === item.id
+							)?.option ?? 'Show a preview'}</label
 						>
 					</div>{/if}
 			</li>
@@ -124,7 +134,7 @@
 		placeholder="Find a section"
 		bind:value={filter}
 	/>
-	{#each ['library', 'discover'] as group (group)}
+	{#each board === 'player' ? ['player'] : ['library', 'discover'] as group (group)}
 		{@const matches = choices.filter((w) => w.id.startsWith(group + '-'))}
 		{#if matches.length}
 			{#if board === 'home'}<h3>{group === 'library' ? 'Library' : 'Discover'}</h3>{/if}

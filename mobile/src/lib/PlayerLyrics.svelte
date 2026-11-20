@@ -1,10 +1,24 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { components } from '../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, DnError, type Session } from './connection';
 	import { path, errorMessage } from './catalog/catalog';
-	let { session, trackId, position }: { session: Session; trackId: string; position: number } =
-		$props();
-	let open = $state(false),
+	let {
+		session,
+		trackId,
+		position,
+		title = 'Lyrics',
+		startOpen = false,
+		onseek
+	}: {
+		session: Session;
+		trackId: string;
+		position: number;
+		title?: string;
+		startOpen?: boolean;
+		onseek?: (position: number) => void;
+	} = $props();
+	let open = $state(untrack(() => startOpen)),
 		lyrics = $state<components['schemas']['LyricsView'] | null>(null),
 		error = $state(''),
 		busy = $state(false),
@@ -48,7 +62,7 @@
 </script>
 
 <details bind:open data-part="lyrics">
-	<summary>Lyrics</summary>
+	<summary>{title}</summary>
 	{#if busy}<p role="status">Loading lyrics…</p>{:else if error}<p role="alert">{error}</p>
 		<button class="secondary" onclick={() => retry++}>Try again</button>
 	{:else if lyrics?.is_synced && lyrics.lines?.length}<div class="lines">
@@ -56,13 +70,22 @@
 					class:active={i === current}
 					aria-current={i === current ? 'true' : undefined}
 				>
-					{line.text}
+					{#if line.start_seconds != null && onseek}<button
+							aria-label={'Seek to lyric ' + line.text}
+							onclick={() => onseek?.(line.start_seconds!)}>{line.text}</button
+						>{:else}{line.text}{/if}
 				</p>{/each}
 		</div>
 	{:else if lyrics?.text}<p class="plain">{lyrics.text}</p>{:else}<p>No lyrics available.</p>{/if}
 </details>
 
 <style>
+	.lines button {
+		text-align: start;
+		padding: 0.4rem 0;
+		width: 100%;
+		color: inherit;
+	}
 	details {
 		width: 100%;
 		text-align: left;
