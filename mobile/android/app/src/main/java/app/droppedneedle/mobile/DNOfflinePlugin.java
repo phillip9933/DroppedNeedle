@@ -174,7 +174,15 @@ public final class DNOfflinePlugin extends Plugin {
     }
     @PluginMethod
     public void planAutomatic(PluginCall call) {
-        execute(call, storage, s -> s.planAutomatic(call.getString("source"), call.getArray("ids")));
+        execute(call, storage, s -> {
+            Object keep = call.getData().opt("keepExisting");
+            if (keep != null && !(keep instanceof Boolean)) throw new IllegalArgumentException("Invalid playlist sync options.");
+            return s.planAutomatic(call.getString("source"), call.getData().optJSONArray("ids"), Boolean.TRUE.equals(keep));
+        });
+    }
+    @PluginMethod
+    public void clearAutomaticPlaylist(PluginCall call) {
+        execute(call, storage, s -> s.clearAutomaticPlaylist(call.getString("source")));
     }
     @PluginMethod
     public void save(PluginCall call) {
@@ -182,6 +190,8 @@ public final class DNOfflinePlugin extends Plugin {
             JSONObject track = call.getObject("track");
             String id = track.getString("id");
             String source = call.getString("source");
+            if (call.getData().has("source") && !OfflineStore.enabledSource(source))
+                throw new IllegalArgumentException("Choose a supported automatic download source.");
             long revision = s.itemRevision(id), generation = s.autoGeneration();
             if (s.keepExisting(id, source, track))
                 return null;
