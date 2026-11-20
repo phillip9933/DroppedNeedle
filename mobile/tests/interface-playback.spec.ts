@@ -2,6 +2,7 @@ import { expect, test, type CDPSession, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { silentWav } from './fixtures/silentWav';
+import { seedOfflineMusic } from './fixtures/offlineMusic';
 
 declare global {
 	interface Window {
@@ -40,7 +41,8 @@ async function connect(
 	page: Page,
 	secondTrack = false,
 	firstResponse?: Promise<void>,
-	longAudio = false
+	longAudio = false,
+	account = 'listener'
 ) {
 	const streams: string[] = [];
 	let conversion = 'on';
@@ -51,7 +53,7 @@ async function connect(
 		if (path === '/auth/providers') return json({ local: true, oidc: false });
 		if (path === '/auth/login') return json({ token: 'fixture-device' });
 		expect(route.request().headers().authorization).toBe('Bearer fixture-device');
-		if (path === '/me') return json({ id: 'listener', display_name: 'Listener', role: 'user' });
+		if (path === '/me') return json({ id: account, display_name: 'Listener', role: 'user' });
 		if (path === '/playback/conversion') return json({ conversion });
 		if (path === '/library/albums')
 			return json({
@@ -93,7 +95,7 @@ async function connect(
 	await page.goto('/');
 	await page.getByLabel('Server address').fill(server);
 	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	await page.getByLabel('Username').fill('listener');
+	await page.getByLabel('Username').fill(account);
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
@@ -123,6 +125,145 @@ async function swipe(touch: CDPSession, x: number, y: number, dx: number, dy: nu
 	}
 	await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
+
+test('compact player controls fit at 320px and return from the real queue to the invoking button', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 700 });
+	await connect(page, true, undefined, true);
+	await page
+		.getByRole('button', { name: /Nightfall/ })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Play album', exact: true }).click();
+	const now = page.getByRole('region', { name: 'Now playing' });
+	await now.getByRole('button', { name: 'Close player' }).click();
+	const mini = page.getByRole('region', { name: 'Current track' });
+	await expect(mini.getByRole('button')).toHaveCount(3);
+	await expect(mini.getByText('Strings', { exact: true })).toBeVisible();
+	await expect(mini.locator('[data-part=cover]')).toBeVisible();
+	await expect(mini.getByRole('progressbar')).toHaveCount(0);
+	const defaultHeight = await mini.evaluate((el) => el.clientHeight);
+	await settings(page, 'Interface and navigation');
+	const form = page.getByRole('group', { name: 'Mini-player' });
+	await form.getByLabel('Secondary text').selectOption('artist-album');
+	await form.getByLabel('Show track progress').check();
+	await form.getByLabel('Before Play/Pause').selectOption('next');
+	await expect(form.getByLabel('After Play/Pause')).toHaveValue('none');
+	await form.getByLabel('After Play/Pause').selectOption('queue');
+	await back(page, 'Settings');
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await expect(mini.getByText('Strings · Nightfall', { exact: true })).toBeVisible();
+	await expect(mini.getByRole('progressbar', { name: 'Track progress' })).toBeVisible();
+	await expect
+		.poll(() => mini.getByRole('progressbar').evaluate((el) => (el as HTMLProgressElement).value))
+		.toBeGreaterThan(0);
+	await expect(mini.getByRole('button')).toHaveCount(4);
+	expect(
+		await mini.evaluate((el) => ({
+			height: el.clientHeight,
+			overflows: el.scrollWidth > el.clientWidth
+		}))
+	).toEqual({ height: defaultHeight, overflows: false });
+	const boxes = await mini.getByRole('button').evaluateAll((els) =>
+		els.map((e) => {
+			const { left, right, width, height } = e.getBoundingClientRect();
+			return { left, right, width, height };
+		})
+	);
+	expect(boxes.every((b) => b.left >= 0 && b.right <= 320 && b.width >= 44 && b.height >= 44)).toBe(
+		true
+	);
+	await mini.getByRole('button', { name: 'Next track' }).click();
+	const open = mini.getByRole('button', { name: 'Open player for Overtones' });
+	await expect(open).toBeVisible();
+	await expect(mini.getByRole('button', { name: 'Next track' })).toBeDisabled();
+	await mini.getByRole('button', { name: 'Pause', exact: true }).click();
+	const queue = mini.getByRole('button', { name: 'Open play queue', exact: true });
+	await queue.focus();
+	await page.keyboard.press('Enter');
+	await expect(now.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+	await expect(now.getByText('Reflections', { exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(queue).toBeFocused();
+	await open.click();
+	await now.getByRole('button', { name: 'Show play queue', exact: true }).click();
+	await page.keyboard.press('Escape');
+	await expect(now).toBeVisible();
+	await expect(now.getByRole('heading', { name: 'Play queue' })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await expect(open).toBeFocused();
+	await settings(page, 'Interface and navigation');
+	await form.getByLabel('Secondary text').selectOption('album');
+	await form.getByLabel('Before Play/Pause').selectOption('previous');
+	await back(page, 'Settings');
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await expect(open).toHaveAccessibleDescription('Nightfall');
+	await mini.getByRole('button', { name: 'Previous track' }).click();
+	await expect(mini.getByRole('button', { name: 'Open player for Reflections' })).toBeVisible();
+	await settings(page, 'Interface and navigation');
+	await page.getByRole('button', { name: 'Restore interface defaults' }).click();
+	await expect(form.getByLabel('Before Play/Pause')).toHaveValue('none');
+	await expect(form.getByLabel('After Play/Pause')).toHaveValue('next');
+	await expect(form.getByLabel('Show track progress')).not.toBeChecked();
+});
+
+test('compact player settings follow the listener, persist after sign-in, and control saved music offline', async ({
+	page
+}) => {
+	await connect(page);
+	await settings(page, 'Interface and navigation');
+	const form = page.getByRole('group', { name: 'Mini-player' });
+	await form.getByLabel('Show cover artwork').uncheck();
+	await form.getByLabel('Secondary text').selectOption('hidden');
+	await form.getByLabel('After Play/Pause').selectOption('none');
+	await connect(page, false, undefined, false, 'second-listener');
+	await settings(page, 'Interface and navigation');
+	await expect(form.getByLabel('Show cover artwork')).toBeChecked();
+	await expect(form.getByLabel('Secondary text')).toHaveValue('artist');
+	await expect(form.getByLabel('After Play/Pause')).toHaveValue('next');
+	const fixture = await connect(page);
+	await settings(page, 'Interface and navigation');
+	await expect(form.getByLabel('Show cover artwork')).not.toBeChecked();
+	await expect(form.getByLabel('Secondary text')).toHaveValue('hidden');
+	await expect(form.getByLabel('After Play/Pause')).toHaveValue('none');
+	await back(page, 'Settings');
+	await back(page, 'Home');
+	await seedOfflineMusic(page, server, 'listener', true, [
+		{
+			origin: 'downloaded',
+			track: {
+				id: 'saved',
+				title: 'On device',
+				artist: 'Saved artist',
+				album: 'Saved album',
+				streamUrl: '/api/v3/stream/local/saved',
+				duration: 3
+			}
+		}
+	]);
+	await page.context().setOffline(true);
+	await page.getByRole('button', { name: 'Open navigation menu' }).click();
+	await page
+		.getByRole('dialog', { name: 'Navigation menu' })
+		.getByRole('button', { name: 'Offline music' })
+		.click();
+	await page
+		.getByRole('region', { name: 'Offline music' })
+		.getByRole('button', { name: /On device Saved artist/ })
+		.click();
+	const now = page.getByRole('region', { name: 'Now playing' });
+	await now.getByRole('button', { name: 'Pause', exact: true }).click();
+	await now.getByRole('button', { name: 'Close player' }).click();
+	const mini = page.getByRole('region', { name: 'Current track' });
+	await expect(mini.getByRole('button')).toHaveCount(2);
+	await expect(mini.getByRole('button', { name: 'Open player for On device' })).toBeVisible();
+	await expect(mini.locator('[data-part=cover]')).toHaveCount(0);
+	await expect(mini.getByText('Saved artist', { exact: true })).toHaveCount(0);
+	await mini.getByRole('button', { name: 'Play', exact: true }).click();
+	await expect(mini.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+	expect(fixture.streams).toEqual([]);
+});
 
 test('the navigation drawer keeps hidden screens and Settings accessible when every tab is removed', async ({
 	page

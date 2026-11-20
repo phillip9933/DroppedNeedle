@@ -23,12 +23,12 @@ export const destinations = [
 export type Destination = (typeof destinations)[number]['id'];
 export type BrowseDestination = Exclude<Destination, 'settings'>;
 export type StartScreen = 'automatic' | 'home' | 'library' | 'player';
-function startKey(session: Session) {
-	return 'dn.mobile.start-screen.v1.' + JSON.stringify([session.serverUrl, session.userId]);
+function accountKey(session: Session, name: 'start-screen' | 'mini-player') {
+	return 'dn.mobile.' + name + '.v1.' + JSON.stringify([session.serverUrl, session.userId]);
 }
 export function readStartScreen(session: Session): StartScreen {
 	try {
-		const saved = session.userId && localStorage.getItem(startKey(session));
+		const saved = session.userId && localStorage.getItem(accountKey(session, 'start-screen'));
 		return saved === 'home' || saved === 'library' || saved === 'player' ? saved : 'automatic';
 	} catch {
 		return 'automatic';
@@ -36,8 +36,69 @@ export function readStartScreen(session: Session): StartScreen {
 }
 export function saveStartScreen(session: Session, screen: StartScreen) {
 	if (!session.userId) return;
-	if (screen === 'automatic') localStorage.removeItem(startKey(session));
-	else localStorage.setItem(startKey(session), screen);
+	const key = accountKey(session, 'start-screen');
+	if (screen === 'automatic') localStorage.removeItem(key);
+	else localStorage.setItem(key, screen);
+}
+export const miniButtons = {
+	none: 'None',
+	previous: 'Previous track',
+	next: 'Next track',
+	queue: 'Queue'
+} as const;
+export const miniText = {
+	artist: 'Artist',
+	album: 'Album',
+	'artist-album': 'Artist and album',
+	hidden: 'Hidden'
+} as const;
+export type MiniButton = keyof typeof miniButtons;
+export type MiniPlayerPreferences = {
+	artwork: boolean;
+	secondary: keyof typeof miniText;
+	progress: boolean;
+	before: MiniButton;
+	after: MiniButton;
+};
+export const defaultMiniPlayer: MiniPlayerPreferences = {
+	artwork: true,
+	secondary: 'artist',
+	progress: false,
+	before: 'none',
+	after: 'next'
+};
+export function readMiniPlayer(session: Session | null): MiniPlayerPreferences {
+	if (!session?.userId) return defaultMiniPlayer;
+	try {
+		const value = JSON.parse(
+			localStorage.getItem(accountKey(session, 'mini-player')) || 'null'
+		) as Partial<MiniPlayerPreferences> | null;
+		if (!value) return defaultMiniPlayer;
+		const before =
+			typeof value.before === 'string' && Object.hasOwn(miniButtons, value.before)
+				? value.before
+				: defaultMiniPlayer.before;
+		const after =
+			typeof value.after === 'string' && Object.hasOwn(miniButtons, value.after)
+				? value.after
+				: defaultMiniPlayer.after;
+		return {
+			artwork: value.artwork !== false,
+			secondary:
+				typeof value.secondary === 'string' && Object.hasOwn(miniText, value.secondary)
+					? value.secondary
+					: defaultMiniPlayer.secondary,
+			progress: value.progress === true,
+			before,
+			after: before === after ? 'none' : after
+		};
+	} catch {
+		return defaultMiniPlayer;
+	}
+}
+export function saveMiniPlayer(session: Session, value: MiniPlayerPreferences) {
+	if (session.userId)
+		localStorage.setItem(accountKey(session, 'mini-player'), JSON.stringify(value));
 }
 export const maxTabs = 5;
 export type InterfacePreferences = {
