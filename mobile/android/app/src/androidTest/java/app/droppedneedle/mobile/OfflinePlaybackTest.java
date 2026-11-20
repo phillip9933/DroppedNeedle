@@ -66,7 +66,7 @@ public final class OfflinePlaybackTest {
             }
         }, upstream);
     }
-    private static byte[] wav() {
+    static byte[] wav() {
         int count = 4000;
         ByteBuffer file = ByteBuffer.allocate(44 + count * 2).order(ByteOrder.LITTLE_ENDIAN);
         file.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + count * 2);

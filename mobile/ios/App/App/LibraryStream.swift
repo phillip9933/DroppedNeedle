@@ -9,9 +9,11 @@ final class LibraryStream: NSObject, AVAssetResourceLoaderDelegate, URLSessionDa
     private var pending: [Int: AVAssetResourceLoadingRequest] = [:]
     private var tasks: [ObjectIdentifier: URLSessionDataTask] = [:]
     private var session: URLSession?
+    private var conversion: ConvertedTrack?
+    private(set) var errorMessage: String?
     let asset: AVURLAsset
 
-    init(url: URL, token: String) {
+    init(url: URL, token: String, profile: StreamProfile) {
         self.url = url
         self.token = token
         var parts = URLComponents()
@@ -26,9 +28,16 @@ final class LibraryStream: NSObject, AVAssetResourceLoaderDelegate, URLSessionDa
         config.urlCredentialStorage = nil
         session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
         asset.resourceLoader.setDelegate(self, queue: .main)
+        if let converted = profile.convertedURL(url) {
+            conversion = ConvertedTrack(original: url, converted: converted, token: token, direct: { [weak self] url, loading in
+                _ = self?.loadDirect(loading, from: url)
+            }, error: { [weak self] message in self?.errorMessage = message })
+        }
     }
 
     func close() {
+        conversion?.close()
+        conversion = nil
         session?.invalidateAndCancel()
         session = nil
         pending.removeAll()
@@ -37,6 +46,14 @@ final class LibraryStream: NSObject, AVAssetResourceLoaderDelegate, URLSessionDa
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loading: AVAssetResourceLoadingRequest) -> Bool {
+        if let conversion {
+            conversion.request(loading)
+            return true
+        }
+        return loadDirect(loading, from: url)
+    }
+
+    private func loadDirect(_ loading: AVAssetResourceLoadingRequest, from url: URL) -> Bool {
         guard let session else { return false }
         var request = URLRequest(url: url)
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
@@ -56,6 +73,7 @@ final class LibraryStream: NSObject, AVAssetResourceLoaderDelegate, URLSessionDa
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loading: AVAssetResourceLoadingRequest) {
+        conversion?.cancel(loading)
         if let task = tasks.removeValue(forKey: ObjectIdentifier(loading)) {
             pending.removeValue(forKey: task.taskIdentifier)
             task.cancel()

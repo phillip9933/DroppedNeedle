@@ -1,4 +1,4 @@
-import { browserFade } from './streaming';
+import { browserFade, browserNetwork, streamProfiles, streamAddress } from './streaming';
 import type { PlaybackBridge, PlayerState } from '../player';
 import { cacheWebPlayback, isAudio, webLocalAudio, webPlaybackPolicy } from '../offline/web';
 
@@ -93,7 +93,9 @@ export function browserPlayer(): PlaybackBridge {
 					: null;
 				const options = policy?.options;
 				if (options?.offlineOnly) throw Error('This song is not stored on this device.');
-				const source = new URL(track.streamUrl);
+				const profiles = streamProfiles({ serverUrl, userId });
+				const profile = browserNetwork() === 'wifi' ? profiles.wifi : profiles.cellular;
+				const source = new URL(streamAddress(track.streamUrl, profile));
 				const load = (url: URL) =>
 					fetch(url, {
 						headers: { Authorization: 'Bearer ' + token },

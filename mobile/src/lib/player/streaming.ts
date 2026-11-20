@@ -3,27 +3,88 @@ import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { getJson, type Session } from '../connection';
 import { path } from '../catalog/catalog';
 import type { PlayerAccess } from '../player';
-import { nativeFades } from './native';
+import { nativeFades, nativePlayer } from './native';
 
-export const rates = [96, 128, 192, 256, 320] as const;
+export const rates = [64, 96, 128, 160, 192, 256, 320] as const;
 export type Format = 'original' | 'mp3' | 'opus';
 export type Quality = { format: Format; rate: number };
-export const conversionSupported = Capacitor.getPlatform() !== 'ios';
-const original: Quality = { format: 'original', rate: 192 };
-const key = (a: PlayerAccess) =>
-	'dn.mobile.stream.v1.' + JSON.stringify([a.serverUrl, a.userId ?? '']);
-export function streamQuality(account: PlayerAccess): Quality {
-	try {
-		const q = JSON.parse(localStorage.getItem(key(account)) || 'null');
-		if (q && ['original', 'mp3', 'opus'].includes(q.format) && rates.some((r) => r === q.rate))
-			return { format: q.format, rate: q.rate };
-	} catch {
-		/* A damaged preference uses the original audio. */
-	}
-	return { ...original };
+export type Network = 'wifi' | 'cellular' | 'offline' | 'unknown';
+export type Profile = 'wifi' | 'cellular';
+export type Profiles = Record<Profile, Quality>;
+type Account = Pick<PlayerAccess, 'serverUrl' | 'userId'>;
+export const original: Quality = { format: 'original', rate: 192 };
+
+function storageKey(account: Account, version: number) {
+	return (
+		'dn.mobile.stream.v' + version + '.' + JSON.stringify([account.serverUrl, account.userId ?? ''])
+	);
 }
-export function saveQuality(account: PlayerAccess, q: Quality) {
-	localStorage.setItem(key(account), JSON.stringify(q));
+function quality(value: unknown, fallback: Quality): Quality {
+	if (
+		value &&
+		typeof value === 'object' &&
+		'format' in value &&
+		'rate' in value &&
+		(value.format === 'original' || value.format === 'mp3' || value.format === 'opus') &&
+		typeof value.rate === 'number' &&
+		rates.some((rate) => rate === value.rate)
+	)
+		return { format: value.format, rate: value.rate };
+	return { ...fallback };
+}
+function read(key: string): unknown {
+	try {
+		return JSON.parse(localStorage.getItem(key) || 'null');
+	} catch {
+		return null;
+	}
+}
+export function streamProfiles(account: Account): Profiles {
+	const legacy = quality(read(storageKey(account, 1)), original);
+	const stored = read(storageKey(account, 2));
+	return {
+		wifi: quality(
+			stored && typeof stored === 'object' && 'wifi' in stored ? stored.wifi : null,
+			legacy
+		),
+		cellular: quality(
+			stored && typeof stored === 'object' && 'cellular' in stored ? stored.cellular : null,
+			legacy
+		)
+	};
+}
+export async function saveProfiles(account: Account, profiles: Profiles) {
+	const key = storageKey(account, 2);
+	const previous = localStorage.getItem(key);
+	localStorage.setItem(key, JSON.stringify(profiles));
+	if (!Capacitor.isNativePlatform()) return;
+	try {
+		await nativePlayer.setStreamProfiles({
+			serverUrl: account.serverUrl,
+			userId: account.userId,
+			...profiles
+		});
+	} catch (error) {
+		if (previous === null) localStorage.removeItem(key);
+		else localStorage.setItem(key, previous);
+		throw error;
+	}
+}
+type ConnectionInfo = EventTarget & { type?: string };
+export function browserConnection(): ConnectionInfo | undefined {
+	return (navigator as Navigator & { connection?: ConnectionInfo }).connection;
+}
+export function browserNetwork(): Network {
+	if (!navigator.onLine) return 'offline';
+	const type = browserConnection()?.type;
+	if (type === 'wifi' || type === 'ethernet') return 'wifi';
+	if (type === 'cellular') return 'cellular';
+	return 'unknown';
+}
+export async function streamNetwork(): Promise<Network> {
+	return Capacitor.isNativePlatform()
+		? (await nativePlayer.getStreamNetwork()).network
+		: browserNetwork();
 }
 export function conversionState(session: Session) {
 	return getJson<components['schemas']['PlaybackConversion']>(
@@ -35,7 +96,7 @@ export function streamAddress(address: string, quality: Quality) {
 	const url = new URL(address);
 	for (const key of ['format', 'max_bitrate', 'start_seconds', 'estimate_content_length'])
 		url.searchParams.delete(key);
-	if (conversionSupported && quality.format !== 'original') {
+	if (quality.format !== 'original') {
 		url.searchParams.set('format', quality.format);
 		url.searchParams.set('max_bitrate', String(quality.rate));
 	}

@@ -1,5 +1,6 @@
 import { registerPlugin } from '@capacitor/core';
 import type { PlaybackBridge, PlayerAccess, PlayerState } from '../player';
+import type { Network, Profiles } from './streaming';
 import type { EqualizerBridge } from './equalizer';
 
 export type OutputDevice = { id: string; name: string };
@@ -21,7 +22,11 @@ export const nativePlayer = registerPlugin<
 		EqualizerBridge &
 		OutputBridge &
 		FadeBridge & {
-			restore(access: PlayerAccess): Promise<PlayerState>;
+			restore(access: PlayerAccess & { profiles: Profiles }): Promise<PlayerState>;
+			getStreamNetwork(): Promise<{ network: Network }>;
+			setStreamProfiles(
+				options: Pick<PlayerAccess, 'serverUrl' | 'userId'> & Profiles
+			): Promise<void>;
 		}
 >('DNPlayer');
 export const nativeOutput: OutputBridge = nativePlayer;

@@ -1,6 +1,7 @@
 import AVFoundation
 import Capacitor
 import MediaPlayer
+import Network
 import UIKit
 
 private final class ArtworkSession: NSObject, URLSessionTaskDelegate {
@@ -14,7 +15,8 @@ private final class ArtworkSession: NSObject, URLSessionTaskDelegate {
 public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "DNPlayerPlugin"
     public let jsName = "DNPlayer"
-    public let pluginMethods: [CAPPluginMethod] = ["getState", "setQueue", "command", "getTrackFade", "setTrackFade"].map {
+    public let pluginMethods: [CAPPluginMethod] = ["getState", "setQueue", "command", "getTrackFade", "setTrackFade",
+                                                   "getStreamNetwork", "setStreamProfiles"].map {
         CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)
     }
 
@@ -28,10 +30,14 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     private var repeatMode: RepeatMode = .off
     private var queue: [Track] = []
     private var serverAddress = ""
+    private var userID: String?
+    private var profiles = StreamProfiles()
+    private let pathMonitor = NWPathMonitor()
+    private var network = PlaybackNetwork.unknown
     private weak var observedItem: AVPlayerItem?
     private var token = ""
     private var index = -1
-    private var streams: [ObjectIdentifier: (key: UUID, stream: LibraryStream)] = [:]
+    private var streams: [ObjectIdentifier: (key: UUID, profile: StreamProfile, stream: LibraryStream)] = [:]
     private var observations: [NSKeyValueObservation] = []
     private var itemStatus: NSKeyValueObservation?
     private var listeners: [NSObjectProtocol] = []
@@ -50,7 +56,29 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }()
 
     public override func load() {
+        DispatchQueue.global(qos: .utility).async { ConvertedTrack.cleanPreviousSession() }
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.network = PlaybackNetwork(path)
+            if !self.queue.isEmpty { self.updateCurrentItem() }
+        }
+        pathMonitor.start(queue: .main)
         DispatchQueue.main.async { [weak self] in self?.observePlayback() }
+    }
+
+    @objc func getStreamNetwork(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(["network": self.network.rawValue]) }
+    }
+
+    @objc func setStreamProfiles(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if self.serverAddress == call.getString("serverUrl"), self.userID == call.getString("userId") {
+                self.profiles = StreamProfiles(wifi: StreamProfile(call.getObject("wifi")),
+                                               cellular: StreamProfile(call.getObject("cellular")))
+                self.updateCurrentItem()
+            }
+            call.resolve()
+        }
     }
 
     private let fadeKey = "dn.trackFades"
@@ -119,7 +147,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         })
         listeners.append(center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: nil, queue: .main) { [weak self] note in
             guard let self, let item = note.object as? AVPlayerItem, self.streams[ObjectIdentifier(item)] != nil else { return }
-            self.error = "This track could not be played."
+            self.error = self.streams[ObjectIdentifier(item)]?.stream.errorMessage ?? "This track could not be played."
             self.pause()
         })
         let remote = MPRemoteCommandCenter.shared()
@@ -175,9 +203,10 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func append(_ index: Int) {
-        let stream = LibraryStream(url: queue[index].url, token: token)
+        let profile = profiles.profile(network)
+        let stream = LibraryStream(url: queue[index].url, token: token, profile: profile)
         let item = AVPlayerItem(asset: stream.asset)
-        streams[ObjectIdentifier(item)] = (queue[index].key, stream)
+        streams[ObjectIdentifier(item)] = (queue[index].key, profile, stream)
         player.insert(item, after: player.items().last)
     }
 
@@ -201,7 +230,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
                 DispatchQueue.main.async {
                     guard let self, let item, self.player.currentItem === item else { return }
                     if item.status == .failed {
-                        self.error = "This track could not be played."
+                        self.error = self.streams[ObjectIdentifier(item)]?.stream.errorMessage ?? "This track could not be played."
                         self.pause()
                     }
                     self.publishNowPlaying()
@@ -210,10 +239,12 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
             loadArtwork()
         }
         let following = nextIndex(automatic: true)
-        if let prepared = player.items().dropFirst().first,
-           following.map({ queue[$0].key }) != streams[ObjectIdentifier(prepared)]?.key {
-            player.remove(prepared)
-            streams.removeValue(forKey: ObjectIdentifier(prepared))?.stream.close()
+        if let prepared = player.items().dropFirst().first {
+            let upcoming = streams[ObjectIdentifier(prepared)]
+            if following.map({ queue[$0].key }) != upcoming?.key || profiles.profile(network) != upcoming?.profile {
+                player.remove(prepared)
+                streams.removeValue(forKey: ObjectIdentifier(prepared))?.stream.close()
+            }
         }
         if player.items().count == 1, let following { append(following) }
         publishNowPlaying()
@@ -310,6 +341,8 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         queue = []
         token = ""
         serverAddress = ""
+        userID = nil
+        profiles = StreamProfiles()
         repeatMode = .off
         index = -1
         publishNowPlaying()
@@ -364,7 +397,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let tracks = call.getArray("tracks", [String: Any].self), let index = call.getInt("index"),
                   tracks.indices.contains(index), let token = call.getString("token"), !token.isEmpty,
                   let address = call.getString("serverUrl"), let base = URL(string: address),
-                  base.scheme == "https", base.host != nil, base.user == nil, base.password == nil else {
+                  base.scheme == "https", base.host != nil, base.user == nil, base.password == nil, base.query == nil, base.fragment == nil else {
                 call.reject("Choose a track from a connected DroppedNeedle library.")
                 return
             }
@@ -386,14 +419,21 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
                     call.reject("Invalid DroppedNeedle artwork.")
                     return
                 }
-                checked.append(Track(data: track, url: stream))
+                let canonical = StreamProfile.canonical(stream)
+                var data = track
+                data["streamUrl"] = canonical.absoluteString
+                checked.append(Track(data: data, url: canonical))
             }
+            let raw = call.getObject("profiles")
+            let profiles = StreamProfiles(wifi: StreamProfile(raw?["wifi"]), cellular: StreamProfile(raw?["cellular"]))
+            let userID = call.getString("userId")
             do {
                 if let placement = call.getString("placement"), !self.queue.isEmpty {
-                    guard self.token == token, self.serverAddress == address else {
+                    guard self.token == token, self.serverAddress == address, self.userID == userID else {
                         call.reject("This queue belongs to a different session.")
                         return
                     }
+                    if raw != nil { self.profiles = profiles }
                     self.updateCurrentItem()
                     let target = placement == "next" ? self.index + 1 : self.queue.count
                     self.queue.insert(contentsOf: checked, at: target)
@@ -403,6 +443,8 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.queue = checked
                     self.token = token
                     self.serverAddress = address
+                    self.userID = userID
+                    self.profiles = profiles
                     try self.move(to: index)
                 }
                 call.resolve(self.snapshot())
@@ -432,6 +474,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     deinit {
+        pathMonitor.cancel()
         if let fadeObserver { player.removeTimeObserver(fadeObserver) }
         player.pause()
         for (_, entry) in streams { entry.stream.close() }

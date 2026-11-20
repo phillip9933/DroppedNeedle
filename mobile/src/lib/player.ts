@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { writable } from 'svelte/store';
-import { streamAddress, streamQuality } from './player/streaming';
+import { streamAddress, streamProfiles, original, type Profiles } from './player/streaming';
 import { browserPlayer } from './player/browser';
 import type { EqualizerBridge } from './player/equalizer';
 import { nativePlayer as native } from './player/native';
@@ -48,7 +48,12 @@ export type PlayerAction =
 	| 'cycleRepeat';
 export interface PlaybackBridge {
 	setQueue(
-		options: PlayerAccess & { tracks: PlayerTrack[]; index: number; placement?: QueuePlacement }
+		options: PlayerAccess & {
+			tracks: PlayerTrack[];
+			index: number;
+			placement?: QueuePlacement;
+			profiles?: Profiles;
+		}
 	): Promise<PlayerState>;
 	command(options: { action: PlayerAction; value?: number; to?: number }): Promise<PlayerState>;
 	getState(): Promise<PlayerState>;
@@ -142,20 +147,25 @@ async function submitTracks(
 		throw new Error('Playback requires a secure DroppedNeedle connection.');
 	}
 	base.pathname = base.pathname.replace(/\/?$/, '/');
-	const quality = streamQuality(access);
+	const profiles = streamProfiles(access);
 	const queue = tracks.map((track) => ({
 		...track,
-		streamUrl: streamAddress(mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'), quality),
+		streamUrl: streamAddress(mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'), original),
 		artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
 	}));
-	return update(() => backend.setQueue({ ...access, tracks: queue, index, placement }));
+	return update(() => backend.setQueue({ ...access, tracks: queue, index, placement, profiles }));
 }
 
 export const player = {
 	async restore(access: PlayerAccess) {
 		if (Capacitor.getPlatform() === 'android') {
 			await update(() =>
-				native.restore({ serverUrl: access.serverUrl, token: access.token, userId: access.userId })
+				native.restore({
+					serverUrl: access.serverUrl,
+					token: access.token,
+					userId: access.userId,
+					profiles: streamProfiles(access)
+				})
 			);
 		}
 	},
