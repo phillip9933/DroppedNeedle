@@ -36,6 +36,7 @@ async function setup(page: Page) {
 		reads: 0,
 		resolutions: 0,
 		streams: [] as string[],
+		audioStatus: new Map<string, number>(),
 		ratings: [] as number[]
 	};
 	await page.route(server + '/api/v3/**', async (route) => {
@@ -75,7 +76,13 @@ async function setup(page: Page) {
 			});
 		}
 		if (path.startsWith('stream/local/')) {
-			state.streams.push(path.split('/')[2]);
+			const id = path.split('/')[2];
+			state.streams.push(id);
+			const status = state.audioStatus.get(id);
+			if (status) {
+				expect(new URL(req.url()).searchParams.get('format')).toBe('raw');
+				return json({ error: { message: 'fixture response' } }, status);
+			}
 			return route.fulfill({ body: audio, contentType: 'audio/wav' });
 		}
 		if (path === 'ratings/lookup') {
@@ -238,6 +245,42 @@ test('incomplete reads preserve downloads, viewers can add playable entries, and
 	env.status = 200;
 	await page.getByRole('combobox', { name: 'DN playlist', exact: true }).selectOption(alternate);
 	await expect.poll(() => copies(page)).toEqual(['automatic:sun']);
+});
+
+test('missing originals let later playlist tracks finish, then retry only the unavailable files', async ({
+	page
+}) => {
+	const env = await setup(page);
+	env.files = ['First', 'Old tape', 'Lost mix', 'Soundcheck', 'Encore', 'Last'];
+	for (const [i, title] of env.files.slice(1, -1).entries())
+		env.audioStatus.set(title, i % 2 ? 410 : 404);
+	await localSignIn(page, server);
+	await settings(page);
+	await choose(page);
+	await expect.poll(() => env.streams).toEqual(env.files);
+	await expect.poll(() => copies(page)).toEqual(['automatic:First', 'automatic:Last']);
+	const warning = page.getByText(/The next update will retry/);
+	await expect(warning).toContainText('Old tape');
+	await expect(warning).toContainText('Lost mix');
+	await expect(warning).toContainText('Soundcheck');
+	await expect(warning).toContainText('1 more');
+	await expect(warning).not.toContainText('Encore');
+	await expect(page.getByText('2 automatic downloads added.', { exact: true })).toBeVisible();
+	env.audioStatus.clear();
+	await syncButton(page).click();
+	await expect(page.getByText('4 automatic downloads added.', { exact: true })).toBeVisible();
+	expect(env.streams).toEqual([...env.files, ...env.files.slice(1, -1)]);
+	await expect(warning).toHaveCount(0);
+	// Permission and server errors apply to the whole batch, even if their body mentions a missing file.
+	for (const status of [401, 403, 503]) {
+		env.files.push('blocked-' + status, 'later-' + status);
+		const first = env.files.find((title) => title.startsWith('blocked'))!;
+		env.audioStatus.set(first, status);
+		const before = env.streams.length;
+		await syncButton(page).click();
+		await expect(page.getByRole('alert')).toContainText('DN could not serve this audio file.');
+		expect(env.streams.slice(before)).toEqual([first]);
+	}
 });
 
 test('a superseded playlist response cannot replace the newest selection after a round trip', async ({

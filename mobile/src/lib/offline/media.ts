@@ -22,7 +22,7 @@ export {
 	type OfflineOptions,
 	type OfflineSnapshot
 } from './tracks';
-import { webOffline } from './web';
+import { audioNotFound, webOffline } from './web';
 import { nativeMedia } from './nativeMedia';
 
 export const offlineSupported =
@@ -267,6 +267,9 @@ export function runAutoDownloads(session: Session, signal?: AbortSignal): Promis
 		});
 		const wanted = new Set(ids);
 		const eligible = [...byId.values()].filter((t) => wanted.has(t.id));
+		const playlist = source.startsWith('playlist:');
+		const names: string[] = [];
+		let missing = 0;
 		activeBatches++;
 		try {
 			for (let start = 0; start < eligible.length && navigator.onLine; start += 100) {
@@ -274,16 +277,48 @@ export function runAutoDownloads(session: Session, signal?: AbortSignal): Promis
 				for (const track of await withRatings(session, eligible.slice(start, start + 100))) {
 					signal?.throwIfAborted();
 					if (!navigator.onLine) break;
-					await backend().save({
-						...owner,
-						token: session.token,
-						track: retainedTrack(track, session.serverUrl),
-						...(!nativeOffline ? { signal } : {}),
-						source
-					});
+					try {
+						await backend().save({
+							...owner,
+							token: session.token,
+							track: retainedTrack(track, session.serverUrl),
+							...(!nativeOffline ? { signal } : {}),
+							source
+						});
+					} catch (cause) {
+						signal?.throwIfAborted();
+						if (
+							!playlist ||
+							!cause ||
+							typeof cause !== 'object' ||
+							!('code' in cause) ||
+							cause.code !== audioNotFound
+						)
+							throw cause;
+						missing++;
+						if (names.length < 3) {
+							const title = track.title.trim().slice(0, 96) || 'Untitled track';
+							const artist = track.artist.trim().slice(0, 64);
+							names.push('“' + title + '”' + (artist ? ' by ' + artist : ''));
+						}
+					}
 				}
 			}
 		} finally {
+			if (missing && !signal?.aborted) {
+				const remainder = missing - names.length;
+				const list = names.join(', ') + (remainder ? ' and ' + remainder + ' more' : '');
+				const summary =
+					'DN could not find the original audio for ' +
+					list +
+					'. The next update will retry ' +
+					(missing === 1 ? 'this song.' : 'these ' + missing + ' songs.');
+				setPlaylistIssue(
+					session,
+					source,
+					[playlistSyncIssue(session, source), summary].filter(Boolean).join(' ')
+				);
+			}
 			if (--activeBatches === 0) window.dispatchEvent(new Event(mediaChanged));
 		}
 		if (!wanted.size) return 0;
