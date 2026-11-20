@@ -101,6 +101,7 @@ async function refresh() {
 }
 
 function command(action: PlayerAction, value?: number, to?: number) {
+	window.dispatchEvent(new Event('dn-playback-intent'));
 	return update(() => backend.command({ action, value, to }));
 }
 
@@ -123,6 +124,7 @@ async function submitTracks(
 	access: PlayerAccess,
 	placement?: QueuePlacement
 ) {
+	window.dispatchEvent(new Event('dn-playback-intent'));
 	if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
 		throw new Error('Choose a track to play.');
 	const base = new URL(access.serverUrl);
