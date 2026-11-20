@@ -3,8 +3,12 @@
 	import { ChevronRight } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
-	import { playlists, playlistCover, type Playlist } from './playlists';
+	import { playlists, createPlaylist, playlistCover, type Playlist } from './playlists';
 	import Cover from './Cover.svelte';
+	import PlaylistDialog from './PlaylistDialog.svelte';
+	import PlaylistNameForm from './PlaylistNameForm.svelte';
+	let creating = $state(false),
+		saving = $state(false);
 	let { session, onopen }: { session: Session; onopen: (playlist: Playlist) => void } = $props();
 	let items = $state<Playlist[]>([]);
 	let count = $state(40);
@@ -26,6 +30,21 @@
 	});
 </script>
 
+<button class="text-button" onclick={() => (creating = true)}>New playlist</button>
+{#if creating}
+	<PlaylistDialog title="New playlist" onclose={() => (creating = false)} busy={saving}>
+		<PlaylistNameForm
+			action="Create playlist"
+			bind:busy={saving}
+			oncancel={() => (creating = false)}
+			onsubmit={async (name) => {
+				const item = await createPlaylist(session, name);
+				creating = false;
+				onopen(item);
+			}}
+		/>
+	</PlaylistDialog>
+{/if}
 {#if busy}<p role="status">Loading playlists…</p>
 {:else if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={load}>Try again</button>
