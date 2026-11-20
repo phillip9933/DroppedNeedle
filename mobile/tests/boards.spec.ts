@@ -50,6 +50,7 @@ const order = (page: Page) =>
 async function edit(page: Page, layout: string) {
 	await button(page, 'Settings').click();
 	await button(page, 'Edit ' + layout + ' layout').click();
+	await expect(page.getByRole('heading', { name: 'Edit ' + layout, exact: true })).toBeVisible();
 }
 async function save(page: Page) {
 	await button(page, 'Save layout').click();
@@ -60,7 +61,7 @@ async function addToHome(page: Page, label: string) {
 	await button(page, 'Add ' + label).click();
 	await save(page);
 }
-test('a listener arranges and titles sections independently and keeps the layout after signing in again', async ({
+test('a listener arranges sections independently and keeps the layout after signing in again', async ({
 	page
 }) => {
 	await fixture(page);
@@ -73,17 +74,18 @@ test('a listener arranges and titles sections independently and keeps the layout
 	await button(page, 'Remove Recently played').click();
 	await button(page, 'Add Artists').click();
 	await button(page, 'Move Artists up').click();
-	await page.getByRole('combobox', { name: 'Position', exact: true }).selectOption('0');
-	await page.getByLabel('Section title').fill('My artists');
+	await expect(page.getByRole('combobox', { name: 'Position', exact: true })).toHaveCount(0);
+	await expect(page.getByLabel('Section title')).toHaveCount(0);
+	await button(page, 'Move Artists up').click();
 	await page.getByLabel('Show a preview').uncheck();
 	await save(page);
-	expect(await order(page)).toEqual(['My artists', 'Recently added', 'Top picks for you']);
+	await expect.poll(() => order(page)).toEqual(['Artists', 'Recently added', 'Top picks for you']);
 	await expect(page.locator('[data-widget="library-artists"]')).not.toContainText('Southerly');
-	await button(page, 'Browse My artists').click();
-	await expect(page.getByRole('heading', { name: 'My artists', exact: true })).toBeVisible();
+	await button(page, 'Browse Artists').click();
+	await expect(page.getByRole('heading', { name: 'Artists', exact: true })).toBeVisible();
 	await expect(button(page, 'Southerly 1 album')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(button(page, 'Browse My artists')).toBeVisible();
+	await expect(button(page, 'Browse Artists')).toBeVisible();
 	await expect(button(page, 'Edit Home layout')).toHaveCount(0);
 	await button(page, 'Library').click();
 	await expect(button(page, 'Browse Artists')).toBeVisible();
@@ -94,23 +96,20 @@ test('a listener arranges and titles sections independently and keeps the layout
 	await button(page, 'Browse Playlists').click();
 	await addToHome(page, 'Playlists');
 	await button(page, 'Home').click();
-	expect(await order(page)).toEqual([
-		'My artists',
-		'Recently added',
-		'Top picks for you',
-		'Playlists'
-	]);
+	await expect
+		.poll(() => order(page))
+		.toEqual(['Artists', 'Recently added', 'Top picks for you', 'Playlists']);
 	await edit(page, 'Home');
 	await button(page, 'Restore default layout').click();
 	await page.keyboard.press('Escape');
 	await button(page, 'Back').click();
-	await expect(button(page, 'Browse My artists')).toBeVisible();
+	await expect(button(page, 'Browse Artists')).toBeVisible();
 	await page.reload();
 	await login(page);
-	await expect(button(page, 'Browse My artists')).toBeVisible();
+	await expect(button(page, 'Browse Artists')).toBeVisible();
 	await page.reload();
 	await login(page, 'blair');
-	await expect(button(page, 'Browse My artists')).toHaveCount(0);
+	await expect(button(page, 'Browse Artists')).toHaveCount(0);
 	await expect(button(page, 'Browse Recently played')).toBeVisible();
 	await button(page, 'Library').click();
 	await expect(button(page, 'Browse Artists')).toBeVisible();
@@ -414,4 +413,214 @@ test('visible shelves load on mount and resume while intersection callbacks are 
 	});
 	await expect(artists.getByRole('button', { name: 'Southerly 1 album' })).toBeVisible();
 	expect(reads.filter((path) => path === '/dn/api/v3/library/artists')).toHaveLength(1);
+});
+
+test('a saved five-star filter can appear on both boards and shared edits commit only when saved', async ({
+	page
+}) => {
+	await fixture(page);
+	const urls: string[] = [];
+	await page.route(server + '/api/v3/library/tracks?**', async (route) => {
+		const url = new URL(route.request().url());
+		urls.push(url.search);
+		const five = url.searchParams.get('rating') === '5';
+		await route.fulfill({
+			json: {
+				total: 1,
+				next: null,
+				items: [
+					{
+						id: 'one',
+						title: five ? 'Five star song' : 'Any song',
+						artist_name: 'Southerly',
+						album_title: 'Night train',
+						art_missing: true
+					}
+				]
+			}
+		});
+	});
+	await page.goto('/');
+	await login(page);
+	await button(page, 'Library').click();
+	await button(page, 'Browse Tracks').click();
+	await page.getByText('Rating and format', { exact: true }).click();
+	await page.getByLabel('Your rating').selectOption('5');
+	await button(page, 'Save filters as section').click();
+	let modal = page.getByRole('dialog');
+	await expect(modal.getByLabel('Section rating', { exact: true })).toHaveValue('5');
+	await modal.getByLabel('Section name').fill('My five stars');
+	await modal.getByRole('button', { name: 'Create section' }).click();
+	await button(page, 'Browse My five stars').click();
+	await expect(button(page, 'Play Five star song')).toBeVisible();
+	expect(urls.some((q) => q.includes('rating=5') && q.includes('rating_mode=at_least'))).toBe(true);
+	await button(page, 'Home').click();
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+	await expect(button(page, 'Browse My five stars')).toHaveCount(0);
+	await addToHome(page, 'My five stars');
+	await expect(button(page, 'Browse My five stars')).toBeVisible();
+	await edit(page, 'Home');
+	await button(page, 'Customize My five stars').click();
+	await button(page, 'Edit filters').click();
+	modal = page.getByRole('dialog');
+	await modal.getByLabel('Section name').fill('Discard me');
+	await modal.getByRole('button', { name: 'Apply filters' }).click();
+	await button(page, 'Cancel').click();
+	await button(page, 'Back').click();
+	await expect(button(page, 'Browse My five stars')).toBeVisible();
+	await edit(page, 'Home');
+	await button(page, 'Customize My five stars').click();
+	await button(page, 'Edit filters').click();
+	modal = page.getByRole('dialog');
+	await modal.getByLabel('Section name').fill('Favorite artists');
+	await modal.getByLabel('Library collection').selectOption('artists');
+	await modal.getByLabel('Favorites only').check();
+	await modal.getByRole('button', { name: 'Apply filters' }).click();
+	await save(page);
+	await button(page, 'Library').click();
+	await button(page, 'Browse Favorite artists').click();
+	await expect(button(page, 'Southerly 1 album')).toBeVisible();
+	await page.reload();
+	await login(page, 'blair');
+	await edit(page, 'Home');
+	await expect(button(page, 'Add Favorite artists')).toHaveCount(0);
+	await button(page, 'Cancel').click();
+	await button(page, 'Back').click();
+	await page.reload();
+	await login(page);
+	await edit(page, 'Library');
+	await button(page, 'Customize Favorite artists').click();
+	await button(page, 'Edit filters').click();
+	modal = page.getByRole('dialog');
+	await modal.getByRole('button', { name: 'Delete saved section' }).click();
+	await modal.getByRole('button', { name: 'Delete section' }).click();
+	await save(page);
+	await button(page, 'Home').click();
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+	await expect(button(page, 'Browse Favorite artists')).toHaveCount(0);
+});
+
+test('selection applies playlist actions to chosen items across library shelves and individual playlist entries', async ({
+	page
+}) => {
+	await fixture(page);
+	const album = {
+		id: 'album',
+		title: 'Night train',
+		artist_name: 'Southerly',
+		art_missing: true
+	};
+	const song = (id: string, title: string) => ({
+		id,
+		title,
+		artist_name: 'Southerly',
+		album_title: 'Into town',
+		album_id: 'album',
+		disc_number: 1,
+		track_number: 1,
+		art_missing: true
+	});
+	const list = {
+		id: 'road',
+		name: 'Road',
+		is_owner: true,
+		can_edit: true,
+		cover_urls: [],
+		track_count: 3
+	};
+	const writes: string[][] = [];
+	const details = () => ({
+		...list,
+		tracks: [
+			{
+				id: 'one',
+				source_type: 'local',
+				track_source_id: 's3',
+				track_name: 'Set one',
+				artist_name: 'Southerly',
+				album_name: 'Into town'
+			},
+			{
+				id: 'two',
+				source_type: 'local',
+				track_source_id: 's3',
+				track_name: 'Set one',
+				artist_name: 'Southerly',
+				album_name: 'Into town'
+			},
+			{
+				id: 'three',
+				track_name: 'Unavailable',
+				artist_name: 'Southerly',
+				album_name: 'Into town',
+				available_sources: []
+			}
+		]
+	});
+	await page.route(server + '/api/v3/library/albums*', (route) =>
+		route.fulfill({ json: { items: [album], total: 1 } })
+	);
+	await page.route(server + '/api/v3/library/albums/match/album?**', (route) =>
+		route.fulfill({ json: { items: [song('s1', 'After hours')], total: 1 } })
+	);
+	await page.route(server + '/api/v3/library/tracks?**', (route) =>
+		route.fulfill({
+			json: {
+				items: [song('s2', 'Daybreak'), song('s3', 'Set one')],
+				total: 2
+			}
+		})
+	);
+	await page.route(server + '/api/v3/playlists', (route) =>
+		route.fulfill({ json: { playlists: [list] } })
+	);
+	await page.route(server + '/api/v3/playlists/road', (route) =>
+		route.fulfill({ json: details() })
+	);
+	await page.route(server + '/api/v3/playlists/road/tracks', (route) => {
+		writes.push(
+			route
+				.request()
+				.postDataJSON()
+				.tracks.map((row: { track_source_id: string }) => row.track_source_id)
+		);
+		return route.fulfill({
+			json: { tracks: writes.at(-1)!.map((id) => ({ track_source_id: id })) }
+		});
+	});
+	await page.goto('/');
+	await login(page);
+	await button(page, 'Library').click();
+	const board = page.locator('[data-board=library]');
+	await board
+		.locator('[data-widget=library-albums]')
+		.getByRole('button', { name: /Night train/ })
+		.scrollIntoViewIfNeeded();
+	await button(page, 'Select items').click();
+	await board
+		.locator('[data-widget=library-albums]')
+		.getByRole('button', { name: 'Select Night train' })
+		.click();
+	const songs = board.locator('[data-widget=library-tracks]');
+	await songs.scrollIntoViewIfNeeded();
+	await songs.getByRole('button', { name: 'Select Daybreak' }).click();
+	const actions = page.getByRole('group', { name: 'Selection actions' });
+	await expect(actions.getByText('2 selected')).toBeVisible();
+	await actions.getByRole('button', { name: 'Add to playlist' }).click();
+	let modal = page.getByRole('dialog');
+	await modal.getByRole('button', { name: 'Add 2 tracks' }).click();
+	await modal.getByRole('button', { name: 'Done' }).click();
+	expect(writes).toEqual([['s1', 's2']]);
+	await page.keyboard.press('Escape');
+	await expect(actions).toHaveCount(0);
+	await button(page, 'Browse Playlists').click();
+	await page.getByRole('button', { name: /Road 3 tracks/ }).click();
+	await button(page, 'Select items').click();
+	await button(page, 'Select loaded').click();
+	await expect(actions.getByText('2 selected')).toBeVisible();
+	await actions.getByRole('button', { name: 'Add to playlist' }).click();
+	modal = page.getByRole('dialog');
+	await modal.getByRole('button', { name: 'Add 2 tracks' }).click();
+	await modal.getByRole('button', { name: 'Done' }).click();
+	expect(writes[1]).toEqual(['s3', 's3']);
 });

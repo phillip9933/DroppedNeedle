@@ -12,6 +12,8 @@
 		deletePlaylist,
 		type Playlist
 	} from './playlists';
+	import SelectionHost from './SelectionHost.svelte';
+	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import PlaylistNameForm from './PlaylistNameForm.svelte';
@@ -131,52 +133,57 @@
 				: 'This playlist is empty.'}
 		</p>
 	{/if}
-	<div data-part="track-list">
-		{#each detail.rows.slice(0, count) as { entry, index }, position (entry.id)}
-			<div class="entry" data-entry={entry.id}>
-				<TrackRow
-					title={entry.track_name}
-					artist={entry.artist_name}
-					duration={entry.duration}
-					position={position + 1}
-					onplay={index === null ? undefined : () => detail && onplay(detail.tracks, index)}
-				/>
-				{#if editing && current.can_edit}
-					<div class="tools">
-						<button
-							class="icon-button"
-							aria-label={'Move ' + entry.track_name + ' up'}
-							disabled={saving || position === 0}
-							onclick={() =>
-								change(() => movePlaylistEntry(session, current.id, entry.id, position - 1))}
-							><ArrowUp size={17} /></button
-						>
-						<button
-							class="icon-button"
-							aria-label={'Move ' + entry.track_name + ' down'}
-							disabled={saving || position === detail.rows.length - 1}
-							onclick={() =>
-								change(() => movePlaylistEntry(session, current.id, entry.id, position + 1))}
-							><ArrowDown size={17} /></button
-						>
-						<button
-							class="icon-button"
-							aria-label={'Remove ' + entry.track_name}
-							disabled={saving}
-							onclick={() => {
-								remove = { id: entry.id, title: entry.track_name };
-								dialog = 'remove';
-								editError = '';
-							}}><Trash2 size={17} /></button
-						>
-					</div>
-				{/if}
-			</div>
-		{/each}
-	</div>
-	{#if count < detail.rows.length}<button class="secondary more" onclick={() => (count += 50)}
-			>More tracks</button
-		>{/if}
+	<SelectionHost {session} {onplay} enabled={!editing} scope={String(editing)}
+		><div data-part="track-list">
+			{#each detail.rows.slice(0, count) as { entry, index }, position (entry.id)}
+				<div class="entry" data-entry={entry.id}>
+					<TrackRow
+						choice={index === null
+							? undefined
+							: trackChoice(detail.tracks[index], 'entry:' + entry.id)}
+						title={entry.track_name}
+						artist={entry.artist_name}
+						duration={entry.duration}
+						position={position + 1}
+						onplay={index === null ? undefined : () => detail && onplay(detail.tracks, index)}
+					/>
+					{#if editing && current.can_edit}
+						<div class="tools">
+							<button
+								class="icon-button"
+								aria-label={'Move ' + entry.track_name + ' up'}
+								disabled={saving || position === 0}
+								onclick={() =>
+									change(() => movePlaylistEntry(session, current.id, entry.id, position - 1))}
+								><ArrowUp size={17} /></button
+							>
+							<button
+								class="icon-button"
+								aria-label={'Move ' + entry.track_name + ' down'}
+								disabled={saving || position === detail.rows.length - 1}
+								onclick={() =>
+									change(() => movePlaylistEntry(session, current.id, entry.id, position + 1))}
+								><ArrowDown size={17} /></button
+							>
+							<button
+								class="icon-button"
+								aria-label={'Remove ' + entry.track_name}
+								disabled={saving}
+								onclick={() => {
+									remove = { id: entry.id, title: entry.track_name };
+									dialog = 'remove';
+									editError = '';
+								}}><Trash2 size={17} /></button
+							>
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+		{#if count < detail.rows.length}<button class="secondary more" onclick={() => (count += 50)}
+				>More tracks</button
+			>{/if}</SelectionHost
+	>
 {/if}
 {#if dialog === 'rename'}
 	<PlaylistDialog title="Rename playlist" onclose={close} busy={saving}>

@@ -16,7 +16,7 @@
 		}
 	}
 	const preview = $derived(
-		measurePreview(boardDisplay(section.id, section.display), width, expanded)
+		measurePreview(boardDisplay(section.id, section.display, section.filter?.kind), width, expanded)
 	);
 	let host: HTMLElement;
 	let visible = $state(false);

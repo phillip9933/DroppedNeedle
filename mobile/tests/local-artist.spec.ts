@@ -109,9 +109,27 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await expect(page.getByRole('button', { name: 'Artist profile', exact: true })).toBeVisible();
 	const view = page.getByLabel('Artist library view');
 	await view.selectOption('appearances');
+	await page.getByRole('button', { name: 'Select items' }).click();
+	await page.getByRole('button', { name: 'Select Night Duo' }).click();
 	await page.getByRole('button', { name: 'More appearances', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Select Night Duo' })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+	await page.getByRole('button', { name: 'Select loaded' }).click();
+	await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+	const dismissed = await page.evaluate(
+		() => !window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))
+	);
+	expect(dismissed).toBe(true);
+	await expect(page.getByRole('group', { name: 'Selection actions' })).toHaveCount(0);
+	await expect(view).toBeVisible();
 	await page.getByRole('button', { name: 'Night Cohort Various Artists' }).click();
 	await expect(page.getByRole('heading', { name: 'Night Cohort', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Select items' }).click();
+	await page.getByRole('button', { name: 'Select After Hours' }).click();
+	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(view).toHaveValue('appearances');
 	await expect(page.getByRole('button', { name: 'Night Duo Night Duo' })).toBeVisible();

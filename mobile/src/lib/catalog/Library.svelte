@@ -1,16 +1,32 @@
 <script lang="ts">
+	import {
+		libraryFilter,
+		filterSummary,
+		sorts,
+		type LibraryFilter
+	} from '../boards/filteredSections';
 	import type { Preview } from '../boards/display';
 	import { untrack, onMount } from 'svelte';
 	import { Heart, Play, Shuffle } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
-	import { path, localAlbum, localSong, errorMessage, type Album, type OnPlay } from './catalog';
+	import { trackChoice, useLibrarySelection } from './librarySelection.svelte';
+	import {
+		albumTracks,
+		path,
+		localAlbum,
+		localSong,
+		errorMessage,
+		type Album,
+		type OnPlay
+	} from './catalog';
 	import PreviewItem from '../boards/PreviewItem.svelte';
 	import TrackActions from './TrackActions.svelte';
 	import Albums from './Albums.svelte';
 	import { prepareLibraryQueue } from './libraryQueue';
 	import TrackList from './TrackList.svelte';
 	import { trackDuration } from './TrackRow.svelte';
+	const selectable = useLibrarySelection();
 	type Schema = components['schemas'];
 	type Artist = Pick<Schema['ArtistView'], 'id' | 'name'>;
 	let {
@@ -18,6 +34,8 @@
 		session,
 		kind,
 		artist,
+		fixedFilter,
+		onsavefilters,
 		active = true,
 		artistAppearances = false,
 		preview = false,
@@ -30,6 +48,8 @@
 		display?: Preview;
 		kind: 'albums' | 'artists' | 'songs';
 		artist?: Artist;
+		fixedFilter?: LibraryFilter;
+		onsavefilters?: (config: LibraryFilter) => void;
 		artistAppearances?: boolean;
 		active?: boolean;
 		preview?: boolean;
@@ -93,6 +113,27 @@
 		error = $state(''),
 		next = $state<string | null>(null);
 	let generation = 0;
+	function albumChoice(album: Album) {
+		return {
+			id: 'album:' + (album.localId || album.group),
+			title: album.title,
+			tracks: (signal: AbortSignal) => albumTracks(session, album, signal)
+		};
+	}
+	function artistChoice(a: Artist) {
+		return {
+			id: 'artist:' + a.id,
+			title: a.name,
+			tracks: (signal: AbortSignal, forQueue: boolean) =>
+				prepareLibraryQueue(
+					session,
+					{ artist_id: a.id, sort: 'album', order: 'asc' },
+					signal,
+					undefined,
+					forQueue
+				)
+		};
+	}
 	onMount(() => {
 		const changed = (event: Event) => {
 			const {
@@ -103,15 +144,15 @@
 			if (entity === 'album')
 				albums = albums
 					.map((a) => (a.localId === id ? { ...a, favorite: value } : a))
-					.filter((a) => !favorites || a.favorite);
+					.filter((a) => !(fixedFilter?.favorites ?? favorites) || a.favorite);
 			if (entity === 'track')
 				songs = songs
 					.map((t) => (t.id === id ? { ...t, favorite: value } : t))
-					.filter((t) => !favorites || t.favorite);
+					.filter((t) => !(fixedFilter?.favorites ?? favorites) || t.favorite);
 			if (entity === 'artist')
 				artists = artists
 					.map((a) => (a.id === id ? { ...a, favorite: value } : a))
-					.filter((a) => !favorites || a.favorite);
+					.filter((a) => !(fixedFilter?.favorites ?? favorites) || a.favorite);
 		};
 		window.addEventListener('dnfavoritechange', changed);
 		window.addEventListener('dn-playback-intent', cancelPreparation);
@@ -121,34 +162,23 @@
 			cancelPreparation();
 		};
 	});
-	const sorts = {
-		albums: [
-			['name', 'Album title'],
-			['date_added', 'Recently added'],
-			['artist', 'Artist'],
-			['year', 'Release year']
-		],
-		artists: [
-			['name', 'Artist name'],
-			['album_count', 'Album count'],
-			['date_added', 'Recently added']
-		],
-		songs: [
-			['title', 'Song title'],
-			['artist', 'Artist'],
-			['album', 'Album'],
-			['date_added', 'Recently added']
-		]
-	};
 	const listFilters = $derived.by(() => {
-		const by = recent ? 'date_added' : sort || sorts[kind][0][0];
+		const config = fixedFilter;
+		const by = recent ? 'date_added' : config?.sort || sort || sorts[kind][0][0];
 		return {
 			sort: by,
 			order: ['album_count', 'date_added', 'year'].includes(by) ? 'desc' : 'asc',
-			q: query.trim() || undefined,
-			favorites: favorites ? 'true' : undefined,
+			q: (config?.query ?? query.trim()) || undefined,
+			favorites: (config?.favorites ?? favorites) ? 'true' : undefined,
 			artist_id: kind === 'songs' ? artist?.id : undefined,
-			...advanced
+			...(config
+				? {
+						rating: config.rating || undefined,
+						rating_mode: config.rating ? config.ratingMode : undefined,
+						formats: config.formats.join(',') || undefined,
+						format_mode: config.formats.length ? config.formatMode : undefined
+					}
+				: advanced)
 		};
 	});
 	const noun = $derived(artistAppearances ? 'appearances' : kind);
@@ -250,6 +280,7 @@
 		void preview;
 		void fetchLimit;
 		void recent;
+		void fixedFilter;
 		void artistAppearances;
 		void advanced;
 		const version = ++generation;
@@ -267,7 +298,8 @@
 	});
 </script>
 
-{#if (!artist || kind === 'songs') && !preview}
+{#if fixedFilter && !preview}<p>{filterSummary(fixedFilter)}</p>{/if}
+{#if (!artist || kind === 'songs') && !preview && !fixedFilter}
 	<div class="filters">
 		<input
 			type="search"
@@ -347,6 +379,22 @@
 			</div>
 		</details>
 	{/if}
+	{#if onsavefilters}<button
+			class="text-button"
+			onclick={() =>
+				onsavefilters?.(
+					libraryFilter({
+						kind,
+						query,
+						favorites,
+						sort: recent ? 'date_added' : sort,
+						rating,
+						ratingMode,
+						formats,
+						formatMode
+					})
+				)}>Save filters as section</button
+		>{/if}
 {/if}
 {#if kind === 'songs' && !preview}
 	<div class="collection-actions">
@@ -372,6 +420,7 @@
 			<PreviewItem
 				{session}
 				part="album-card"
+				choice={albumChoice(album)}
 				title={album.title}
 				subtitle={album.artist}
 				artwork={album.art}
@@ -382,6 +431,7 @@
 		{#each artists.slice(0, display.limit) as a (a.id)}
 			<PreviewItem
 				{session}
+				choice={artistChoice(a)}
 				title={a.name}
 				subtitle={a.album_count + (a.album_count === 1 ? ' album' : ' albums')}
 				artwork={path('/api/v3/library/artists/{id}/artwork', { id: a.id }, { size: 250 })}
@@ -392,6 +442,7 @@
 		{#each songs.slice(0, display.limit) as song, index (song.id)}
 			<PreviewItem
 				{session}
+				choice={trackChoice(song)}
 				title={song.title}
 				label={'Play ' + song.title}
 				subtitle={song.artist}
@@ -414,7 +465,9 @@
 {:else}
 	{#if albums.length}<Albums {session} {albums} {onopen} strip={preview} />{/if}
 	{#if artists.length}<div class="artists">
-			{#each artists as a (a.id)}<button onclick={() => onartist(a)}
+			{#each artists as a (a.id)}<button
+					use:selectable={artistChoice(a)}
+					onclick={() => onartist(a)}
 					><strong>{a.name}</strong><small
 						>{a.album_count} {a.album_count === 1 ? 'album' : 'albums'}</small
 					></button

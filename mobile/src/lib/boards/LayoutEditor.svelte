@@ -1,39 +1,45 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { boardDisplay } from './display';
-	import { playerWidgets } from '../player/layout';
+	import FilterSectionDialog from './FilterSectionDialog.svelte';
+	import { filterSummary, type FilterSection } from './filteredSections';
 	import { ArrowUp, ArrowDown, Minus, Plus, SlidersHorizontal } from '@lucide/svelte';
 	import {
 		available,
 		boardNames,
 		defaults,
 		sectionTitle,
-		type LayoutTarget,
+		type Board,
 		type Section
 	} from './layout';
 	let {
 		board,
 		sections,
+		filters,
 		onsave,
 		onback
 	}: {
-		board: LayoutTarget;
+		board: Board;
+		filters: FilterSection[];
 		sections: Section[];
-		onsave: (items: Section[]) => void;
+		onsave: (items: Section[], filters?: FilterSection[]) => void;
 		onback: () => void;
 	} = $props();
 	function editable(section: Section): Section {
-		return board === 'player'
-			? { ...section }
-			: { ...section, display: boardDisplay(section.id, section.display) };
+		return { ...section, display: boardDisplay(section.id, section.display, section.filter?.kind) };
 	}
 	let draft = $state<Section[]>(untrack(() => sections.map(editable)));
+	let saved = $state<FilterSection[]>(untrack(() => filters.slice())),
+		editing = $state<Partial<FilterSection> | null>(null);
 	let options = $state('');
 	let filter = $state('');
 	let error = $state('');
 	let list: HTMLOListElement;
 	const choices = $derived(
-		available(board).filter(
+		[
+			...available(board),
+			...(board === 'discover' ? [] : saved.map((f) => ({ id: f.id, label: f.name })))
+		].filter(
 			(w) =>
 				!draft.some((s) => s.id === w.id) &&
 				w.label.toLowerCase().includes(filter.trim().toLowerCase())
@@ -48,7 +54,7 @@
 	async function add(id: string) {
 		draft = [
 			...draft,
-			editable({ id, title: '', preview: playerWidgets.find((w) => w.id === id)?.enabled ?? true })
+			editable({ id, title: '', preview: true, filter: saved.find((f) => f.id === id) })
 		];
 		options = id;
 		await tick();
@@ -58,7 +64,7 @@
 	}
 	function save() {
 		try {
-			onsave(draft);
+			onsave(draft, board === 'discover' ? undefined : saved);
 		} catch {
 			error = 'Could not save this layout on the device. Your edits are still here.';
 		}
@@ -109,25 +115,12 @@
 					>
 				</div>
 				{#if options === item.id}<div class="fields">
-						<label
-							>Section title<input
-								maxlength="64"
-								placeholder={available(board).find((w) => w.id === item.id)?.label}
-								bind:value={item.title}
-							/></label
-						>
-						<label
-							>Position<select
-								value={i}
-								onchange={(event) => move(i, Number(event.currentTarget.value))}
-							>
-								{#each draft as position, n (position.id)}<option value={n}>{n + 1}</option>{/each}
-							</select></label
-						>
+						{#if item.filter}<p>{filterSummary(item.filter)}</p>
+							<button class="secondary" onclick={() => (editing = item.filter!)}
+								>Edit filters</button
+							>{/if}
 						<label class="check"
-							><input type="checkbox" bind:checked={item.preview} />{playerWidgets.find(
-								(w) => w.id === item.id
-							)?.option ?? 'Show a preview'}</label
+							><input type="checkbox" bind:checked={item.preview} />Show a preview</label
 						>
 						{#if item.display}
 							{@const columnField = item.display.layout === 'grid' ? 'columns' : 'listColumns'}
@@ -168,13 +161,16 @@
 		{/each}
 	</ol>
 	<h2>Add sections</h2>
+	{#if board !== 'discover'}<button class="secondary" onclick={() => (editing = {})}
+			>New filtered section</button
+		>{/if}
 	<input
 		type="search"
 		aria-label="Find a section"
 		placeholder="Find a section"
 		bind:value={filter}
 	/>
-	{#each board === 'player' ? ['player'] : ['library', 'discover'] as group (group)}
+	{#each ['library', 'discover'] as group (group)}
 		{@const matches = choices.filter((w) => w.id.startsWith(group + '-'))}
 		{#if matches.length}
 			{#if board === 'home'}<h3>{group === 'library' ? 'Library' : 'Discover'}</h3>{/if}
@@ -197,6 +193,29 @@
 		}}>Restore default layout</button
 	>
 </div>
+
+{#if editing}
+	<FilterSectionDialog
+		initial={editing}
+		onclose={() => (editing = null)}
+		onsave={async (value) => {
+			const exists = saved.some((f) => f.id === value.id);
+			saved = exists ? saved.map((f) => (f.id === value.id ? value : f)) : [...saved, value];
+			draft = draft.map((s) => (s.id === value.id ? { ...s, filter: value } : s));
+			editing = null;
+			if (!exists) await add(value.id);
+		}}
+		ondelete={editing.id
+			? () => {
+					const id = editing?.id;
+					saved = saved.filter((s) => s.id !== id);
+					draft = draft.filter((s) => s.id !== id);
+					editing = null;
+					options = '';
+				}
+			: undefined}
+	/>
+{/if}
 
 <style>
 	.editor {

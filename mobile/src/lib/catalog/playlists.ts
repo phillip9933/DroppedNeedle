@@ -25,10 +25,10 @@ export function playlistCover(p: Playlist) {
 	return p.cover_urls.map(localCover).find(Boolean);
 }
 
-export async function readPlaylist(session: Session, playlist: Playlist) {
+export async function readPlaylist(session: Session, playlist: Playlist, signal?: AbortSignal) {
 	const params = { playlist_id: playlist.id };
 	const url = path('/api/v3/playlists/{playlist_id}', params);
-	let detail = await getJson<Schema['PlaylistDetail']>(session, url);
+	let detail = await getJson<Schema['PlaylistDetail']>(session, url, signal);
 	const unresolved = detail.tracks.filter(
 		(t) => !t.source_type && !t.library_file_id && t.album_id
 	);
@@ -41,8 +41,9 @@ export async function readPlaylist(session: Session, playlist: Playlist) {
 				path('/api/v3/playlists/{playlist_id}/resolve-sources', params)
 			);
 			if (unresolved.some((t) => sources[t.id]?.includes('local')))
-				detail = await getJson<Schema['PlaylistDetail']>(session, url);
+				detail = await getJson<Schema['PlaylistDetail']>(session, url, signal);
 		} catch (cause) {
+			signal?.throwIfAborted();
 			if (cause instanceof DnError && [401, 403, 404].includes(cause.status)) throw cause;
 			resolutionFailed = true;
 		}

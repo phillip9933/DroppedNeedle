@@ -20,6 +20,7 @@
 	import TrackActions from './TrackActions.svelte';
 	import Favorite from './Favorite.svelte';
 	import Cover from './Cover.svelte';
+	import SelectionHost from './SelectionHost.svelte';
 	import TrackList from './TrackList.svelte';
 	let {
 		album,
@@ -150,7 +151,9 @@
 			id={album.localId}
 			value={album.favorite}
 		/>{/if}
-	<TrackList {session} {tracks} {onplay} />
+	<SelectionHost {session} {onplay}
+		><TrackList {session} {tracks} {onplay} albumSheet /></SelectionHost
+	>
 	{#if album.group}<button
 			class="text-button"
 			aria-expanded={showEditions}

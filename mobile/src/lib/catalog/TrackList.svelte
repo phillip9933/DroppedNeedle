@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { trackChoice } from './librarySelection.svelte';
 	import TrackActions from './TrackActions.svelte';
 	import type { Session } from '../connection';
 	import TrackRow from './TrackRow.svelte';
@@ -7,15 +8,21 @@
 	let {
 		session,
 		tracks,
-		onplay
-	}: { session: Session; tracks: (PlayerTrack & { favorite?: boolean })[]; onplay: OnPlay } =
-		$props();
+		onplay,
+		albumSheet = false
+	}: {
+		albumSheet?: boolean;
+		session: Session;
+		tracks: (PlayerTrack & { favorite?: boolean })[];
+		onplay: OnPlay;
+	} = $props();
 </script>
 
-<div data-part="track-list">
+<div data-part="track-list" data-album-sheet={albumSheet || undefined}>
 	{#each tracks as track, index (track.id)}
 		<div class="row">
 			<TrackRow
+				choice={trackChoice(track)}
 				title={track.title}
 				artist={track.artist}
 				duration={track.duration}

@@ -2,7 +2,13 @@
 	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
-	import { playlists, createPlaylist, playlistCover, type Playlist } from './playlists';
+	import {
+		playlists,
+		createPlaylist,
+		readPlaylist,
+		playlistCover,
+		type Playlist
+	} from './playlists';
 	import PreviewItem from '../boards/PreviewItem.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import PlaylistImport from './PlaylistImport.svelte';
@@ -76,6 +82,11 @@
 		{#each items.slice(0, preview ? display.limit : count) as item (item.id)}
 			<PreviewItem
 				{session}
+				choice={{
+					id: 'playlist:' + item.id,
+					title: item.name,
+					tracks: async (signal) => (await readPlaylist(session, item, signal)).tracks
+				}}
 				title={item.name}
 				subtitle={item.track_count + (item.track_count === 1 ? ' track' : ' tracks')}
 				artwork={playlistCover(item)}

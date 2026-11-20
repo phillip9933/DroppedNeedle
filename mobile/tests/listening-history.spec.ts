@@ -112,6 +112,23 @@ test('personal history keeps repeated listens and only replays unique local reco
 	await expect(history.locator('time')).toHaveCount(5);
 	await expect(history.getByRole('button', { name: 'Replay No ID' })).toHaveCount(0);
 	expect(lookups).toEqual([]);
+	const first = history.getByRole('button', { name: 'Replay Main line' }).first();
+	await first.hover();
+	await page.mouse.down();
+	const selection = page.getByRole('group', { name: 'Selection actions' });
+	try {
+		await expect(selection.getByText('1 selected')).toBeVisible();
+	} finally {
+		await page.mouse.up();
+	}
+	await history.getByRole('button', { name: 'Select Main line' }).nth(1).click();
+	await history.getByRole('button', { name: 'Select Gone' }).click();
+	await expect(selection.getByText('3 selected')).toBeVisible();
+	await selection.getByRole('button', { name: 'Play', exact: true }).click();
+	await expect(page.getByRole('alert')).toHaveText('Gone · Local copy unavailable');
+	expect(played).toEqual([]);
+	await page.keyboard.press('Escape');
+	lookups.length = 0;
 	await history.getByRole('button', { name: 'Replay Two copies' }).click();
 	await expect(history.getByText('Multiple local copies')).toBeVisible();
 	await history.getByRole('button', { name: 'Replay Gone' }).click();

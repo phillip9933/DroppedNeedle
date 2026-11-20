@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { librarySelectionBack } from './librarySelection.svelte';
 	import type { Session } from '../connection';
 	import type { Album, CatalogTab, OnPlay } from './catalog';
 	import BoardView from '../boards/BoardView.svelte';
@@ -18,14 +19,17 @@
 		active,
 		tab,
 		onplay,
-		onnavigate
+		onnavigate,
+		onoffline
 	}: {
 		session: Session;
 		active: boolean;
 		tab: CatalogTab;
 		onplay: OnPlay;
+		onoffline?: () => void;
 		onnavigate: (tab: CatalogTab) => void;
 	} = $props();
+	const dismissSelection = librarySelectionBack();
 	let boardView = $state<{ goBack: () => boolean }>();
 	export function backToBoard() {
 		return boardView?.goBack() ?? false;
@@ -79,7 +83,9 @@
 		move(offsets.pop() ?? 0);
 	}
 	function systemBack(event: Event) {
-		if (active && inside && !event.defaultPrevented) {
+		if (!active || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+		if (dismissSelection()) event.preventDefault();
+		else if (inside) {
 			event.preventDefault();
 			back();
 		}
@@ -101,6 +107,7 @@
 			<BoardView
 				bind:this={boardView}
 				board={tab}
+				{onoffline}
 				{session}
 				active={active && !inside}
 				onopen={open}
