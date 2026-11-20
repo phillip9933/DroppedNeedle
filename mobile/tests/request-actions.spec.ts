@@ -64,7 +64,7 @@ async function connect(page: Page, role: S['Role']) {
 		row(id, 'Junction', 'awaiting_approval', 'track'),
 		row(second, 'Crossing', 'awaiting_approval')
 	];
-	const tasks = [
+	const tasks: S['DownloadTaskResponse'][] = [
 		{
 			...task('stalled', 'Stalled transfer', 'downloading'),
 			candidate_index: 0,
@@ -78,7 +78,14 @@ async function connect(page: Page, role: S['Role']) {
 			search_job_id: 'job',
 			candidate_index: 1,
 			source: 'usenet'
-		}
+		},
+		...['choose', 'watch', 'stop', 'other'].map((name) => ({
+			...task(name, 'Matches ' + name, 'queued'),
+			user_id: name === 'other' ? 'another-listener' : 'owner',
+			search_job_id: name
+		})),
+		{ ...task('held', 'Held recording', 'partial'), held_for_review: true },
+		task('manual', 'Look again', 'failed')
 	];
 	await page.route(api + '/**', async (route) => {
 		const req = route.request(),
@@ -92,6 +99,7 @@ async function connect(page: Page, role: S['Role']) {
 		expect(req.headers().authorization).toBe('Bearer fixture');
 		calls.push(m + ' ' + path + url.search);
 		if (path === '/me') return json({ id: 'owner', display_name: 'Listener', role });
+		if (path === '/home') return json({ sections: [] });
 		if (path === '/library/albums') return json({ items: [], total: 0 });
 		if (path === '/requests/active') return json({ items: active });
 		if (path === '/requests/history') return json({ items: history, page: 1, total_pages: 1 });
@@ -101,6 +109,68 @@ async function connect(page: Page, role: S['Role']) {
 		}
 		if (path === '/downloads/tasks')
 			return json({ items: tasks, page: 1, page_size: 30 } satisfies S['DownloadListResponse']);
+		if (path === '/downloads/search/album') {
+			expect(m).toBe('POST');
+			expect(req.postDataJSON()).toMatchObject({
+				release_group_mbid: id,
+				artist_name: 'North',
+				album_title: 'Look again'
+			});
+			return json({ status: 'searching', job_id: 'manual' } satisfies S['SearchAlbumResponse']);
+		}
+		const search = path.match(
+			/^\/downloads\/search\/(choose|watch|stop|manual)(?:\/(pick|dismiss|cancel))?$/
+		);
+		if (search) {
+			const [, job, action] = search;
+			if (!action) {
+				expect(m).toBe('GET');
+				return json({
+					job_id: job,
+					artist_name: 'North',
+					album_title: 'Matches ' + job,
+					release_group_mbid: id,
+					status: 'completed',
+					candidate_count: 2,
+					candidates: [
+						{
+							candidate_index: 0,
+							title: 'Alternate edition',
+							note: { code: 'names_album', text: 'The release title matches.' },
+							source: 'usenet',
+							file_count: 0,
+							size_bytes: 0,
+							tier: 'possible',
+							files: []
+						},
+						{
+							candidate_index: 1,
+							title: 'Night edition',
+							note: { code: 'complete', text: 'Tracklist matches.' },
+							username: 'fixture peer',
+							source: 'soulseek',
+							format: 'FLAC',
+							file_count: 2,
+							size_bytes: 1048576,
+							tier: 'refused',
+							files: [],
+							refusal: ['over_size_cap']
+						}
+					]
+				} satisfies S['SearchJobResponse']);
+			}
+			expect(m).toBe('POST');
+			expect([
+				['choose', 'pick'],
+				['watch', 'dismiss'],
+				['stop', 'cancel']
+			]).toContainEqual([job, action]);
+			if (action === 'pick')
+				expect(req.postDataJSON()).toEqual({ candidate_index: 1, confirm_policy_break: true });
+			const entry = tasks.find((t) => t.id === job)!;
+			entry.status = action === 'pick' ? 'downloading' : 'cancelled';
+			return json(action === 'pick' ? { task_id: 'picked' } : { success: true, state: 'watching' });
+		}
 		if (path === '/requests/active/' + id) {
 			expect(m).toBe('DELETE');
 			expect(url.searchParams.get('kind')).toBe('track');
@@ -153,7 +223,10 @@ async function connect(page: Page, role: S['Role']) {
 	await page.getByLabel('Username').fill('owner');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await page.getByRole('button', { name: 'Requests', exact: true }).click();
+	await page
+		.getByRole('navigation', { name: 'Music' })
+		.getByRole('button', { name: 'Requests', exact: true })
+		.click();
 	return calls;
 }
 
@@ -209,4 +282,82 @@ test('an admin reviews pending track and album requests and retries a failed imp
 	await modal.getByRole('button', { name: 'Retry import' }).click();
 	await modal.getByRole('button', { name: 'Retry import' }).click();
 	await expect(page.getByText('DN retried the import.')).toBeVisible();
+});
+
+test('a listener reviews matches, confirms a settings override, watches or cancels other searches, and opens held files on their own DN', async ({
+	page
+}) => {
+	const calls = await connect(page, 'user');
+	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	const modal = page.getByRole('dialog');
+	await page.getByRole('button', { name: 'Actions for Look again' }).click();
+	await modal.getByRole('button', { name: 'Search manually' }).click();
+	await modal.getByRole('button', { name: 'Search manually' }).click();
+	await expect(modal.getByRole('button', { name: /Night edition/ })).toBeVisible();
+	await modal.getByRole('button', { name: 'Close', exact: true }).click();
+	await page.getByRole('button', { name: 'Actions for Look again' }).click();
+	await modal.getByRole('button', { name: 'Review manual search' }).click();
+	await modal.getByRole('button', { name: 'Review manual search' }).click();
+	await expect(modal.getByRole('button', { name: /Night edition/ })).toBeVisible();
+	await modal.getByRole('button', { name: 'Close', exact: true }).click();
+	expect(calls.filter((c) => c === 'POST /downloads/search/album')).toHaveLength(1);
+	await page.getByRole('button', { name: 'Review matches for Matches choose' }).click();
+	await modal.getByRole('button', { name: /Night edition/ }).click();
+	await expect(modal.getByText('Exceeds your size limit')).toBeVisible();
+	expect(calls.some((c) => c.endsWith('/pick'))).toBe(false);
+	await modal.getByRole('button', { name: 'Download anyway' }).click();
+	await expect(page.getByText('Download started from your selection.')).toBeVisible();
+	expect(calls.filter((c) => c.endsWith('/pick'))).toHaveLength(1);
+	for (const [job, pick, confirm, receipt] of [
+		[
+			'watch',
+			'None of these, keep watching',
+			'Keep watching',
+			'DN will keep watching for this album.'
+		],
+		['stop', 'Stop search', 'Stop search', 'Search stopped.']
+	]) {
+		await page.getByRole('button', { name: 'Review matches for Matches ' + job }).click();
+		await modal.getByRole('button', { name: pick, exact: true }).click();
+		await modal.getByRole('button', { name: confirm, exact: true }).click();
+		await expect(page.getByText(receipt)).toBeVisible();
+	}
+	await expect(page.getByRole('button', { name: 'Review matches for Matches other' })).toHaveCount(
+		0
+	);
+	await page.getByText('More on your server').click();
+	await expect(page.getByRole('link', { name: 'Manage wanted watches' })).toHaveAttribute(
+		'href',
+		server + '/requests?tab=wanted'
+	);
+	await expect(page.getByRole('link', { name: 'Inspect quarantined downloads' })).toHaveCount(0);
+	const held = page.getByRole('link', { name: 'Review held files for Held recording in browser' });
+	await expect(held).toHaveAttribute('href', server + '/downloads');
+	await page.context().route(server + '/downloads', async (route) => {
+		expect(route.request().headers().authorization).toBeUndefined();
+		await route.fulfill({ contentType: 'text/html', body: '<h1>Sign in to DN</h1>' });
+	});
+	const opened = page.waitForEvent('popup');
+	await held.click();
+	await expect((await opened).getByRole('heading', { name: 'Sign in to DN' })).toBeVisible();
+});
+
+test('administrators see links to the deployed upgrade, import, auto-download and quarantine pages', async ({
+	page
+}) => {
+	await connect(page, 'admin');
+	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByText('More on your server').click();
+	const pages = {
+		'Import files into the library': '/downloads?tab=import',
+		'Review quality upgrades': '/requests?tab=upgrades',
+		'Manage auto-downloads': '/requests?tab=auto-download',
+		'Inspect quarantined downloads': '/downloads'
+	};
+	for (const [label, path] of Object.entries(pages)) {
+		await expect(page.getByRole('link', { name: label })).toHaveAttribute('href', server + path);
+	}
+	await expect(page.getByRole('button', { name: 'Review matches for Matches other' })).toHaveCount(
+		0
+	);
 });
