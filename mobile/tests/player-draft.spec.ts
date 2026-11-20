@@ -191,6 +191,86 @@ test('an outstanding five-column version 1 draft survives upgrading an explicitl
 	await expect(sample.getByText('Sleeve notes', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 	const live = page.locator('[data-part=now-playing]');
-	await expect(live.locator('[data-part=player-header-row] > [data-section-id]')).toHaveCount(5);
+	await expect(live.locator('[data-part=player-header-row] [data-section-id]')).toHaveCount(5);
 	await expect(live.getByText('Sleeve notes', { exact: true })).toHaveCount(0);
+});
+
+test('a 0.13.1 draft based on the implicit old default survives the compact footer upgrade', async ({
+	page
+}) => {
+	await routes(page);
+	await page.goto('/');
+	await page.evaluate(
+		async ({ server }) => {
+			const field = (id: string, options = {}) => ({
+				id,
+				title: '',
+				preview: true,
+				sameRow: false,
+				...options
+			});
+			const old = [
+				'artwork',
+				'title',
+				'artist',
+				'album',
+				'timeline',
+				'transport',
+				'modes',
+				'sleep',
+				'lyrics',
+				'tools'
+			].map((s) =>
+				field(
+					'player-' + s,
+					['title', 'artist', 'album'].includes(s)
+						? { padding: 0 }
+						: ['lyrics', 'tools'].includes(s)
+							? { preview: false }
+							: {}
+				)
+			);
+			const encode = (sections: unknown[]) =>
+				JSON.stringify({ format: 'droppedneedle-player-layout', version: 1, sections });
+			const req = indexedDB.open('dn.mobile.player-drafts', 1);
+			req.onupgradeneeded = () => req.result.createObjectStore('layouts');
+			const db = await new Promise<IDBDatabase>((res, rej) => {
+				req.onsuccess = () => res(req.result);
+				req.onerror = () => rej(req.error);
+			});
+			const tx = db.transaction('layouts', 'readwrite');
+			tx.objectStore('layouts').put(
+				{
+					baseline: encode(old),
+					layout: encode([
+						...old.map((s) => (s.id === 'player-title' ? { ...s, title: 'My track' } : s)),
+						field('player-menu', { placement: 'header-start' })
+					])
+				},
+				[server, 'alex', 101, 'old-default-edit']
+			);
+			await new Promise<void>((res, rej) => {
+				tx.oncomplete = () => res();
+				tx.onerror = () => rej(tx.error);
+			});
+			db.close();
+		},
+		{ server }
+	);
+	await edit(page);
+	await expect(page.getByText('Recovered your unsaved layout.', { exact: true })).toBeVisible();
+	const sample = page.locator('[data-part=sample-player]');
+	await expect(sample.locator('[data-section-id=player-title]')).toContainText('My track');
+	await expect(sample.locator('[data-section-id=player-more]')).toHaveCount(1);
+	await expect(
+		sample.locator('[data-section-id=player-menu], [data-section-id=player-tools]')
+	).toHaveCount(0);
+	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+	const result = await page.evaluate(
+		(k) => JSON.parse(localStorage.getItem(k)!) as { id: string; title: string }[],
+		saved
+	);
+	expect(result.find((f) => f.id === 'player-title')?.title).toBe('My track');
+	expect(result.some((f) => f.id === 'player-more')).toBe(true);
+	expect(result.some((f) => f.id === 'player-quality')).toBe(false);
 });

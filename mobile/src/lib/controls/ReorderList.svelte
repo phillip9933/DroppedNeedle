@@ -71,7 +71,7 @@
 		if (!source || handle.disabled) return;
 		const item = entry(index, title),
 			id = event.pointerId;
-		const scroll = list.closest('main');
+		const scroll = list.closest<HTMLElement>('[data-gesture-scroll], main');
 		let x = event.clientX,
 			y = event.clientY,
 			moved = false,

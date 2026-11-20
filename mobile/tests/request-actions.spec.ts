@@ -1,3 +1,4 @@
+import { verticalSwipe } from './fixtures/verticalSwipe';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
@@ -734,4 +735,34 @@ test('a listener auditions their own held file from DN and rechecks eligible fin
 	await dialog.getByRole('button', { name: 'Confirm recheck' }).click();
 	await expect(dialog.getByText('1 still held.')).toBeVisible();
 	expect(checks).toBe(1);
+});
+
+test('pulling a review sheet returns one step, preserves inner scrolling and never submits a match', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 360 });
+	const calls = await connect(page, 'user');
+	await page.getByRole('tab', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('button', { name: 'Review matches for Matches choose' }).click();
+	const modal = page.getByRole('dialog');
+	const option = modal.getByRole('button', { name: /Night edition/ });
+	await option.click();
+	const body = modal.locator('.body');
+	await expect(modal.getByRole('button', { name: 'Download anyway' })).toBeVisible();
+	await body.evaluate((el) => {
+		el.scrollTop = el.scrollHeight;
+	});
+	expect(await body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+	const rect = (await body.boundingBox())!;
+	await verticalSwipe(page, rect.x + rect.width / 2, rect.y + 32, 85);
+	await expect(modal.getByRole('button', { name: 'Download anyway' })).toBeVisible();
+	await body.evaluate((el) => {
+		el.scrollTop = 0;
+	});
+	await verticalSwipe(page, rect.x + rect.width / 2, rect.y + 32, 85);
+	await expect(option).toBeVisible();
+	const header = (await modal.locator('h2').boundingBox())!;
+	await verticalSwipe(page, header.x + header.width / 2, header.y + header.height / 2, 75);
+	await expect(modal).toBeHidden();
+	expect(calls.filter((c) => c.endsWith('/pick'))).toHaveLength(0);
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Pencil, Plus } from '@lucide/svelte';
 	import { sectionTitle, type Section } from '../boards/layout';
-	import { isPlayerSlot, maxPlayerColumns, rowName } from './composition';
+	import { playerColumns, isPlayerSlot, maxPlayerColumns, rowName } from './composition';
 	let {
 		rows,
 		measured,
@@ -9,6 +9,7 @@
 		close,
 		resize,
 		setWidth,
+		addStack,
 		select,
 		move,
 		height,
@@ -23,6 +24,7 @@
 		close: () => void;
 		resize: (n: number) => void;
 		setWidth: (c: number, n: number) => void;
+		addStack: (c: number) => void;
 		select: (id: string) => void;
 		move: (to: number) => void;
 		height: number;
@@ -31,7 +33,8 @@
 		setHeight: (n: number) => void;
 		remove: () => void;
 	} = $props();
-	const row = $derived(rows[r] ?? []);
+	const groups = $derived(playerColumns(rows[r] ?? []));
+	const row = $derived(groups.map((col) => col[0]));
 	const total = $derived(row.reduce((n, c) => n + (c.width ?? 1), 0));
 </script>
 
@@ -108,13 +111,19 @@
 	{/if}
 	{#each row as s, c (s.id)}
 		<div class="cell">
-			<button
-				data-edit-column={s.id}
-				aria-label={'Open column ' + (c + 1) + ', ' + sectionTitle(s)}
-				onclick={() => select(s.id)}
-				><small>{c + 1}</small><span>{sectionTitle(s)}</span>{#if isPlayerSlot(s.id)}<Plus
-						size={16}
-					/>{:else}<Pencil size={14} />{/if}</button
+			{#each groups[c] as entry, j (entry.id)}
+				<button
+					data-edit-column={entry.id}
+					aria-label={'Open column ' + (c + 1) + ', ' + sectionTitle(entry)}
+					onclick={() => select(entry.id)}
+					><small>{c + 1}{groups[c].length > 1 ? ' · ' + (j + 1) : ''}</small><span
+						>{sectionTitle(entry)}</span
+					>{#if isPlayerSlot(entry.id)}<Plus size={16} />{:else}<Pencil size={14} />{/if}</button
+				>
+			{/each}<button
+				class="text-button"
+				aria-label={'Add subrow to column ' + (c + 1)}
+				onclick={() => addStack(c)}><Plus size={15} />Add subrow</button
 			>
 			{#if row.length > 1}<div class="size">
 					<input

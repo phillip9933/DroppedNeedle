@@ -4,11 +4,11 @@ import type { Session } from '../connection';
 
 export const sampleSession: Session = { serverUrl: '', token: '', displayName: 'Preview' };
 export const samplePlayer = readable<PlayerState>({
-	tracks: ['Low Water', 'Soft Current', 'Night Ferry', 'Shorebirds'].map((title, i) => ({
+	tracks: ['Track 1', 'Track Title', 'Track 3', 'Track 4'].map((title, i) => ({
 		id: String(i),
 		title,
-		artist: 'Northline',
-		album: 'Tidal Memory',
+		artist: 'Artist Name',
+		album: 'Album Title',
 		streamUrl: '',
 		duration: 238
 	})),

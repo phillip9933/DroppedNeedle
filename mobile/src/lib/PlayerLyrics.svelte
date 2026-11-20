@@ -1,8 +1,4 @@
 <script lang="ts">
-	import type { Section } from './boards/layout';
-	import { MicVocal } from '@lucide/svelte';
-	import PlayerActionFace from './player/PlayerActionFace.svelte';
-	import { untrack } from 'svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import type { components } from '../../../frontend/src/lib/api/v3/openapi';
 	import type { Session } from './connection';
@@ -12,23 +8,16 @@
 		session,
 		trackId,
 		position,
-		title = 'Lyrics',
-		startOpen = false,
 		sample = false,
-		section,
 		onseek
 	}: {
 		session: Session;
 		trackId: string;
 		position: number;
-		title?: string;
-		startOpen?: boolean;
 		sample?: boolean;
-		section?: Section;
 		onseek?: (position: number) => void;
 	} = $props();
-	let open = $state(untrack(() => startOpen)),
-		lyrics = $state<components['schemas']['LyricsView'] | null>(null),
+	let lyrics = $state<components['schemas']['LyricsView'] | null>(null),
 		error = $state(''),
 		busy = $state(false),
 		retry = $state(0);
@@ -45,16 +34,11 @@
 	});
 	$effect(() => {
 		const box = linesPanel;
-		if (!open || !following || current < 0 || !box) return;
+		if (!following || current < 0 || !box) return;
 		const row = box.children.item(current);
-		if (!row) return;
-		const bounds = row.getBoundingClientRect();
+		if (!(row instanceof HTMLElement)) return;
 		box.scrollTo({
-			top:
-				box.scrollTop +
-				bounds.top -
-				box.getBoundingClientRect().top +
-				(bounds.height - box.clientHeight) / 2,
+			top: row.offsetTop + (row.offsetHeight - box.clientHeight) / 2,
 			behavior: prefersReducedMotion.current ? 'instant' : 'smooth'
 		});
 	});
@@ -88,7 +72,7 @@
 		const id = trackId,
 			account = session;
 		const attempt = retry;
-		if (!open || sample) return;
+		if (sample) return;
 		const force = attempt !== handledRetry;
 		handledRetry = attempt;
 		const controller = new AbortController();
@@ -114,16 +98,7 @@
 	});
 </script>
 
-<details bind:open data-part="lyrics">
-	<summary aria-label={title}
-		>{#if (section?.icon && section.icon !== 'default') || section?.iconSize || section?.showLabel !== undefined}<PlayerActionFace
-				{section}
-				glyph={MicVocal}
-				size={18}
-				label={title}
-				defaultLabel
-			/>{:else}{title}{/if}</summary
-	>
+<div class="lyrics-body" data-part="lyrics" data-gesture-scroll>
 	{#if busy}<p role="status">Loading lyrics…</p>{:else if error}<p role="alert">{error}</p>
 		<button class="secondary" onclick={() => retry++}>Try again</button>
 	{:else if sample}<p class="plain">
@@ -162,7 +137,7 @@
 	{#if !busy && !sample && !error && lyrics}<button class="text-button" onclick={() => retry++}
 			>Refresh lyrics</button
 		>{/if}
-</details>
+</div>
 
 <style>
 	.lines button {
@@ -171,20 +146,29 @@
 		width: 100%;
 		color: inherit;
 	}
-	details {
-		width: 100%;
-		text-align: var(--cell-align, start);
+	.lyrics-body {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		flex: 1;
+		height: 100%;
+		gap: 0.4rem;
 	}
-	summary {
-		cursor: pointer;
-		padding: 0.65rem 0;
-		font-weight: 600;
+	.lyrics-body > button {
+		align-self: start;
+		flex: none;
 	}
 	.lines,
 	.plain {
-		max-height: 45dvh;
+		min-height: 0;
+		flex: 1;
+		overscroll-behavior: contain;
+		scrollbar-width: thin;
 		overflow: auto;
 		white-space: pre-wrap;
+	}
+	.lines {
+		position: relative;
 	}
 	.lines p {
 		margin: 0.3rem 0;

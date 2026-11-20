@@ -1,6 +1,12 @@
 <script lang="ts">
 	import {
 		ListMusic,
+		EllipsisVertical,
+		MicVocal,
+		Info,
+		SlidersHorizontal,
+		Disc3,
+		UserRound,
 		Pause,
 		Play,
 		SkipBack,
@@ -11,7 +17,13 @@
 		Repeat1,
 		Shuffle
 	} from '@lucide/svelte';
-	import type { DrawerControl } from './NavigationDrawer.svelte';
+	import { Capacitor } from '@capacitor/core';
+	import { fitPlayer } from './player/fitPlayer';
+	import { playerGestures } from './player/playerGestures';
+	import PlayerSheet from './player/PlayerSheet.svelte';
+	import PlayerProgress from './player/PlayerProgress.svelte';
+	import PlayerQuality from './player/PlayerQuality.svelte';
+	import EqualizerSettings from './player/EqualizerSettings.svelte';
 	import type { Snippet } from 'svelte';
 	import { samplePlayer } from './player/samplePlayer';
 	import sampleArt from './player/tidal-memory.webp';
@@ -24,17 +36,13 @@
 	import {
 		isPlayerMetadata,
 		isNavigation,
-		showsNavigationMenu,
-		trackToolFields
+		fieldSizing,
+		trackToolFields,
+		usesFieldCaption
 	} from './player/layout';
 	import { player, queueOrder, type PlayerTrack } from './player';
 	import ReorderList from './controls/ReorderList.svelte';
-	import {
-		defaultMiniPlayer,
-		interfacePreferences,
-		readMiniPlayer,
-		type MiniButton
-	} from './appearance/interface';
+	import { defaultMiniPlayer, readMiniPlayer, type MiniButton } from './appearance/interface';
 	import { swipeTracks } from './player/swipeTracks';
 	import { accountId, defaults, loadLayout, sectionTitle, type Section } from './boards/layout';
 	import {
@@ -42,6 +50,7 @@
 		isPlayerSlot,
 		isPlayerText,
 		playerCanvas,
+		playerColumns,
 		playerRowGap
 	} from './player/composition';
 	import TrackTools from './player/TrackTools.svelte';
@@ -55,7 +64,6 @@
 		queueOpen = false,
 		ontogglequeue,
 		onsettings,
-		navigation,
 		onexpand,
 		oncollapse,
 		onerror,
@@ -67,7 +75,6 @@
 		queueOpen?: boolean;
 		ontogglequeue?: () => void;
 		onsettings?: () => void;
-		navigation?: DrawerControl;
 		onexpand: () => void;
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
@@ -124,6 +131,31 @@
 		};
 	});
 	let pending = $state(false);
+	let sheet = $state<'more' | 'details' | 'equalizer' | 'lyrics' | null>(null);
+	let artworkLyrics = $state(false);
+	let sheetTrigger: HTMLElement | undefined;
+	function openSheet(name: Exclude<typeof sheet, null>) {
+		if (editor) return;
+		if (!sheet)
+			sheetTrigger =
+				document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+		sheet = name;
+	}
+	function toggleLyrics(section?: Section) {
+		if (editor || !track) return;
+		if (
+			section?.lyricsMode === 'sheet' ||
+			!(queueOpen ? rows[0] : rows.flat()).some((s) => s.id === 'player-artwork')
+		)
+			openSheet('lyrics');
+		else artworkLyrics = !artworkLyrics;
+	}
+	function visitCredit(kind: Credit, control: HTMLElement) {
+		if (!track || !oncredit) return;
+		const source = sheet ? (sheetTrigger ?? control) : control;
+		sheet = null;
+		oncredit(kind, track, source);
+	}
 	let preview = $state<number | null>(null);
 	const track = $derived($store.tracks[$store.index]);
 	const duration = $derived($store.duration || track?.duration || 0);
@@ -135,6 +167,7 @@
 	const stamp = (s: number) =>
 		Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 	const rows = $derived(playerCanvas(sections));
+	const hasArtwork = (row: Section[]) => row.some((s) => s.id === 'player-artwork');
 	const flushRows = $derived(rows.map((row) => row.every((s) => s.padding === 0)));
 	const clock = $derived(preview ?? $store.position);
 	const compact = $derived(expanded ? defaultMiniPlayer : readMiniPlayer(session));
@@ -150,7 +183,7 @@
 	const canGoNext = $derived(
 		$store.index + 1 < $store.tracks.length || !!libraryWindow?.more || $store.repeat === 'all'
 	);
-	const swipeAction = $derived(editor || !$interfacePreferences.swipeTracks ? undefined : skip);
+	const swipeAction = $derived(editor ? undefined : skip);
 	const queueOffset = $derived(libraryWindow?.offset ?? 0);
 	const shuffleLabel = $derived(
 		libraryWindow ? 'Shuffle loaded upcoming tracks' : 'Shuffle upcoming'
@@ -193,7 +226,7 @@
 			type="button"
 			class="credit-link"
 			aria-label={'Open ' + kind + ' ' + value}
-			onclick={(e) => oncredit?.(kind, track, e.currentTarget)}>{value}</button
+			onclick={(e) => visitCredit(kind, e.currentTarget)}>{value}</button
 		>
 	{:else}{value}{/if}
 {/snippet}
@@ -286,313 +319,388 @@
 {/snippet}
 {#if expanded}
 	<section
-		class="now"
+		class="now performance"
 		class:sample={composing}
+		class:queue-page={queueOpen}
+		class:empty-player={!track}
+		use:playerGestures={editor
+			? undefined
+			: {
+					down: queueOpen ? ontogglequeue : oncollapse,
+					up: !queueOpen && track ? ontogglequeue : undefined
+				}}
 		data-part={previewOnly ? 'draft-player' : composing ? 'sample-player' : 'now-playing'}
 		aria-label={previewOnly ? 'Now Playing layout preview' : 'Now playing'}
 	>
-		{#each rows as row, r (r === 0 ? 'header' : row[0].id)}
-			{#if r === 0 || (track && !queueOpen)}
-				<svelte:element
-					this={r === 0 ? 'header' : 'div'}
-					class="row-group"
-					class:player-header={r === 0}
-					class:compact-header={r === 0 &&
-						row.every(
-							(s) =>
-								![
-									'player-artwork',
-									'player-tools',
-									'player-track',
-									'player-lyrics',
-									'player-up-next'
-								].includes(s.id) && (s.minHeight ?? 0) <= 96
-						)}
-					class:flush-edge={r > 0 && flushRows[r] && (r === 1 || flushRows[r - 1])}
-				>
-					{@render editor?.rowControls?.(r)}
-					<div class="row-surface">
-						<div
-							class="player-row"
-							class:composed={row.length > 1}
-							data-part={r === 0 ? 'player-header-row' : 'player-row'}
-							data-layout-row={composing ? r : undefined}
-							data-player-row={composing && r > 0 ? r - 1 : undefined}
-							style:min-height={Math.max(0, ...row.map((s) => s.minHeight ?? 0)) + 'px'}
-							style:--row-gap={playerRowGap(row, r === 0)}
-							style:grid-template-columns={row
-								.map(
-									(cell) =>
-										'minmax(min(44px, ' + 100 / row.length + '%), ' + (cell.width ?? 1) + 'fr)'
-								)
-								.join(' ')}
+		<div class="player-frame" use:fitPlayer={!queueOpen && !!track}>
+			<div
+				class="player-canvas"
+				class:no-art={!rows.some(hasArtwork)}
+				style:grid-template-rows={queueOpen || !track
+					? 'auto'
+					: rows.map((row) => (hasArtwork(row) ? 'minmax(0,1fr)' : 'auto')).join(' ')}
+			>
+				{#each rows as row, r (r === 0 ? 'header' : row[0].id)}
+					{@const columns = playerColumns(row)}
+					{#if r === 0 || (track && !queueOpen)}
+						<svelte:element
+							this={r === 0 ? 'header' : 'div'}
+							class="row-group"
+							class:art-row={hasArtwork(row)}
+							class:player-header={r === 0}
+							class:compact-header={r === 0 &&
+								row.every(
+									(s) =>
+										![
+											'player-artwork',
+											'player-more',
+											'player-track',
+											'player-lyrics',
+											'player-up-next'
+										].includes(s.id) && (s.minHeight ?? 0) <= 96
+								)}
+							class:flush-edge={r > 0 && flushRows[r] && (r === 1 || flushRows[r - 1])}
 						>
-							{#each row as section, c (section.id)}
-								{@const staticControl =
-									previewOnly &&
-									section.id !== 'player-menu' &&
-									!isPlayerMetadata(section.id) &&
-									!sampleDetails.has(section.id)}
+							{@render editor?.rowControls?.(r)}
+							<div class="row-surface">
 								<div
-									class="player-section"
-									class:editing-field={composing}
-									role={staticControl && !isPlayerSlot(section.id) ? 'img' : undefined}
-									aria-label={staticControl && !isPlayerSlot(section.id)
-										? sectionTitle(section)
-										: undefined}
-									class:active-field={editor?.selected === section.id}
-									data-section-id={section.id}
-									data-align={section.align}
-									data-slot={isPlayerSlot(section.id) || undefined}
-									data-padding={section.padding}
-									style:--slot-height={section.minHeight === undefined
-										? undefined
-										: section.minHeight + 'px'}
-									data-lines={section.maxLines ? section.maxLines : undefined}
-									style:--field-lines={section.maxLines}
-									style:--reserved-lines={section.reserveLines ? (section.maxLines ?? 0) : 0}
-									style:--cell-v-align={section.vAlign}
-									style:--field-padding={section.padding === undefined
-										? undefined
-										: section.padding + 'px'}
-									data-text-size={section.textSize}
+									class="player-row"
+									class:composed={row.length > 1}
+									data-part={r === 0 ? 'player-header-row' : 'player-row'}
+									data-layout-row={composing ? r : undefined}
+									data-player-row={composing && r > 0 ? r - 1 : undefined}
+									style:min-height={Math.max(0, ...row.map((s) => s.minHeight ?? 0)) + 'px'}
+									style:--row-gap={playerRowGap(row, r === 0)}
+									style:grid-template-columns={columns
+										.map(
+											(col) =>
+												`minmax(min(44px, calc(100% / ${columns.length})), ${col[0].width ?? 1}fr)`
+										)
+										.join(' ')}
 								>
-									<div
-										class="content"
-										style:width={section.contentWidth
-											? 'min(100%, max(44px, ' + section.contentWidth + '%))'
-											: undefined}
-										inert={composing || staticControl}
-										aria-hidden={composing || staticControl ? true : undefined}
-									>
-										{#if section.title && !isPlayerSlot(section.id) && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
-											>
-												{section.title}
-											</h2>{/if}
-										{#if isPlayerSlot(section.id) || (section.id === 'player-menu' && !showsNavigationMenu(section))}
-											<span class="empty-slot" aria-hidden="true"></span>
-										{:else if isNavigation(section.id)}<div class="field-controls">
-												<PlayerNavigationAction
-													id={section.id}
-													{section}
-													{queueOpen}
-													editing={!!editor}
-													{navigation}
-													disabled={section.id === 'player-queue' && !track}
-													onactivate={(id) => {
-														if (id === 'player-menu') navigation?.show();
-														else if (editor) return;
-														else if (id === 'player-close') oncollapse();
-														else if (id === 'player-settings') onsettings?.();
-														else ontogglequeue?.();
-													}}
-												/>
-											</div>
-										{:else if section.id === 'player-heading'}<PlayerMetadata
-												{section}
-												value={queueOpen ||
-												!track ||
-												sections.some((s) => ['player-track', 'player-title'].includes(s.id))
-													? 'Now playing'
-													: track.title}
-											/>
-										{:else if !track}<span
-												class="unavailable-field"
-												aria-label={sectionTitle(section)}>—</span
-											>
-										{:else if section.id === 'player-sleep'}<div class="field-controls">
-												<SleepTimer {section} timer={$store.sleepTimer} sample={!!editor} />
-											</div>
-										{:else if section.id === 'player-artwork'}
-											<div
-												class="hero"
-												class:compact={!section.preview}
-												use:swipeTracks={swipeAction}
-											>
-												{#if editor}<img
-														class="sample-art"
-														alt="Tidal Memory album cover"
-														src={sampleArt}
-													/>{:else}<Cover
-														{session}
-														path={art}
-														seed={track.album || track.id}
-													/>{/if}
-											</div>
-										{:else if section.id === 'player-track'}
-											<div class="track-meta">
-												<h1 class="lines">{track.title}</h1>
-												<p class="lines">{@render groupCredit('artist', track.artist)}</p>
-												{#if section.preview && track.album}<small class="lines"
-														>{@render groupCredit('album', track.album)}</small
-													>{/if}
-											</div>
-										{:else if section.id === 'player-timeline' || section.id === 'player-seek'}
-											<div class="timeline">
-												<input
-													type="range"
-													aria-label="Playback position"
-													aria-valuetext={stamp(preview ?? $store.position)}
-													min="0"
-													max={duration || 1}
-													step="1"
-													value={preview ?? $store.position}
-													disabled={!duration}
-													oninput={(e) => (preview = Number(e.currentTarget.value))}
-													onpointercancel={() => (preview = null)}
-													onchange={(e) => {
-														const position = Number(e.currentTarget.value);
-														preview = null;
-														action(() => player.seek(position));
-													}}
-												/>
-												{#if section.id === 'player-timeline' && section.preview}<div>
-														<span>{stamp(preview ?? $store.position)}</span><span
-															>{stamp(duration)}</span
-														>
-													</div>{/if}
-											</div>
-										{:else if section.id === 'player-transport'}
-											<div class="transport" data-part="transport" class:compact={!section.preview}>
-												{@render previous()}
-												{@render toggle()}
-												{@render nextTrack()}
-											</div>
-										{:else if section.id === 'player-modes'}
-											<div class="modes">
-												{@render repeat(section.preview)}
-												{@render shuffle(section.preview)}
-											</div>
-										{:else if isPlayerMetadata(section.id)}
-											{@const credit =
-												section.id === 'player-artist'
-													? 'artist'
-													: section.id === 'player-album'
-														? 'album'
+									{#each columns as column (column[0].id)}
+										{@const sizing = fieldSizing(row, column)}
+										<div
+											class="player-column"
+											class:single={column.length === 1}
+											data-player-column
+											style:grid-template-rows={column.length > 1 && hasArtwork(column)
+												? column
+														.map((field) =>
+															field.id === 'player-artwork' ? 'minmax(0, 1fr)' : 'auto'
+														)
+														.join(' ')
+												: undefined}
+											style:--player-button-size={sizing.button + 'px'}
+											style:--player-face-size={sizing.face + 'px'}
+										>
+											{#each column as section (section.id)}
+												{@const c = row.indexOf(section)}
+												{@const caption =
+													usesFieldCaption(section.id) && section.showLabel
+														? section.labelName?.trim() || sectionTitle(section)
+														: ''}
+												{@const staticControl =
+													previewOnly &&
+													!isPlayerMetadata(section.id) &&
+													!sampleDetails.has(section.id)}
+												<div
+													class="player-section"
+													class:editing-field={composing}
+													role={staticControl && !isPlayerSlot(section.id) ? 'img' : undefined}
+													aria-label={staticControl && !isPlayerSlot(section.id)
+														? sectionTitle(section)
 														: undefined}
-											<PlayerMetadata
-												{section}
-												openLabel={credit && track[credit]
-													? 'Open ' + credit + ' ' + track[credit]
-													: undefined}
-												onopen={credit && track[credit] && !editor && oncredit
-													? (el) => oncredit?.(credit, track, el)
-													: undefined}
-												value={isPlayerText(section.id)
-													? formatPlayerText(section.template, fields)
-													: section.id === 'player-title'
-														? fields.title
-														: section.id === 'player-artist'
-															? fields.artist
-															: fields.album}
-											/>
-										{:else if section.id === 'player-elapsed' || section.id === 'player-duration' || section.id === 'player-remaining'}
-											<p class="field-time">
-												{section.id === 'player-elapsed'
-													? fields.elapsed
-													: section.id === 'player-duration'
-														? fields.duration
-														: fields.remaining}
-											</p>
-										{:else if section.id === 'player-previous' || section.id === 'player-next' || section.id === 'player-toggle' || section.id === 'player-repeat' || section.id === 'player-shuffle'}
-											<div class="field-controls" class:compact={!section.preview}>
-												{#if section.id === 'player-previous'}{@render previous(section)}
-												{:else if section.id === 'player-next'}{@render nextTrack(section)}
-												{:else if section.id === 'player-toggle'}{@render toggle(section)}
-												{:else if section.id === 'player-repeat'}{@render repeat(false, section)}
-												{:else}{@render shuffle(false, section)}{/if}
-											</div>
-										{:else if trackToolFields.some((f) => f.id === section.id)}{#key section.id + track.id}<TrackTools
-													{section}
-													{session}
-													{track}
-													title={sectionTitle(section)}
-													startOpen={true}
-													sample={!!editor}
-													mode="field"
-													fields={[section.id]}
-												/>{/key}
-										{:else if section.id === 'player-lyrics'}
-											{#key section.preview}<PlayerLyrics
-													{section}
-													{session}
-													trackId={track.id}
-													sample={!!editor}
-													position={$store.position}
-													title={sectionTitle(section)}
-													startOpen={section.preview}
-													onseek={(p) => action(() => player.seek(p))}
-												/>{/key}
-										{:else if section.id === 'player-tools'}
-											{#key JSON.stringify([track.id, section.preview])}<TrackTools
-													{section}
-													{session}
-													{track}
-													title={sectionTitle(section)}
-													startOpen={section.preview}
-													sample={!!editor}
-													fields={trackToolFields
-														.map((a) => a.id)
-														.filter((id) => !sections.some((s) => s.id === id))}
-												/>{/key}
-										{:else if section.id === 'player-up-next'}
-											<div class="up-next">
-												<button
-													class="text-button"
-													onclick={ontogglequeue}
-													aria-label={'Open play queue from ' + sectionTitle(section)}
+													class:active-field={editor?.selected === section.id}
+													data-section-id={section.id}
+													data-align={section.align}
+													data-slot={isPlayerSlot(section.id) || undefined}
+													data-padding={section.padding}
+													style:--slot-height={section.minHeight === undefined
+														? undefined
+														: section.minHeight + 'px'}
+													data-lines={section.maxLines ? section.maxLines : undefined}
+													style:--field-lines={section.maxLines}
+													style:--reserved-lines={section.reserveLines
+														? (section.maxLines ?? 0)
+														: 0}
+													style:--cell-v-align={section.vAlign}
+													style:--field-padding={section.padding === undefined
+														? undefined
+														: section.padding + 'px'}
+													data-text-size={section.textSize}
 												>
-													<PlayerActionFace
-														{section}
-														glyph={ListMusic}
-														size={18}
-														label={sectionTitle(section)}
-														defaultLabel
-													/></button
-												>
-												{#if section.preview}
-													{#each $store.tracks.slice($store.index + 1, $store.index + 4) as next, offset (next.id + ':' + offset)}
-														<button
-															class="up-track"
-															onclick={() => action(() => player.skipTo($store.index + offset + 1))}
-														>
-															<strong>{next.title}</strong><small>{next.artist}</small>
-														</button>
-													{:else}<p>
-															{libraryWindow?.more
-																? 'Loading upcoming tracks…'
-																: 'End of the queue.'}
-														</p>{/each}
-												{/if}
-											</div>
-										{/if}
-									</div>
-									{@render editor?.overlay?.(section, r, c)}
+													<div
+														class="content"
+														style:--art-caption-space={caption ? '1.5rem' : undefined}
+														style:width={section.contentWidth
+															? 'min(100%, max(44px, ' + section.contentWidth + '%))'
+															: undefined}
+														inert={composing || staticControl}
+														aria-hidden={composing || staticControl ? true : undefined}
+													>
+														{#if caption && section.labelPosition === 'above'}<span
+																class="field-caption">{caption}</span
+															>{/if}
+														{#if section.title && section.title !== caption && !isPlayerSlot(section.id) && !['player-more', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
+															>
+																{section.title}
+															</h2>{/if}
+														{#if isPlayerSlot(section.id)}
+															<span class="empty-slot" aria-hidden="true"></span>
+														{:else if isNavigation(section.id)}<div class="field-controls">
+																<PlayerNavigationAction
+																	id={section.id}
+																	{section}
+																	{queueOpen}
+																	editing={!!editor}
+																	disabled={section.id === 'player-queue' && !track}
+																	onactivate={(id) => {
+																		if (editor) return;
+																		else if (id === 'player-close') oncollapse();
+																		else if (id === 'player-settings') onsettings?.();
+																		else ontogglequeue?.();
+																	}}
+																/>
+															</div>
+														{:else if section.id === 'player-heading'}<PlayerMetadata
+																{section}
+																value={queueOpen ||
+																!track ||
+																sections.some((s) =>
+																	['player-track', 'player-title'].includes(s.id)
+																)
+																	? 'Now playing'
+																	: track.title}
+															/>
+														{:else if !track}<span
+																class="unavailable-field"
+																aria-label={sectionTitle(section)}>—</span
+															>
+														{:else if section.id === 'player-sleep'}<div class="field-controls">
+																<SleepTimer {section} timer={$store.sleepTimer} sample={!!editor} />
+															</div>
+														{:else if section.id === 'player-artwork'}
+															<div
+																class="hero"
+																class:compact={!section.preview}
+																class:lyric-art={artworkLyrics && !editor}
+																use:swipeTracks={artworkLyrics ? undefined : swipeAction}
+															>
+																{#if artworkLyrics && !editor}
+																	<PlayerLyrics
+																		{session}
+																		trackId={track.id}
+																		position={$store.position}
+																		onseek={(p) => action(() => player.seek(p))}
+																	/>
+																{:else if editor}<img
+																		class="sample-art"
+																		alt="Album artwork"
+																		src={sampleArt}
+																	/>
+																{:else}<Cover
+																		{session}
+																		path={art}
+																		seed={track.album || track.id}
+																	/>{/if}
+															</div>
+														{:else if section.id === 'player-track'}
+															<div class="track-meta">
+																<h1 class="lines">
+																	{#if editor}{track.title}{:else}<button
+																			class="credit-link"
+																			aria-label={'Track details for ' + track.title}
+																			onclick={() => openSheet('details')}>{track.title}</button
+																		>{/if}
+																</h1>
+																<p class="lines">{@render groupCredit('artist', track.artist)}</p>
+																{#if section.preview && track.album}<small class="lines"
+																		>{@render groupCredit('album', track.album)}</small
+																	>{/if}
+															</div>
+														{:else if section.id === 'player-timeline' || section.id === 'player-seek'}
+															<PlayerProgress
+																{section}
+																{session}
+																{track}
+																position={$store.position}
+																{duration}
+																playing={$store.playing}
+																sample={!!editor}
+																onpreview={(p) => (preview = p)}
+																onseek={(p) => action(() => player.seek(p))}
+															/>
+														{:else if section.id === 'player-transport'}
+															<div
+																class="transport"
+																data-part="transport"
+																class:compact={!section.preview}
+															>
+																{@render previous()}
+																{@render toggle()}
+																{@render nextTrack()}
+															</div>
+														{:else if section.id === 'player-modes'}
+															<div class="modes">
+																{@render repeat(section.preview)}
+																{@render shuffle(section.preview)}
+															</div>
+														{:else if isPlayerMetadata(section.id)}
+															{@const credit =
+																section.id === 'player-artist'
+																	? 'artist'
+																	: section.id === 'player-album'
+																		? 'album'
+																		: undefined}
+															<svelte:element
+																this={section.id === 'player-title' && !editor ? 'h1' : 'div'}
+																class="metadata-wrap"
+																aria-label={section.id === 'player-title' && !editor
+																	? track.title
+																	: undefined}
+															>
+																<PlayerMetadata
+																	{section}
+																	openLabel={section.id === 'player-title'
+																		? 'Track details for ' + track.title
+																		: credit && track[credit]
+																			? 'Open ' + credit + ' ' + track[credit]
+																			: undefined}
+																	onopen={section.id === 'player-title' && !editor
+																		? () => openSheet('details')
+																		: credit && track[credit] && !editor && oncredit
+																			? (el) => visitCredit(credit, el)
+																			: undefined}
+																	value={isPlayerText(section.id)
+																		? formatPlayerText(section.template, fields)
+																		: section.id === 'player-title'
+																			? fields.title
+																			: section.id === 'player-artist'
+																				? fields.artist
+																				: fields.album}
+																/>
+															</svelte:element>
+														{:else if section.id === 'player-elapsed' || section.id === 'player-duration' || section.id === 'player-remaining'}
+															<p class="field-time">
+																{section.id === 'player-elapsed'
+																	? fields.elapsed
+																	: section.id === 'player-duration'
+																		? fields.duration
+																		: fields.remaining}
+															</p>
+														{:else if section.id === 'player-previous' || section.id === 'player-next' || section.id === 'player-toggle' || section.id === 'player-repeat' || section.id === 'player-shuffle'}
+															<div class="field-controls" class:compact={!section.preview}>
+																{#if section.id === 'player-previous'}{@render previous(section)}
+																{:else if section.id === 'player-next'}{@render nextTrack(section)}
+																{:else if section.id === 'player-toggle'}{@render toggle(section)}
+																{:else if section.id === 'player-repeat'}{@render repeat(
+																		false,
+																		section
+																	)}
+																{:else}{@render shuffle(false, section)}{/if}
+															</div>
+														{:else if section.id === 'player-quality'}<PlayerQuality
+																{track}
+																quality={$store.quality}
+																sample={!!editor}
+															/>
+														{:else if trackToolFields.some((f) => f.id === section.id)}{#key section.id + track.id}<TrackTools
+																	{section}
+																	{session}
+																	{track}
+																	title={sectionTitle(section)}
+																	startOpen={true}
+																	sample={!!editor}
+																	mode="field"
+																	fields={[section.id]}
+																/>{/key}
+														{:else if section.id === 'player-lyrics'}<div class="field-controls">
+																<button
+																	class="icon-button player-action"
+																	aria-label="Lyrics"
+																	aria-pressed={artworkLyrics || sheet === 'lyrics'}
+																	onclick={() => toggleLyrics(section)}
+																	><PlayerActionFace
+																		{section}
+																		glyph={MicVocal}
+																		label="Lyrics"
+																	/></button
+																>
+															</div>
+														{:else if section.id === 'player-more'}<div class="field-controls">
+																<button
+																	class="icon-button player-action"
+																	aria-haspopup="dialog"
+																	aria-label="More actions"
+																	onclick={() => openSheet('more')}
+																	><PlayerActionFace
+																		{section}
+																		glyph={EllipsisVertical}
+																		label="More actions"
+																	/></button
+																>
+															</div>
+														{:else if section.id === 'player-up-next'}
+															<div class="up-next">
+																<button
+																	class="text-button"
+																	onclick={ontogglequeue}
+																	aria-label={'Open play queue from ' + sectionTitle(section)}
+																>
+																	<PlayerActionFace
+																		{section}
+																		glyph={ListMusic}
+																		size={18}
+																		label={sectionTitle(section)}
+																		defaultLabel
+																	/></button
+																>
+																{#if section.preview}
+																	{#each $store.tracks.slice($store.index + 1, $store.index + 4) as next, offset (next.id + ':' + offset)}
+																		<button
+																			class="up-track"
+																			onclick={() =>
+																				action(() => player.skipTo($store.index + offset + 1))}
+																		>
+																			<strong>{next.title}</strong><small>{next.artist}</small>
+																		</button>
+																	{:else}<p>
+																			{libraryWindow?.more
+																				? 'Loading upcoming tracks…'
+																				: 'End of the queue.'}
+																		</p>{/each}
+																{/if}
+															</div>
+														{/if}
+														{#if caption && section.labelPosition !== 'above'}<span
+																class="field-caption">{caption}</span
+															>{/if}
+													</div>
+													{@render editor?.overlay?.(section, r, c)}
+												</div>
+											{/each}
+										</div>
+									{/each}
 								</div>
-							{/each}
-						</div>
-					</div>
-					{#if r === 0 && !composing}<PlayerHeader
-							readOnly={previewOnly}
-							{navigation}
-							menuVisible={rows.some(
-								(cells, index) =>
-									(index === 0 || (!!track && !queueOpen)) && cells.some(showsNavigationMenu)
-							)}
-							{row}
-							{sections}
-							{queueOpen}
-							track={!!track}
-							playing={$store.playing}
-							onclose={oncollapse}
-							onqueue={ontogglequeue}
-							{onsettings}
-							ontoggle={() => action(player.toggle)}
-						/>{/if}
-					{@render editor?.inspector?.(r)}
-				</svelte:element>
-			{/if}
-		{/each}
+							</div>
+							{#if r === 0 && !composing}<PlayerHeader
+									readOnly={previewOnly}
+									{row}
+									{sections}
+									{queueOpen}
+									track={!!track}
+									playing={$store.playing}
+									onclose={oncollapse}
+									onqueue={ontogglequeue}
+									ontoggle={() => action(player.toggle)}
+								/>{/if}
+							{@render editor?.inspector?.(r)}
+						</svelte:element>
+					{/if}
+				{/each}
+			</div>
+		</div>
 		{#if libraryWindow?.problem}
 			<div role="status">
 				<p>{libraryWindow.problem}</p>
@@ -626,7 +734,7 @@
 						onclick={() => edit(player.clearUpcoming)}>Clear upcoming</button
 					>
 				</div>{/if}
-			<div class="queue" data-part="play-queue">
+			<div class="queue" data-gesture-scroll data-pull-dismiss data-part="play-queue">
 				<h1>Play queue</h1>
 				{#if libraryWindow}
 					<p>
@@ -679,6 +787,71 @@
 
 		{#if $store.error}<p role="alert">{$store.error}</p>{/if}
 	</section>
+	{#if sheet && track && !editor}
+		<PlayerSheet
+			title={sheet === 'more'
+				? 'More actions'
+				: sheet === 'details'
+					? 'Track details'
+					: sheet === 'lyrics'
+						? 'Lyrics'
+						: 'Equalizer'}
+			fullScreen={sheet === 'lyrics'}
+			onclose={() => (sheet = null)}
+		>
+			{#if sheet === 'lyrics'}<PlayerLyrics
+					{session}
+					trackId={track.id}
+					position={$store.position}
+					onseek={(p) => action(() => player.seek(p))}
+				/>
+			{:else if sheet === 'equalizer'}<EqualizerSettings />
+			{:else if sheet === 'details'}{#key track.id}<TrackTools
+						{session}
+						{track}
+						mode="details"
+						artwork={art}
+						playback={$store.quality}
+						{duration}
+						fields={[]}
+					/>{/key}
+			{:else}
+				<div class="more-actions">
+					<div class="song-summary"><strong>{track.title}</strong><span>{track.artist}</span></div>
+					{#key track.id}<TrackTools
+							{session}
+							{track}
+							mode="actions"
+							fields={['player-favorite', 'player-playlist', 'player-download', 'player-rating']}
+						/>{/key}
+					<button class="sheet-action" onclick={() => openSheet('details')}
+						><Info />Track details</button
+					>
+					{#if track.artist && oncredit}<button
+							class="sheet-action"
+							onclick={(e) => visitCredit('artist', e.currentTarget)}
+							><UserRound />Go to artist</button
+						>{/if}
+					{#if track.album && oncredit}<button
+							class="sheet-action"
+							onclick={(e) => visitCredit('album', e.currentTarget)}><Disc3 />Go to album</button
+						>{/if}
+					<SleepTimer timer={$store.sleepTimer} />
+					{#if Capacitor.getPlatform() === 'android'}<button
+							class="sheet-action"
+							onclick={() => openSheet('equalizer')}><SlidersHorizontal />Equalizer</button
+						>{/if}
+					{#if onsettings}<button
+							class="sheet-action"
+							onclick={() => {
+								sheet = null;
+								onsettings?.();
+							}}><SlidersHorizontal />Edit player layout</button
+						>{/if}
+				</div>
+			{/if}
+		</PlayerSheet>
+	{/if}
 	{#if saveQueue}<AddToPlaylist
 			{session}
 			tracks={saveQueue}
@@ -728,6 +901,187 @@
 {/if}
 
 <style>
+	.metadata-wrap {
+		font: inherit;
+		margin: 0;
+		min-width: 0;
+	}
+	.player-column {
+		min-width: 0;
+		min-height: 0;
+		display: grid;
+		align-content: var(--cell-v-align, center);
+		align-self: stretch;
+	}
+	.player-column.single {
+		display: contents;
+	}
+	.player-canvas {
+		display: grid;
+		min-width: 0;
+		gap: var(--gap);
+	}
+	.now.performance {
+		height: var(--player-viewport-height, calc(100dvh - env(safe-area-inset-top)));
+		box-sizing: border-box;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		min-height: 0;
+		overflow: hidden;
+		padding-block: 0 max(0.25rem, env(safe-area-inset-bottom));
+	}
+	.performance .player-frame {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.performance .player-canvas {
+		height: calc(100% / var(--player-fit, 1));
+		transform: scale(var(--player-fit, 1));
+		transform-origin: top center;
+		--player-row-space: min(var(--gap), 0.65dvh);
+		gap: var(--player-row-space);
+		align-content: stretch;
+	}
+	.performance .player-canvas.no-art {
+		align-content: start;
+	}
+	.performance.queue-page .player-frame,
+	.performance.empty-player .player-frame {
+		flex: none;
+	}
+	.performance.queue-page .player-canvas,
+	.performance.empty-player .player-canvas {
+		height: auto;
+	}
+	@keyframes queue-in {
+		from {
+			transform: translateY(2rem);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.performance.queue-page .queue {
+			animation: queue-in 160ms ease-out;
+		}
+	}
+	.performance.queue-page .queue {
+		min-height: 0;
+		overflow: auto;
+		overscroll-behavior: contain;
+		flex: 1;
+	}
+	.performance.empty-player > h1 {
+		margin: auto auto 0.75rem;
+	}
+	.performance.empty-player > button {
+		align-self: center;
+		margin-bottom: auto;
+	}
+	.performance .player-header {
+		position: relative;
+		min-height: 44px;
+		z-index: 0;
+	}
+	.performance .flush-edge {
+		margin-block-start: calc(0px - var(--player-row-space));
+	}
+	.performance .art-row,
+	.performance .art-row .row-surface,
+	.performance .art-row .player-row {
+		height: 100%;
+		min-height: 0;
+	}
+	.performance .art-row [data-section-id='player-artwork'] {
+		min-height: 0;
+		min-width: 0;
+		container-type: size;
+		align-content: center;
+	}
+	.performance .art-row .hero {
+		width: min(100%, calc(100cqh - var(--art-caption-space, 0px)));
+		min-width: 0;
+		margin-block: 0;
+	}
+	.performance .art-row .hero.compact {
+		width: min(100%, calc(100cqh - var(--art-caption-space, 0px)), 13rem);
+	}
+	.performance [data-section-id='player-title'] :global(.credit-link),
+	.performance [data-section-id='player-artist'] :global(.credit-link),
+	.performance [data-section-id='player-album'] :global(.credit-link) {
+		min-block-size: max(24px, 1.3lh, calc(var(--reserved-lines, 0) * 1lh));
+	}
+	.performance [data-section-id] :global(.credit-link.icon-only) {
+		min-block-size: max(44px, calc(var(--reserved-lines, 0) * 1lh));
+	}
+	@media (min-height: 700px) {
+		.performance [data-section-id='player-title'] :global(.credit-link),
+		.performance [data-section-id='player-artist'] :global(.credit-link),
+		.performance [data-section-id='player-album'] :global(.credit-link) {
+			min-block-size: max(44px, calc(var(--reserved-lines, 0) * 1lh));
+		}
+	}
+	.hero {
+		position: relative;
+	}
+	.hero:not(.lyric-art)::after {
+		content: '';
+		position: absolute;
+		inset: 58% 0 -1px;
+		pointer-events: none;
+		background: linear-gradient(transparent, var(--bg));
+	}
+	.hero.lyric-art {
+		display: flex;
+		flex-direction: column;
+		aspect-ratio: 1;
+		max-height: 100%;
+		overflow: hidden;
+	}
+	.more-actions {
+		display: grid;
+		gap: 0.45rem;
+	}
+	.song-summary {
+		display: grid;
+		gap: 0.15rem;
+		padding: 0.2rem 0 0.7rem;
+	}
+	.song-summary span {
+		color: var(--muted);
+	}
+	.sheet-action {
+		display: flex;
+		align-items: center;
+		gap: 0.8rem;
+		min-height: 44px;
+		text-align: left;
+	}
+	.sheet-action :global(svg) {
+		width: 20px;
+		height: 20px;
+	}
+	.player-action {
+		width: min(100%, var(--player-button-size, 44px));
+		min-height: 44px;
+		justify-self: var(--cell-align, center);
+	}
+	:global(.preview-body) .performance {
+		height: var(--player-viewport-height, calc(100dvh - 56px));
+	}
+
+	.field-caption {
+		display: block;
+		font-size: 0.8rem;
+		line-height: 1.15;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
 	.content {
 		width: 100%;
 		min-width: 0;
@@ -777,6 +1131,8 @@
 	}
 	.sample-art {
 		display: block;
+		object-fit: cover;
+		object-view-box: inset(7%);
 		width: 100%;
 		aspect-ratio: 1;
 		border-radius: var(--radius);
@@ -861,7 +1217,7 @@
 		max-width: 100%;
 	}
 	.composed .transport {
-		gap: min(0.35rem, 1vw);
+		--transport-gap: min(0.35rem, 1vw);
 	}
 	.composed .modes {
 		column-gap: min(0.4rem, 1vw);
@@ -894,8 +1250,7 @@
 	}
 	.transport.compact .play,
 	.field-controls.compact .play {
-		width: 48px;
-		height: 48px;
+		--preferred-play: 48px;
 	}
 	.modes {
 		display: flex;
@@ -989,29 +1344,16 @@
 	.track-meta p {
 		font-size: 1.15em;
 	}
-	small,
-	.timeline div {
+	small {
 		color: var(--muted);
-	}
-	.timeline input {
-		min-width: 0;
-		width: 100%;
-		padding: 0;
-		min-height: 44px;
-		margin: 0;
-	}
-	.timeline div {
-		display: flex;
-		justify-content: space-between;
-		font-size: 0.8em;
-		font-variant-numeric: tabular-nums;
 	}
 	.transport {
 		display: flex;
 		justify-content: var(--cell-justify, center);
 		flex-wrap: wrap;
 		align-items: center;
-		gap: clamp(0.8rem, 6vw, 3rem);
+		--transport-gap: clamp(0.8rem, 6vw, 3rem);
+		gap: var(--transport-gap);
 	}
 	.skip,
 	.play,
@@ -1021,9 +1363,17 @@
 		width: 48px;
 		height: 48px;
 	}
+	.skip {
+		width: min(100%, max(48px, var(--player-button-size, 0px)));
+		height: auto;
+		aspect-ratio: 1;
+	}
+	.transport > button {
+		max-width: max(44px, calc((100% - 2 * var(--transport-gap)) / 3));
+	}
 	.play {
 		border-radius: 50%;
-		width: min(100%, 4.5rem);
+		width: min(100%, max(var(--preferred-play, 4.5rem), var(--player-button-size, 0px)));
 		height: auto;
 		aspect-ratio: 1;
 		min-width: 44px;

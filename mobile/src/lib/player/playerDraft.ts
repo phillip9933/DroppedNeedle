@@ -1,4 +1,5 @@
-import type { Section } from '../boards/layout';
+import { hasSavedPlayerLayout, type Section } from '../boards/layout';
+import { previousPlayerDefaults } from './layout';
 import { packPlayerCanvas, playerCanvas } from './composition';
 import { exportPlayerStyle, importPlayerStyle } from './playerStyle';
 
@@ -43,27 +44,40 @@ export async function openPlayerDraft(server: string, user: string, saved: Secti
 		const store = db.transaction('layouts', 'readwrite').objectStore('layouts');
 		const range = IDBKeyRange.bound([server, user], [server, user, []]);
 		const cursor = store.openCursor(range, 'prev');
-		let olderBaseline: string | undefined;
+		const formerBaselines = new Map<string, boolean>();
+		const formerDefault = hasSavedPlayerLayout(server, user)
+			? ''
+			: exportPlayerStyle(packPlayerCanvas(playerCanvas(previousPlayerDefaults()), []), 'compact');
 		await new Promise<void>((resolve, reject) => {
 			cursor.onerror = () => reject(cursor.error);
 			cursor.onsuccess = () => {
 				const item = cursor.result;
 				if (!item) return resolve();
 				const record = item.value;
-				// Version 1 drafts from before the menu became editable used a five-field default header.
-				// Match their exact saved composition, including placement, before recovering one.
+				// Compare old version 1 snapshots after applying the same field/header migration as saved layouts.
 				if (
 					typeof record?.baseline === 'string' &&
 					record.baseline !== baseline &&
-					!saved.some((s) => s.id === 'player-menu')
-				)
-					olderBaseline ??= exportPlayerStyle(
-						packPlayerCanvas(playerCanvas(saved, false), hidden, false),
-						'compact'
-					);
+					!formerBaselines.has(record.baseline)
+				) {
+					let same = false;
+					try {
+						const old = importPlayerStyle(record.baseline);
+						const normalized = exportPlayerStyle(
+							packPlayerCanvas(
+								playerCanvas(old),
+								old.filter((s) => s.placement === 'hidden')
+							),
+							'compact'
+						);
+						same = normalized === baseline || normalized === formerDefault;
+					} catch {
+						/* An unreadable baseline cannot identify this draft. */
+					}
+					formerBaselines.set(record.baseline, same);
+				}
 				if (
-					(record?.baseline === baseline ||
-						(olderBaseline !== undefined && record?.baseline === olderBaseline)) &&
+					(record?.baseline === baseline || formerBaselines.get(record?.baseline)) &&
 					typeof record.layout === 'string'
 				) {
 					try {

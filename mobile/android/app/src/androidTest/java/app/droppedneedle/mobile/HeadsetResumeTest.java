@@ -1,6 +1,8 @@
 package app.droppedneedle.mobile;
 
+import android.app.ActivityManager;
 import android.app.Instrumentation;
+import android.os.SystemClock;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -165,7 +167,22 @@ public class HeadsetResumeTest {
                 controller.play();
             });
             assertTrue("Resumes at the saved cursor", audible.get(10, TimeUnit.SECONDS) >= 1550);
+            // A controller can report audible playback before Media3 posts its foreground notification.
+            awaitForegroundPlayback();
         } finally { instrument.runOnMainSync(() -> { controller.pause(); controller.release(); }); }
+    }
+    @SuppressWarnings("deprecation") // Android still exposes a caller's own running services.
+    private void awaitForegroundPlayback() {
+        ActivityManager manager = context.getSystemService(ActivityManager.class);
+        ComponentName expected = new ComponentName(context, PlaybackService.class);
+        long deadline = SystemClock.elapsedRealtime() + 5000;
+        do {
+            for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+                if (expected.equals(service.service) && service.foreground) return;
+            }
+            SystemClock.sleep(25);
+        } while (SystemClock.elapsedRealtime() < deadline);
+        fail("The resumed media service must reach the foreground before test teardown");
     }
     private Intent button(int code) {
         return new Intent(Intent.ACTION_MEDIA_BUTTON)

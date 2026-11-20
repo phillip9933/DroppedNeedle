@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { DrawerControl } from '../NavigationDrawer.svelte';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import {
 		ArrowLeft,
@@ -24,7 +23,11 @@
 		emptyColumn,
 		resizeColumns,
 		fillColumn,
-		fiveControlRow,
+		addSubrow,
+		placeField,
+		removeField,
+		swapFields,
+		type DropEdge,
 		retainHeader
 	} from './composerRows';
 	import {
@@ -38,19 +41,18 @@
 		packPlayerCanvas,
 		rowName,
 		playerTokens,
-		sideBySidePlayer,
+		playerColumns,
 		splitAvailable,
 		splitPlayerSection
 	} from './composition';
 
 	let {
 		recovery,
-		navigation,
 		onback,
 		onsave
 	}: {
 		recovery: PlayerDraft;
-		navigation: DrawerControl;
+
 		onback: () => void;
 		onsave: (sections: Section[]) => void;
 	} = $props();
@@ -64,7 +66,7 @@
 		status = $state('');
 	let swapTarget = $state<number | null>(null),
 		placementOpen = $state(false);
-	let list: HTMLDivElement;
+	let list = $state<HTMLDivElement>(null!);
 	let hidden = $state<Section[]>(
 		initial.filter((s) => s.placement === 'hidden').map((s) => ({ ...s }))
 	);
@@ -124,60 +126,56 @@
 		status = step < 0 ? 'Layout edit undone.' : 'Layout edit restored.';
 	}
 
-	type Destination = { r: number; c: number; edge: 'before' | 'after' | 'left' | 'right' };
+	type Destination = { r: number; c: number; edge: DropEdge };
 	let target = $state<Destination | null>(null),
 		ghost = $state<{ x: number; y: number; name: string } | null>(null);
 	function dropTarget(x: number, y: number): Destination | null {
 		const element = document.elementFromPoint(x, y);
-		const row =
-			element?.closest<HTMLElement>('[data-layout-row]') ??
-			element
-				?.closest<HTMLElement>('[data-edit-row]')
-				?.parentElement?.querySelector<HTMLElement>('[data-layout-row]');
+		const marker = element?.closest<HTMLElement>('[data-edit-row]');
+		const row = marker
+			? list.querySelector<HTMLElement>('[data-layout-row="' + marker.dataset.editRow + '"]')
+			: element?.closest<HTMLElement>('[data-layout-row]');
 		if (!row || !list.contains(row)) return null;
 		const r = Number(row.dataset.layoutRow),
 			box = row.getBoundingClientRect();
 		const cols = [...row.querySelectorAll<HTMLElement>('[data-section-id]')];
-		let c = cols.findIndex((cell) => x <= cell.getBoundingClientRect().right);
-		if (c < 0) c = cols.length - 1;
-		const cell = cols[c].getBoundingClientRect(),
-			band = Math.min(22, box.height * 0.22);
-		return {
-			r,
-			c,
-			edge:
-				y < box.top + band
-					? 'before'
-					: y > box.bottom - band
-						? 'after'
-						: x < cell.left + cell.width / 2
-							? 'left'
-							: 'right'
-		};
+		const hit = element?.closest<HTMLElement>('[data-section-id]');
+		const c = hit
+			? cols.indexOf(hit)
+			: cols.findIndex((el) => {
+					const rect = el.getBoundingClientRect();
+					return x <= rect.right && y <= rect.bottom;
+				});
+		if (!cols.length) return null;
+		const i = c < 0 ? cols.length - 1 : c,
+			cell = cols[i].getBoundingClientRect(),
+			localY = (y - cell.top) / Math.max(1, cell.height),
+			localX = (x - cell.left) / Math.max(1, cell.width);
+		const edge: DropEdge =
+			y < box.top + 3
+				? 'before'
+				: y > box.bottom - 3
+					? 'after'
+					: localY < 0.3
+						? 'above'
+						: localY > 0.7
+							? 'below'
+							: localX < 0.5
+								? 'left'
+								: 'right';
+		return { r, c: i, edge };
 	}
 	function drop(id: string, dest: Destination) {
-		const from = rows.findIndex((row) => row.some((s) => s.id === id));
-		if (from < 0) return;
-		const col = rows[from].findIndex((s) => s.id === id),
-			next = rows.map((row) => [...row]),
-			item = next[from][col];
-		if (dest.edge === 'before' || dest.edge === 'after') {
-			next[from].splice(col, 1);
-			next.splice(dest.r + (dest.edge === 'after' ? 1 : 0), 0, [item]);
-		} else if (isPlayerSlot(next[dest.r][dest.c].id) && !isPlayerSlot(id)) {
-			moveIntoSlot(id, next[dest.r][dest.c].id);
+		const item = rows[dest.r]?.[dest.c];
+		if (!item || id === item.id) return;
+		if (isPlayerSlot(item.id) && !isPlayerSlot(id)) {
+			moveIntoSlot(id, item.id);
 			return;
-		} else if (dest.r !== from && next[dest.r].length === maxPlayerColumns) {
-			next[from][col] = next[dest.r][dest.c];
-			next[dest.r][dest.c] = item;
-		} else {
-			const to = dest.c + (dest.edge === 'right' ? 1 : 0);
-			next[from].splice(col, 1);
-			next[dest.r].splice(to - (dest.r === from && col < to ? 1 : 0), 0, item);
 		}
-		rows = retainHeader(next);
-		status = sectionTitle(item) + ' moved.';
+		rows = placeField(rows, id, item.id, dest.edge);
+		status = 'Field moved.';
 	}
+
 	function rowHeight(r: number) {
 		return Math.max(0, ...rows[r].map((s) => s.minHeight ?? 0));
 	}
@@ -189,24 +187,42 @@
 	let suppressClick = false;
 	let cancelGesture: (() => void) | undefined;
 	onDestroy(() => cancelGesture?.());
-	function pointer(e: PointerEvent, id: string, mode: 'move' | 'resize' | 'row') {
-		if (e.button !== 0 || !e.isPrimary) return;
+	type Point = { clientX: number; clientY: number };
+	function startGesture(e: PointerEvent | TouchEvent, id: string, mode: 'move' | 'resize' | 'row') {
+		const pointer = 'pointerId' in e ? e : null;
+		const touch = 'changedTouches' in e ? e.changedTouches[0] : null;
+		if (pointer && (!pointer.isPrimary || pointer.button !== 0 || pointer.pointerType === 'touch'))
+			return;
+		if ('touches' in e && e.touches.length !== 1) {
+			cancelGesture?.();
+			return;
+		}
+		const start = touch ?? pointer;
+		if (!start) return;
+		const originX = start.clientX,
+			originY = start.clientY;
 		cancelGesture?.();
 		e.stopPropagation();
-		const handle = e.currentTarget as HTMLElement,
-			pointerId = e.pointerId;
+		const handle = e.currentTarget as HTMLElement;
+		const listeners = new AbortController();
+		const options = { capture: true, signal: listeners.signal };
+
 		const r = rows.findIndex((row) => row.some((s) => s.id === id)),
 			item = rows[r]?.find((s) => s.id === id);
 		if (!item) return;
 		resizing = mode === 'resize';
 		const row = list.querySelector<HTMLElement>('[data-layout-row="' + r + '"]')!;
-		const initialHeight = row.getBoundingClientRect().height,
-			storedHeight = rows[r].map((s) => s.minHeight),
-			initialWidth = item.width,
-			initialContent = item.contentWidth,
-			rowWidth = row.getBoundingClientRect().width;
-		let x = e.clientX,
-			y = e.clientY,
+		const fit = Number(getComputedStyle(row).getPropertyValue('--player-fit')) || 1,
+			initialHeight = row.getBoundingClientRect().height / fit,
+			storedHeight = rows[r].map((s) => s.minHeight);
+		let armed = false;
+		let hold = 0;
+		function blockMenu(event: Event) {
+			event.preventDefault();
+		}
+
+		let x = originX,
+			y = originY,
 			frame = 0,
 			moved = false;
 		let scroll = list.parentElement;
@@ -225,17 +241,7 @@
 				if (target && mode === 'row') target.edge = target.r < r ? 'before' : 'after';
 				ghost = { x, y, name: mode === 'row' ? rowName(r) : sectionTitle(item!) };
 			} else {
-				if (rows[r].length === 1 && Math.abs(x - e.clientX) > 4)
-					item!.contentWidth = Math.min(
-						100,
-						Math.max(20, Math.round((initialContent ?? 100) + ((x - e.clientX) / rowWidth) * 100))
-					);
-				else if (rows[r].length > 1 && Math.abs(x - e.clientX) > 10)
-					item!.width = Math.min(
-						12,
-						Math.max(1, (initialWidth ?? 1) + Math.round((x - e.clientX) / 24))
-					) as Section['width'];
-				if (Math.abs(y - e.clientY) > 6) setHeight(r, initialHeight + y - e.clientY);
+				if (Math.abs(y - originY) > 6) setHeight(r, initialHeight + (y - originY) / fit);
 			}
 		}
 		function scrollFrame() {
@@ -251,49 +257,131 @@
 			}
 			frame = requestAnimationFrame(scrollFrame);
 		}
-		function move(p: PointerEvent) {
-			if (p.pointerId !== pointerId) return;
-			x = p.clientX;
-			y = p.clientY;
-			if (!moved && Math.hypot(x - e.clientX, y - e.clientY) < 5) return;
+		function move(point: Point, event: Event) {
+			x = point.clientX;
+			y = point.clientY;
+			const delta = Math.hypot(x - originX, y - originY);
+			if (!armed) {
+				if (delta > 8) finish();
+				return;
+			}
+			if (touch && event.cancelable) event.preventDefault();
+			if (!moved && delta < 5) return;
 			moved = true;
 			paint();
 		}
-		function finish(p?: PointerEvent) {
-			if (p && p.pointerId !== pointerId) return;
+		function finish(release?: Point) {
+			// WebView can coalesce all motion into the final touchend coordinate.
+			if (
+				release &&
+				armed &&
+				Math.hypot(release.clientX - originX, release.clientY - originY) >= 5
+			) {
+				x = release.clientX;
+				y = release.clientY;
+				moved = true;
+				if (mode === 'resize') paint();
+			}
 			cancelGesture = undefined;
-			handle.removeEventListener('pointermove', move);
-			handle.removeEventListener('pointerup', finish);
-			handle.removeEventListener('pointercancel', finish);
-			handle.removeEventListener('lostpointercapture', finish);
+			clearTimeout(hold);
+			listeners.abort();
 			cancelAnimationFrame(frame);
-			if (p?.type === 'pointerup' && moved) {
-				// A completed drag must not also open whichever editor is under the release.
+			if (release && moved) {
+				// A compatibility click after a drag must not open the inspector.
 				suppressClick = true;
-				window.setTimeout(() => {
+				setTimeout(() => {
 					suppressClick = false;
 				}, 0);
+				if (mode !== 'resize') {
+					const dest = dropTarget(release.clientX, release.clientY);
+					if (dest && mode === 'row') moveRow(r, dest.r);
+					else if (dest) drop(id, dest);
+				}
+			} else if (!release && mode === 'resize') {
+				rows[r]?.forEach((s, c) => (s.minHeight = storedHeight[c]));
 			}
-			if (p?.type === 'pointerup' && moved && mode !== 'resize') {
-				const dest = dropTarget(p.clientX, p.clientY);
-				if (dest && mode === 'row') moveRow(r, dest.r);
-				else if (dest) drop(id, dest);
-			} else if (p?.type !== 'pointerup' && mode === 'resize') {
-				item!.width = initialWidth;
-				item!.contentWidth = initialContent;
-				rows[r].forEach((s, c) => (s.minHeight = storedHeight[c]));
-			}
-			if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+			if (pointer && handle.hasPointerCapture(pointer.pointerId))
+				handle.releasePointerCapture(pointer.pointerId);
 			resizing = false;
 			target = null;
 			ghost = null;
 		}
-		cancelGesture = () => finish();
-		handle.setPointerCapture(pointerId);
-		handle.addEventListener('pointermove', move);
-		handle.addEventListener('pointerup', finish);
-		handle.addEventListener('pointercancel', finish);
-		handle.addEventListener('lostpointercapture', finish);
+		const cancel = () => finish();
+		cancelGesture = cancel;
+		handle.addEventListener('contextmenu', blockMenu, options);
+		handle.addEventListener('dragstart', blockMenu, options);
+		window.addEventListener('blur', cancel, { signal: listeners.signal });
+		document.addEventListener(
+			'visibilitychange',
+			() => {
+				if (document.hidden) cancel();
+			},
+			options
+		);
+		if (touch) {
+			// Android WebView can cancel its pointer stream while the pressed finger remains down.
+			const changed = (event: TouchEvent) =>
+				Array.from(event.changedTouches).find((t) => t.identifier === touch.identifier);
+			document.addEventListener(
+				'touchstart',
+				(event) => {
+					if (event.touches.length > 1) cancel();
+				},
+				{ ...options, passive: true }
+			);
+			document.addEventListener(
+				'touchmove',
+				(event) => {
+					const point = changed(event);
+					if (event.touches.length !== 1) cancel();
+					else if (point) move(point, event);
+				},
+				{ ...options, passive: false }
+			);
+			document.addEventListener(
+				'touchend',
+				(event) => {
+					const point = changed(event);
+					if (!point) return;
+					if (armed && event.cancelable) event.preventDefault();
+					finish(point);
+				},
+				{ ...options, passive: false }
+			);
+			document.addEventListener(
+				'touchcancel',
+				(event) => {
+					if (changed(event)) cancel();
+				},
+				options
+			);
+		} else if (pointer) {
+			handle.setPointerCapture(pointer.pointerId);
+			handle.addEventListener(
+				'pointermove',
+				(event) => {
+					if (event.pointerId === pointer.pointerId) move(event, event);
+				},
+				options
+			);
+			handle.addEventListener(
+				'pointerup',
+				(event) => {
+					if (event.pointerId === pointer.pointerId) finish(event);
+				},
+				options
+			);
+			const cancelled = (event: PointerEvent) => {
+				if (event.pointerId === pointer.pointerId) cancel();
+			};
+			handle.addEventListener('pointercancel', cancelled, options);
+			handle.addEventListener('lostpointercapture', cancelled, options);
+		}
+		hold = window.setTimeout(() => {
+			armed = true;
+			if (mode !== 'resize')
+				ghost = { x, y, name: mode === 'row' ? rowName(r) : sectionTitle(item) };
+		}, 380);
 		frame = requestAnimationFrame(scrollFrame);
 	}
 
@@ -301,6 +389,10 @@
 	const rowIndex = $derived(rows.findIndex((row) => row.some((s) => s.id === selected)));
 	const column = $derived(rows[rowIndex]?.findIndex((s) => s.id === selected) ?? -1);
 	const field = $derived(rows[rowIndex]?.[column]);
+	const fieldColumns = $derived(playerColumns(rows[rowIndex] ?? []));
+	const indexInRow = $derived(fieldColumns.findIndex((col) => col.some((s) => s.id === selected)));
+	const fieldColumn = $derived(fieldColumns[indexInRow] ?? []);
+	const indexInColumn = $derived(fieldColumn.findIndex((s) => s.id === selected));
 	const used = $derived(new Set(rows.flat().map((s) => s.id)));
 	const editingRow = $derived(
 		rowAnchor ? rows.findIndex((row) => row.some((s) => s.id === rowAnchor)) : -1
@@ -309,8 +401,8 @@
 	let measured = $state<Record<string, number>>({});
 	$effect(() => {
 		const r = editingRow >= 0 ? editingRow : rowIndex;
-		const ids = rows[r]?.map((s) => s.id);
-		if (!ids?.length) {
+		const ids = playerColumns(rows[r] ?? []).map((col) => col[0].id);
+		if (!ids.length) {
 			measured = {};
 			return;
 		}
@@ -320,7 +412,9 @@
 			if (stopped) return;
 			const grid = list?.querySelector<HTMLElement>('[data-layout-row="' + r + '"]');
 			if (!grid) return;
-			const cells = Array.from(grid.querySelectorAll<HTMLElement>('[data-section-id]'));
+			const cells = Array.from(grid.querySelectorAll<HTMLElement>('[data-section-id]')).filter(
+				(el) => ids.includes(el.dataset.sectionId!)
+			);
 			const measure = () => {
 				const widths = cells.map((c) => c.getBoundingClientRect().width),
 					total = widths.reduce((sum, w) => sum + w, 0);
@@ -354,6 +448,30 @@
 		previewScroll = 0;
 	let previewButton = $state<HTMLButtonElement>(),
 		returnButton = $state<HTMLButtonElement>();
+	function openDialog(dialog: HTMLDialogElement) {
+		dialog.showModal();
+	}
+	function fitPreview(stage: HTMLElement) {
+		const player = stage.firstElementChild as HTMLElement;
+		function measure() {
+			if (!player.offsetHeight || !player.offsetWidth) return;
+			const scale = Math.min(
+				1,
+				stage.clientHeight / player.offsetHeight,
+				stage.clientWidth / player.offsetWidth
+			);
+			stage.style.setProperty('--preview-scale', String(scale));
+		}
+		const observer = new ResizeObserver(measure);
+		observer.observe(stage);
+		observer.observe(player);
+		measure();
+		return {
+			destroy() {
+				observer.disconnect();
+			}
+		};
+	}
 	async function showPreview() {
 		cancelGesture?.();
 		const main = mainScroll();
@@ -366,7 +484,8 @@
 	async function closePreview() {
 		previewOpen = false;
 		await tick();
-		mainScroll()?.scrollTo(0, previewScroll);
+		const main = mainScroll();
+		main?.scrollTo(0, previewScroll);
 		previewButton?.focus({ preventScroll: true });
 	}
 	async function focusField(id: string, scroll?: number) {
@@ -434,11 +553,11 @@
 	}
 	onMount(() => {
 		function back(event: Event) {
-			if (document.querySelector('dialog[open]')) return;
 			if (previewOpen) {
 				event.preventDefault();
 				void closePreview();
-			} else if (selected || editingRow >= 0) {
+			} else if (document.querySelector('dialog[open]')) return;
+			else if (selected || editingRow >= 0) {
 				event.preventDefault();
 				finishInspector();
 			} else {
@@ -493,7 +612,7 @@
 	function changeColumns(r: number, n: number) {
 		rows = resizeColumns(rows, r, n);
 		editRow(r, false);
-		status = rowName(r) + ' now has ' + rows[r].length + ' columns.';
+		status = rowName(r) + ' now has ' + playerColumns(rows[r]).length + ' columns.';
 	}
 	function chooseFeature(id: string) {
 		if (!field || !isPlayerSlot(field.id)) return;
@@ -516,26 +635,17 @@
 		const source = rows.flat().find((s) => s.id === id);
 		const dest = rows.flat().find((s) => s.id === slot);
 		if (!source || !dest) return;
-		rows = retainHeader(
-			rows.map((row) => {
-				const same = row.some((s) => s.id === slot);
-				return row.flatMap((s) =>
-					s.id === slot
-						? [{ ...source, width: dest.width, minHeight: dest.minHeight, gap: dest.gap }]
-						: s.id === id
-							? same
-								? [{ ...dest, width: source.width, minHeight: source.minHeight, gap: source.gap }]
-								: []
-							: [s]
-				);
-			})
-		);
+		const swapped = swapFields(rows, id, slot);
+		const from = swapped.findIndex((row) => row.some((s) => s.id === slot)),
+			to = swapped.findIndex((row) => row.some((s) => s.id === id));
+		if (from !== to) swapped[from] = removeField(swapped[from], slot);
+		rows = retainHeader(swapped);
 		status = sectionTitle(source) + ' moved.';
 		void focusField(id);
 	}
 	function clearColumn(r: number, c: number) {
 		const current = rows[r][c],
-			slot = emptyColumn(rows.flat(), current);
+			slot = { ...emptyColumn(rows.flat(), current), stack: current.stack };
 		rows = rows.map((row, i) => (i === r ? row.map((s, j) => (j === c ? slot : s)) : row));
 		if (isNavigation(current.id)) hidden = [...hidden, { ...current, placement: 'hidden' }];
 		select(slot.id);
@@ -553,15 +663,9 @@
 		status = r === 0 ? 'Header cleared.' : 'Row removed.';
 		void finishRow(Math.min(r, rows.length - 1));
 	}
-	function standardControls() {
-		rows = fiveControlRow(rows);
-		select('');
-		status = 'Five playback controls arranged in one row.';
-		void focusField('player-toggle');
-	}
 	function remove(r: number, c: number) {
 		const item = rows[r][c];
-		rows = retainHeader(rows.map((row, i) => (i === r ? row.filter((_, j) => j !== c) : row)));
+		rows = retainHeader(rows.map((row, i) => (i === r ? removeField(row, item.id) : row)));
 		if (isNavigation(item.id)) hidden = [...hidden, { ...item, placement: 'hidden' }];
 		if (item.id === selected) select('');
 		status = sectionTitle(item) + ' removed.';
@@ -576,15 +680,22 @@
 		swapTarget = null;
 		status = 'Row moved to position ' + (to + 1) + '.';
 	}
-	function shift(step: number) {
+	function shift(step: number, vertical = false) {
 		if (!field) return;
-		const target = column + step,
-			row = [...rows[rowIndex]];
-		if (target < 0 || target >= row.length) return;
-		row.splice(target, 0, ...row.splice(column, 1));
-		rows = rows.map((value, i) => (i === rowIndex ? row : value));
+		const nextColumn = fieldColumns[indexInRow + step];
+		const target = vertical
+			? fieldColumn[indexInColumn + step]
+			: nextColumn?.[Math.min(indexInColumn, nextColumn.length - 1)];
+		if (!target) return;
+		const name = sectionTitle(field);
+		rows = swapFields(rows, field.id, target.id);
 		swapTarget = null;
-		status = sectionTitle(field) + ' moved to column ' + (target + 1) + '.';
+		status =
+			name +
+			(vertical
+				? ' moved to subrow ' + (indexInColumn + step + 1)
+				: ' moved to column ' + (indexInRow + step + 1)) +
+			'.';
 	}
 	function moveField(value: string) {
 		if (!field) return;
@@ -596,20 +707,20 @@
 			moveIntoSlot(field.id, slot.id);
 			return;
 		}
-		if (rows[to]?.length === maxPlayerColumns) {
+		if (rows[to] && playerColumns(rows[to]).length === maxPlayerColumns) {
 			swapTarget = to;
 			return;
 		}
 		const moved = field;
 		const next = rows.map((row) => [...row]);
-		next[rowIndex].splice(column, 1);
-		if (to === next.length) next.push([moved]);
-		else next[to].push(moved);
+		next[rowIndex] = removeField(next[rowIndex], moved.id);
+		if (to === next.length) next.push([{ ...moved, stack: undefined }]);
+		else next[to].push({ ...moved, stack: undefined });
 		rows = retainHeader(next);
 		status =
 			sectionTitle(moved) +
 			' moved to row ' +
-			(rows.findIndex((row) => row.includes(moved)) + 1) +
+			(rows.findIndex((row) => row.some((item) => item.id === moved.id)) + 1) +
 			'.';
 		void focusField(moved.id);
 	}
@@ -617,9 +728,7 @@
 		if (!field || swapTarget === null || !rows[swapTarget]?.[col]) return;
 		const moved = field,
 			next = rows.map((row) => [...row]);
-		next[rowIndex][column] = next[swapTarget][col];
-		next[swapTarget][col] = moved;
-		rows = next;
+		rows = swapFields(rows, moved.id, next[swapTarget][col].id);
 		status =
 			sectionTitle(moved) + ' moved to row ' + (swapTarget + 1) + ', column ' + (col + 1) + '.';
 		swapTarget = null;
@@ -739,10 +848,7 @@
 	{#if recoveryIssue}<p role="status">{recoveryIssue}</p>
 	{:else if recovery.recovered}<p class="hint" role="status">Recovered your unsaved layout.</p>{/if}
 	<p class="sr-only" role="status">{status}</p>
-	<p class="hint">
-		Drag the handles to move rows or features. Tap a feature to edit it, or an empty column to add
-		one.
-	</p>
+	<p class="hint">Tap a field to edit it. Press and hold to move a row or field.</p>
 
 	<div class="canvas" bind:this={list} aria-label="Sample player layout">
 		{#snippet rowControls(r: number)}
@@ -758,10 +864,12 @@
 						else editRow(r);
 					}
 				}}
-				onpointerdown={(e) => pointer(e, rows[r][0].id, 'row')}
+				ontouchstart={(e) => startGesture(e, rows[r][0].id, 'row')}
+				onpointerdown={(e) => startGesture(e, rows[r][0].id, 'row')}
 			>
 				<GripVertical size={15} /><strong>{rowName(r)}</strong><span
-					>{rows[r].length} {rows[r].length === 1 ? 'column' : 'columns'}</span
+					>{playerColumns(rows[r]).length}
+					{playerColumns(rows[r]).length === 1 ? 'column' : 'columns'}</span
 				>
 			</button>
 		{/snippet}
@@ -769,7 +877,18 @@
 			{#if isPlayerSlot(item.id)}
 				<button
 					class="field empty"
-					aria-label={'Add feature to ' + rowName(r).toLowerCase() + ', column ' + (c + 1)}
+					aria-label={'Add feature to ' +
+						rowName(r).toLowerCase() +
+						', column ' +
+						(playerColumns(rows[r]).findIndex((col) => col.some((cell) => cell.id === item.id)) +
+							1) +
+						(item.stack
+							? ', subrow ' +
+								(playerColumns(rows[r])
+									.find((col) => col.some((cell) => cell.id === item.id))!
+									.findIndex((cell) => cell.id === item.id) +
+									1)
+							: '')}
 					aria-expanded={selected === item.id}
 					onclick={() => openField(item.id)}
 				>
@@ -782,7 +901,8 @@
 					aria-label={'Customize ' + sectionTitle(item)}
 					aria-expanded={selected === item.id}
 					onclick={() => openField(item.id)}
-					onpointerdown={(e) => pointer(e, item.id, 'move')}
+					ontouchstart={(e) => startGesture(e, item.id, 'move')}
+					onpointerdown={(e) => startGesture(e, item.id, 'move')}
 					><span class="grip" data-layout-drag aria-hidden="true" title="Drag to move"
 						><GripVertical size={16} /></span
 					></button
@@ -793,7 +913,8 @@
 					data-layout-drag
 					aria-label={'Resize ' + sectionTitle(item)}
 					title="Resize field"
-					onpointerdown={(e) => pointer(e, item.id, 'resize')}><Scaling size={17} /></button
+					ontouchstart={(e) => startGesture(e, item.id, 'resize')}
+					onpointerdown={(e) => startGesture(e, item.id, 'resize')}><Scaling size={17} /></button
 				>{/if}
 			{#if target?.r === r && (target.c === c || target.edge === 'before' || target.edge === 'after')}<span
 					class="drop"
@@ -808,7 +929,13 @@
 					{r}
 					close={() => void finishRow(r)}
 					resize={(n) => changeColumns(r, n)}
-					setWidth={(c, n) => (rows[r][c].width = n)}
+					setWidth={(c, n) => {
+						for (const cell of playerColumns(rows[r])[c]) cell.width = n;
+					}}
+					addStack={(c) => {
+						rows = addSubrow(rows, r, c);
+						openField(playerColumns(rows[r])[c].at(-1)!.id, true);
+					}}
 					select={(id) => openField(id, true)}
 					gap={rows[r][0].gap}
 					setGap={(n) => {
@@ -822,7 +949,7 @@
 			{:else if r === rowIndex && field && isPlayerSlot(field.id)}
 				{#key field.id}<PlayerSlotPicker
 						{r}
-						c={column}
+						c={playerColumns(rows[r]).findIndex((col) => col.some((cell) => cell.id === field.id))}
 						{rows}
 						choose={chooseFeature}
 						close={finishField}
@@ -868,26 +995,9 @@
 								>{/each}
 						</div>
 					{/if}
-					{#if widget}<label class="check"
+					{#if widget?.option && field.id !== 'player-timeline'}<label class="check"
 							><input type="checkbox" bind:checked={field.preview} />{widget.option}</label
 						>{/if}
-					{#if rows[r].length > 1}
-						<label
-							>Column width<select
-								aria-label="Column width"
-								value={field.width ?? 1}
-								onchange={(e) => {
-									if (field) field.width = Number(e.currentTarget.value);
-								}}
-							>
-								{#each Array.from({ length: 12 }, (_, i) => i + 1) as w (w)}<option value={w}
-										>{w} {w === 1 ? 'share' : 'shares'}</option
-									>{/each}
-							</select>{#if measured[field.id] !== undefined}<small
-									>{Math.round(measured[field.id])}% of the visible columns</small
-								>{/if}</label
-						>
-					{/if}
 					<details class="advanced" bind:open={placementOpen}>
 						<summary>Placement and sizing</summary>
 						<div>
@@ -898,6 +1008,20 @@
 									bind:value={field.title}
 								/></label
 							>
+							{#if rows.flat().length > 1}<label
+									>Stack below<select
+										aria-label="Stack below"
+										value=""
+										onchange={(e) => {
+											if (field && e.currentTarget.value)
+												rows = placeField(rows, field.id, e.currentTarget.value, 'below');
+										}}
+										><option value="">Choose a field</option
+										>{#each rows as group, ri (group[0].id)}{#each group.filter((s) => s.id !== field?.id && !isPlayerSlot(s.id)) as sibling (sibling.id)}<option
+													value={sibling.id}>{rowName(ri)} · {sectionTitle(sibling)}</option
+												>{/each}{/each}</select
+									></label
+								>{/if}
 							<div class="pair">
 								<label
 									>Move to row<select
@@ -906,7 +1030,8 @@
 										onchange={(e) => moveField(e.currentTarget.value)}
 									>
 										{#each rows as dest, i (i)}<option value={i - 1}
-												>{rowName(i)}{dest.length === maxPlayerColumns && i !== rowIndex
+												>{rowName(i)}{playerColumns(dest).length === maxPlayerColumns &&
+												i !== rowIndex
 													? ' (full)'
 													: ''}</option
 											>{/each}
@@ -936,40 +1061,38 @@
 									></label
 								>
 							{/if}
-							{#if rows[r].length > 1}
+							{#if fieldColumns.length > 1}
 								<div class="moves">
 									<button
 										class="secondary"
 										aria-label={'Move ' + sectionTitle(field) + ' left'}
-										disabled={column === 0}
+										disabled={indexInRow === 0}
 										onclick={() => shift(-1)}><ArrowLeft size={16} />Left</button
 									>
 									<button
 										class="secondary"
 										aria-label={'Move ' + sectionTitle(field) + ' right'}
-										disabled={column === rows[r].length - 1}
+										disabled={indexInRow === fieldColumns.length - 1}
 										onclick={() => shift(1)}>Right<ArrowRight size={16} /></button
 									>
 								</div>
 							{/if}
-							<div class="pair">
-								<label
-									>Element width (%)<input
-										aria-label="Element width"
-										min="20"
-										max="100"
-										type="number"
-										step="1"
-										value={field.contentWidth ?? 100}
-										onchange={(e) => {
-											if (field && Number.isFinite(e.currentTarget.valueAsNumber))
-												field.contentWidth = Math.round(
-													Math.min(100, Math.max(20, e.currentTarget.valueAsNumber))
-												);
-										}}
-									/></label
-								>
-							</div>
+							{#if fieldColumn.length > 1}
+								<div class="moves">
+									<button
+										class="secondary"
+										aria-label={'Move ' + sectionTitle(field) + ' up'}
+										disabled={indexInColumn === 0}
+										onclick={() => shift(-1, true)}>Move up</button
+									>
+									<button
+										class="secondary"
+										aria-label={'Move ' + sectionTitle(field) + ' down'}
+										disabled={indexInColumn === fieldColumn.length - 1}
+										onclick={() => shift(1, true)}>Move down</button
+									>
+								</div>
+							{/if}
 							<div class="size-tools">
 								<label
 									>Minimum row height (px)<input
@@ -984,7 +1107,8 @@
 								><button
 									class="secondary grip-resize"
 									aria-label={'Drag to resize ' + sectionTitle(field)}
-									onpointerdown={(e) => pointer(e, field!.id, 'resize')}
+									ontouchstart={(e) => startGesture(e, field!.id, 'resize')}
+									onpointerdown={(e) => startGesture(e, field!.id, 'resize')}
 									><Scaling size={17} />Drag to resize</button
 								>
 							</div>
@@ -997,31 +1121,41 @@
 						>{/if}
 					<div class="field-actions">
 						<button class="secondary" onclick={() => clearColumn(rowIndex, column)}
-							>Clear column</button
+							>{fieldColumn.length > 1 ? 'Clear field' : 'Clear column'}</button
 						>
 						<button
 							class="text-button remove"
 							aria-label={'Remove ' + sectionTitle(field)}
 							onclick={() => remove(rowIndex, column)}
 						>
-							{rows[r].length === 1 ? 'Remove row' : 'Remove column'}
+							{fieldColumn.length > 1
+								? 'Remove field'
+								: rows[r].length === 1
+									? 'Remove row'
+									: 'Remove column'}
 						</button>
 					</div>
 				</div>{/if}{/snippet}
-		<PlayerView
-			session={sampleSession}
-			expanded={true}
-			onexpand={() => {}}
-			oncollapse={() => {}}
-			onerror={() => {}}
-			editor={{
-				sections: draft,
-				selected,
-				overlay,
-				rowControls,
-				inspector
-			}}
-		/>
+		<div class="row-strip" aria-label="Edit player rows">
+			{#each rows as group, r (group[0].id)}{@render rowControls(r)}{/each}
+		</div>
+		<div class="preview-frame">
+			<PlayerView
+				session={sampleSession}
+				expanded={true}
+				onexpand={() => {}}
+				oncollapse={() => {}}
+				onerror={() => {}}
+				editor={{
+					sections: draft,
+					selected,
+					overlay
+				}}
+			/>
+		</div>
+		{#if editingRow >= 0}{@render inspector(editingRow)}{:else if rowIndex >= 0}{@render inspector(
+				rowIndex
+			)}{/if}
 		{#if !rows.length}<p>Add a row to start your layout.</p>{/if}
 	</div>
 	{#if ghost}<div class="ghost" style:left={ghost.x + 'px'} style:top={ghost.y + 'px'}>
@@ -1029,12 +1163,6 @@
 		</div>{/if}
 
 	<div class="presets">
-		<button class="secondary" onclick={standardControls}>Arrange five playback controls</button>
-		<button
-			class="secondary"
-			onclick={() => loadDraft(sideBySidePlayer(), 'Side-by-side draft is ready to edit.')}
-			>Try side-by-side layout</button
-		>
 		<button
 			class="text-button"
 			onclick={() => loadDraft(defaults('player'), 'Default layout restored to the draft.')}
@@ -1047,16 +1175,24 @@
 	/>
 </div>
 {#if previewOpen}
-	<div class="composer" data-part="layout-preview">
+	<dialog
+		class="composer"
+		data-part="layout-preview"
+		aria-label="Player layout preview"
+		use:openDialog
+		oncancel={(event) => {
+			event.preventDefault();
+			void closePreview();
+		}}
+	>
 		<div class="bar">
 			<button class="text-button" onclick={closePreview} bind:this={returnButton}
 				><ArrowLeft size={18} aria-hidden="true" /> Back to editing</button
 			>
 		</div>
-		<div class="preview-body">
+		<div class="preview-body" use:fitPreview>
 			<PlayerView
 				session={sampleSession}
-				{navigation}
 				expanded={true}
 				onexpand={() => {}}
 				oncollapse={() => {}}
@@ -1064,7 +1200,7 @@
 				editor={{ sections: draft }}
 			/>
 		</div>
-	</div>
+	</dialog>
 {/if}
 
 <style>
@@ -1087,17 +1223,57 @@
 		width: 44px;
 		height: 44px;
 	}
-	.preview-body {
-		margin-inline: calc(-1 * var(--gap));
+	dialog[data-part='layout-preview'] {
+		position: fixed;
+		inset: 0;
+		width: 100%;
+		height: 100dvh;
+		max-width: none;
+		max-height: none;
+		margin: 0;
+		border: 0;
+		box-sizing: border-box;
+		padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+		background: var(--bg);
+		color: var(--text);
+		overflow: hidden;
 	}
-	.preview-body :global(.compact-header) {
-		top: calc(44px + 0.5rem);
+	dialog[data-part='layout-preview'][open] {
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	dialog .bar {
+		position: relative;
+		margin: 0 auto;
+		padding-inline: var(--gap);
+		width: min(100%, 32rem);
+	}
+	.preview-body {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
+		justify-items: center;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.preview-body :global([data-part='draft-player']) {
+		margin: 0;
+		transform-origin: top center;
+		transform: scale(var(--preview-scale, 1));
 	}
 	.preview-action {
 		gap: 0.25rem;
 	}
+	[data-layout-drag],
+	[data-layout-drag] :global(*),
+	.grip-resize {
+		user-select: none;
+		-webkit-user-select: none;
+		-webkit-touch-callout: none;
+		-webkit-user-drag: none;
+	}
 	.row-marker {
-		touch-action: none;
+		touch-action: pan-y;
 		cursor: grab;
 		min-height: 44px;
 		display: flex;
@@ -1141,6 +1317,7 @@
 	}
 
 	.composer {
+		--player-viewport-height: calc(100dvh - env(safe-area-inset-top));
 		max-width: 42rem;
 		margin: auto;
 	}
@@ -1210,9 +1387,6 @@
 			margin-inline: calc(2px - var(--gap));
 			padding-inline: 0.25rem;
 		}
-		.canvas :global(.now.sample) {
-			padding-inline: 0.25rem;
-		}
 	}
 
 	.hint {
@@ -1249,7 +1423,7 @@
 		bottom: 0;
 		inset-inline-end: 0;
 		z-index: 2;
-		touch-action: none;
+		touch-action: pan-y;
 		cursor: nwse-resize;
 		width: 44px;
 		height: 44px;
@@ -1280,7 +1454,7 @@
 		padding: 2px;
 		color: var(--muted);
 		background: transparent;
-		touch-action: none;
+		touch-action: pan-y;
 		cursor: grab;
 	}
 	.grip :global(svg) {
@@ -1324,15 +1498,19 @@
 		background: var(--accent);
 	}
 	.drop[data-edge='before'],
-	.drop[data-edge='after'] {
+	.drop[data-edge='after'],
+	.drop[data-edge='above'],
+	.drop[data-edge='below'] {
 		height: 4px;
 		left: 0;
 		right: 0;
 	}
-	.drop[data-edge='before'] {
+	.drop[data-edge='before'],
+	.drop[data-edge='above'] {
 		top: 0;
 	}
-	.drop[data-edge='after'] {
+	.drop[data-edge='after'],
+	.drop[data-edge='below'] {
 		bottom: 0;
 	}
 	.drop[data-edge='left'],
@@ -1372,7 +1550,7 @@
 		flex: 1;
 	}
 	.grip-resize {
-		touch-action: none;
+		touch-action: pan-y;
 		cursor: nwse-resize;
 	}
 	.remove {
@@ -1434,5 +1612,52 @@
 		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin-top: var(--gap);
+	}
+	.drop[data-edge='above'],
+	.drop[data-edge='below'] {
+		left: 0;
+		right: 0;
+		height: 4px;
+	}
+	.drop[data-edge='above'] {
+		top: 0;
+	}
+	.drop[data-edge='below'] {
+		bottom: 0;
+	}
+	.row-strip {
+		display: flex;
+		gap: 0.3rem;
+		overflow-x: auto;
+		max-width: 100%;
+		margin-bottom: 0.3rem;
+	}
+	.row-strip .row-marker {
+		width: auto;
+		min-width: 58px;
+		flex: none;
+		padding: 0.25rem 0.4rem;
+		justify-content: center;
+	}
+	.row-strip .row-marker span {
+		display: none;
+	}
+	:global(main:has([data-part='layout-editor'])) {
+		overflow-anchor: none;
+	}
+	.preview-frame {
+		position: relative;
+		left: 50%;
+		transform: translateX(-50%);
+		height: var(--player-viewport-height);
+		width: min(32rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right)));
+		min-height: 0;
+		overflow: hidden;
+	}
+	.preview-frame :global([data-part='sample-player']) {
+		height: 100%;
+		max-height: 100%;
+		min-height: 0;
+		margin: 0 auto;
 	}
 </style>

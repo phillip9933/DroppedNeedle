@@ -23,6 +23,8 @@
 	onclick={onopen ? (e: MouseEvent) => onopen?.(e.currentTarget as HTMLButtonElement) : undefined}
 	class:credit-link={!!onopen}
 	class="metadata"
+	class:labeled={section.showLabel === true}
+	data-label-position={section.labelPosition ?? 'below'}
 	class:field-title={title}
 	class:field-heading={section.id === 'player-heading'}
 	class:field-artist={section.id === 'player-artist'}
@@ -34,13 +36,17 @@
 	role={!onopen && iconOnly && !title ? 'img' : undefined}
 	aria-label={onopen ? openLabel : iconOnly ? value || sectionTitle(section) : undefined}
 >
-	{#if Glyph}<span
-			class="metadata-icon"
-			data-player-icon={section.icon}
-			aria-hidden="true"
-			style:--metadata-icon-size={(section.iconSize ?? 20) + 'px'}><Glyph size="100%" /></span
-		>{/if}
-	{#if !iconOnly}<span class="lines">{value}</span>{/if}
+	{#if section.showLabel === true}<span class="caption"
+			>{section.labelName?.trim() || sectionTitle(section)}</span
+		>{/if}<span class="value"
+		>{#if Glyph}<span
+				class="metadata-icon"
+				data-player-icon={section.icon}
+				aria-hidden="true"
+				style:--metadata-icon-size={(section.iconSize ?? 20) + 'px'}><Glyph size="100%" /></span
+			>{/if}
+		{#if !iconOnly}<span class="lines">{value}</span>{/if}</span
+	>
 </svelte:element>
 
 <style>
@@ -62,7 +68,25 @@
 	.credit-link:focus-visible .lines {
 		text-decoration: underline;
 	}
-	.with-icon {
+	.labeled {
+		display: flex;
+		flex-direction: column;
+		align-items: var(--cell-justify, stretch);
+	}
+	.caption {
+		font-size: 0.8rem;
+		color: var(--muted);
+		order: 1;
+	}
+	.labeled[data-label-position='above'] .caption {
+		order: -1;
+	}
+	.value {
+		display: block;
+		min-width: 0;
+		max-width: 100%;
+	}
+	.with-icon .value {
 		display: flex;
 		align-items: center;
 		justify-content: var(--cell-justify, flex-start);

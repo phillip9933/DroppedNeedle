@@ -289,7 +289,7 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await page.getByRole('button', { name: /After Dark.*Imported/ }).click();
 	await page.getByRole('button', { name: 'Play album' }).click();
 	await expect(page.getByRole('heading', { name: 'Fading Light', exact: true })).toBeVisible();
-	await page.getByText('Lyrics', { exact: true }).click();
+	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();
 	await expect(page.locator('[data-part=lyrics] [aria-current=true]')).toHaveText('Daylight');
 	expect(played).toEqual(['/stream/local/track-1', '/stream/local/track-2']);
 	await page.getByRole('button', { name: 'Show play queue' }).click();

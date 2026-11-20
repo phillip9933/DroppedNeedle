@@ -8,6 +8,7 @@ import {
 import { queueSizeCheck } from '../catalog/libraryQueue';
 import type { PlaybackBridge, PlayerState, PlayerTrack } from '../player';
 import { cacheWebPlayback, isAudio, webLocalAudio, webPlaybackPolicy } from '../offline/web';
+import { identifyAudio, setBrowserWaveformSource } from './waveform';
 
 export function browserPlayer(): PlaybackBridge {
 	const audio = new Audio();
@@ -111,7 +112,13 @@ export function browserPlayer(): PlaybackBridge {
 	}
 	function checkSleep() {
 		if (state.sleepTimer?.mode === 'minutes' && Date.now() >= state.sleepTimer.endsAt) {
+			const finish = state.sleepTimer.finishTrack && (!audio.paused || audio.ended);
 			cancelSleep();
+			if (finish && state.tracks[state.index]) {
+				sleepingTrack = state.tracks[state.index];
+				state.sleepTimer = { mode: 'track', remaining: 1 };
+				return;
+			}
 			pauseRevision++;
 			waitingAtEnd = false;
 			blockAdvance = true;
@@ -160,6 +167,8 @@ export function browserPlayer(): PlaybackBridge {
 	});
 
 	function unload() {
+		setBrowserWaveformSource(null);
+		state.quality = null;
 		active?.abort();
 		active = undefined;
 		audio.pause();
@@ -194,6 +203,7 @@ export function browserPlayer(): PlaybackBridge {
 		const track = state.tracks[index];
 		if (!track) throw new Error('This track is outside the play queue.');
 		if (sleepingTrack && sleepingTrack !== track) cancelSleep();
+		if (state.sleepTimer?.mode === 'track') sleepingTrack = track;
 		blockAdvance = false;
 		const playRevision = pauseRevision;
 		unload();
@@ -246,6 +256,10 @@ export function browserPlayer(): PlaybackBridge {
 					void cacheWebPlayback(account, track, blob, policy.revision);
 			}
 			if (request.signal.aborted) return;
+			setBrowserWaveformSource({ serverUrl, userId, id: track.id, blob });
+			const quality = await identifyAudio(blob, track.duration).catch(() => null);
+			if (request.signal.aborted) return;
+			state.quality = quality;
 			objectUrl = URL.createObjectURL(blob);
 			audio.src = objectUrl;
 			fadeVolume();
@@ -259,16 +273,23 @@ export function browserPlayer(): PlaybackBridge {
 	}
 
 	audio.onended = () => {
-		if (sleepingTrack) {
-			cancelSleep();
-			blockAdvance = true;
-			audio.pause();
-			return;
-		}
 		if (blockAdvance) return;
 		const playRevision = pauseRevision;
 		checkSleep();
 		if (pauseRevision !== playRevision) return;
+		if (state.sleepTimer?.mode === 'track') {
+			const left = (state.sleepTimer.remaining ?? 1) - 1;
+			if (left < 1) {
+				cancelSleep();
+				blockAdvance = true;
+				audio.pause();
+				return;
+			}
+			state.sleepTimer = { mode: 'track', remaining: left };
+			sleepingTrack = state.repeat === 'one' ? state.tracks[state.index] : undefined;
+			if (state.repeat === 'off' && !windowCursor?.after && state.index + 1 >= state.tracks.length)
+				cancelSleep();
+		}
 		if (state.repeat === 'one') {
 			audio.currentTime = 0;
 			void audio.play().catch(() => {
@@ -346,13 +367,16 @@ export function browserPlayer(): PlaybackBridge {
 					(!Number.isInteger(value) || value! < 1 || value! > 240)
 				)
 					throw Error('Choose a whole number from 1 to 240 minutes.');
+				const count = value ?? 1;
+				if (action === 'sleepAfterTrack' && (!Number.isInteger(count) || count < 1 || count > 99))
+					throw Error('Choose between 1 and 99 tracks.');
 				cancelSleep();
 				if (action === 'sleepAfterTrack') {
 					sleepingTrack = current;
-					state.sleepTimer = { mode: 'track' };
+					state.sleepTimer = { mode: 'track', remaining: count };
 				} else {
 					const ms = value! * 60_000;
-					state.sleepTimer = { mode: 'minutes', endsAt: Date.now() + ms };
+					state.sleepTimer = { mode: 'minutes', endsAt: Date.now() + ms, finishTrack: to === 1 };
 					sleepAlarm = setTimeout(checkSleep, ms);
 				}
 				return snapshot();

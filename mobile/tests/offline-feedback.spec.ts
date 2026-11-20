@@ -147,11 +147,8 @@ async function settings(page: Page) {
 	await expect(page.getByLabel('Play only offline music')).toBeEnabled();
 }
 async function shelf(page: Page) {
-	await button(page, 'Open navigation menu').click();
-	await page
-		.getByRole('dialog')
-		.getByRole('button', { name: 'Offline music', exact: true })
-		.click();
+	await button(page, 'Library').click();
+	await button(page, 'Offline music').click();
 }
 async function edit(page: Page) {
 	const shelf = page.getByRole('region', { name: 'Offline music' });
@@ -246,10 +243,11 @@ test('airplane edits immediately qualify for a smart playlist and only the origi
 	expect(env.writes).toHaveLength(2);
 	await page.context().setOffline(true);
 	await button(page, 'Play all').click();
-	await page.getByText('Track tools', { exact: true }).click();
+	await button(page, 'More actions').click();
 	await button(page, 'Remove track from favorites').click();
 	await button(page, 'Clear rating').click();
 	await expect(button(page, 'Favorite track')).toHaveAttribute('aria-pressed', 'false');
+	await button(page, 'Close More actions').click();
 	await button(page, 'Close player').click();
 	await button(page, 'Library').click();
 	await button(page, 'Browse Playlists').click();

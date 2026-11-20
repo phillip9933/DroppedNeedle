@@ -11,7 +11,8 @@ import {
 	playerDefaults,
 	playerFields,
 	isNavigation,
-	isPlayerIcon
+	isPlayerIcon,
+	playerOptions
 } from '../player/layout';
 
 export type Board = 'home' | 'library' | 'discover';
@@ -27,6 +28,14 @@ export type Section = {
 	contentWidth?: number;
 	placement?: 'header' | 'header-start' | 'header-end' | 'hidden';
 	sameRow?: boolean;
+	stack?: boolean;
+	labelName?: string;
+	labelPosition?: 'above' | 'below';
+	seekStyle?: 'standard' | 'animated' | 'waveform';
+	showElapsed?: boolean;
+	showDuration?: boolean;
+	showRemaining?: boolean;
+	lyricsMode?: 'artwork' | 'sheet';
 	width?: number;
 	padding?: number;
 	vAlign?: 'start' | 'center' | 'end';
@@ -153,6 +162,9 @@ export function savedSections(server: string, user: string) {
 	return readBoards(server, user).filters;
 }
 
+export function hasSavedPlayerLayout(server: string, user: string) {
+	return localStorage.getItem(key(server, user, 'player')) !== null;
+}
 export function loadLayout(server: string, user: string, board: LayoutTarget): Section[] {
 	const boards = board === 'player' ? null : readBoards(server, user);
 	let entries: unknown = board === 'player' ? null : boards?.layouts[board];
@@ -178,7 +190,13 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 		if (
 			!filter &&
 			!allowed.has(item.id) &&
-			!(board === 'player' && (isPlayerText(item.id) || isPlayerSlot(item.id)))
+			!(
+				board === 'player' &&
+				(isPlayerText(item.id) ||
+					isPlayerSlot(item.id) ||
+					item.id === 'player-tools' ||
+					item.id === 'player-menu')
+			)
 		)
 			continue;
 		seen.add(item.id);
@@ -198,6 +216,7 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 				(isNavigation(item.id) && ['header-start', 'header-end', 'hidden'].includes(item.placement))
 			)
 				section.placement = item.placement;
+			Object.assign(section, playerOptions(item));
 			if (item.sameRow === true) section.sameRow = true;
 			if (['start', 'center', 'end'].includes(item.vAlign)) section.vAlign = item.vAlign;
 			if (isPlayerIcon(item.icon)) section.icon = item.icon;

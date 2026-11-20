@@ -1,15 +1,10 @@
 <script lang="ts">
 	import type { Section } from '../boards/layout';
-	import {
-		playerIconOptions,
-		supportsPlayerIcon,
-		supportsPlayerLines,
-		isPlayerMetadata
-	} from './layout';
+	import { defaultFieldLabel, supportsPlayerLines } from './layout';
 	let { field, change }: { field: Section; change: (patch: Partial<Section>) => void } = $props();
 	function number(input: HTMLInputElement, min: number, max: number) {
 		return Number.isFinite(input.valueAsNumber)
-			? Math.max(min, Math.min(max, Math.round(input.valueAsNumber)))
+			? Math.max(min, Math.min(max, input.valueAsNumber))
 			: undefined;
 	}
 </script>
@@ -30,11 +25,11 @@
 		>Padding (px)<input
 			aria-label="Padding"
 			type="number"
-			inputmode="numeric"
+			inputmode="decimal"
+			step="any"
 			min="0"
 			max="32"
-			placeholder="Default"
-			value={field.padding ?? ''}
+			value={field.padding ?? 0}
 			onchange={(e) => change({ padding: number(e.currentTarget, 0, 32) })}
 		/></label
 	>
@@ -49,57 +44,59 @@
 			><option value="end">Bottom</option></select
 		></label
 	>
-	{#if supportsPlayerIcon(field.id)}
+
+	<label
+		>Label<select
+			aria-label="Label"
+			value={(field.showLabel ?? defaultFieldLabel(field)) ? 'show' : 'hidden'}
+			onchange={(e) => change({ showLabel: e.currentTarget.value === 'show' })}
+			><option value="hidden">Hidden</option><option value="show">Show</option></select
+		></label
+	>
+	<label
+		>Label name<input
+			maxlength="64"
+			value={field.labelName ?? ''}
+			placeholder="Field name"
+			oninput={(e) => change({ labelName: e.currentTarget.value })}
+		/></label
+	>
+	<label
+		>Label position<select
+			value={field.labelPosition ?? 'below'}
+			onchange={(e) => change({ labelPosition: e.currentTarget.value as Section['labelPosition'] })}
+			><option value="above">Above</option><option value="below">Below</option></select
+		></label
+	>
+
+	{#if field.id === 'player-seek' || field.id === 'player-timeline'}
 		<label
-			>Icon<select
-				aria-label="Icon"
-				value={field.icon ?? 'default'}
-				onchange={(e) =>
-					change({ icon: e.currentTarget.value === 'default' ? undefined : e.currentTarget.value })}
-			>
-				{#each playerIconOptions as icon (icon.id)}<option value={icon.id}>{icon.label}</option
-					>{/each}</select
+			>Seek bar style<select
+				value={field.seekStyle ?? 'standard'}
+				onchange={(e) => change({ seekStyle: e.currentTarget.value as Section['seekStyle'] })}
+				><option value="standard">Standard</option><option value="animated">Animated</option><option
+					value="waveform">Waveform</option
+				></select
 			></label
 		>
-		<label
-			>Icon size (px)<input
-				aria-label="Icon size"
-				type="number"
-				inputmode="numeric"
-				min="12"
-				max="64"
-				placeholder="Default"
-				value={field.iconSize ?? ''}
-				onchange={(e) => change({ iconSize: number(e.currentTarget, 12, 64) })}
-			/></label
-		>
-		{#if isPlayerMetadata(field.id)}
-			{#if field.icon && !['default', 'none'].includes(field.icon)}
-				<label class="check"
-					><input
-						type="checkbox"
-						checked={field.showLabel !== false}
-						onchange={(e) => change({ showLabel: e.currentTarget.checked })}
-					/>Show text</label
-				>
-			{/if}
-		{:else}
-			<label class="wide"
-				>Action label<select
-					value={field.showLabel === undefined ? 'auto' : field.showLabel ? 'show' : 'hide'}
-					onchange={(e) =>
-						change({
-							showLabel:
-								e.currentTarget.value === 'auto' ? undefined : e.currentTarget.value === 'show'
-						})}
-				>
-					<option value="auto">Default</option><option value="show">Show label</option><option
-						value="hide">Hide label</option
-					></select
-				></label
-			>
-		{/if}
+		{#each [['showElapsed', 'Elapsed time'], ['showDuration', 'Total time'], ['showRemaining', 'Remaining time']] as [key, label] (key)}
+			{@const property = key as 'showElapsed' | 'showDuration' | 'showRemaining'}<label
+				class="check"
+				><input
+					type="checkbox"
+					checked={field[property] ?? property !== 'showRemaining'}
+					onchange={(e) => change({ [property]: e.currentTarget.checked })}
+				/>{label}</label
+			>{/each}
 	{/if}
+	{#if field.id === 'player-lyrics'}<label
+			>Lyrics display<select
+				value={field.lyricsMode ?? 'artwork'}
+				onchange={(e) => change({ lyricsMode: e.currentTarget.value as Section['lyricsMode'] })}
+				><option value="artwork">Over artwork</option><option value="sheet">Bottom sheet</option
+				></select
+			></label
+		>{/if}
 	{#if supportsPlayerLines(field.id)}
 		<label
 			>Text size<select
@@ -162,8 +159,5 @@
 	.styles .check input {
 		width: 1.15rem;
 		flex: none;
-	}
-	.wide {
-		grid-column: 1 / -1;
 	}
 </style>

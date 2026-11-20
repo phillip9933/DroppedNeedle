@@ -87,11 +87,8 @@ async function login(page: Page, user = 'listener') {
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 }
 async function offline(page: Page) {
-	await page.getByRole('button', { name: 'Open navigation menu' }).click();
-	await page
-		.getByRole('dialog')
-		.getByRole('button', { name: 'Offline music', exact: true })
-		.click();
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Offline music', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Offline music', exact: true })).toBeVisible();
 }
 async function options(page: Page) {
@@ -210,12 +207,12 @@ for (const retained of ['cached', 'automatic'] as const) {
 			await button('Pause').click();
 			expect(env.streams()).toBe(1);
 			await env.disconnect();
-			await page.getByText('Track tools', { exact: true }).click();
+			await button('More actions').click();
 			await button(retained === 'cached' ? 'Keep cached track' : 'Keep automatic download').click();
 			await expect(button('Manage track download')).toHaveText('Downloaded');
 			await button('Manage track download').click();
 			await button('Keep download').click();
-			await expect(page.getByRole('dialog')).toHaveCount(0);
+			await expect(page.getByRole('dialog', { name: 'Remove download?' })).toHaveCount(0);
 			await button('Manage track download').click();
 			await button('Remove download').click();
 			await expect(button('Connect to download')).toBeDisabled();
@@ -390,7 +387,7 @@ test('saved audio keeps viewed timed lyrics usable after restarting in airplane 
 	await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
 	await b('Play album').click();
 	await b('Pause').click();
-	await lyrics.locator('summary').click();
+	await b('Lyrics').click();
 	await expect(b('Seek to lyric We pass the harbour')).toBeVisible();
 	expect(reads).toBe(1);
 	await login(page);
@@ -401,7 +398,7 @@ test('saved audio keeps viewed timed lyrics usable after restarting in airplane 
 		.getByRole('button', { name: /^Held over/ })
 		.click();
 	await b('Pause').click();
-	await lyrics.locator('summary').click();
+	await b('Lyrics').click();
 	await b('Seek to lyric We pass the harbour').click();
 	await expect(page.getByRole('slider', { name: 'Playback position' })).toHaveValue('6');
 	await expect(lyrics.locator('[aria-current=true]')).toHaveText('We pass the harbour');

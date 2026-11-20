@@ -1,6 +1,8 @@
 import type { Section } from '../boards/layout';
 import { expandLegacyTrack, isPlayerSlot, isPlayerText } from './composition';
 import {
+	playerOptionKeys,
+	playerOptions,
 	playerMeasurements,
 	validMeasurement,
 	isNavigation,
@@ -11,6 +13,7 @@ import {
 
 const format = 'droppedneedle-player-layout';
 const keys = [
+	...playerOptionKeys,
 	'id',
 	'title',
 	'preview',
@@ -79,7 +82,16 @@ function readSection(item: unknown, index: number): Section {
 		showLabel,
 		reserveLines
 	} = item;
-	if (typeof id !== 'string' || !(knownIds.has(id) || isPlayerText(id) || isPlayerSlot(id)))
+	if (
+		typeof id !== 'string' ||
+		!(
+			knownIds.has(id) ||
+			id === 'player-tools' ||
+			id === 'player-menu' ||
+			isPlayerText(id) ||
+			isPlayerSlot(id)
+		)
+	)
 		throw Error(`${label} has an unknown player element ID.`);
 	if (Object.keys(item).some((key) => !keys.some((known) => known === key)))
 		throw Error(`${label} has an unknown option.`);
@@ -125,6 +137,7 @@ function readSection(item: unknown, index: number): Section {
 		throw Error(`${label} has an invalid navigation placement.`);
 	return {
 		...measurements,
+		...playerOptions(item, true),
 		...(vAlign === undefined ? {} : { vAlign }),
 		...(icon === undefined ? {} : { icon }),
 		...(showLabel === undefined ? {} : { showLabel }),

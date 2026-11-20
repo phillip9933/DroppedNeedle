@@ -200,7 +200,10 @@ test('six live player columns fit 320px and action, alignment and text settings 
 	const albumLink = at('player-album').getByRole('button', { name: 'Open album ' + album });
 	await expect(albumLink).toBeVisible();
 	await expect(albumLink.locator('[data-player-icon="album"] svg')).toHaveCSS('height', '18px');
-	expect((await albumLink.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+	const fit = await live
+		.locator('.player-frame')
+		.evaluate((el) => Number(getComputedStyle(el).getPropertyValue('--player-fit')) || 1);
+	expect((await albumLink.boundingBox())!.height / fit).toBeGreaterThanOrEqual(43.9);
 	await expect(albumLink.locator('.lines')).toHaveCount(0);
 	await expect(at('player-text').getByRole('img', { name: 'Detail · South' })).toBeVisible();
 	await expect(at('player-text').locator('.lines')).toHaveCount(0);
@@ -214,19 +217,19 @@ test('six live player columns fit 320px and action, alignment and text settings 
 			line: getComputedStyle(el).lineHeight
 		}));
 	// Computed min-block-size materializes reserved line boxes even when this artist fits on one line.
-	expect(lines.height).toBeGreaterThan(34);
+	expect(lines.height / fit).toBeGreaterThan(34);
 	const weighted = await at('player-text').boundingBox(),
 		wide = await at('player-album').boundingBox();
 	expect(wide!.width).toBeGreaterThan(weighted!.width * 2.8);
 	const bottom = await at('player-text').locator('.content').boundingBox(),
 		top = await at('player-album').locator('.content').boundingBox();
-	expect(bottom!.y).toBeGreaterThan(top!.y + 45);
+	expect(bottom!.y).toBeGreaterThan(top!.y + 45 * fit);
 	await expect(at('player-text').locator('.content')).toHaveCSS('padding', '8px');
 	const buttons = live.locator('[data-part="player-row"]').nth(3).getByRole('button');
 	await expect(buttons).toHaveCount(5);
 	for (const button of await buttons.all()) {
 		const box = (await button.boundingBox())!;
-		expect(box.width).toBeGreaterThanOrEqual(44);
+		expect(box.width / fit).toBeGreaterThanOrEqual(43.9);
 		expect(box.x).toBeGreaterThanOrEqual(0);
 		expect(box.x + box.width).toBeLessThanOrEqual(320);
 	}
@@ -239,7 +242,7 @@ test('six live player columns fit 320px and action, alignment and text settings 
 	).toHaveCSS('width', '26px');
 	await expect(sample.locator('[data-section-id="player-text"] [role="img"]')).toHaveAttribute(
 		'aria-label',
-		'Detail · Northline'
+		'Detail · Artist Name'
 	);
 	await expect(sample.locator('[data-section-id="player-slot-2"]')).toBeVisible();
 	await expect(sample.locator('[data-section-id="player-title"] .lines')).toHaveCSS(
@@ -254,7 +257,10 @@ test('six live player columns fit 320px and action, alignment and text settings 
 		'padding',
 		'8px'
 	);
-	expect((await sample.locator('[data-section-id="player-slot-2"]').boundingBox())!.height).toBe(
-		26
-	);
+	const sampleFit = await sample
+		.locator('.player-frame')
+		.evaluate((el) => Number(getComputedStyle(el).getPropertyValue('--player-fit')) || 1);
+	expect(
+		(await sample.locator('[data-section-id="player-slot-2"]').boundingBox())!.height / sampleFit
+	).toBeCloseTo(26, 0);
 });
