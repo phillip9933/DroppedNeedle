@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { online } from 'svelte/reactivity/window';
+	import { rememberedPlaylistNames } from '../catalog/playlistOffline';
+	import { playlists } from '../catalog/playlists';
+	import { playlistId, playlistSource, type PlaylistSource } from './tracks';
 	import { Capacitor } from '@capacitor/core';
 	import type { Session } from '../connection';
 	import ViewedMediaSettings from './ViewedMediaSettings.svelte';
@@ -8,6 +12,8 @@
 	import {
 		cacheSizes,
 		clearAutomatic,
+		clearPlaylistDownloads,
+		playlistSyncIssue,
 		configureOffline,
 		nativeOffline,
 		offlineDefaults,
@@ -28,8 +34,72 @@
 		confirming = $state(false),
 		error = $state(''),
 		receipt = $state('');
-	async function read() {
+	let picking = $state(false),
+		confirmPlaylist = $state(false),
+		playlistError = $state(''),
+		syncIssue = $state(''),
+		listRetry = $state(0),
+		listLoading = $state(false);
+	let choices = $state.raw<{ id: string; name: string }[]>([]);
+	const selectedId = $derived(playlistId(options.autoDownload));
+	const showPicker = $derived(picking || selectedId !== null);
+	const useNetwork = $derived(!options.offlineOnly && online.current);
+	const canSelect = (p: { id: string }) =>
+		playlistSource(p.id) !== null && !p.id.includes('/') && !p.id.includes('\\');
+	$effect(() => {
+		const source = options.autoDownload,
+			owner = session;
+		const update = () => (syncIssue = playlistSyncIssue(owner, source));
+		update();
+		window.addEventListener('dn-playlist-sync', update);
+		return () => window.removeEventListener('dn-playlist-sync', update);
+	});
+	$effect(() => {
+		if (!showPicker) return;
+		const controller = new AbortController(),
+			owner = session;
+		void listRetry;
+		choices = rememberedPlaylistNames(owner).filter(canSelect);
+		playlistError = '';
+		listLoading = !!useNetwork;
+		if (useNetwork)
+			playlists(owner, controller.signal)
+				.then((rows) => {
+					if (!controller.signal.aborted) choices = rows.filter(canSelect);
+				})
+				.catch(() => {
+					if (!controller.signal.aborted) playlistError = 'Could not refresh the playlist list.';
+				})
+				.finally(() => {
+					if (!controller.signal.aborted) listLoading = false;
+				});
+		return () => controller.abort();
+	});
+	async function clearPlaylist() {
+		if (!selectedId || busy) return;
+		busy = true;
+		++syncVisit;
+		syncing = false;
 		error = '';
+		confirmPlaylist = false;
+		try {
+			options = await clearPlaylistDownloads(session, options.autoDownload as PlaylistSource);
+			picking = false;
+			await read();
+			receipt = 'Automatic downloads turned off and automatic copies removed.';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Could not remove automatic copies.';
+		} finally {
+			busy = false;
+		}
+	}
+	function chooseSource(value: string) {
+		confirmPlaylist = false;
+		picking = value === 'playlist';
+		if (value === 'recent' || value === 'favorites' || value === 'off')
+			void change({ ...options, autoDownload: value });
+	}
+	async function read() {
 		try {
 			const state = await offlineSnapshot(session);
 			options = state.options;
@@ -47,6 +117,10 @@
 	async function change(next: OfflineOptions) {
 		if (busy) return;
 		busy = true;
+		++syncVisit;
+		syncing = false;
+		confirmPlaylist = false;
+		error = '';
 		receipt = '';
 		try {
 			const changedSource =
@@ -78,7 +152,11 @@
 				? n + (n === 1 ? ' automatic download added.' : ' automatic downloads added.')
 				: 'No automatic downloads added.';
 		} catch (e) {
-			if (visit === syncVisit && !(e instanceof DOMException && e.name === 'AbortError'))
+			if (
+				visit === syncVisit &&
+				!(e instanceof Error && playlistSyncIssue(session, options.autoDownload) === e.message) &&
+				!(e instanceof DOMException && e.name === 'AbortError')
+			)
 				error = e instanceof Error ? e.message : 'Could not update automatic downloads.';
 		} finally {
 			if (visit === syncVisit) syncing = false;
@@ -145,22 +223,58 @@
 		<legend>Automatic downloads</legend>
 		<label
 			>Download source<select
-				value={options.autoDownload}
-				onchange={(e) =>
-					change({
-						...options,
-						autoDownload: e.currentTarget.value as OfflineOptions['autoDownload']
-					})}
+				value={showPicker ? 'playlist' : options.autoDownload}
+				onchange={(e) => chooseSource(e.currentTarget.value)}
 			>
 				<option value="off">Off</option>
 				<option value="recent">Recently added songs</option>
 				<option value="favorites">Favorite songs</option>
+				<option value="playlist">DN playlist</option>
 			</select></label
 		>
+		{#if showPicker}
+			<label
+				>DN playlist<select
+					value={selectedId ?? ''}
+					onchange={(e) => {
+						const source = playlistSource(e.currentTarget.value);
+						if (source) void change({ ...options, autoDownload: source });
+					}}
+				>
+					<option value="" disabled>Choose a playlist</option>
+					{#if selectedId && !choices.some((p) => p.id === selectedId)}<option value={selectedId}
+							>Selected playlist</option
+						>{/if}
+					{#each choices as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+				</select></label
+			>
+			{#if playlistError}<p role="status">{playlistError}</p>
+				<button class="text-button" onclick={() => listRetry++}>Refresh playlist list</button>
+			{:else if listLoading}<p role="status">Reading playlists…</p>
+			{:else if !choices.length}<p>
+					{useNetwork ? 'No DN playlists available.' : 'Reconnect to DN to choose a playlist.'}
+				</p>{/if}
+			{#if selectedId}
+				{#if syncIssue}<p role="status">{syncIssue}</p>{/if}
+				{#if confirmPlaylist}<p>
+						Turn off automatic downloads and remove all automatic copies for this account? Manually
+						saved songs and the playback cache will stay.
+					</p>
+					<button class="secondary" onclick={() => (confirmPlaylist = false)}>Cancel</button>
+					<button class="secondary" onclick={clearPlaylist}
+						>Turn off and remove automatic copies</button
+					>
+				{:else}<button class="text-button" onclick={() => (confirmPlaylist = true)}
+						>Remove automatic playlist downloads</button
+					>{/if}
+			{/if}
+		{/if}
 		{#if options.autoDownload !== 'off'}
 			<p>
-				Keep up to 25 of the most recently added songs from this source while the app is open. Songs
-				you remove stay excluded until you save them yourself.
+				{selectedId
+					? 'Keep playable songs in playlist order within your download limit. The app checks DN when you return.'
+					: 'Keep up to 25 of the most recently added songs from this source while the app is open.'}
+				Songs you remove stay excluded until you save them yourself.
 			</p>
 			<label
 				>Automatic download limit<select
@@ -218,7 +332,13 @@
 		>{/if}
 {/if}
 {#if error}<p role="alert">{error}</p>
-	<button class="text-button" onclick={read}>Try again</button>{/if}
+	<button
+		class="text-button"
+		onclick={() => {
+			error = '';
+			void read();
+		}}>Try again</button
+	>{/if}
 {#if receipt}<p role="status">{receipt}</p>{/if}
 
 <style>
