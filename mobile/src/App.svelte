@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { get } from 'svelte/store';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
 	import { Menu, Settings2 } from '@lucide/svelte';
@@ -24,6 +25,14 @@
 	import type { LibraryContinuation } from './lib/player/libraryWindow';
 	import { player, type PlayerTrack } from './lib/player';
 	import PlayerView from './lib/PlayerView.svelte';
+	import PlayerLibraryDetail from './lib/player/PlayerLibraryDetail.svelte';
+	import {
+		rememberQueueSource,
+		restoredQueueSource,
+		type Credit,
+		type PlayerCredit,
+		type SavedScope
+	} from './lib/player/related';
 	import Catalog from './lib/catalog/Catalog.svelte';
 	import Appearance from './lib/appearance/Appearance.svelte';
 	import brand from '../../frontend/static/android-chrome-192x192.png';
@@ -32,6 +41,11 @@
 	let tab = $state<BrowseDestination>('home');
 	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
 	let catalogScroll = 0;
+	let offlineLibrary = $state<OfflineLibrary>();
+	let queueScope: SavedScope | undefined;
+	let related = $state.raw<PlayerCredit>();
+	let relatedScroll = 0,
+		creditControl: HTMLElement | undefined;
 	let fromPlayer = $state(false);
 	let playerScroll = 0;
 	let settingsOrigin: 'catalog' | 'player' | 'queue' = 'catalog';
@@ -53,6 +67,7 @@
 	}
 	function navigate(to: BrowseDestination) {
 		changeScreen(() => {
+			clearRelated();
 			catalogVisit++;
 			tab = to;
 			panel = 'catalog';
@@ -74,8 +89,35 @@
 			main?.focus({ preventScroll: true });
 		});
 	}
+	function clearRelated() {
+		related = undefined;
+		creditControl = undefined;
+	}
+	function openCredit(kind: Credit, track: PlayerTrack, control: HTMLElement) {
+		if (!inPlayer || !session || related) return;
+		changeScreen(() => {
+			relatedScroll = main?.scrollTop ?? 0;
+			creditControl = control;
+			related = { kind, track, scope: queueScope };
+			focusMain();
+		});
+	}
+	function returnToPlayer() {
+		const control = creditControl,
+			offset = relatedScroll;
+		changeScreen(() => {
+			clearRelated();
+			void tick().then(() => {
+				main?.scrollTo(0, offset);
+				(control?.isConnected && !control.closest('[hidden]') ? control : main)?.focus({
+					preventScroll: true
+				});
+			});
+		});
+	}
 	function openPanel(next: 'player' | 'settings') {
 		changeScreen(() => {
+			clearRelated();
 			fromPlayer = false;
 			if (panel === 'catalog') catalogScroll = main?.scrollTop ?? 0;
 			if (next === 'settings') {
@@ -119,6 +161,10 @@
 	function back() {
 		if (drawer?.back()) return true;
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
+		if (related && inPlayer) {
+			returnToPlayer();
+			return true;
+		}
 		if (panel === 'settings' && settings?.goBack()) return true;
 		if (panel === 'queue') {
 			toggleQueue();
@@ -159,6 +205,7 @@
 		let restoreError: unknown;
 		try {
 			await player.restore(next);
+			queueScope = await restoredQueueSource(next, get(player).tracks);
 		} catch (error) {
 			restoreError = error;
 		}
@@ -174,9 +221,18 @@
 	async function start(tracks: PlayerTrack[], index: number, continuation?: LibraryContinuation) {
 		const account = session;
 		if (!account) return;
+		const origin = related
+			? related.scope
+			: panel === 'catalog'
+				? tab === 'offline'
+					? offlineLibrary?.getPlaybackAvailability()
+					: catalog?.getPlaybackAvailability()
+				: undefined;
 		try {
 			await player.setQueue(tracks, index, account, continuation);
 			if (session === account) {
+				queueScope = origin;
+				rememberQueueSource(account, origin, tracks);
 				issue = '';
 				openPanel('player');
 			}
@@ -188,6 +244,9 @@
 		const previous = session;
 		if (!previous) return;
 		session = null;
+		clearRelated();
+		rememberQueueSource(previous);
+		queueScope = undefined;
 		drawerOpen = false;
 		panel = 'catalog';
 		tab = 'home';
@@ -263,7 +322,7 @@
 			onnavigate={choose}
 		/>
 	{/if}
-	{#if !inPlayer}
+	{#if !inPlayer || related}
 		<header class="mast">
 			{#if session}{@render menuToggle()}{/if}
 			{#if catalogHeader}{@render catalogHeader()}{:else}
@@ -289,6 +348,7 @@
 			{#if session}
 				<div hidden={panel !== 'catalog'} class="pad">
 					{#key catalogVisit}{#if tab === 'offline'}<OfflineLibrary
+								bind:this={offlineLibrary}
 								{session}
 								onplay={start}
 							/>{:else}<Catalog
@@ -317,17 +377,29 @@
 				</div>
 			{/if}
 			{#if inPlayer && session}
-				<PlayerView
-					{menuToggle}
-					{session}
-					expanded={true}
-					queueOpen={panel === 'queue'}
-					ontogglequeue={toggleQueue}
-					onsettings={playerSettings}
-					onexpand={() => {}}
-					oncollapse={closePanel}
-					onerror={report}
-				/>
+				<div hidden={!!related}>
+					<PlayerView
+						oncredit={openCredit}
+						{menuToggle}
+						{session}
+						expanded={true}
+						queueOpen={panel === 'queue'}
+						ontogglequeue={toggleQueue}
+						onsettings={playerSettings}
+						onexpand={() => {}}
+						oncollapse={closePanel}
+						onerror={report}
+					/>
+				</div>
+				{#if related}<div class="pad">
+						<PlayerLibraryDetail
+							{session}
+							credit={related}
+							onback={returnToPlayer}
+							onplay={start}
+							onnavigate={navigate}
+						/>
+					</div>{/if}
 			{/if}
 		{/if}
 	</main>

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
+	import type { OnlineCredit } from '../player/related';
 	import { librarySelectionBack } from './librarySelection.svelte';
 	import type { Session } from '../connection';
 	import type { Album, CatalogTab, OnPlay } from './catalog';
@@ -21,19 +22,31 @@
 		tab,
 		onplay,
 		onnavigate,
-		onoffline
+		onoffline,
+		initialCredit,
+		onreturn
 	}: {
 		session: Session;
 		active: boolean;
 		tab: CatalogTab;
 		onplay: OnPlay;
 		onoffline?: () => void;
+		initialCredit?: OnlineCredit;
+		onreturn?: () => void;
 		onnavigate: (tab: CatalogTab) => void;
 	} = $props();
 	const dismissSelection = librarySelectionBack();
 	let boardView = $state<{ goBack: () => boolean }>();
 	let hub = $state<LibraryHub>();
 	let searchView = $state<Search>();
+	export function getPlaybackAvailability() {
+		if (inside) return undefined;
+		return tab === 'library'
+			? hub?.getPlaybackAvailability()
+			: tab === 'search'
+				? searchView?.getPlaybackAvailability()
+				: undefined;
+	}
 	export function getHeader() {
 		return tab === 'library' && !inside ? hub?.getHeader() : undefined;
 	}
@@ -41,8 +54,12 @@
 		return tab === 'library' ? (hub?.goBack() ?? false) : (boardView?.goBack() ?? false);
 	}
 	let playlist = $state<Playlist | null>(null),
-		album = $state<Album | null>(null);
-	let localArtist = $state<LocalArtist | null>(null);
+		album = $state<Album | null>(
+			untrack(() => (initialCredit?.kind === 'album' ? initialCredit.album : null))
+		);
+	let localArtist = $state<LocalArtist | null>(
+		untrack(() => (initialCredit?.kind === 'artist' ? initialCredit.artist : null))
+	);
 	let artist = $state<DiscoverArtistRef | null>(null);
 	let term = $state(''),
 		genre = $state('');
@@ -81,6 +98,10 @@
 		localArtist = item;
 	}
 	function back() {
+		if (initialCredit && !offsets.length) {
+			onreturn?.();
+			return;
+		}
 		if (album) album = null;
 		else if (playlist) playlist = null;
 		else if (artist) artist = null;
@@ -103,7 +124,7 @@
 		return () => window.removeEventListener('dn-back', systemBack);
 	});
 	function showRequests() {
-		back();
+		if (!initialCredit) back();
 		onnavigate('requests');
 	}
 </script>
@@ -170,6 +191,9 @@
 			<LocalArtistDetail
 				{session}
 				artist={localArtist}
+				backLabel={initialCredit?.kind === 'artist' && initialCredit.artist.id === localArtist.id
+					? 'Back to Now Playing'
+					: undefined}
 				active={active && !album && !artist}
 				onopen={open}
 				onartist={openLocal}
@@ -183,6 +207,9 @@
 		</div>{/if}
 	{#if album}{#key album}<AlbumDetail
 				{album}
+				backLabel={initialCredit?.kind === 'album' && initialCredit.album === album
+					? 'Back to Now Playing'
+					: undefined}
 				{session}
 				{onplay}
 				onback={back}

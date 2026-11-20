@@ -27,13 +27,15 @@
 		session,
 		onplay,
 		onback,
-		onrequests
+		onrequests,
+		backLabel = 'Back'
 	}: {
 		album: Album;
 		session: Session;
 		onplay: OnPlay;
 		onback: () => void;
 		onrequests: () => void;
+		backLabel?: string;
 	} = $props();
 	let tracks = $state<PlayerTrack[]>([]),
 		choices = $state<Edition[]>([]),
@@ -128,7 +130,7 @@
 	});
 </script>
 
-<button class="secondary" onclick={onback}><ArrowLeft size={16} /> Back</button>
+<button class="secondary" onclick={onback}><ArrowLeft size={16} /> {backLabel}</button>
 <div class="detail" data-part="album-detail">
 	<div class="art"><Cover {session} path={album.art} seed={album.group || album.title} /></div>
 	<div>

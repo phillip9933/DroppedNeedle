@@ -20,6 +20,7 @@
 	import PlayerActionFace from './player/PlayerActionFace.svelte';
 	import PlayerNavigationAction from './player/PlayerNavigationAction.svelte';
 	import PlayerMetadata from './player/PlayerMetadata.svelte';
+	import type { Credit } from './player/related';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import SleepTimer from './player/SleepTimer.svelte';
 	import { isPlayerMetadata, isNavigation, trackToolFields } from './player/layout';
@@ -49,6 +50,7 @@
 		onexpand,
 		oncollapse,
 		onerror,
+		oncredit,
 		editor
 	}: {
 		session: Session;
@@ -60,6 +62,7 @@
 		onexpand: () => void;
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
+		oncredit?: (kind: Credit, track: PlayerTrack, control: HTMLElement) => void;
 		editor?: {
 			sections: Section[];
 			selected: string;
@@ -153,6 +156,16 @@
 	}
 </script>
 
+{#snippet groupCredit(kind: Credit, value: string)}
+	{#if oncredit && !editor && track && value}
+		<button
+			type="button"
+			class="credit-link"
+			aria-label={'Open ' + kind + ' ' + value}
+			onclick={(e) => oncredit?.(kind, track, e.currentTarget)}>{value}</button
+		>
+	{:else}{value}{/if}
+{/snippet}
 {#snippet previous(section?: Section)}
 	<button class="skip" aria-label="Previous track" onclick={() => action(player.previous)}>
 		<PlayerActionFace {section} glyph={SkipBack} size={28} label="Previous" />
@@ -347,9 +360,9 @@
 										{:else if section.id === 'player-track'}
 											<div class="track-meta">
 												<h1 class="lines">{track.title}</h1>
-												<p class="lines">{track.artist}</p>
+												<p class="lines">{@render groupCredit('artist', track.artist)}</p>
 												{#if section.preview && track.album}<small class="lines"
-														>{track.album}</small
+														>{@render groupCredit('album', track.album)}</small
 													>{/if}
 											</div>
 										{:else if section.id === 'player-timeline' || section.id === 'player-seek'}
@@ -389,8 +402,20 @@
 												{@render shuffle(section.preview)}
 											</div>
 										{:else if isPlayerMetadata(section.id)}
+											{@const credit =
+												section.id === 'player-artist'
+													? 'artist'
+													: section.id === 'player-album'
+														? 'album'
+														: undefined}
 											<PlayerMetadata
 												{section}
+												openLabel={credit && track[credit]
+													? 'Open ' + credit + ' ' + track[credit]
+													: undefined}
+												onopen={credit && track[credit] && !editor && oncredit
+													? (el) => oncredit?.(credit, track, el)
+													: undefined}
 												value={isPlayerText(section.id)
 													? formatPlayerText(section.template, fields)
 													: section.id === 'player-title'
@@ -884,6 +909,20 @@
 		min-width: min(100%, 10rem);
 		margin-block: clamp(0.2rem, 2vh, 2rem);
 		margin-inline: var(--art-start, auto) var(--art-end, auto);
+	}
+	.credit-link {
+		color: inherit;
+		font: inherit;
+		text-align: inherit;
+		padding: 0;
+		min-height: 44px;
+		min-width: min(44px, 100%);
+		max-width: 100%;
+		overflow-wrap: anywhere;
+	}
+	.credit-link:hover,
+	.credit-link:focus-visible {
+		text-decoration: underline;
 	}
 	.track-meta h1,
 	.track-meta p {

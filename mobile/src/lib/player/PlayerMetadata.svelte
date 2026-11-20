@@ -1,14 +1,27 @@
 <script lang="ts">
 	import { sectionTitle, type Section } from '../boards/layout';
 	import { explicitPlayerGlyph } from './glyphs';
-	let { section, value }: { section: Section; value: string } = $props();
+	let {
+		section,
+		value,
+		openLabel,
+		onopen
+	}: {
+		section: Section;
+		value: string;
+		openLabel?: string;
+		onopen?: (el: HTMLButtonElement) => void;
+	} = $props();
 	const Glyph = $derived(explicitPlayerGlyph(section.icon));
 	const title = $derived(section.id === 'player-title');
 	const iconOnly = $derived(!!Glyph && (section.showLabel === false || !value));
 </script>
 
 <svelte:element
-	this={title ? 'h1' : iconOnly ? 'span' : 'p'}
+	this={onopen ? 'button' : title ? 'h1' : iconOnly ? 'span' : 'p'}
+	type={onopen ? 'button' : undefined}
+	onclick={onopen ? (e: MouseEvent) => onopen?.(e.currentTarget as HTMLButtonElement) : undefined}
+	class:credit-link={!!onopen}
 	class="metadata"
 	class:field-title={title}
 	class:field-heading={section.id === 'player-heading'}
@@ -18,8 +31,8 @@
 	class:with-icon={!!Glyph}
 	class:icon-only={iconOnly}
 	data-lines={section.maxLines || undefined}
-	role={iconOnly && !title ? 'img' : undefined}
-	aria-label={iconOnly ? value || sectionTitle(section) : undefined}
+	role={!onopen && iconOnly && !title ? 'img' : undefined}
+	aria-label={onopen ? openLabel : iconOnly ? value || sectionTitle(section) : undefined}
 >
 	{#if Glyph}<span
 			class="metadata-icon"
@@ -36,6 +49,18 @@
 		min-width: 0;
 		margin: 0;
 		overflow-wrap: anywhere;
+	}
+	.credit-link {
+		font: inherit;
+		color: inherit;
+		text-align: var(--cell-align, start);
+		padding: 0;
+		width: 100%;
+		min-height: 44px;
+	}
+	.credit-link:hover .lines,
+	.credit-link:focus-visible .lines {
+		text-decoration: underline;
 	}
 	.with-icon {
 		display: flex;

@@ -21,7 +21,8 @@
 		onartist,
 		ondiscover,
 		onplay,
-		onback
+		onback,
+		backLabel = 'Back to artists'
 	}: {
 		session: Session;
 		artist: LocalArtist;
@@ -31,6 +32,7 @@
 		ondiscover: (a: DiscoverArtistRef) => void;
 		onplay: OnPlay;
 		onback: () => void;
+		backLabel?: string;
 	} = $props();
 	let view = $state<'albums' | 'songs' | 'appearances'>('albums'),
 		summary = $state<ArtistView | null>(null),
@@ -63,7 +65,7 @@
 	});
 </script>
 
-<button class="text-button" onclick={onback}>Back to artists</button>
+<button class="text-button" onclick={onback}>{backLabel}</button>
 <section data-part="local-artist-detail">
 	<h1>{current.name}</h1>
 	<div class="actions">
