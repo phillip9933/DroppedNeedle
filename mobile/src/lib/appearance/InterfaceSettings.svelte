@@ -1,16 +1,32 @@
 <script lang="ts">
 	import { ArrowUp, ArrowDown, Check, Play } from '@lucide/svelte';
 	import sampleArtwork from '../player/tidal-memory.webp';
+	import type { Session } from '../connection';
 	import {
 		defaultInterface,
 		destinations,
 		interfacePreferences,
 		setInterface,
+		readStartScreen,
+		saveStartScreen,
 		maxTabs,
 		type Destination,
+		type StartScreen,
 		type InterfacePreferences
 	} from './interface';
-	let { offline = false }: { offline?: boolean } = $props();
+	let { offline = false, session }: { offline?: boolean; session: Session | null } = $props();
+	let opening = $derived(session ? readStartScreen(session) : 'automatic');
+	let saveIssue = $state('');
+	function changeStart(value: StartScreen) {
+		if (!session) return;
+		try {
+			saveStartScreen(session, value);
+			opening = value;
+			saveIssue = '';
+		} catch {
+			saveIssue = 'Could not save the start screen on this device.';
+		}
+	}
 	const options = $derived(destinations.filter((d) => offline || d.id !== 'offline'));
 	const visible = $derived(
 		$interfacePreferences.tabs.filter((id) => options.some((o) => o.id === id))
@@ -77,6 +93,20 @@
 			></select
 		></label
 	>
+	{#if session?.userId}
+		<label
+			>Start screen
+			<select value={opening} onchange={(e) => changeStart(e.currentTarget.value as StartScreen)}>
+				<option value="automatic">Automatic</option>
+				<option value="home">Home</option>
+				<option value="library">Library</option>
+				<option value="player">Now Playing</option>
+			</select>
+		</label>
+		{#if opening === 'automatic'}<p>Open Home when connected and Offline music when offline.</p>
+		{:else if opening === 'player'}<p>Open your saved queue. An empty queue opens Library.</p>{/if}
+		{#if saveIssue}<p role="alert">{saveIssue}</p>{/if}
+	{/if}
 	<h2>Navigation bar</h2>
 	<div class="segmented" role="group" aria-label="Navigation bar position">
 		{#each ['docked', 'floating'] as bar (bar)}<button
@@ -128,8 +158,12 @@
 		/>
 		Swipe album art or the mini-player to change tracks
 	</label>
-	<button class="secondary" onclick={() => setInterface(defaultInterface)}
-		>Restore interface defaults</button
+	<button
+		class="secondary"
+		onclick={() => {
+			setInterface(defaultInterface);
+			changeStart('automatic');
+		}}>Restore interface defaults</button
 	>
 </section>
 

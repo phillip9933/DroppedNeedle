@@ -76,7 +76,7 @@ test.beforeEach(async ({ page }) => {
 					}
 					if (plugin === 'DNOffline') {
 						const options = {
-							offlineOnly: false,
+							offlineOnly: sessionStorage.getItem('offline-only') === '1',
 							autoDownload: 'off',
 							downloadMiB: 512,
 							autoCache: false,
@@ -110,6 +110,8 @@ test.beforeEach(async ({ page }) => {
 						return;
 					}
 					if (plugin === 'DNPlayer') {
+						if (method === 'command' && opts.action === 'toggle')
+							sessionStorage.setItem('toggled-playback', '1');
 						if (method === 'findOutputs') {
 							sessionStorage.setItem('cast-search', 'yes');
 							return { devices: [{ id: 'mock-renderer', name: 'Fixture receiver' }] };
@@ -123,13 +125,24 @@ test.beforeEach(async ({ page }) => {
 						if (method === 'stopCasting') sessionStorage.removeItem('receiver');
 						if (['outputState', 'castTo', 'googleCast', 'stopCasting'].includes(method))
 							return { destination: sessionStorage.getItem('receiver') ?? '' };
+						const track = sessionStorage.getItem('restored-song');
 						return {
 							repeat: 'off',
-							tracks: [],
-							index: -1,
+							tracks: track
+								? [
+										{
+											id: 'saved',
+											title: track,
+											artist: 'Strings',
+											album: 'Nightfall',
+											streamUrl: '/api/v3/stream/local/saved'
+										}
+									]
+								: [],
+							index: track ? 0 : -1,
 							playing: false,
-							position: 0,
-							duration: 0,
+							position: track ? 41 : 0,
+							duration: track ? 120 : 0,
 							error: null
 						};
 					}
@@ -208,6 +221,49 @@ async function deliverApproval(page: Page) {
 	}, reply);
 	return launched;
 }
+
+test('the chosen start screen works offline and opens a restored song without starting playback', async ({
+	page
+}) => {
+	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await deliverApproval(page);
+	const heading = (name: string) => page.getByRole('heading', { name, exact: true });
+	const openInterface = async () => {
+		await page.getByRole('button', { name: 'Settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Interface and navigation', exact: true }).click();
+	};
+	await expect(heading('Home')).toBeVisible();
+	await openInterface();
+	const start = page.getByLabel('Start screen');
+	await expect(start).toHaveValue('automatic');
+	await start.selectOption('player');
+	await page.reload();
+	await expect(heading('Library')).toBeVisible();
+	await page.evaluate(() => {
+		sessionStorage.setItem('restored-song', 'Night service');
+		sessionStorage.setItem('offline-only', '1');
+	});
+	await page.reload();
+	const player = page.getByRole('region', { name: 'Now playing' });
+	await expect(player).toBeVisible();
+	await expect(player.getByText('Night service', { exact: true }).first()).toBeVisible();
+	await expect(player.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('toggled-playback'))).toBeNull();
+	await player.getByRole('button', { name: 'Close player' }).click();
+	await expect(heading('Library')).toBeVisible();
+	await openInterface();
+	await start.selectOption('library');
+	await page.reload();
+	await expect(heading('Library')).toBeVisible();
+	await openInterface();
+	await start.selectOption('home');
+	await page.reload();
+	await expect(heading('Home')).toBeVisible();
+	await openInterface();
+	await page.getByRole('button', { name: 'Restore interface defaults' }).click();
+	await page.reload();
+	await expect(heading('Offline music')).toBeVisible();
+});
 
 test('Android offline history settings preserve pending listens until discard is confirmed', async ({
 	page

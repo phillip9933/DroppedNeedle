@@ -1,5 +1,6 @@
 import { get, writable } from 'svelte/store';
 import { tick } from 'svelte';
+import type { Session } from '../connection';
 import {
 	House,
 	LibraryBig,
@@ -21,6 +22,23 @@ export const destinations = [
 ] as const;
 export type Destination = (typeof destinations)[number]['id'];
 export type BrowseDestination = Exclude<Destination, 'settings'>;
+export type StartScreen = 'automatic' | 'home' | 'library' | 'player';
+function startKey(session: Session) {
+	return 'dn.mobile.start-screen.v1.' + JSON.stringify([session.serverUrl, session.userId]);
+}
+export function readStartScreen(session: Session): StartScreen {
+	try {
+		const saved = session.userId && localStorage.getItem(startKey(session));
+		return saved === 'home' || saved === 'library' || saved === 'player' ? saved : 'automatic';
+	} catch {
+		return 'automatic';
+	}
+}
+export function saveStartScreen(session: Session, screen: StartScreen) {
+	if (!session.userId) return;
+	if (screen === 'automatic') localStorage.removeItem(startKey(session));
+	else localStorage.setItem(startKey(session), screen);
+}
 export const maxTabs = 5;
 export type InterfacePreferences = {
 	surface: 'solid' | 'glass' | 'blur';
