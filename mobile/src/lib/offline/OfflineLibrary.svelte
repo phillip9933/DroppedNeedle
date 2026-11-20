@@ -3,6 +3,8 @@
 	import { CheckSquare, Download, Music2, Play, Trash2 } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { player, type PlayerTrack } from '../player';
+	import TrackActions from '../catalog/TrackActions.svelte';
+	import FeedbackStatus from './FeedbackStatus.svelte';
 	import {
 		watchOfflineMedia,
 		offlineSnapshot,
@@ -96,6 +98,7 @@
 
 <section bind:this={section} aria-label="Offline music" data-part="offline-music">
 	<h1>Offline music</h1>
+	<FeedbackStatus {session} />
 	<div class="bar" role="group" aria-label="Offline collection">
 		<button aria-pressed={view === 'downloaded'} onclick={() => choose('downloaded')}
 			>Saved downloads</button
@@ -209,7 +212,13 @@
 							></span
 						></button
 					>
-					{#if !selected}{#if !entry.pinned}<button
+					{#if !selected}<TrackActions
+							{session}
+							tracks={[entry.track]}
+							label={'Options for ' + entry.track.title}
+							localOnly
+							vertical
+						/>{#if !entry.pinned}<button
 								class="icon-button"
 								aria-label={'Keep ' + entry.track.title + ' offline'}
 								disabled={busy}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { saveOfflineTracks, offlineSupported } from '../offline/media';
+	import { saveOfflineTracks, offlineSupported, offlineInventory } from '../offline/media';
 	import { Ellipsis, EllipsisVertical } from '@lucide/svelte';
 	import { player, type PlayerTrack } from '../player';
 	import type { Session } from '../connection';
@@ -8,6 +8,7 @@
 	import AddToPlaylist from './AddToPlaylist.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import Favorite from './Favorite.svelte';
+	import TrackTools from '../player/TrackTools.svelte';
 	let {
 		session,
 		tracks,
@@ -28,6 +29,22 @@
 		error = $state(''),
 		message = $state(''),
 		saved = $state<boolean>();
+	let onDevice = $state(false);
+	$effect(() => {
+		const current = session,
+			id = tracks.length === 1 ? tracks[0].id : undefined;
+		let live = true;
+		onDevice = localOnly;
+		if (menu === 'actions' && !localOnly && id && offlineSupported && current.userId)
+			void offlineInventory(current)
+				.then((data) => {
+					if (live) onDevice = data.byId.has(id);
+				})
+				.catch(() => {});
+		return () => {
+			live = false;
+		};
+	});
 	let downloadRequest = $state<AbortController>();
 	onDestroy(() => downloadRequest?.abort());
 	async function download() {
@@ -103,7 +120,16 @@
 			{#if offlineSupported && !localOnly}<button disabled={busy} onclick={download}
 					>Save offline</button
 				>{/if}
-			{#if !localOnly && favorite !== undefined && tracks.length === 1}<Favorite
+			{#if onDevice && tracks.length === 1}
+				<TrackTools
+					{session}
+					track={tracks[0]}
+					mode="field"
+					title="Track preferences"
+					startOpen={true}
+					fields={['player-favorite', 'player-rating']}
+				/>
+			{:else if !localOnly && favorite !== undefined && tracks.length === 1}<Favorite
 					{session}
 					kind="track"
 					id={tracks[0].id}

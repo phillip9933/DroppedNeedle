@@ -3,6 +3,7 @@ import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { getJson, postJson, type Session } from '../connection';
 import { localSong, path } from '../catalog/catalog';
 import { inventory } from './library';
+import { overlayFeedback } from './feedbackStore';
 import type { PlayerAccess, PlayerTrack } from '../player';
 import {
 	retainedTrack,
@@ -36,8 +37,9 @@ function account(session: OfflineAccount) {
 	if (!session.userId) throw Error('Reconnect to DN once to identify your offline library.');
 	return { serverUrl: session.serverUrl, userId: session.userId };
 }
-export function offlineSnapshot(session: OfflineAccount): Promise<OfflineSnapshot> {
-	return backend().snapshot(account(session));
+export async function offlineSnapshot(session: OfflineAccount): Promise<OfflineSnapshot> {
+	const state = await backend().snapshot(account(session));
+	return { ...state, items: await overlayFeedback(session, state.items).catch(() => state.items) };
 }
 export async function offlineInventory(session: OfflineAccount) {
 	return inventory(await offlineSnapshot(session));
@@ -67,6 +69,8 @@ export async function configureOffline(session: OfflineAccount, options: Offline
 		existing.unmeteredOnly !== next.unmeteredOnly
 	)
 		await stopAutoDownloads(session);
+	if (existing.offlineOnly !== next.offlineOnly)
+		window.dispatchEvent(new Event('dn-offline-policy'));
 	window.dispatchEvent(new Event(mediaChanged));
 	return next;
 }
