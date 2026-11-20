@@ -33,6 +33,7 @@ export function isNavigation(id: string): id is NavigationId {
 export const trackToolFields = [
 	{ id: 'player-favorite', label: 'Favorite' },
 	{ id: 'player-playlist', label: 'Add to playlist' },
+	{ id: 'player-download', label: 'Offline download' },
 	{ id: 'player-rating', label: 'Track rating' },
 	{ id: 'player-quality', label: 'Audio quality' }
 ] as const;
@@ -93,6 +94,7 @@ export const playerIconOptions = [
 	{ id: 'type', label: 'Text' },
 	{ id: 'list', label: 'Queue' },
 	{ id: 'plus', label: 'Add' },
+	{ id: 'download', label: 'Download' },
 	{ id: 'settings', label: 'Sliders' },
 	{ id: 'cast', label: 'Cast' },
 	{ id: 'chevron-down', label: 'Chevron' },
@@ -123,6 +125,7 @@ export function supportsPlayerIcon(id: string) {
 			'player-shuffle',
 			'player-favorite',
 			'player-playlist',
+			'player-download',
 			'player-sleep',
 			'player-rating',
 			'player-up-next',

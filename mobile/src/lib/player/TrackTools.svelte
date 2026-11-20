@@ -2,14 +2,21 @@
 	import { untrack } from 'svelte';
 	import type { Section } from '../boards/layout';
 	import PlayerActionFace from './PlayerActionFace.svelte';
-	import { Star, Heart, ListPlus, Wrench } from '@lucide/svelte';
+	import { Star, Heart, ListPlus, Wrench, Download, CircleCheck } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, postJson, type Session } from '../connection';
 	import { trackToolFields } from './layout';
 	import type { PlayerTrack } from '../player';
 	import { errorMessage, path } from '../catalog/catalog';
 	import Favorite from '../catalog/Favorite.svelte';
-	import { offlineInventory, offlineSupported } from '../offline/media';
+	import {
+		offlineInventory,
+		offlineSupported,
+		removeOffline,
+		saveOfflineTracks,
+		watchOfflineMedia
+	} from '../offline/media';
+	import type { OfflineOrigin } from '../offline/tracks';
 	import { changeTrackFeedback } from '../offline/feedback';
 	import {
 		feedbackScope,
@@ -20,6 +27,7 @@
 	} from '../offline/feedbackStore';
 	import FeedbackStatus from '../offline/FeedbackStatus.svelte';
 	import AddToPlaylist from '../catalog/AddToPlaylist.svelte';
+	import PlaylistDialog from '../catalog/PlaylistDialog.svelte';
 
 	type Model = components['schemas'];
 	let {
@@ -43,6 +51,25 @@
 	} = $props();
 	let open = $state(untrack(() => startOpen)),
 		playlist = $state(false);
+	let origin = $state<OfflineOrigin>(),
+		deviceReady = $state(false),
+		online = $state(navigator.onLine),
+		offlineOnly = $state(false),
+		confirmRemove = $state(false),
+		changingDownload = $state(false),
+		downloadError = $state('');
+	const sourceActions: Record<OfflineOrigin, string> = {
+		downloaded: 'Downloaded',
+		automatic: 'Keep automatic download',
+		cached: 'Keep cached track'
+	};
+	const downloadLabel = $derived.by(() => {
+		if (sample) return 'Save offline';
+		if (changingDownload) return 'Updating download…';
+		if (origin) return sourceActions[origin];
+		if (!online) return 'Connect to download';
+		return offlineOnly ? 'Offline-only playback' : 'Save offline';
+	});
 	let local = $state<PlayerTrack>(),
 		favoriteValue = $state<boolean>(),
 		library = $state<Model['TrackView'] | null>(null),
@@ -73,11 +100,13 @@
 			current = session;
 		void retry;
 		let live = true;
-		libraryError = ratingError = '';
+		libraryError = ratingError = downloadError = '';
 		rating = null;
 		library = null;
 		local = undefined;
 		favoriteValue = undefined;
+		origin = undefined;
+		deviceReady = false;
 		const scope = feedbackScope(current);
 		let observed: FeedbackRecord[] = [];
 		async function preferred(field: 'rating' | 'favorite', value: number | boolean) {
@@ -123,12 +152,37 @@
 		}
 		const wantFavorite = fields.includes('player-favorite'),
 			wantQuality = fields.includes('player-quality'),
-			wantRating = fields.includes('player-rating');
-		async function load() {
+			wantRating = fields.includes('player-rating'),
+			wantDownload = fields.includes('player-download') && offlineSupported;
+		let read = 0;
+		async function readDevice() {
+			const version = ++read;
 			const data =
 				scope && offlineSupported
 					? await offlineInventory(current).catch(() => undefined)
 					: undefined;
+			if (live && version === read) {
+				origin = data?.byId.get(id)?.origin;
+				offlineOnly = data?.offlineOnly === true;
+				deviceReady = !!scope;
+			}
+			return data;
+		}
+		function connectionChanged() {
+			online = navigator.onLine;
+		}
+		const stopWatching = wantDownload
+			? watchOfflineMedia(() => {
+					void readDevice();
+				})
+			: undefined;
+		if (wantDownload) {
+			connectionChanged();
+			window.addEventListener('online', connectionChanged);
+			window.addEventListener('offline', connectionChanged);
+		}
+		async function load() {
+			const data = await readDevice();
 			if (!live) return;
 			const stored = data?.byId.get(id)?.track;
 			if (stored) {
@@ -138,7 +192,8 @@
 			}
 			const offline = !navigator.onLine || data?.offlineOnly === true;
 			if (offline) {
-				if (!stored) libraryError = 'This track has no offline details.';
+				if (!stored && (wantFavorite || wantQuality || wantRating))
+					libraryError = 'This track has no offline details.';
 				return;
 			}
 			if (stored) observed = await trackFeedback(scope, id).catch(() => []);
@@ -162,9 +217,30 @@
 		void load();
 		return () => {
 			live = false;
+			stopWatching?.();
+			window.removeEventListener('online', connectionChanged);
+			window.removeEventListener('offline', connectionChanged);
 			window.removeEventListener(feedbackChanged, update);
 		};
 	});
+	async function download(remove = false) {
+		if (sample || changingDownload) return;
+		changingDownload = true;
+		downloadError = '';
+		try {
+			if (remove) {
+				await removeOffline(session, [track.id]);
+				confirmRemove = false;
+			} else {
+				const result = await saveOfflineTracks(session, [track]);
+				if (result.failed) throw Error(result.message);
+			}
+		} catch (error) {
+			downloadError = errorMessage(error);
+		} finally {
+			changingDownload = false;
+		}
+	}
 	async function rate(value: number) {
 		if (saving || rating === null) return;
 		saving = true;
@@ -218,9 +294,30 @@
 		/>
 	</button>{/snippet}
 {#snippet contents()}
-	{#if fields.includes('player-favorite') || fields.includes('player-playlist')}<div class="tools">
+	{#if fields.includes('player-favorite') || fields.includes('player-playlist') || (fields.includes('player-download') && offlineSupported)}<div
+			class="tools"
+		>
 			{#if fields.includes('player-favorite')}{@render favorite()}{/if}{#if fields.includes('player-playlist')}{@render addPlaylist()}{/if}
+			{#if fields.includes('player-download') && offlineSupported}<button
+					class="secondary custom-action"
+					aria-label={origin === 'downloaded' ? 'Manage track download' : downloadLabel}
+					title={downloadLabel}
+					disabled={!sample &&
+						(!deviceReady || changingDownload || (!origin && (!online || offlineOnly)))}
+					onclick={() => {
+						if (origin === 'downloaded') confirmRemove = true;
+						else void download();
+					}}
+					><PlayerActionFace
+						section={mode === 'field' ? section : undefined}
+						glyph={origin === 'downloaded' ? CircleCheck : Download}
+						size={18}
+						label={downloadLabel}
+						defaultLabel
+					/></button
+				>{/if}
 		</div>{/if}
+	{#if downloadError && !confirmRemove}<p role="alert">{downloadError}</p>{/if}
 	{#if fields.includes('player-rating') && (rating !== null || sample)}<div
 			class="stars"
 			role="group"
@@ -275,6 +372,22 @@
 		>{#if open}{@render contents()}{/if}
 	</details>{:else}{@render contents()}{/if}
 {#if playlist}<AddToPlaylist {session} tracks={[track]} onclose={() => (playlist = false)} />{/if}
+{#if confirmRemove}<PlaylistDialog
+		title="Remove download?"
+		busy={changingDownload}
+		onclose={() => (confirmRemove = false)}
+	>
+		<p>Remove the saved copy of “{track.title}” from this device?</p>
+		{#if downloadError}<p role="alert">{downloadError}</p>{/if}
+		<div class="actions">
+			<button class="secondary" disabled={changingDownload} onclick={() => (confirmRemove = false)}
+				>Keep download</button
+			>
+			<button class="primary" disabled={changingDownload} onclick={() => void download(true)}
+				>Remove download</button
+			>
+		</div>
+	</PlaylistDialog>{/if}
 
 <style>
 	button.custom-action {

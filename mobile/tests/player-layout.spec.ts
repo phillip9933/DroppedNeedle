@@ -367,6 +367,11 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	await expect(region.locator('[data-section-id=player-quality]')).toHaveText(
 		'FLAC · 16-bit · 44.1 kHz'
 	);
+	const download = region.locator('[data-section-id=player-download]');
+	await download.getByRole('button', { name: 'Save offline', exact: true }).click();
+	await expect(download.getByRole('button', { name: 'Manage track download' })).toHaveText(
+		'Downloaded'
+	);
 	await region
 		.locator('[data-section-id=player-rating]')
 		.getByRole('button', { name: 'Rate 3 stars' })
