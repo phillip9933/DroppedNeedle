@@ -1,6 +1,10 @@
-import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
+import { Capacitor, registerPlugin, SystemBars, SystemBarsStyle } from '@capacitor/core';
 
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
+const androidAppearance = registerPlugin<{
+	setBackground(options: { color: string }): Promise<void>;
+}>('DNAppearance');
+
 export type Mode = components['schemas']['ThemeChoice'];
 export type Palette = Exclude<Mode, 'system'>;
 export type Selection = { mode: Mode } | { mode: 'custom'; theme: Theme };
@@ -232,7 +236,16 @@ function paint(selection: Selection) {
 	root.style.colorScheme = isLight(theme.colors.bg) ? 'light' : 'dark';
 	if (Capacitor.isNativePlatform()) {
 		const style = root.style.colorScheme === 'light' ? SystemBarsStyle.Light : SystemBarsStyle.Dark;
-		void SystemBars.setStyle({ style }).catch(() => {});
+		// Capacitor sets the Android decor background while applying the icon style.
+		void SystemBars.setStyle({ style })
+			.then(() => {
+				if (
+					Capacitor.getPlatform() === 'android' &&
+					root.style.getPropertyValue('--bg') === theme.colors.bg
+				)
+					return androidAppearance.setBackground({ color: theme.colors.bg });
+			})
+			.catch(() => {});
 	}
 	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.colors.bg);
 }
