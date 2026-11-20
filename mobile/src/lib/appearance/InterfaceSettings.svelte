@@ -119,6 +119,15 @@
 			onchange={(e) => setInterface({ headerSettings: e.currentTarget.checked })}
 		/>Settings shortcut in header</label
 	>
+	<h2>Player gestures</h2>
+	<label class="pick">
+		<input
+			type="checkbox"
+			checked={$interfacePreferences.swipeTracks}
+			onchange={(e) => setInterface({ swipeTracks: e.currentTarget.checked })}
+		/>
+		Swipe album art or the mini-player to change tracks
+	</label>
 	<button class="secondary" onclick={() => setInterface(defaultInterface)}
 		>Restore interface defaults</button
 	>

@@ -24,6 +24,8 @@
 	import SleepTimer from './player/SleepTimer.svelte';
 	import { isPlayerMetadata, isNavigation, trackToolFields } from './player/layout';
 	import { player, type PlayerTrack } from './player';
+	import { interfacePreferences } from './appearance/interface';
+	import { swipeTracks } from './player/swipeTracks';
 	import { accountId, defaults, loadLayout, sectionTitle, type Section } from './boards/layout';
 	import {
 		formatPlayerText,
@@ -113,6 +115,10 @@
 	const flushRows = $derived(rows.map((row) => row.every((s) => s.padding === 0)));
 	const clock = $derived(preview ?? $store.position);
 	const libraryWindow = $derived($store.libraryWindow);
+	const canGoNext = $derived(
+		$store.index + 1 < $store.tracks.length || !!libraryWindow?.more || $store.repeat === 'all'
+	);
+	const swipeAction = $derived(editor || !$interfacePreferences.swipeTracks ? undefined : skip);
 	const queueOffset = $derived(libraryWindow?.offset ?? 0);
 	const shuffleLabel = $derived(
 		libraryWindow ? 'Shuffle loaded upcoming tracks' : 'Shuffle upcoming'
@@ -142,6 +148,9 @@
 	function action(call: () => Promise<void>) {
 		if (!editor) void call().catch(onerror);
 	}
+	function skip(direction: 'previous' | 'next') {
+		if (direction === 'previous' || canGoNext) action(player[direction]);
+	}
 </script>
 
 {#snippet previous(section?: Section)}
@@ -168,9 +177,7 @@
 	<button
 		class="skip"
 		aria-label="Next track"
-		disabled={$store.index + 1 >= $store.tracks.length &&
-			!libraryWindow?.more &&
-			$store.repeat !== 'all'}
+		disabled={!canGoNext}
 		onclick={() => action(player.next)}
 	>
 		<PlayerActionFace {section} glyph={SkipForward} size={28} label="Next" />
@@ -322,7 +329,11 @@
 												<SleepTimer {section} timer={$store.sleepTimer} sample={!!editor} />
 											</div>
 										{:else if section.id === 'player-artwork'}
-											<div class="hero" class:compact={!section.preview}>
+											<div
+												class="hero"
+												class:compact={!section.preview}
+												use:swipeTracks={swipeAction}
+											>
 												{#if editor}<img
 														class="sample-art"
 														alt="Tidal Memory album cover"
@@ -585,6 +596,7 @@
 	<section data-part="mini-player" class="mini" aria-label="Current track">
 		<button
 			class="open-mini"
+			use:swipeTracks={swipeAction}
 			data-screen-link
 			onclick={onexpand}
 			aria-label={'Open player for ' + track.title}
@@ -601,9 +613,7 @@
 		<button
 			class="mini-control"
 			aria-label="Next track"
-			disabled={$store.index + 1 >= $store.tracks.length &&
-				!libraryWindow?.more &&
-				$store.repeat !== 'all'}
+			disabled={!canGoNext}
 			onclick={() => action(player.next)}><SkipForward /></button
 		>
 	</section>
