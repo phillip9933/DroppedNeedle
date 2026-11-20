@@ -4,7 +4,6 @@ export type BoardDisplay = {
 	layout: 'grid' | 'list';
 	columns: number;
 	listColumns: number;
-	columnSize: 'small' | 'medium' | 'large';
 	rows: number;
 	density: 'compact' | 'normal' | 'spacious';
 };
@@ -29,8 +28,6 @@ export function boardDisplay(
 					: 'list',
 		columns: bounded(value?.columns, 2, 6),
 		listColumns: bounded(value?.listColumns, 1, 6),
-		columnSize:
-			value?.columnSize === 'small' || value?.columnSize === 'large' ? value.columnSize : 'medium',
 		rows: bounded(value?.rows, covers ? 2 : 3, 6),
 		density:
 			value?.density === 'compact' || value?.density === 'spacious' ? value.density : 'normal'
@@ -42,18 +39,13 @@ function bounded(value: unknown, fallback: number, max: number) {
 		: fallback;
 }
 
-export function measurePreview(display: BoardDisplay, width: number, expanded = false): Preview {
-	const grid = display.layout === 'grid';
-	const min = (
-		grid ? { small: 92, medium: 126, large: 176 } : { small: 156, medium: 216, large: 288 }
-	)[display.columnSize];
-	const max = grid ? display.columns : display.listColumns;
-	const gap = { compact: 6, normal: 10, spacious: 16 }[display.density];
-	const visibleColumns = Math.max(1, Math.min(max, Math.floor((width + gap) / (min + gap))));
+export function boardPreview(display: BoardDisplay, expanded = false): Preview {
+	const visibleColumns = display.layout === 'grid' ? display.columns : display.listColumns;
+	const capacity = visibleColumns * display.rows;
 	return {
 		...display,
 		visibleColumns,
-		limit: expanded ? Infinity : visibleColumns * display.rows,
-		capacity: max * display.rows
+		limit: expanded ? Infinity : capacity,
+		capacity
 	};
 }
