@@ -11,6 +11,7 @@ test('a listener can edit their DN profile, save visibility and revoke a differe
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/dn/api/v3'.length);
 		const json = (obj: unknown) => route.fulfill({ json: obj });
+		if (p === '/home') return json({ sections: [] });
 		if (p === '/auth/providers') return json({ local: true, oidc: false });
 		if (p === '/auth/login') return json({ token: 'fixture' });
 		expect(req.headers().authorization).toBe('Bearer fixture');
@@ -72,7 +73,7 @@ async function openAccount(page: Page, server: string) {
 	await page.getByLabel('Username').fill('demo');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible();
 	await page.getByRole('button', { name: 'Settings' }).click();
 	await page.getByText('Account on DroppedNeedle', { exact: true }).click();
 }
@@ -86,6 +87,7 @@ test('an administrator can inspect library health and confirm an incremental sca
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/dn/api/v3'.length);
 		const json = (obj: unknown) => route.fulfill({ json: obj });
+		if (p === '/home') return json({ sections: [] });
 		if (p === '/auth/providers') return json({ local: true, oidc: false });
 		if (p === '/auth/login') return json({ token: 'fixture' });
 		expect(req.headers().authorization).toBe('Bearer fixture');

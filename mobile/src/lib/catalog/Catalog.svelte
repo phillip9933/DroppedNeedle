@@ -2,12 +2,11 @@
 	import { onMount, tick } from 'svelte';
 	import type { Session } from '../connection';
 	import type { Album, CatalogTab, OnPlay } from './catalog';
-	import Discover from './Discover.svelte';
+	import BoardView from '../boards/BoardView.svelte';
 	import DiscoverArtist from './DiscoverArtist.svelte';
 	import Favorite from './Favorite.svelte';
 	import type { DiscoverArtistRef } from './discovery';
 	import Library from './Library.svelte';
-	import Playlists from './Playlists.svelte';
 	import PlaylistDetail from './PlaylistDetail.svelte';
 	import type { Playlist } from './playlists';
 	import Search from './Search.svelte';
@@ -16,12 +15,21 @@
 
 	let {
 		session,
+		active,
 		tab,
 		onplay,
 		onnavigate
-	}: { session: Session; tab: CatalogTab; onplay: OnPlay; onnavigate: (tab: CatalogTab) => void } =
-		$props();
-	let section = $state<'albums' | 'artists' | 'songs' | 'playlists'>('albums');
+	}: {
+		session: Session;
+		active: boolean;
+		tab: CatalogTab;
+		onplay: OnPlay;
+		onnavigate: (tab: CatalogTab) => void;
+	} = $props();
+	let boardView = $state<{ goBack: () => boolean }>();
+	export function backToBoard() {
+		return boardView?.goBack() ?? false;
+	}
 	let playlist = $state<Playlist | null>(null),
 		album = $state<Album | null>(null);
 	let localArtist = $state<{
@@ -34,7 +42,6 @@
 	let term = $state('');
 	let root: HTMLElement;
 	const offsets: number[] = [];
-	const sections = ['albums', 'artists', 'songs', 'playlists'] as const;
 	const inside = $derived(!!(album || playlist || artist || localArtist));
 	function move(offset: number) {
 		void tick().then(() => {
@@ -67,7 +74,7 @@
 		move(offsets.pop() ?? 0);
 	}
 	function systemBack(event: Event) {
-		if (inside) {
+		if (inside && !event.defaultPrevented) {
 			event.preventDefault();
 			back();
 		}
@@ -85,29 +92,21 @@
 
 <section bind:this={root} class="catalog" data-part="catalog">
 	<div hidden={inside}>
-		{#if tab === 'library'}
-			<h1>Library</h1>
-			<div class="sections" role="group" aria-label="Library views">
-				{#each sections as view (view)}
-					<button aria-pressed={section === view} onclick={() => (section = view)}
-						>{view[0].toUpperCase() + view.slice(1)}</button
-					>
-				{/each}
-			</div>
-			{#if section === 'playlists'}<Playlists
-					{session}
-					onopen={(p) => {
-						enter();
-						playlist = p;
-					}}
-				/>
-			{:else}{#key section}<Library
-						kind={section}
-						{session}
-						onopen={open}
-						onartist={openLocal}
-						{onplay}
-					/>{/key}{/if}
+		{#if tab === 'home' || tab === 'library' || tab === 'discover'}
+			<BoardView
+				bind:this={boardView}
+				board={tab}
+				{session}
+				active={active && !inside}
+				onopen={open}
+				onartist={openArtist}
+				onlocal={openLocal}
+				onplaylist={(item) => {
+					enter();
+					playlist = item;
+				}}
+				{onplay}
+			/>
 		{:else if tab === 'search'}<Search
 				{session}
 				onopen={open}
@@ -117,13 +116,6 @@
 				}}
 				{onplay}
 				bind:term
-			/>
-		{:else if tab === 'discover'}<Discover
-				{onplay}
-				{session}
-				onopen={open}
-				onartist={openArtist}
-				active={!inside}
 			/>
 		{:else}<Requests {session} onopen={open} />{/if}
 	</div>
@@ -166,27 +158,6 @@
 </section>
 
 <style>
-	.sections {
-		display: flex;
-		flex-wrap: wrap;
-		width: fit-content;
-		gap: 0.25rem;
-		padding: 0.2rem;
-		margin-bottom: var(--gap);
-		background: var(--surface);
-		border-radius: var(--radius);
-	}
-	.sections button {
-		min-height: 44px;
-		padding: 0.4rem clamp(0.45rem, 2vw, 0.95rem);
-		color: var(--muted);
-		border-radius: var(--radius);
-	}
-	.sections button[aria-pressed='true'] {
-		background: var(--raised);
-		color: var(--text);
-		font-weight: 650;
-	}
 	.catalog {
 		min-width: 0;
 	}

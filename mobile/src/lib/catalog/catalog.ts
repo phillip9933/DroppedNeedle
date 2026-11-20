@@ -3,7 +3,7 @@ import { DnError, getJson, postJson, type Session } from '../connection';
 import type { PlayerTrack } from '../player';
 
 type Schema = components['schemas'];
-export type CatalogTab = 'library' | 'discover' | 'search' | 'requests';
+export type CatalogTab = 'home' | 'library' | 'discover' | 'search' | 'requests';
 export type OnPlay = (tracks: PlayerTrack[], index: number) => Promise<void> | void;
 export type Edition = Schema['AlbumEditionItem'];
 export type RequestItem = Schema['RequestItem'];

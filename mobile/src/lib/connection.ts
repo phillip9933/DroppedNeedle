@@ -2,6 +2,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { SecureStorage, KeychainAccess } from '@aparajita/capacitor-secure-storage';
 
 export interface Session {
+	userId?: string;
 	serverUrl: string;
 	token: string;
 	displayName: string;
@@ -177,8 +178,15 @@ export function getArtwork(session: Session, path: string): Promise<string> {
 
 const SESSION_KEY = 'dn.mobile.session';
 
-export function restoreSession() {
-	return readSecret<Session>(SESSION_KEY);
+export async function restoreSession() {
+	const session = await readSecret<Session>(SESSION_KEY);
+	if (!session || session.userId) return session;
+	try {
+		// Older installations saved only the listener's mutable display name.
+		return await saveSession(await verifyToken(session.serverUrl, session.token));
+	} catch {
+		return session;
+	}
 }
 export function forgetSession() {
 	return removeSecret(SESSION_KEY);
@@ -191,13 +199,14 @@ export async function signOut(session: Session) {
 export async function verifyToken(address: string, raw: string): Promise<Session> {
 	const token = raw.trim();
 	if (!token || /\s/.test(token)) throw new Error('Enter a DroppedNeedle device session token.');
-	const session = { serverUrl: serverAddress(address), token, displayName: '' };
+	const session: Session = { serverUrl: serverAddress(address), token, displayName: '' };
 	const me = await getJson<{ display_name: string; username?: string | null; id: string }>(
 		session,
 		'/api/v3/me'
 	);
 	if (typeof me.display_name !== 'string' || typeof me.id !== 'string')
 		throw new Error('This server did not return a DroppedNeedle profile.');
+	session.userId = me.id;
 	session.displayName = me.display_name || me.username || me.id;
 	return session;
 }

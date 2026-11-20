@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
-	import { LibraryBig, Compass, Search, ListChecks, Settings2 } from '@lucide/svelte';
+	import { House, LibraryBig, Compass, Search, ListChecks, Settings2 } from '@lucide/svelte';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
 	import { player, type PlayerTrack } from './lib/player';
@@ -13,13 +13,16 @@
 	import brand from '../../frontend/static/android-chrome-192x192.png';
 	let session = $state<Session | null>(null);
 	let loading = $state(true);
-	let tab = $state<CatalogTab>('library');
+	let tab = $state<CatalogTab>('home');
 	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
 	let catalogScroll = 0;
+	let catalogVisit = $state(0);
 	const inPlayer = $derived(panel === 'player' || panel === 'queue');
 	let issue = $state('');
 	let main: HTMLElement;
+	let catalog = $state<{ backToBoard: () => boolean }>();
 	const tabs = [
+		{ id: 'home', label: 'Home', icon: House },
 		{ id: 'library', label: 'Library', icon: LibraryBig },
 		{ id: 'search', label: 'Search', icon: Search },
 		{ id: 'discover', label: 'Discover', icon: Compass },
@@ -29,6 +32,7 @@
 		issue = error instanceof Error ? error.message : 'The app could not finish that action.';
 	}
 	function navigate(to: CatalogTab) {
+		catalogVisit++;
 		tab = to;
 		panel = 'catalog';
 		issue = '';
@@ -63,8 +67,9 @@
 			return true;
 		}
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
-		if (tab !== 'library') {
-			navigate('library');
+		if (catalog?.backToBoard()) return true;
+		if (tab !== 'home') {
+			navigate('home');
 			return true;
 		}
 		return false;
@@ -77,7 +82,7 @@
 			restoreError = error;
 		}
 		session = next;
-		navigate('library');
+		navigate('home');
 		if (restoreError) report(restoreError);
 	}
 	async function start(tracks: PlayerTrack[], index: number) {
@@ -98,7 +103,7 @@
 		if (!previous) return;
 		session = null;
 		panel = 'catalog';
-		tab = 'library';
+		tab = 'home';
 		issue = '';
 		const outcomes = await Promise.allSettled([
 			player.clear(),
@@ -160,7 +165,14 @@
 		{:else}
 			{#if session}
 				<div hidden={panel !== 'catalog'} class="pad">
-					{#key tab}<Catalog {session} {tab} onplay={start} onnavigate={navigate} />{/key}
+					{#key catalogVisit}<Catalog
+							bind:this={catalog}
+							{session}
+							active={panel === 'catalog'}
+							{tab}
+							onplay={start}
+							onnavigate={navigate}
+						/>{/key}
 				</div>
 			{:else if panel !== 'settings'}
 				<div class="pad"><Connect onconnected={connected} /></div>
@@ -270,7 +282,8 @@
 		justify-items: center;
 		gap: 0.2rem;
 		min-height: 52px;
-		min-width: 25%;
+		min-width: 0;
+		flex: 1;
 		color: var(--muted);
 	}
 	nav span {
