@@ -12,7 +12,7 @@ const local = ['Signal', 'Station'].map(
 			artist_name: 'North',
 			album_artist_name: 'North',
 			album_id: 'album',
-			album_title: 'In transit',
+			album_title: i === 0 ? 'In transit' : '',
 			disc_number: 1,
 			track_number: i + 1,
 			format: 'flac',
@@ -249,6 +249,7 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	await page.getByRole('dialog').getByRole('button', { name: 'Remove track' }).click();
 	await expect(titles).toHaveText(['Signal', 'Station']);
 	expect(state.lists[1].tracks.map((t) => t.track_source_id)).toEqual(['file-0', 'file-1']);
+	expect(state.lists[1].tracks[1].album_name).toBe('Unknown album');
 	expect(state.writes).toContain('DELETE /playlists/shared/tracks/entry-2');
 	await page.getByRole('button', { name: 'Back to playlists' }).click();
 	await page.getByRole('button', { name: /Listening room/ }).click();

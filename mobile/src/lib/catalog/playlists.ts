@@ -93,9 +93,9 @@ export function addLocalTracks(session: Session, id: string, tracks: PlayerTrack
 		path('/api/v3/playlists/{playlist_id}/tracks', { playlist_id: id }),
 		{
 			tracks: tracks.map((track) => ({
-				track_name: track.title,
-				artist_name: track.artist,
-				album_name: track.album,
+				track_name: track.title.trim() || 'Untitled track',
+				artist_name: track.artist.trim() || 'Unknown artist',
+				album_name: track.album.trim() || 'Unknown album',
 				source_type: 'local',
 				track_source_id: track.id,
 				available_sources: ['local'],
