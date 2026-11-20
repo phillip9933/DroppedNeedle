@@ -214,7 +214,7 @@ function paint(selection: Selection) {
 			tokens['--dn-focus'] = theme.colors.accent;
 	}
 	if (theme.roles) Object.assign(tokens, theme.roles);
-	root.style.setProperty('--heading', theme.roles?.['--dn-title'] ?? theme.colors.text);
+	root.style.setProperty('--heading', tokens['--dn-title']);
 	root.dataset.theme = mode;
 	// The web album track list uses its page's stock with controls in Light or Midnight ink.
 	root.dataset.paperSheet = selection.mode === 'custom' ? 'off' : 'on';

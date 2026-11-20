@@ -16,9 +16,13 @@ Server administrators can add browser sign-in by building the DN web frontend wi
 
 Open **Settings → Screen layouts** and choose Home, Library, Discover, or Now Playing. Each screen has its own saved layout. **Restore default layout** loads a fresh draft, **Save layout** applies it, and **Cancel** discards it.
 
-Home opens after sign-in. Combine Library and Discover sections there, such as recently added albums, recently played songs, Top picks for you, or genres. In a screen’s editor, add or remove a section and use the arrows to reorder it. Tap the sliders next to a section to change its name and display.
+Home opens after sign-in. Offline music opens on Android when the phone has no network or you have enabled offline-only playback. Combine Library and Discover sections there, such as recently added albums, recently played songs, Top picks for you, or genres. In a screen’s editor, add or remove a section and use the arrows to reorder it. The sliders beside a section control its preview and display.
 
 Each section can show its contents directly on the screen. Choose **List** or **Grid**, a maximum column count, column size, and row density. **Preview rows** sets how many rows appear inline. For example, use a two-row cover grid for Top picks and a compact single-column list for recently played songs. Fewer columns fit on a narrow screen. Tap an item to open it, or tap the section heading to browse the full collection with its filters and actions. Existing saved layouts keep their visibility choices. Turn on **Show a preview** for any section that previously showed only a heading.
+
+Use **Library → New filtered section**, or set filters while browsing and choose **Save filters as section**. For a five-star songs shelf, choose Songs, set the minimum rating to five and give it a name. Add the saved section to Home or Library in either screen’s layout editor. The two placements share the saved criteria and can use different row counts and display styles.
+
+Use **Select** or hold a library item to start a selection. The actions at the top let you play your choices, play them next, add them to the queue or a playlist, or save them on the device. **Select loaded** selects the items displayed so far. Album and artist actions resolve their full track lists.
 
 ### Arrange the expanded player
 
@@ -26,7 +30,7 @@ Open **Settings → Edit Now Playing layout**, or tap the settings control on th
 
 Tap a field in the sample player. Drag its grip beside another field to place them on one row, or to the top or bottom edge of a row to make a new one. Drag its resize corner to adjust its width and the row’s minimum height. The inspector also lets you enter dimensions, choose a column width, align text, and change text size. **Move to row**, **Row position**, and the left and right buttons offer the same placement choices by tap. A row can hold three fields. **Swap with** trades places with a field in a full row.
 
-**Split into separate fields** turns a group into individually movable controls. For example, place the artist beside the album, put the duration beside the title, or move Favorite and Add to playlist next to playback controls. **Header controls** lets you place the queue, settings and close controls at either end of the header, in a player row, or hide them. A player menu provides an exit when Close moves out of the header.
+**Split into separate fields** turns a group into individually movable controls. For example, place the artist beside the album, put the duration beside the title, or move Favorite and Add to playlist next to playback controls. **Header controls** lets you place the queue, audio output, settings and close controls at either end of the header, in a player row, or hide them. A player menu provides an exit when Close moves out of the header.
 
 **Try side-by-side layout** loads an example. **Add Custom text** creates a field that follows the current song. It accepts text and values such as `{artist} · {album}` or `{position}/{count}`. **Share player layout** exports the draft as JSON or loads a shared layout before saving. These controls customize the expanded player. The compact mini-player has a fixed layout.
 
@@ -48,15 +52,25 @@ Under **Requests → Activity → Wanted watches**, see what DN is monitoring an
 
 **Review held files** opens files from that task inside the app. **Review all held files** opens the entries available to your account. Listen to the opening audio, inspect why a file was held, and select the files to act on. DN supplies the eligible actions. You can confirm a replacement or discard, and trusted listeners and administrators can match files to an album or check an edition. Edition review compares editions against the library, then retries the selected held files. Bulk imports, quality upgrades and advanced server administration are available in Web tools.
 
-The player streams your server’s local files and requires a connection. A download in **Requests > Downloads** is a transfer into the server library. Android reports playback to DN for listening history and linked scrobbling services. Playback reporting and queue restoration after process exit are currently Android features.
+A download in **Requests → Downloads** brings music into the DN server library. **Save offline** keeps a copy on the phone. Android reports playback to DN for listening history and linked scrobbling services. Playback reporting and queue restoration after process exit are currently Android features.
 
 **Settings → Library statistics** shows collection size, formats and favorites. Administrators also have native library scans, server diagnostics, release types and edition preferences. **Settings → Web tools** searches the DN pages available to your role. Account security, linking services, backups, plugins, matching, duplicates and bulk edits use the server’s browser interface. Album, artist and playlist details also link directly to their DN web pages.
 
 The phone uses the device volume controls. On Android, **Settings → Playback → Equalizer** uses DN’s playback audio session. Available bands depend on the device. The mobile queue plays tracks regardless of their rating. Use rating filters in Library to choose what goes into a new queue.
 
+## Playback and storage
+
+**Settings → Streaming and fades** shows whether this DN server can convert audio. Original file is the default. On Android you can request MP3 or Opus at 96, 128, 192, 256 or 320 kbps for new queue entries. DN uses its existing stream endpoint, server bitrate ceiling and ffmpeg. Administrators control conversion in the DN web app under **Settings → Connect Apps → On-the-fly transcoding**. A compatible original can pass through directly. Choose a track fade of 0.5, 2, 4 or 8 seconds to raise and lower local playback volume at track boundaries. Fades are off by default.
+
+On Android, choose **Save offline** on an album, track or library selection. **More → Offline music** opens saved downloads and completed playback cache entries for the signed-in DN account. You can search, play, queue, keep a cached track or remove a copy. **Settings → Offline and cache** controls automatic caching, its size limit (128 MiB to 4 GiB), unmetered-only transfers and offline-only playback. The limit applies to the playback cache. Explicit downloads stay until removed. The app prefers a completed device copy during playback. Save offline fetches the original file or keeps an existing complete cached copy. Keep the app running until explicit downloads finish. Offline copies include the audio and track details. Artwork, lyrics and listening-history sync require a connection to DN. In the browser preview, offline storage uses IndexedDB and sign-in lasts for the current session.
+
+Use the cast icon in Now Playing or **More → Cast and audio output**. On Android, choose a Google Cast device, or use **Find network speakers** for a DLNA/UPnP receiver on the same local network. Google Cast uses Google Play services on the phone. Sonos and other compatible DLNA/UPnP speakers can use **Find network speakers** directly. Keep the phone connected during playback. The receiver reads the current song from the phone, and the phone authenticates to DN. Stopping the cast returns the queue to the phone paused. Android also offers display mirroring. On iOS, the output button opens the system AirPlay picker. Device downloads, automatic caching and streaming quality selection are currently available on Android and in the browser preview.
+
 ## Change the appearance
 
 Open **Settings → Themes** to choose DN’s **Dark**, **Light**, **Midnight** or **System**. The mobile build reads the web theme definitions. System follows the phone’s appearance. Use **Use account theme on this device** or **Save device theme to account** to copy a built-in theme in either direction.
+
+Under **Settings → Interface and navigation**, choose DN web, Glass or Simple surfaces. Glass has an adjustable blur. Dock or float the navigation bar, reorder or hide destinations, and choose whether the header has a settings shortcut. **More** always includes Settings and the destinations you have hidden. Screen transitions can use a quick or gentle fade, or be switched off. They respect the device’s reduced-motion preference.
 
 Use **Import colors from a web style** to preview compatible colors and corner radius from your current account CSS or a saved version. Choose the palette and select **Apply palette to this device**. The preview lists web rules that the phone does not support. Under **Edit or share theme**, copy or paste a custom theme as JSON and select **Apply theme**. Existing custom themes and the original Studio and Paper presets remain available. Custom JSON applies on this device. DN’s web CSS editor is available under **Settings → Web tools → Custom CSS and saved styles**.
 

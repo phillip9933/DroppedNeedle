@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		Cast,
 		ChevronDown,
 		ListMusic,
 		Pause,
@@ -18,6 +19,7 @@
 	import type { Snippet } from 'svelte';
 	import { samplePlayer } from './player/samplePlayer';
 	import sampleArt from './player/tidal-memory.webp';
+	import Outputs from './player/Outputs.svelte';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import { isNavigation, trackToolFields, type NavigationId } from './player/layout';
 	import { player, type PlayerTrack } from './player';
@@ -357,22 +359,31 @@
 										{:else}{@render shuffle(false)}{/if}
 									</div>
 								{:else if isNavigation(section.id)}<div class="field-controls">
-										<button
-											class="icon-button"
-											aria-label={section.id === 'player-close'
-												? 'Close player'
-												: section.id === 'player-settings'
-													? 'Player settings'
-													: 'Show play queue'}
-											onclick={section.id === 'player-close'
-												? oncollapse
-												: section.id === 'player-settings'
-													? onsettings
-													: ontogglequeue}
-											>{#if section.id === 'player-close'}<ChevronDown
-												/>{:else if section.id === 'player-settings'}<Settings2 />{:else}<ListMusic
-												/>{/if}</button
-										>
+										{#if section.id === 'player-output'}
+											{#if editor}<button
+													class="icon-button"
+													aria-label="Customize Cast and audio output"
+													onclick={() => editor?.selectNavigation('player-output')}><Cast /></button
+												>
+											{:else}<Outputs compact />{/if}
+										{:else}
+											<button
+												class="icon-button"
+												aria-label={section.id === 'player-close'
+													? 'Close player'
+													: section.id === 'player-settings'
+														? 'Player settings'
+														: 'Show play queue'}
+												onclick={section.id === 'player-close'
+													? oncollapse
+													: section.id === 'player-settings'
+														? onsettings
+														: ontogglequeue}
+												>{#if section.id === 'player-close'}<ChevronDown
+													/>{:else if section.id === 'player-settings'}<Settings2
+													/>{:else}<ListMusic />{/if}</button
+											>
+										{/if}
 									</div>
 								{:else if trackToolFields.some((f) => f.id === section.id)}{#key section.id + track.id}<TrackTools
 											{session}
@@ -455,7 +466,12 @@
 	</section>
 {:else if track}
 	<section data-part="mini-player" class="mini" aria-label="Current track">
-		<button class="open-mini" onclick={onexpand} aria-label={'Open player for ' + track.title}>
+		<button
+			class="open-mini"
+			data-screen-link
+			onclick={onexpand}
+			aria-label={'Open player for ' + track.title}
+		>
 			<span class="mini-art"><Cover {session} path={art} seed={track.album || track.id} /></span>
 			<span class="mini-meta"><strong>{track.title}</strong><small>{track.artist}</small></span>
 		</button>

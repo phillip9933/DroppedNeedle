@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
+	import InterfaceSettings from './InterfaceSettings.svelte';
+	import { changeScreen } from './interface';
+	import OfflineSettings from '../offline/OfflineSettings.svelte';
+	import { offlineSupported } from '../offline/media';
+	import PlaybackSettings from '../player/PlaybackSettings.svelte';
 	import EqualizerSettings from '../player/EqualizerSettings.svelte';
 	import {
 		ChevronLeft,
@@ -35,6 +40,9 @@
 		| Board
 		| 'player'
 		| 'themes'
+		| 'interface'
+		| 'offline'
+		| 'playback'
 		| 'equalizer'
 		| 'account'
 		| 'content'
@@ -90,6 +98,9 @@
 			...personal,
 			...administration,
 			{ id: 'themes', label: 'Themes' },
+			{ id: 'interface', label: 'Interface and navigation' },
+			{ id: 'offline', label: 'Offline and cache' },
+			{ id: 'playback', label: 'Streaming and fades' },
 			{ id: 'equalizer', label: 'Equalizer' },
 			{ id: 'about', label: 'About' }
 		].find((i) => i.id === page)?.label ?? 'Settings'
@@ -124,10 +135,12 @@
 		});
 	}
 	function open(next: Page) {
-		offset = root?.closest('main')?.scrollTop ?? 0;
-		page = next;
-		focus();
-		if (next === 'about') void readVersion();
+		changeScreen(() => {
+			offset = root?.closest('main')?.scrollTop ?? 0;
+			page = next;
+			focus();
+			if (next === 'about') void readVersion();
+		});
 	}
 	export function goBack() {
 		if (page === 'menu') return false;
@@ -135,8 +148,10 @@
 			onplayerlayoutclose();
 			return true;
 		}
-		page = 'menu';
-		focus(offset);
+		changeScreen(() => {
+			page = 'menu';
+			focus(offset);
+		});
 		return true;
 	}
 	function back() {
@@ -151,7 +166,7 @@
 		}
 	}
 	onMount(() => {
-		if (initial !== 'menu') open(initial);
+		if (initial !== 'menu') page = initial;
 		void readRole();
 	});
 </script>
@@ -160,7 +175,7 @@
 	{#if session && (page === 'home' || page === 'discover' || page === 'library' || page === 'player')}
 		{#key page}<BoardSettings {session} board={page} onback={back} />{/key}
 	{:else}
-		<button aria-label="Back" class="text-button back" onclick={back}
+		<button aria-label="Back" class="text-button back" data-screen-link onclick={back}
 			><ChevronLeft size={18} />{page === 'menu' ? 'Back' : 'Settings'}</button
 		>
 		<h1>{page === 'menu' ? 'Settings' : title}</h1>
@@ -169,6 +184,7 @@
 				<div class="menu">
 					{#each layouts as item (item.id)}<button
 							class="entry"
+							data-screen-link
 							aria-label={'Edit ' + item.label + ' layout'}
 							onclick={() => open(item.id)}
 							><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
@@ -176,22 +192,44 @@
 				</div>{/if}
 			<h2>Appearance</h2>
 			<div class="menu">
-				<button class="entry" onclick={() => open('themes')}
+				<button class="entry" data-screen-link onclick={() => open('themes')}
 					><Palette size={19} /><span>Themes</span><ChevronRight size={16} /></button
 				>
+				<button class="entry" data-screen-link onclick={() => open('interface')}
+					><SlidersHorizontal size={19} /><span>Interface and navigation</span><ChevronRight
+						size={16}
+					/></button
+				>
 			</div>
-			{#if session && Capacitor.getPlatform() === 'android'}
+			{#if session}
 				<h2>Playback</h2>
 				<div class="menu">
-					<button class="entry" onclick={() => open('equalizer')}
-						><SlidersHorizontal size={19} /><span>Equalizer</span><ChevronRight size={16} /></button
+					<button class="entry" data-screen-link onclick={() => open('playback')}
+						><Music2 size={19} /><span>Streaming and fades</span><ChevronRight size={16} /></button
 					>
+					{#if offlineSupported}<button
+							class="entry"
+							data-screen-link
+							onclick={() => open('offline')}
+							><Layers size={19} /><span>Offline and cache</span><ChevronRight size={16} /></button
+						>{/if}
+					{#if Capacitor.getPlatform() === 'android'}<button
+							class="entry"
+							data-screen-link
+							onclick={() => open('equalizer')}
+							><SlidersHorizontal size={19} /><span>Equalizer</span><ChevronRight
+								size={16}
+							/></button
+						>{/if}
 				</div>
 			{/if}
 			{#if session}
 				<h2>Your account</h2>
 				<div class="menu">
-					{#each personal as item (item.id)}<button class="entry" onclick={() => open(item.id)}
+					{#each personal as item (item.id)}<button
+							class="entry"
+							data-screen-link
+							onclick={() => open(item.id)}
 							><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
 						>{/each}
 				</div>
@@ -199,6 +237,7 @@
 					<div class="menu">
 						{#each administration as item (item.id)}<button
 								class="entry"
+								data-screen-link
 								onclick={() => open(item.id)}
 								><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
 							>{/each}
@@ -208,7 +247,7 @@
 			{/if}
 			<h2>App</h2>
 			<div class="menu">
-				<button class="entry" onclick={() => open('about')}
+				<button class="entry" data-screen-link onclick={() => open('about')}
 					><Info size={19} /><span>About</span><ChevronRight size={16} /></button
 				>
 			</div>
@@ -216,6 +255,9 @@
 				<button class="secondary" disabled={busy} onclick={signOut}>Sign out</button>{/if}
 		{:else if page === 'equalizer' && session && Capacitor.getPlatform() === 'android'}<EqualizerSettings
 			/>
+		{:else if page === 'interface'}<InterfaceSettings offline={offlineSupported} />
+		{:else if page === 'offline' && session && offlineSupported}<OfflineSettings {session} />
+		{:else if page === 'playback' && session}<PlaybackSettings {session} />
 		{:else if page === 'themes'}<ThemeSettings {session} />
 		{:else if page === 'account' && session}<Account {session} />
 		{:else if page === 'content' && session}<ServerSections {session} {admin} />

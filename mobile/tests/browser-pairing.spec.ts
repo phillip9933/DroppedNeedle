@@ -13,7 +13,16 @@ test.beforeEach(async ({ page }) => {
 			Browser: ['open'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
-			DNPlayer: ['getState', 'command', 'restore']
+			DNPlayer: [
+				'getState',
+				'command',
+				'restore',
+				'outputState',
+				'googleCast',
+				'findOutputs',
+				'castTo',
+				'stopCasting'
+			]
 		};
 		Object.assign(window, {
 			androidBridge: {},
@@ -53,7 +62,20 @@ test.beforeEach(async ({ page }) => {
 						sessionStorage.setItem('browser-url', opts.url);
 						return;
 					}
-					if (plugin === 'DNPlayer')
+					if (plugin === 'DNPlayer') {
+						if (method === 'findOutputs') {
+							sessionStorage.setItem('cast-search', 'yes');
+							return { devices: [{ id: 'mock-renderer', name: 'Fixture receiver' }] };
+						}
+						if (method === 'castTo') {
+							if (Object.keys(opts).join() !== 'id' || opts.id !== 'mock-renderer')
+								throw Error('Invalid receiver');
+							sessionStorage.setItem('receiver', 'Fixture receiver');
+						}
+						if (method === 'googleCast') sessionStorage.setItem('receiver', 'Fixture Chromecast');
+						if (method === 'stopCasting') sessionStorage.removeItem('receiver');
+						if (['outputState', 'castTo', 'googleCast', 'stopCasting'].includes(method))
+							return { destination: sessionStorage.getItem('receiver') ?? '' };
 						return {
 							repeat: 'off',
 							tracks: [],
@@ -63,6 +85,7 @@ test.beforeEach(async ({ page }) => {
 							duration: 0,
 							error: null
 						};
+					}
 					if (plugin === 'CapacitorHttp') {
 						let data;
 						const stock = new URL(opts.url).hostname === 'stock.example';
@@ -138,6 +161,30 @@ async function deliverApproval(page: Page) {
 	}, reply);
 	return launched;
 }
+
+test('an Android listener chooses and disconnects a network output after browser sign-in', async ({
+	page
+}) => {
+	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await deliverApproval(page);
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'More navigation options' }).click();
+	await page.getByRole('button', { name: 'Cast and audio output' }).click();
+	const sheet = page.getByRole('dialog', { name: 'Cast and audio output' });
+	expect(await page.evaluate(() => sessionStorage.getItem('cast-search'))).toBeNull();
+	await sheet.getByRole('button', { name: 'Find network speakers' }).click();
+	await sheet.getByRole('button', { name: 'Fixture receiver' }).click();
+	await expect(sheet.getByText('Casting to Fixture receiver')).toBeVisible();
+	await sheet.getByRole('button', { name: 'Stop casting' }).click();
+	await sheet.getByRole('button', { name: 'Choose Google Cast device' }).click();
+	await expect(sheet.getByText('Casting to Fixture Chromecast')).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'More destinations' })).toBeVisible();
+	await page.getByRole('button', { name: 'Cast and audio output' }).click();
+	await expect(sheet.getByText('Casting to Fixture Chromecast')).toBeVisible();
+	await sheet.getByRole('button', { name: 'Stop casting' }).click();
+	await expect(sheet.getByText('Playing on this phone')).toBeVisible();
+});
 
 test('Android can finish a returned browser sign-in after the network and app restart', async ({
 	page
