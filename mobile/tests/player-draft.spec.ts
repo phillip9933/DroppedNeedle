@@ -135,3 +135,62 @@ test('unavailable draft storage leaves layout editing and explicit Save usable',
 	await expect(rows).toHaveCount(initial + 1);
 	await expect(page.getByText(/could not keep a recovery copy/)).toHaveCount(0);
 });
+
+test('an outstanding five-column version 1 draft survives upgrading an explicitly saved former default header', async ({
+	page
+}) => {
+	await routes(page);
+	await page.goto('/');
+	await page.evaluate(
+		async ({ server, saved }) => {
+			const field = (id: string, options = {}) => ({ id, title: '', preview: true, ...options });
+			const body = field('player-title', { sameRow: false });
+			const header = [
+				'player-close',
+				'player-heading',
+				'player-settings',
+				'player-queue',
+				'player-output'
+			].map((id) =>
+				field(id, {
+					placement: 'header',
+					...(id === 'player-heading' ? { width: 2, align: 'center', maxLines: 2 } : {})
+				})
+			);
+			localStorage.setItem(saved, JSON.stringify([body, ...header]));
+			const oldFile = (sections: unknown[]) =>
+				JSON.stringify({ format: 'droppedneedle-player-layout', version: 1, sections });
+			const request = indexedDB.open('dn.mobile.player-drafts', 1);
+			request.onupgradeneeded = () => request.result.createObjectStore('layouts');
+			const db = await new Promise<IDBDatabase>((resolve, reject) => {
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => reject(request.error);
+			});
+			const tx = db.transaction('layouts', 'readwrite');
+			tx.objectStore('layouts').put(
+				{
+					baseline: oldFile([body]),
+					layout: oldFile([
+						body,
+						field('player-text', { template: 'Sleeve notes', sameRow: false })
+					])
+				},
+				[server, 'alex', 123, 'old-edit']
+			);
+			await new Promise<void>((resolve, reject) => {
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+			});
+			db.close();
+		},
+		{ server, saved }
+	);
+	await edit(page);
+	await expect(page.getByText('Recovered your unsaved layout.', { exact: true })).toBeVisible();
+	const sample = page.locator('[data-part=sample-player]');
+	await expect(sample.getByText('Sleeve notes', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+	const live = page.locator('[data-part=now-playing]');
+	await expect(live.locator('[data-part=player-header-row] > [data-section-id]')).toHaveCount(5);
+	await expect(live.getByText('Sleeve notes', { exact: true })).toHaveCount(0);
+});

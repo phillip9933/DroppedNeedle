@@ -62,10 +62,19 @@
 	let shell = $state<HTMLElement>();
 	let drawer = $state<{ show: () => Promise<void>; back: () => boolean }>();
 	let drawerOpen = $state(false);
+	const navigation = {
+		get open() {
+			return drawerOpen;
+		},
+		show: () => {
+			void drawer?.show();
+		}
+	};
 	function visibleMenuButton() {
-		return Array.from(shell?.querySelectorAll<HTMLButtonElement>('.menu-toggle') ?? []).find(
-			(button) => button.getClientRects().length > 0
-		);
+		return Array.from(
+			shell?.querySelectorAll<HTMLButtonElement>('[data-drawer-trigger], [data-drawer-fallback]') ??
+				[]
+		).find((button) => button.getClientRects().length > 0);
 	}
 	let footerHeight = $state(0);
 	let settings = $state<{ goBack: () => boolean }>();
@@ -354,6 +363,7 @@
 	<button
 		type="button"
 		class="icon-button menu-toggle"
+		data-drawer-trigger
 		aria-label="Open navigation menu"
 		aria-haspopup="dialog"
 		aria-controls={drawerOpen ? 'navigation-drawer' : undefined}
@@ -421,7 +431,7 @@
 				<div class="pad">
 					{#key settingsVisit}<Appearance
 							bind:this={settings}
-							{menuToggle}
+							{navigation}
 							initial={fromPlayer ? 'player' : 'menu'}
 							{session}
 							onback={closePanel}
@@ -434,7 +444,7 @@
 				<div hidden={!!related}>
 					<PlayerView
 						oncredit={openCredit}
-						{menuToggle}
+						{navigation}
 						{session}
 						expanded={true}
 						queueOpen={panel === 'queue'}

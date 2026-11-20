@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, tick, type Snippet } from 'svelte';
+	import type { DrawerControl } from '../NavigationDrawer.svelte';
+	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import InterfaceSettings from './InterfaceSettings.svelte';
 	import { changeScreen } from './interface';
@@ -56,14 +57,14 @@
 		| 'menu';
 	let {
 		session,
-		menuToggle,
+		navigation,
 		onback,
 		onplayerlayoutclose,
 		onsignout,
 		initial = 'menu'
 	}: {
 		session: Session | null;
-		menuToggle: Snippet;
+		navigation: DrawerControl;
 		onback: () => void;
 		onplayerlayoutclose: () => void;
 		onsignout: () => Promise<void>;
@@ -175,7 +176,7 @@
 
 <section class="settings" bind:this={root}>
 	{#if session && (page === 'home' || page === 'discover' || page === 'library' || page === 'player')}
-		{#key page}<BoardSettings {session} {menuToggle} board={page} onback={back} />{/key}
+		{#key page}<BoardSettings {session} {navigation} board={page} onback={back} />{/key}
 	{:else}
 		<button aria-label="Back" class="text-button back" data-screen-link onclick={back}
 			><ChevronLeft size={18} />{page === 'menu' ? 'Back' : 'Settings'}</button

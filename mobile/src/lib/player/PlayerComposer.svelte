@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
+	import type { DrawerControl } from '../NavigationDrawer.svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import {
 		ArrowLeft,
 		ArrowRight,
@@ -44,12 +45,12 @@
 
 	let {
 		recovery,
-		menuToggle,
+		navigation,
 		onback,
 		onsave
 	}: {
 		recovery: PlayerDraft;
-		menuToggle: Snippet;
+		navigation: DrawerControl;
 		onback: () => void;
 		onsave: (sections: Section[]) => void;
 	} = $props();
@@ -1055,7 +1056,7 @@
 		<div class="preview-body">
 			<PlayerView
 				session={sampleSession}
-				{menuToggle}
+				{navigation}
 				expanded={true}
 				onexpand={() => {}}
 				oncollapse={() => {}}

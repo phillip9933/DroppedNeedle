@@ -43,13 +43,29 @@ export async function openPlayerDraft(server: string, user: string, saved: Secti
 		const store = db.transaction('layouts', 'readwrite').objectStore('layouts');
 		const range = IDBKeyRange.bound([server, user], [server, user, []]);
 		const cursor = store.openCursor(range, 'prev');
+		let olderBaseline: string | undefined;
 		await new Promise<void>((resolve, reject) => {
 			cursor.onerror = () => reject(cursor.error);
 			cursor.onsuccess = () => {
 				const item = cursor.result;
 				if (!item) return resolve();
 				const record = item.value;
-				if (record?.baseline === baseline && typeof record.layout === 'string') {
+				// Version 1 drafts from before the menu became editable used a five-field default header.
+				// Match their exact saved composition, including placement, before recovering one.
+				if (
+					typeof record?.baseline === 'string' &&
+					record.baseline !== baseline &&
+					!saved.some((s) => s.id === 'player-menu')
+				)
+					olderBaseline ??= exportPlayerStyle(
+						packPlayerCanvas(playerCanvas(saved, false), hidden, false),
+						'compact'
+					);
+				if (
+					(record?.baseline === baseline ||
+						(olderBaseline !== undefined && record?.baseline === olderBaseline)) &&
+					typeof record.layout === 'string'
+				) {
 					try {
 						initial = importPlayerStyle(record.layout);
 						previous = record.layout;

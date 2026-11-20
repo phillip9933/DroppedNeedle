@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		ListMusic,
-		Menu,
 		Pause,
 		Play,
 		SkipBack,
@@ -12,6 +11,7 @@
 		Repeat1,
 		Shuffle
 	} from '@lucide/svelte';
+	import type { DrawerControl } from './NavigationDrawer.svelte';
 	import type { Snippet } from 'svelte';
 	import { samplePlayer } from './player/samplePlayer';
 	import sampleArt from './player/tidal-memory.webp';
@@ -21,7 +21,12 @@
 	import type { Credit } from './player/related';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import SleepTimer from './player/SleepTimer.svelte';
-	import { isPlayerMetadata, isNavigation, trackToolFields } from './player/layout';
+	import {
+		isPlayerMetadata,
+		isNavigation,
+		showsNavigationMenu,
+		trackToolFields
+	} from './player/layout';
 	import { player, queueOrder, type PlayerTrack } from './player';
 	import ReorderList from './controls/ReorderList.svelte';
 	import {
@@ -50,7 +55,7 @@
 		queueOpen = false,
 		ontogglequeue,
 		onsettings,
-		menuToggle,
+		navigation,
 		onexpand,
 		oncollapse,
 		onerror,
@@ -62,7 +67,7 @@
 		queueOpen?: boolean;
 		ontogglequeue?: () => void;
 		onsettings?: () => void;
-		menuToggle?: Snippet;
+		navigation?: DrawerControl;
 		onexpand: () => void;
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
@@ -306,13 +311,7 @@
 					class:flush-edge={r > 0 && flushRows[r] && (r === 1 || flushRows[r - 1])}
 				>
 					{@render editor?.rowControls?.(r)}
-					<div class="row-surface" class:with-menu={r === 0 && (!!editor || !!menuToggle)}>
-						{#if r === 0 && (editor || menuToggle)}<div class="app-menu-cell">
-								{#if composing || !menuToggle}<span
-										class="icon-button sample-menu"
-										aria-hidden="true"><Menu size={23} /></span
-									>{:else}{@render menuToggle?.()}{/if}
-							</div>{/if}
+					<div class="row-surface">
 						<div
 							class="player-row"
 							class:composed={row.length > 1}
@@ -330,7 +329,10 @@
 						>
 							{#each row as section, c (section.id)}
 								{@const staticControl =
-									previewOnly && !isPlayerMetadata(section.id) && !sampleDetails.has(section.id)}
+									previewOnly &&
+									section.id !== 'player-menu' &&
+									!isPlayerMetadata(section.id) &&
+									!sampleDetails.has(section.id)}
 								<div
 									class="player-section"
 									class:editing-field={composing}
@@ -367,7 +369,7 @@
 											>
 												{section.title}
 											</h2>{/if}
-										{#if isPlayerSlot(section.id)}
+										{#if isPlayerSlot(section.id) || (section.id === 'player-menu' && !showsNavigationMenu(section))}
 											<span class="empty-slot" aria-hidden="true"></span>
 										{:else if isNavigation(section.id)}<div class="field-controls">
 												<PlayerNavigationAction
@@ -375,10 +377,12 @@
 													{section}
 													{queueOpen}
 													editing={!!editor}
+													{navigation}
 													disabled={section.id === 'player-queue' && !track}
 													onactivate={(id) => {
-														if (editor) return;
-														if (id === 'player-close') oncollapse();
+														if (id === 'player-menu') navigation?.show();
+														else if (editor) return;
+														else if (id === 'player-close') oncollapse();
 														else if (id === 'player-settings') onsettings?.();
 														else ontogglequeue?.();
 													}}
@@ -570,6 +574,11 @@
 					</div>
 					{#if r === 0 && !composing}<PlayerHeader
 							readOnly={previewOnly}
+							{navigation}
+							menuVisible={rows.some(
+								(cells, index) =>
+									(index === 0 || (!!track && !queueOpen)) && cells.some(showsNavigationMenu)
+							)}
 							{row}
 							{sections}
 							{queueOpen}
@@ -728,36 +737,7 @@
 		max-width: 100%;
 		margin-inline: var(--art-start, auto) var(--art-end, auto);
 	}
-	.row-surface {
-		min-width: 0;
-	}
-	.with-menu {
-		display: grid;
-		grid-template-columns: 44px minmax(0, 1fr);
-		gap: 5px;
-		align-items: center;
-	}
-	.app-menu-cell {
-		display: grid;
-		align-content: start;
-		align-self: stretch;
-		padding-block: max(0px, calc((3.8rem - 44px) / 2));
-	}
-	.sample-menu {
-		height: 44px;
-	}
-	@container (max-width:313px) {
-		.with-menu:has(.player-section:nth-child(6)) {
-			grid-template-columns: minmax(0, 1fr);
-			gap: 0;
-		}
-	}
-	@container (max-width:268px) {
-		.with-menu:has(.player-section:nth-child(5)) {
-			grid-template-columns: minmax(0, 1fr);
-			gap: 0;
-		}
-	}
+	.row-surface,
 	.row-group {
 		min-width: 0;
 	}

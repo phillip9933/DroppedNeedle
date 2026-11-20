@@ -1,4 +1,4 @@
-import { navigationFields, trackToolFields } from './layout';
+import { isNavigation, navigationFields, trackToolFields } from './layout';
 export { isPlayerText } from './layout';
 import type { Section } from '../boards/layout';
 
@@ -38,14 +38,24 @@ function canvasCell(section: Section): Section {
 	return cell;
 }
 /** Old layouts omitted default navigation or recorded a side for each control separately. */
-function legacyHeader(sections: Section[]): Section[] {
+function legacyHeader(sections: Section[], includeMenu: boolean): Section[] {
 	const sides: Record<'header-start' | 'header-end', Section[]> = {
 		'header-start': [],
 		'header-end': []
 	};
 	for (const { id } of navigationFields) {
 		const saved = sections.find((s) => s.id === id);
-		const side = saved ? saved.placement : id === 'player-close' ? 'header-start' : 'header-end';
+		// Older compositions that placed navigation explicitly keep their original columns.
+		if (
+			id === 'player-menu' &&
+			(!includeMenu || (!saved && sections.some((s) => isNavigation(s.id))))
+		)
+			continue;
+		const side = saved
+			? saved.placement
+			: id === 'player-close' || id === 'player-menu'
+				? 'header-start'
+				: 'header-end';
 		if (side === 'header-start' || side === 'header-end') {
 			sides[side].push(canvasCell(saved ?? { id, title: '', preview: true }));
 		}
@@ -69,21 +79,27 @@ function legacyHeader(sections: Section[]): Section[] {
 }
 
 // Row zero is the header. Keep body positions and old exports intact until a listener changes it.
-export function playerCanvas(sections: Section[]): Section[][] {
+export function playerCanvas(sections: Section[], includeMenu = true): Section[][] {
 	const header = sections.filter((s) => s.placement === 'header').map(canvasCell);
-	const first = header.length ? header.slice(0, maxPlayerColumns) : legacyHeader(sections);
+	const first = header.length
+		? header.slice(0, maxPlayerColumns)
+		: legacyHeader(sections, includeMenu);
 	return [
 		first.length ? first : [{ id: nextSlotId(sections), title: '', preview: true }],
 		...playerRows(flattenPlayerRows([header.slice(maxPlayerColumns)])),
 		...playerRows(sections)
 	];
 }
-export function packPlayerCanvas(rows: Section[][], hidden: Section[]): Section[] {
+export function packPlayerCanvas(
+	rows: Section[][],
+	hidden: Section[],
+	includeMenu = true
+): Section[] {
 	const body = flattenPlayerRows(rows.slice(1));
 	const placed = new Set(rows.flat().map((s) => s.id));
 	const extras = hidden.filter((s) => !placed.has(s.id));
 	const header = rows[0].map(canvasCell);
-	const old = legacyHeader([...body, ...extras]);
+	const old = legacyHeader([...body, ...extras], includeMenu);
 	const same =
 		header.length === old.length &&
 		header.every((cell, i) => {

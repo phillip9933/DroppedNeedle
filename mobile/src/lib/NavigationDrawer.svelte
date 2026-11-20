@@ -1,3 +1,7 @@
+<script module lang="ts">
+	export type DrawerControl = { readonly open: boolean; show: () => void };
+</script>
+
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { X } from '@lucide/svelte';
