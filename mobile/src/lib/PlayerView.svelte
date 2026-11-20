@@ -17,6 +17,7 @@
 	import { player } from './player';
 	import type { Session } from './connection';
 	import Cover from './catalog/Cover.svelte';
+	import PlayerLyrics from './PlayerLyrics.svelte';
 	let {
 		session,
 		expanded,
@@ -181,6 +182,7 @@
 				{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
 				Repeat {$player.repeat}
 			</button>
+			<PlayerLyrics {session} trackId={track.id} position={$player.position} />
 		{/if}
 		{#if $player.error}<p role="alert">{$player.error}</p>{/if}
 	</section>

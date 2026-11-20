@@ -3,7 +3,7 @@ import { DnError, getJson, postJson, type Session } from '../connection';
 import type { PlayerTrack } from '../player';
 
 type Schema = components['schemas'];
-export type CatalogTab = 'library' | 'search' | 'requests';
+export type CatalogTab = 'library' | 'discover' | 'search' | 'requests';
 export type OnPlay = (tracks: PlayerTrack[], index: number) => Promise<void> | void;
 export type Edition = Schema['AlbumEditionItem'];
 export type RequestItem = Schema['RequestItem'];
@@ -17,6 +17,7 @@ export type Album = {
 	requested?: boolean;
 	release?: string | null;
 	imported?: boolean;
+	favorite?: boolean;
 };
 
 export function path<T extends keyof paths>(
@@ -65,27 +66,37 @@ export function playerTrack(
 	};
 }
 
-export async function library(session: Session, after?: string) {
-	const url = path(
-		'/api/v3/library/albums',
-		{},
-		{ limit: 30, sort: 'date_added', order: 'desc', after }
-	);
-	const page = await getJson<Schema['AlbumPage']>(session, url);
+export function localAlbum(a: Schema['AlbumView']): Album {
 	return {
-		albums: page.items.map((a): Album => ({
-			title: a.title,
-			artist: a.artist_name,
-			year: a.year,
-			localId: a.id,
-			group: a.release_group_mbid,
-			art: cover(
-				a.release_group_mbid,
-				a.id,
-				a.art_missing || (!a.release_group_mbid && !a.cover_available)
-			)
-		})),
-		next: page.next
+		title: a.title,
+		artist: a.artist_name,
+		year: a.year,
+		localId: a.id,
+		group: a.release_group_mbid,
+		favorite: a.favorite,
+		art: cover(
+			a.release_group_mbid,
+			a.id,
+			a.art_missing || (!a.release_group_mbid && !a.cover_available)
+		)
+	};
+}
+
+export function localSong(t: Schema['TrackView'], artist = '') {
+	return {
+		...playerTrack(
+			t.id,
+			t.title,
+			t.artist_name || artist,
+			t.album_title,
+			cover(
+				t.release_group_mbid,
+				t.album_id,
+				t.art_missing || (!t.release_group_mbid && !t.cover_available)
+			),
+			t.duration_seconds
+		),
+		favorite: t.favorite
 	};
 }
 
@@ -93,7 +104,13 @@ export async function search(session: Session, term: string) {
 	const url = path(
 		'/api/v3/search',
 		{},
-		{ q: term, buckets: 'albums,tracks', limit_albums: 40, limit_tracks: 16 }
+		{
+			q: term,
+			buckets: 'albums,artists,tracks',
+			limit_albums: 40,
+			limit_artists: 24,
+			limit_tracks: 24
+		}
 	);
 	const result = await getJson<Schema['SearchResponse']>(session, url);
 	const albums = result.albums
@@ -117,7 +134,33 @@ export async function search(session: Session, term: string) {
 		);
 		return [playerTrack(t.id, t.title, t.artist ?? '', d.album_title, art, d.duration_seconds)];
 	});
-	return { albums, tracks, partial: result.album_status !== 'ok' };
+	const artists = result.artists
+		.filter((a) => a.musicbrainz_id || a.id)
+		.map((a) => ({ name: a.title, localId: a.id, mbid: a.musicbrainz_id }));
+	const recordings = result.tracks.flatMap((t) =>
+		!t.track && t.musicbrainz_id && t.remote_track
+			? [
+					{
+						requested: t.requested,
+						song: {
+							recording_mbid: t.musicbrainz_id,
+							artist_name: t.artist ?? '',
+							track_title: t.title,
+							...t.remote_track
+						} satisfies Schema['TrackIntake']
+					}
+				]
+			: []
+	);
+	return {
+		albums,
+		tracks,
+		artists,
+		recordings,
+		partial: [result.album_status, result.artist_status, result.track_status].some(
+			(status) => status !== 'ok'
+		)
+	};
 }
 
 /** The match endpoint takes a local copy ID or chooses DN's preferred copy of a group. */
@@ -157,20 +200,7 @@ export async function albumTracks(session: Session, album: Album) {
 	const tracks = await localTracks(session, album);
 	return tracks
 		.sort((a, b) => a.disc_number - b.disc_number || a.track_number - b.track_number)
-		.map((t) =>
-			playerTrack(
-				t.id,
-				t.title,
-				t.artist_name || album.artist,
-				t.album_title,
-				cover(
-					t.release_group_mbid,
-					t.album_id,
-					t.art_missing || (!t.release_group_mbid && !t.cover_available)
-				),
-				t.duration_seconds
-			)
-		);
+		.map((t) => localSong(t, album.artist));
 }
 
 export function editions(session: Session, albumId: string) {

@@ -1,18 +1,43 @@
 <script lang="ts">
+	import TrackActions from './TrackActions.svelte';
+	import type { Session } from '../connection';
 	import TrackRow from './TrackRow.svelte';
 	import type { PlayerTrack } from '../player';
 	import type { OnPlay } from './catalog';
-	let { tracks, onplay }: { tracks: PlayerTrack[]; onplay: OnPlay } = $props();
+	let {
+		session,
+		tracks,
+		onplay
+	}: { session: Session; tracks: (PlayerTrack & { favorite?: boolean })[]; onplay: OnPlay } =
+		$props();
 </script>
 
 <div data-part="track-list">
 	{#each tracks as track, index (track.id)}
-		<TrackRow
-			title={track.title}
-			artist={track.artist}
-			duration={track.duration}
-			position={index + 1}
-			onplay={() => onplay(tracks, index)}
-		/>
+		<div class="row">
+			<TrackRow
+				title={track.title}
+				artist={track.artist}
+				duration={track.duration}
+				position={index + 1}
+				onplay={() => onplay(tracks, index)}
+			/><TrackActions
+				{session}
+				tracks={[track]}
+				label={'More options for ' + track.title}
+				favorite={track.favorite}
+			/>
+		</div>
 	{/each}
 </div>
+
+<style>
+	.row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.row :global(button:first-child) {
+		min-width: 0;
+	}
+</style>

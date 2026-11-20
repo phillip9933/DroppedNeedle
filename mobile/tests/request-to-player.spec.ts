@@ -122,9 +122,32 @@ test('the requested edition arrives and both local tracks play in disc order', a
 			} satisfies Schema['AlbumEditionsResponse']);
 		if (operation === '/albums/' + group + '/editions/' + release + '/tracks')
 			return json({
-				tracks: [{ disc_number: 1, position: 1, title: 'Slow Motion' }],
+				tracks: [
+					{
+						disc_number: 1,
+						position: 1,
+						title: 'Slow Motion',
+						recording_id: 'song-recording',
+						length: 132000
+					}
+				],
 				total_tracks: 1
 			} satisfies Schema['AlbumTracksInfo']);
+		if (operation === '/library/tracks/track-2/lyrics')
+			return json({
+				is_synced: true,
+				text: 'Daylight',
+				lines: [{ start_seconds: 0, text: 'Daylight' }]
+			} satisfies Schema['LyricsView']);
+		if (operation === '/requests/tracks') {
+			expect(req.postDataJSON()).toMatchObject({
+				recording_mbid: 'song-recording',
+				release_mbid: release,
+				release_group_mbid: group,
+				duration_seconds: 132
+			});
+			return json({ status: 'awaiting_approval' });
+		}
 		if (operation === '/requests/albums') {
 			expect(req.method()).toBe('POST');
 			expect(req.postDataJSON()).toMatchObject({
@@ -175,6 +198,8 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await page.getByRole('button', { name: album + ' ' + artist }).click();
 	await page.getByRole('combobox', { name: 'Edition' }).selectOption(release);
 	await expect(page.getByText('Slow Motion')).toBeVisible();
+	await page.getByRole('button', { name: 'Request song Slow Motion' }).click();
+	await expect(page.getByText('Awaiting approval', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Request album' }).click();
 	await page.getByRole('button', { name: 'View requests' }).click();
 	await expect(page.getByRole('button', { name: /After Dark.*Awaiting approval/ })).toBeVisible();
@@ -183,6 +208,8 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await page.getByRole('button', { name: /After Dark.*Imported/ }).click();
 	await page.getByRole('button', { name: 'Play album' }).click();
 	await expect(page.getByRole('heading', { name: 'Fading Light', exact: true })).toBeVisible();
+	await page.getByText('Lyrics', { exact: true }).click();
+	await expect(page.locator('[data-part=lyrics] [aria-current=true]')).toHaveText('Daylight');
 	expect(played).toEqual(['/stream/local/track-1', '/stream/local/track-2']);
 	await page.getByRole('button', { name: 'Show play queue' }).click();
 	await expect(page.getByRole('heading', { name: 'Play queue' })).toBeVisible();
