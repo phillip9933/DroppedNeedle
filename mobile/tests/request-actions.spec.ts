@@ -99,6 +99,7 @@ async function connect(page: Page, role: S['Role']) {
 		expect(req.headers().authorization).toBe('Bearer fixture');
 		calls.push(m + ' ' + path + url.search);
 		if (path === '/me') return json({ id: 'owner', display_name: 'Listener', role });
+		if (path === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (path === '/home') return json({ sections: [] });
 		if (path === '/library/albums') return json({ items: [], total: 0 });
 		if (path === '/requests/active') return json({ items: active });

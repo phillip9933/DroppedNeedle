@@ -84,7 +84,9 @@ test.beforeEach(async ({ page }) => {
 							}
 							if (!sessionStorage.getItem('reconnected')) throw new Error('Server unreachable.');
 							data = { id: 'fixture-id', display_name: 'Listener' };
-						} else if (opts.url.endsWith('/home')) data = { sections: [] };
+						} else if (opts.url.endsWith('/me/section-prefs'))
+							data = { pages: { home: [], discover: [] } };
+						else if (opts.url.endsWith('/home')) data = { sections: [] };
 						else if (opts.url.includes('/library/albums')) data = { items: [], next: null };
 						else throw new Error('Unexpected test request.');
 						return { status: 200, headers: { 'Content-Type': 'application/json' }, data };
