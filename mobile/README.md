@@ -22,7 +22,7 @@ Each section can show its contents directly on the screen. Choose **List** or **
 
 Library shelves also work with music saved on this device. Add **Library genres** to Home or Library for a genre shelf. Saved song filters use local track details, and album or artist rules use matches DN has already confirmed. Recently added uses DN’s addition dates when available. Recently played and Discover recommendations need a connection.
 
-Open **Library** for Playlists, Artists, Albums, Tracks and Genres. Albums and playlists start as two-column grids, artists as three-column portraits, and tracks and genres as lists. Use the toolbar to sort, filter, search, select items, or switch views. The gear adjusts the display for that category. More items load as you scroll. Opening a detail and going back keeps your place. **Library sections** opens your custom shelves.
+Open **Library** for Playlists, Artists, Albums, Tracks and Genres. Albums and playlists start as two-column grids, artists as three-column portraits, and tracks and genres as lists. Use the toolbar to sort, filter, search, select items, or switch views. Open the gear to choose one to six equal-width columns and adjust the spacing for that category. More items load as you scroll. Opening a detail and going back keeps your place. **Library sections** opens your custom shelves.
 
 Use **Library → Library sections → New filtered section**, or set filters while browsing and choose **Save filters as section**. For a five-star songs shelf, choose Songs, set the minimum rating to five and give it a name. Add the saved section to Home or Library in either screen’s layout editor. The two placements share the saved criteria and can use different row counts and display styles.
 
@@ -52,6 +52,8 @@ Layouts are stored on the phone for each DN server and account. **Settings → C
 | Discover | Browse recommendations, genres, popular albums, trending artists and personal charts. Open an artist for releases and top songs. Follow artists to see new releases and concerts. Library radio builds a queue from DN files related to an artist, album or genre. |
 | Account | In **Settings > Account on DroppedNeedle**, change your display name, username, email, listening visibility, scrobble preferences and personal-mix settings. Inspect linked services or sign out another device. |
 
+Open a DN playlist and choose **Export playlist** to save an M3U8 or CSV file. This also works for playlists shared with you as a viewer. For M3U8 you can set the path prefix to match the music folder on the receiving device. The app remembers it for this DN account. Android opens the system file picker so you can choose the destination. DN reports how many unavailable entries it skipped.
+
 Under **Requests → Activity → Wanted watches**, see what DN is monitoring and manage watches your account can change. **Requests → Downloads** puts items needing a decision first, followed by in-progress transfers, queued work, scheduled retries, and download history. **Review matches** separates recommended and possible candidates from those outside your download settings. Select one to inspect its files and review the action.
 
 **Review held files** opens files from that task inside the app. **Review all held files** opens the entries available to your account. Listen to the opening audio, inspect why a file was held, and select the files to act on. DN supplies the eligible actions. You can confirm a replacement or discard, and trusted listeners and administrators can match files to an album or check an edition. Edition review compares editions against the library, then retries the selected held files. Bulk imports, quality upgrades and advanced server administration are available in Web tools.
@@ -80,7 +82,7 @@ On Android, choose **Save offline** on an album, track or selection to keep the 
 
 Under **Settings → Offline and cache**, automatic downloads can keep up to 25 recent additions or favorites. They start switched off. Manual downloads stay until you remove them. Playback cache keeps completed files under its own size limit. Set transfer limits, choose unmetered connections or enable offline-only playback here. Keep the app open while saving explicit downloads. The player prefers a complete copy on the device.
 
-Cover artwork and lyrics you have opened have separate device caches. Their settings show usage and let you change the limits or clear each cache for this account. Timed lyrics keep their seek controls offline. The browser preview uses IndexedDB for media and keeps sign-in in memory.
+Cover artwork and lyrics you have opened have separate device caches. Their settings show usage and let you change the limits or clear each cache for this account. Android’s lock screen and media notification can show a cover embedded in the saved song, even without a connection. Timed lyrics keep their seek controls offline. The browser preview uses IndexedDB for media and keeps sign-in in memory.
 
 Timed lyrics follow the playing line inside the lyrics panel. Scroll to read ahead, then tap **Follow current line** to catch up. Tapping a timed line seeks to it and follows the song from there.
 
