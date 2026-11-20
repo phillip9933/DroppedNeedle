@@ -28,6 +28,7 @@ export type InterfacePreferences = {
 	bar: 'docked' | 'floating';
 	tabs: Destination[];
 	headerSettings: boolean;
+	swipeTracks: boolean;
 	motion: 'off' | 'quick' | 'gentle';
 };
 const key = 'dn.mobile.interface.v2';
@@ -38,6 +39,7 @@ export const defaultInterface: InterfacePreferences = {
 	bar: 'docked',
 	tabs: ['home', 'library', 'search', 'discover', 'requests'],
 	headerSettings: true,
+	swipeTracks: true,
 	motion: 'quick'
 };
 function normalize(value: Partial<InterfacePreferences> | null): InterfacePreferences {
@@ -53,6 +55,7 @@ function normalize(value: Partial<InterfacePreferences> | null): InterfacePrefer
 			? [...new Set(value.tabs.filter(valid))].slice(0, maxTabs)
 			: [...defaultInterface.tabs],
 		headerSettings: value?.headerSettings !== false,
+		swipeTracks: value?.swipeTracks !== false,
 		motion: value?.motion === 'off' || value?.motion === 'gentle' ? value.motion : 'quick'
 	};
 }

@@ -1,6 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type CDPSession, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
+import { silentWav } from './fixtures/silentWav';
 
 declare global {
 	interface Window {
@@ -35,7 +36,12 @@ async function network(page: Page, legacy = false) {
 		{ server, legacy }
 	);
 }
-async function connect(page: Page, secondTrack = false, firstResponse?: Promise<void>) {
+async function connect(
+	page: Page,
+	secondTrack = false,
+	firstResponse?: Promise<void>,
+	longAudio = false
+) {
 	const streams: string[] = [];
 	let conversion = 'on';
 	await page.route(server + '/api/v3/**', async (route) => {
@@ -67,6 +73,7 @@ async function connect(page: Page, secondTrack = false, firstResponse?: Promise<
 		if (path === '/stream/local/first' || path === '/stream/local/next') {
 			streams.push(url.search);
 			if (path.endsWith('first') && firstResponse) await firstResponse;
+			if (longAudio) return route.fulfill({ body: silentWav(60), contentType: 'audio/wav' });
 			const format = url.searchParams.get('format');
 			if (format === 'mp3')
 				return route.fulfill({
@@ -104,6 +111,17 @@ async function settings(page: Page, section: string) {
 async function back(page: Page, heading: string) {
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+}
+
+async function swipe(touch: CDPSession, x: number, y: number, dx: number, dy: number) {
+	await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+	for (let i = 1; i <= 5; i++) {
+		await touch.send('Input.dispatchTouchEvent', {
+			type: 'touchMove',
+			touchPoints: [{ x: x + (dx * i) / 5, y: y + (dy * i) / 5 }]
+		});
+	}
+	await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
 test('the navigation drawer keeps hidden screens and Settings accessible when every tab is removed', async ({
@@ -186,21 +204,11 @@ test('a touchscreen edge swipe opens the drawer and the player keeps its header 
 	const toggle = page.getByRole('button', { name: 'Open navigation menu' });
 	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
 	const touch = await page.context().newCDPSession(page);
-	async function swipe(x: number, y: number, dx: number, dy: number) {
-		await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-		for (let i = 1; i <= 5; i++) {
-			await touch.send('Input.dispatchTouchEvent', {
-				type: 'touchMove',
-				touchPoints: [{ x: x + (dx * i) / 5, y: y + (dy * i) / 5 }]
-			});
-		}
-		await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-	}
-	await swipe(100, 200, 115, 6);
+	await swipe(touch, 100, 200, 115, 6);
 	await expect(menu).toHaveCount(0);
-	await swipe(8, 210, 12, 80);
+	await swipe(touch, 8, 210, 12, 80);
 	await expect(menu).toHaveCount(0);
-	await swipe(8, 190, 118, 5);
+	await swipe(touch, 8, 190, 118, 5);
 	await expect(menu).toBeVisible();
 	await expect
 		.poll(() => menu.evaluate((node) => Math.round(node.getBoundingClientRect().left)))
@@ -208,7 +216,7 @@ test('a touchscreen edge swipe opens the drawer and the player keeps its header 
 	const rect = (await menu.boundingBox())!;
 	expect(rect.height).toBe(page.viewportSize()!.height);
 	expect(rect.width).toBeLessThan(page.viewportSize()!.width - 44);
-	await swipe(190, 150, -100, 6);
+	await swipe(touch, 190, 150, -100, 6);
 	await expect(menu).toHaveCount(0);
 	await expect(toggle).toBeFocused();
 	await toggle.click();
@@ -234,17 +242,60 @@ test('a touchscreen edge swipe opens the drawer and the player keeps its header 
 	const columns = page.getByRole('combobox', { name: 'Number of columns' });
 	await columns.selectOption('4');
 	const toolbar = (await page.locator('.composer .bar').boundingBox())!;
-	await swipe(8, toolbar.y + toolbar.height / 2, 118, 3);
+	await swipe(touch, 8, toolbar.y + toolbar.height / 2, 118, 3);
 	await expect(menu).toBeVisible();
 	await menu.getByRole('button', { name: 'Close navigation menu' }).click();
 	await expect(columns).toHaveValue('4');
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
 	await page.getByRole('button', { name: 'Show play queue' }).click();
-	await swipe(8, 160, 100, 4);
+	await swipe(touch, 8, 160, 100, 4);
 	await menu.getByRole('button', { name: 'Home', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	await expect(page.getByRole('region', { name: 'Current track' })).toBeVisible();
+	await touch.detach();
+});
+
+test('artwork and mini-player swipes change tracks while taps, scrolling and the gesture preference keep working', async ({
+	page
+}) => {
+	await connect(page, true, undefined, true);
+	await page
+		.getByRole('button', { name: /Nightfall/ })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Play album', exact: true }).click();
+	const now = page.getByRole('region', { name: 'Now playing' });
+	const mini = page.getByRole('region', { name: 'Current track' });
+	const touch = await page.context().newCDPSession(page);
+	const art = now.locator('[data-section-id="player-artwork"] [data-part=cover]');
+	await art.scrollIntoViewIfNeeded();
+	const box = (await art.boundingBox())!;
+	await swipe(touch, box.x + box.width * 0.65, box.y + box.height / 2, -85, 4);
+	await expect(now.getByText('Overtones', { exact: true }).first()).toBeVisible();
+	await now.getByRole('button', { name: 'Close player' }).click();
+	const openMini = mini.getByRole('button', { name: 'Open player for Overtones' });
+	const b = (await openMini.boundingBox())!;
+	await swipe(touch, b.x + b.width * 0.3, b.y + b.height / 2, 97, 4);
+	await expect(mini.getByRole('button', { name: 'Open player for Reflections' })).toBeVisible();
+	await expect(now).toHaveCount(0);
+	await mini.getByRole('button', { name: 'Open player for Reflections' }).tap();
+	await art.scrollIntoViewIfNeeded();
+	const vertical = (await art.boundingBox())!;
+	await swipe(touch, vertical.x + vertical.width / 2, vertical.y + vertical.height / 2, 13, -85);
+	await expect(now.getByText('Reflections', { exact: true }).first()).toBeAttached();
+	await now.getByRole('button', { name: 'Close player' }).click();
+	await settings(page, 'Interface and navigation');
+	await page.getByRole('checkbox', { name: /Swipe album art/ }).uncheck();
+	await back(page, 'Settings');
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await mini.getByRole('button', { name: 'Open player for Reflections' }).tap();
+	await art.scrollIntoViewIfNeeded();
+	const disabled = (await art.boundingBox())!;
+	await swipe(touch, disabled.x + disabled.width * 0.65, disabled.y + disabled.height / 2, -80, 3);
+	await expect(now.getByText('Reflections', { exact: true }).first()).toBeVisible();
+	await now.getByRole('button', { name: 'Next track', exact: true }).first().click();
+	await expect(now.getByText('Overtones', { exact: true }).first()).toBeVisible();
 	await touch.detach();
 });
 

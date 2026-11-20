@@ -1,5 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
+export const navigationEdge = 36;
+
 const nativeDrawer = registerPlugin<{ setMenuEdge(options: { enabled: boolean }): Promise<void> }>(
 	'DNDrawer'
 );
@@ -35,7 +37,7 @@ export function drawerSwipe(
 		}
 		const touch = e.touches[0],
 			edge = touch.clientX - shell.getBoundingClientRect().left;
-		if (!closing && (edge < 0 || edge > 36)) return;
+		if (!closing && (edge < 0 || edge > navigationEdge)) return;
 		if (!closing) {
 			for (
 				let parent: Element | null = target;
