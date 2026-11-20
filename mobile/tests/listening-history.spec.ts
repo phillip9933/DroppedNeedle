@@ -150,7 +150,7 @@ for (const scenario of ['disabled', 'enabled', 'unsupported'] as const) {
 		await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 		const message =
 			scenario === 'disabled'
-				? 'To see your recent plays, enable Recently Played in the DroppedNeedle web app under Settings → Home.'
+				? 'To see your recent plays, enable Recently Played under Settings → Content preferences → Home.'
 				: 'No recent plays available from DroppedNeedle.';
 		await expect(page.getByText(message, { exact: true })).toBeVisible();
 	});

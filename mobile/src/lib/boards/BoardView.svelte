@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ArrowLeft, ChevronRight, PanelsTopLeft, Plus, SlidersHorizontal } from '@lucide/svelte';
+	import { ArrowLeft, ChevronRight, PanelsTopLeft } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from '../catalog/catalog';
 	import type { DiscoverArtistRef } from '../catalog/discovery';
@@ -8,12 +8,10 @@
 	import LibraryWidget from '../catalog/LibraryWidget.svelte';
 	import DiscoveryWidget from '../catalog/DiscoveryWidget.svelte';
 	import PreviewViewport from './PreviewViewport.svelte';
-	import LayoutEditor from './LayoutEditor.svelte';
 	import {
 		accountId,
 		boardNames,
 		loadLayout,
-		saveLayout,
 		sectionTitle,
 		type Board,
 		type Section
@@ -40,11 +38,8 @@
 	} = $props();
 	let owner = $state(''),
 		sections = $state<Section[]>([]),
-		error = $state(''),
-		editing = $state(false);
-	let expanded = $state<Section | null>(null),
-		pinned = $state(false),
-		pinError = $state('');
+		error = $state('');
+	let expanded = $state<Section | null>(null);
 	let root: HTMLElement;
 	let offset = 0;
 	let live = false;
@@ -62,7 +57,15 @@
 	onMount(() => {
 		live = true;
 		void load();
+		function changed(event: Event) {
+			const d = (event as CustomEvent<{ server: string; user: string; board: string }>).detail;
+			if (d.server !== session.serverUrl || d.user !== owner || d.board !== board) return;
+			sections = loadLayout(session.serverUrl, owner, board);
+			if (expanded) expanded = sections.find((s) => s.id === expanded?.id) ?? null;
+		}
+		window.addEventListener('dn-layout-change', changed);
 		return () => {
+			window.removeEventListener('dn-layout-change', changed);
 			live = false;
 		};
 	});
@@ -73,43 +76,16 @@
 			main?.focus({ preventScroll: true });
 		});
 	}
-	function enter(s?: Section) {
+	function enter(item: Section) {
 		offset = root.closest('main')?.scrollTop ?? 0;
-		pinError = '';
-		if (s) {
-			expanded = s;
-			if (board !== 'home') {
-				try {
-					pinned = loadLayout(session.serverUrl, owner, 'home').some((row) => row.id === s.id);
-				} catch {
-					pinned = false;
-				}
-			}
-		} else editing = true;
+		expanded = item;
 		scroll(0);
 	}
 	export function goBack() {
-		if (!editing && !expanded) return false;
-		editing = false;
+		if (!expanded) return false;
 		expanded = null;
 		scroll(offset);
 		return true;
-	}
-	function save(next: Section[]) {
-		saveLayout(session.serverUrl, owner, board, next);
-		sections = next.map((s) => ({ ...s, title: s.title.trim() }));
-		goBack();
-	}
-	function pin() {
-		if (!expanded || pinned) return;
-		try {
-			const home = loadLayout(session.serverUrl, owner, 'home');
-			if (!home.some((row) => row.id === expanded?.id))
-				saveLayout(session.serverUrl, owner, 'home', [...home, { ...expanded }]);
-			pinned = true;
-		} catch {
-			pinError = 'Could not save this section to Home.';
-		}
 	}
 </script>
 
@@ -122,7 +98,7 @@
 			onartist={onlocal}
 			{onplaylist}
 			{onplay}
-			active={active && (full || (!expanded && !editing))}
+			active={active && (full || !expanded)}
 			expanded={full}
 			onexpand={() => enter(item)}
 		/>
@@ -133,7 +109,7 @@
 			{onopen}
 			{onartist}
 			{onplay}
-			active={active && (full || (!expanded && !editing))}
+			active={active && (full || !expanded)}
 			expanded={full}
 			onexpand={() => enter(item)}
 		/>
@@ -141,38 +117,23 @@
 {/snippet}
 
 <div bind:this={root} data-board={board}>
-	{#if editing}
-		<LayoutEditor {board} {sections} onsave={save} onback={goBack} />
-	{:else if expanded}
+	{#if expanded}
 		<div class="detailbar">
 			<button class="text-button" onclick={goBack}
 				><ArrowLeft size={17} /> Back to {boardNames[board]}</button
 			>
-			{#if board !== 'home'}<button class="text-button" disabled={pinned} onclick={pin}
-					>{#if !pinned}<Plus size={16} />{/if}{pinned ? 'On Home' : 'Add to Home'}</button
-				>{/if}
 		</div>
-		{#if pinError}<p role="alert">{pinError}</p>{/if}
 		<h1>{sectionTitle(expanded)}</h1>
 		{@render widget(expanded, true)}
 	{/if}
-	<div hidden={editing || !!expanded}>
-		<header class="head">
-			<h1>{boardNames[board]}</h1>
-			<button
-				class="edit"
-				aria-label={'Edit ' + boardNames[board] + ' layout'}
-				disabled={!owner}
-				onclick={() => enter()}><SlidersHorizontal size={16} />Edit</button
-			>
-		</header>
+	<div hidden={!!expanded}>
+		<header class="head"><h1>{boardNames[board]}</h1></header>
 		{#if error}<p role="alert">{error}</p>
 			<button class="text-button" onclick={load}>Try again</button>
 		{:else if !owner}<p role="status">Loading layout…</p>
 		{:else if !sections.length}<div class="empty">
 				<PanelsTopLeft size={28} />
-				<p>Choose the sections you want on {boardNames[board]}.</p>
-				<button class="secondary" onclick={() => enter()}>Add sections</button>
+				<p>Choose sections for {boardNames[board]} in Settings.</p>
 			</div>
 		{:else}
 			{#each sections as item (item.id)}
@@ -197,7 +158,6 @@
 <style>
 	.head,
 	.detailbar,
-	.edit,
 	.shelf h2 button {
 		display: flex;
 		align-items: center;
@@ -212,14 +172,6 @@
 	}
 	.head h1 {
 		margin: 0;
-	}
-	.edit {
-		gap: 0.4rem;
-		padding: 0.25rem 0.8rem;
-		min-height: 44px;
-		background: var(--surface);
-		border-radius: var(--radius);
-		font-weight: 600;
 	}
 	.shelf {
 		min-width: 0;

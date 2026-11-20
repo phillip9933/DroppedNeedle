@@ -47,6 +47,19 @@ const order = (page: Page) =>
 		.locator('[data-widget]:visible h2')
 		.allTextContents()
 		.then((rows) => rows.map((s) => s.trim()));
+async function edit(page: Page, layout: string) {
+	await button(page, 'Settings').click();
+	await button(page, 'Edit ' + layout + ' layout').click();
+}
+async function save(page: Page) {
+	await button(page, 'Save layout').click();
+	await button(page, 'Back').click();
+}
+async function addToHome(page: Page, label: string) {
+	await edit(page, 'Home');
+	await button(page, 'Add ' + label).click();
+	await save(page);
+}
 test('a listener arranges and titles sections independently and keeps the layout after signing in again', async ({
 	page
 }) => {
@@ -56,30 +69,30 @@ test('a listener arranges and titles sections independently and keeps the layout
 	await expect(button(page, 'Browse Recently added')).toBeVisible();
 	await button(page, 'Browse Recently added').click();
 	await button(page, 'Home').click();
-	await button(page, 'Edit Home layout').click();
+	await edit(page, 'Home');
 	await button(page, 'Remove Recently played').click();
 	await button(page, 'Add Artists').click();
 	await button(page, 'Move Artists up').click();
 	await page.getByRole('combobox', { name: 'Position', exact: true }).selectOption('0');
 	await page.getByLabel('Section title').fill('My artists');
 	await page.getByLabel('Show a preview').uncheck();
-	await button(page, 'Save layout').click();
+	await save(page);
 	expect(await order(page)).toEqual(['My artists', 'Recently added', 'Top picks for you']);
 	await expect(page.locator('[data-widget="library-artists"]')).not.toContainText('Southerly');
 	await button(page, 'Browse My artists').click();
 	await expect(page.getByRole('heading', { name: 'My artists', exact: true })).toBeVisible();
 	await expect(button(page, 'Southerly 1 album')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(button(page, 'Edit Home layout')).toBeVisible();
+	await expect(button(page, 'Browse My artists')).toBeVisible();
+	await expect(button(page, 'Edit Home layout')).toHaveCount(0);
 	await button(page, 'Library').click();
 	await expect(button(page, 'Browse Artists')).toBeVisible();
-	await button(page, 'Edit Library layout').click();
+	await edit(page, 'Library');
 	await button(page, 'Remove Artists').click();
-	await button(page, 'Save layout').click();
+	await save(page);
 	await expect(button(page, 'Browse Artists')).toHaveCount(0);
 	await button(page, 'Browse Playlists').click();
-	await button(page, 'Add to Home').click();
-	await expect(button(page, 'On Home')).toBeDisabled();
+	await addToHome(page, 'Playlists');
 	await button(page, 'Home').click();
 	expect(await order(page)).toEqual([
 		'My artists',
@@ -87,9 +100,10 @@ test('a listener arranges and titles sections independently and keeps the layout
 		'Top picks for you',
 		'Playlists'
 	]);
-	await button(page, 'Edit Home layout').click();
+	await edit(page, 'Home');
 	await button(page, 'Restore default layout').click();
 	await page.keyboard.press('Escape');
+	await button(page, 'Back').click();
 	await expect(button(page, 'Browse My artists')).toBeVisible();
 	await page.reload();
 	await login(page);
@@ -108,29 +122,29 @@ test('an empty layout remains editable and Discover selections can be shared wit
 	await page.goto('/');
 	await login(page);
 	await button(page, 'Discover').click();
-	await button(page, 'Edit Discover layout').click();
+	await edit(page, 'Discover');
 	await page.getByLabel('Find a section').fill('trending artists');
 	await button(page, 'Add Trending artists').click();
 	await page.getByLabel('Show a preview').uncheck();
-	await button(page, 'Save layout').click();
+	await save(page);
 	await button(page, 'Browse Trending artists').click();
-	await button(page, 'Add to Home').click();
+	await addToHome(page, 'Trending artists');
 	await button(page, 'Home').click();
 	await expect(button(page, 'Browse Trending artists')).toBeVisible();
-	await button(page, 'Edit Home layout').click();
+	await edit(page, 'Home');
 	while (await page.locator('[data-section-id]').count())
 		await page
 			.locator('[data-section-id]')
 			.first()
 			.getByRole('button', { name: /^Remove / })
 			.click();
-	await button(page, 'Save layout').click();
-	await expect(button(page, 'Add sections')).toBeVisible();
+	await save(page);
+	await expect(page.getByText('Choose sections for Home in Settings.')).toBeVisible();
 	await button(page, 'Discover').click();
 	await expect(button(page, 'Browse Trending artists')).toBeVisible();
 	await button(page, 'Home').click();
-	await button(page, 'Add sections').click();
+	await edit(page, 'Home');
 	await button(page, 'Restore default layout').click();
-	await button(page, 'Save layout').click();
+	await save(page);
 	await expect(button(page, 'Browse Recently added')).toBeVisible();
 });

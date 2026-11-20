@@ -1,4 +1,5 @@
 <script lang="ts">
+	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
 	import { ArrowLeft, ArrowUp, ArrowDown, Play, Trash2 } from '@lucide/svelte';
 	import type { Session } from '../connection';
@@ -229,6 +230,12 @@
 		</div>
 	</PlaylistDialog>
 {/if}
+
+<WebDetail
+	{session}
+	route={'/playlists/' + encodeURIComponent(playlist.id)}
+	label="Open playlist in web app"
+/>
 
 <style>
 	h1 {

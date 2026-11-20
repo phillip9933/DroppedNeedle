@@ -140,7 +140,7 @@ function unwrap(section: S['PageSection']): FeatureShelf[] {
 // session and share pending promises even if fetching takes longer than the freshness window.
 function sharedRead<T>(load: (session: Session) => Promise<T>) {
 	const entries = new WeakMap<Session, { promise: Promise<T>; expires: number }>();
-	return (session: Session) => {
+	const read = (session: Session) => {
 		const old = entries.get(session);
 		if (old && old.expires > Date.now()) return old.promise;
 		const entry = { promise: load(session), expires: Infinity };
@@ -155,6 +155,7 @@ function sharedRead<T>(load: (session: Session) => Promise<T>) {
 		);
 		return entry.promise;
 	};
+	return Object.assign(read, { clear: (session: Session) => entries.delete(session) });
 }
 const snapshot = sharedRead((session) =>
 	getJson<S['DiscoverResponse']>(session, path('/api/v3/discover'))
@@ -162,13 +163,17 @@ const snapshot = sharedRead((session) =>
 const settings = sharedRead((session) =>
 	getJson<S['SectionPrefsResponse']>(session, path('/api/v3/me/section-prefs'))
 );
+export function forgetDiscoveryPage(session: Session) {
+	snapshot.clear(session);
+	settings.clear(session);
+}
 async function missingReason(session: Session, key: string) {
 	const pref = (await settings(session)).pages.discover?.find((item) => item.key === key);
 	if (!pref) return '';
 	if (pref.turned_off)
 		return 'This integration is disabled on the server. An administrator can enable it in DroppedNeedle settings.';
 	if (!pref.enabled)
-		return 'This section is disabled in DroppedNeedle. Enable it in Settings → Discover.';
+		return 'This section is disabled in DroppedNeedle. Enable it in Settings → Content preferences → Discover.';
 	if (!pref.available) {
 		if (pref.requires === 'lastfm' || pref.requires === 'listenbrainz')
 			return `Connect ${pref.requires === 'lastfm' ? 'Last.fm' : 'ListenBrainz'} in your DroppedNeedle profile under Scrobbling to enable this section.`;

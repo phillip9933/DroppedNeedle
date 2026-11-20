@@ -1,12 +1,11 @@
 <script lang="ts">
-	import LibraryScans from './LibraryScans.svelte';
 	import { Browser } from '@capacitor/browser';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
-	import { getJson, mutateJson, putJson, type Session } from '../connection';
+	import { getJson, mutateJson, postJson, putJson, type Session } from '../connection';
 	import { path, errorMessage } from '../catalog/catalog';
 	type S = components['schemas'];
 	let { session }: { session: Session } = $props();
-	let view = $state<'Profile' | 'Listening' | 'Devices'>('Profile'),
+	let view = $state<'Profile' | 'Listening' | 'Devices' | 'Services'>('Profile'),
 		profile = $state<S['ProfileResponse']>(),
 		prefs = $state<S['ScrobblePreferences']>(),
 		devices = $state<S['SessionView'][]>([]);
@@ -16,13 +15,19 @@
 		listenbrainz = $state(false),
 		confirm = $state('');
 	const nameTooLong = $derived(Array.from(name.trim()).length > 64);
-	let scansOpen = $state(false);
+	let username = $state(''),
+		email = $state(''),
+		editIdentity = $state(false);
+	let source = $state<S['ListenSource']>('listenbrainz'),
+		auto = $state(false),
+		navidrome = $state(false);
+	let services = $state<S['LinkedAccount'][]>([]);
 	let busy = $state(true),
 		saving = $state(false),
 		error = $state(''),
 		message = $state(''),
 		retry = $state(0);
-	const views = ['Profile', 'Listening', 'Devices'] as const;
+	const views = ['Profile', 'Listening', 'Devices', 'Services'] as const;
 	$effect(() => {
 		const current = view,
 			account = session;
@@ -30,6 +35,7 @@
 		let active = true;
 		busy = true;
 		error = message = confirm = '';
+		editIdentity = false;
 		async function read() {
 			try {
 				if (current === 'Profile') {
@@ -37,6 +43,8 @@
 					if (active) {
 						profile = p;
 						name = p.display_name;
+						username = p.username_display ?? p.username ?? '';
+						email = p.email ?? '';
 					}
 				} else if (current === 'Listening') {
 					const p = await getJson<S['ScrobblePreferences']>(
@@ -45,10 +53,19 @@
 					);
 					if (active) {
 						prefs = p;
+						source = p.primary_music_source ?? 'listenbrainz';
+						auto = !!p.auto_request_personal_mix;
+						navidrome = !!p.navidrome_handles_external_scrobbles;
 						visibility = p.now_playing_visibility ?? 'offline';
 						lastfm = !!p.scrobble_to_lastfm;
 						listenbrainz = !!p.scrobble_to_listenbrainz;
 					}
+				} else if (current === 'Services') {
+					const result = await getJson<S['LinkedAccounts']>(
+						account,
+						path('/api/v3/me/connections')
+					);
+					if (active) services = result.connections;
 				} else {
 					const p = await getJson<S['SessionListResponse']>(account, path('/api/v3/auth/sessions'));
 					if (active) devices = p.sessions;
@@ -78,6 +95,11 @@
 				message = 'Display name saved.';
 			} else if (view === 'Listening' && prefs) {
 				const body: Partial<S['ScrobblePreferencesUpdate']> = {};
+				if (source !== (prefs.primary_music_source ?? 'listenbrainz'))
+					body.primary_music_source = source;
+				if (auto !== !!prefs.auto_request_personal_mix) body.auto_request_personal_mix = auto;
+				if (navidrome !== !!prefs.navidrome_handles_external_scrobbles)
+					body.navidrome_handles_external_scrobbles = navidrome;
 				if (visibility !== prefs.now_playing_visibility) body.now_playing_visibility = visibility;
 				if (lastfm !== !!prefs.scrobble_to_lastfm) body.scrobble_to_lastfm = lastfm;
 				if (listenbrainz !== !!prefs.scrobble_to_listenbrainz)
@@ -98,6 +120,47 @@
 				confirm = '';
 				message = 'Device signed out.';
 			}
+		} catch (e) {
+			error = errorMessage(e);
+		} finally {
+			saving = false;
+		}
+	}
+	async function identity(field: 'username' | 'email') {
+		if (saving) return;
+		saving = true;
+		error = message = '';
+		try {
+			profile =
+				field === 'username'
+					? await putJson<S['UserResponse']>(session, path('/api/v3/me/username'), {
+							username: username.trim()
+						} satisfies S['UsernameUpdate'])
+					: await putJson<S['UserResponse']>(session, path('/api/v3/me/email'), {
+							email: email.trim() || null
+						} satisfies S['EmailUpdate']);
+			if (field === 'username') username = profile.username_display ?? profile.username ?? '';
+			else email = profile.email ?? '';
+			message = field === 'username' ? 'Username saved.' : 'Email saved.';
+		} catch (e) {
+			error = errorMessage(e);
+		} finally {
+			saving = false;
+		}
+	}
+	async function refreshMix() {
+		if (saving) return;
+		saving = true;
+		error = message = '';
+		try {
+			const result = await postJson<S['RequestsRefreshResponse']>(
+				session,
+				path('/api/v3/requests/personal-mix/refresh')
+			);
+			message =
+				result.status === 'already_running'
+					? 'A mix refresh is already running.'
+					: 'Refreshing your personal mix in the background.';
 		} catch (e) {
 			error = errorMessage(e);
 		} finally {
@@ -137,9 +200,34 @@
 		>
 		{#if nameTooLong}<p role="alert">Use up to 64 characters for your display name.</p>{/if}
 	</form>
-	{#if profile.role === 'admin'}<details bind:open={scansOpen}>
-			<summary>Library health and scans</summary>{#if scansOpen}<LibraryScans {session} />{/if}
-		</details>{/if}
+	<details bind:open={editIdentity}>
+		<summary>Username and email</summary>
+		<form
+			onsubmit={(e) => {
+				e.preventDefault();
+				void identity('username');
+			}}
+		>
+			<label>Username<input required autocomplete="username" bind:value={username} /></label><button
+				class="secondary"
+				disabled={saving ||
+					!username.trim() ||
+					username.trim() === (profile.username_display ?? profile.username ?? '')}
+				>Save username</button
+			>
+		</form>
+		<form
+			onsubmit={(e) => {
+				e.preventDefault();
+				void identity('email');
+			}}
+		>
+			<label>Email<input type="email" autocomplete="email" bind:value={email} /></label><button
+				class="secondary"
+				disabled={saving || email.trim() === (profile.email ?? '')}>Save email</button
+			>
+		</form>
+	</details>
 	<h3>Open in web app</h3>
 	<div class="links">
 		<button class="text-button" onclick={() => web('/profile#connected-services')}
@@ -172,8 +260,37 @@
 		<label class="check"
 			><input type="checkbox" bind:checked={listenbrainz} />Scrobble to ListenBrainz</label
 		>
+		<label
+			>Discovery listening source<select bind:value={source}
+				><option value="listenbrainz">ListenBrainz</option><option value="lastfm">Last.fm</option
+				></select
+			></label
+		>
+		<label class="check"
+			><input type="checkbox" bind:checked={auto} />Automatically request my personal mix</label
+		>
+		{#if prefs.auto_request_state && prefs.auto_request_state !== 'none'}<small
+				>Approval: {prefs.auto_request_state}</small
+			>{/if}
+		{#if prefs.navidrome_handles_external_scrobbles !== undefined}<label class="check"
+				><input type="checkbox" bind:checked={navidrome} />Let Navidrome forward its own scrobbles</label
+			>{/if}
 		<button class="secondary" disabled={saving}>Save preferences</button>
 	</form>
+	<button class="text-button" disabled={saving} onclick={refreshMix}>Refresh personal mix</button>
+{:else if view === 'Services'}
+	<h2>Connected services</h2>
+	{#each services as service (service.service)}<div class="device">
+			<strong>{service.service}</strong><small
+				>{service.username || 'No account linked'} · {service.enabled
+					? 'Enabled'
+					: 'Disabled'}</small
+			>
+		</div>{/each}
+	{#if !services.length && !error}<p>No connected services.</p>{/if}
+	<button class="text-button" onclick={() => web('/profile#connected-services')}
+		>Manage linked accounts in browser</button
+	>
 {:else if view === 'Devices'}
 	{#each devices as d (d.id)}<div class="device">
 			<strong>{d.label || 'Device'}</strong><small
