@@ -3,17 +3,22 @@ package app.droppedneedle.mobile;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
+import android.util.Base64;
 import androidx.annotation.Nullable;
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 import okhttp3.HttpUrl;
@@ -74,9 +79,12 @@ final class OfflineStore {
         }
     }
 
+    private static boolean validTrackId(String id) {
+        return id != null && !id.isEmpty() && !id.equals(".") && !id.equals("..")
+                && !id.contains("/") && !id.contains("\\") && id.chars().noneMatch(Character::isISOControl);
+    }
     HttpUrl original(String id) {
-        if (id == null || id.isEmpty() || id.equals(".") || id.equals("..") || id.contains("/")
-                || id.contains("\\")) {
+        if (!validTrackId(id)) {
             throw new IllegalArgumentException("Choose a local library song.");
         }
         return base.newBuilder().encodedPath(prefix).addPathSegment(id).build();
@@ -89,7 +97,7 @@ final class OfflineStore {
                 || !url.username().isEmpty() || !url.password().isEmpty() || !url.encodedPath().startsWith(prefix))
             return null;
         String id = url.pathSegments().get(url.pathSize() - 1);
-        if (id.isEmpty() || id.contains("/") || id.contains("\\"))
+        if (!validTrackId(id))
             return null;
         return original(id).encodedPath().equals(url.encodedPath()) ? id : null;
     }
@@ -127,6 +135,10 @@ final class OfflineStore {
             if (file(e) != null)
                 list.add(e);
         }
+        return list;
+    }
+    private ArrayList<JSONObject> newestFirst() {
+        ArrayList<JSONObject> list = entries();
         list.sort(Comparator.comparingLong(e -> - e.optLong("used")));
         return list;
     }
@@ -174,6 +186,20 @@ final class OfflineStore {
         return index.getInt("cacheMiB", 512) * MIB;
     }
     private String source() { return index.getString("autoDownload", "off"); }
+    private static boolean playlistSource(String value) {
+        if (value == null || !value.startsWith("playlist:") || value.length() > "playlist:".length() + 342) return false;
+        String encoded = value.substring("playlist:".length());
+        int flags = Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING;
+        try {
+            byte[] bytes = Base64.decode(encoded, flags);
+            if (bytes.length == 0 || bytes.length > 256 || !encoded.equals(Base64.encodeToString(bytes, flags))) return false;
+            String id = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+            return !id.equals(".") && !id.equals("..") && id.chars().noneMatch(Character::isISOControl);
+        } catch (IllegalArgumentException | CharacterCodingException invalid) { return false; }
+    }
+    static boolean enabledSource(String source) {
+        return "recent".equals(source) || "favorites".equals(source) || playlistSource(source);
+    }
     private long automaticBudget() { return index.getInt("downloadMiB", 512) * MIB; }
     private void requireRoom(long added) throws IOException {
         long used = 0;
@@ -181,7 +207,7 @@ final class OfflineStore {
         if (used + added > automaticBudget()) throw new IOException("The automatic download limit has been reached.");
     }
     private boolean automaticAllowed(String source, String key) {
-        return source != null && !source.equals("off") && source.equals(source()) && !offlineOnly()
+        return source != null && source.equals(source()) && enabledSource(source) && !offlineOnly()
                 && !index.getBoolean("exclude." + key, false);
     }
     boolean unmeteredOnly() { return index.getBoolean("unmeteredOnly", true); }
@@ -202,7 +228,7 @@ final class OfflineStore {
     JSONObject snapshot() throws JSONException {
         synchronized (LOCK) {
             JSONArray list = new JSONArray();
-            for (JSONObject e : entries()) {
+            for (JSONObject e : newestFirst()) {
                 list.put(new JSONObject()
                                 .put("track", e.getJSONObject("track"))
                                 .put("origin", origin(e)).put("pinned", DOWNLOAD.equals(origin(e)))
@@ -216,8 +242,8 @@ final class OfflineStore {
         int limit = options.getInt("cacheMiB");
         int downloads = options.optInt("downloadMiB", 512);
         String source = options.optString("autoDownload", "off");
-        if (!(source.equals("off") || source.equals("favorites") || source.equals("recent"))
-                || downloads < 128 || downloads > 4096 || (downloads & (downloads - 1)) != 0
+        if (!source.equals("off") && !enabledSource(source)) throw new IllegalArgumentException("Choose a supported download source.");
+        if (downloads < 128 || downloads > 4096 || (downloads & (downloads - 1)) != 0
                 || limit < 128 || limit > 4096 || (limit & (limit - 1)) != 0)
             throw new IllegalArgumentException("Choose a supported cache size.");
         synchronized (LOCK) {
@@ -300,26 +326,67 @@ final class OfflineStore {
         synchronized (LOCK) { requireWrite(index.edit().putLong("automaticGeneration", autoGeneration() + 1)); }
     }
     JSONObject planAutomatic(String source, JSONArray ids) throws IOException, JSONException {
+        return planAutomatic(source, ids, false);
+    }
+    JSONObject planAutomatic(String source, JSONArray ids, boolean keepExisting) throws IOException, JSONException {
         JSONArray result = new JSONArray();
         synchronized (LOCK) {
-            if (!source.equals(source()) || source.equals("off") || offlineOnly() || !permittedNetwork())
+            if ("off".equals(source)) return new JSONObject().put("ids", result);
+            if (!enabledSource(source) || ids == null) throw new IllegalArgumentException("Choose a valid automatic download source and track list.");
+            if (!source.equals(source()) || offlineOnly() || !permittedNetwork())
                 return new JSONObject().put("ids", result);
-            java.util.LinkedHashSet<String> wanted = new java.util.LinkedHashSet<>();
-            for (int i = 0; i < Math.min(25, ids.length()); i++) wanted.add(ids.getString(i));
-            Set<String> present = new HashSet<>();
-            for (JSONObject e : entries()) {
-                String id = e.getJSONObject("track").getString("id");
-                if (!CACHE.equals(origin(e))) present.add(id);
-                if (AUTOMATIC.equals(origin(e)) && !wanted.contains(id)) discard(row(id), e);
+            Set<String> wanted = new LinkedHashSet<>();
+            int count = source.startsWith("playlist:") ? ids.length() : Math.min(25, ids.length());
+            for (int i = 0; i < count; i++) {
+                Object item = ids.get(i);
+                if (!(item instanceof String id) || !validTrackId(id))
+                    throw new IllegalArgumentException("The download source contains an invalid library song.");
+                wanted.add(id);
             }
-            for (String id : wanted) if (!present.contains(id) && automaticAllowed(source, row(id))) result.put(id);
-            changed();
+            Set<String> present = retainAutomatic(wanted, keepExisting, null);
+            for (String id : wanted)
+                if (!present.contains(id) && !index.getBoolean("exclude." + row(id), false)) result.put(id);
             return new JSONObject().put("ids", result);
         }
     }
+    JSONObject clearAutomaticPlaylist(String source) throws IOException, JSONException {
+        synchronized (LOCK) {
+            if (!playlistSource(source) || !source.equals(source()))
+                throw new IllegalArgumentException("The selected download playlist changed.");
+            retainAutomatic(Collections.emptySet(), false, index.edit().putString("autoDownload", "off")
+                    .putLong("automaticGeneration", autoGeneration() + 1));
+            return options();
+        }
+    }
+    private Set<String> retainAutomatic(Set<String> wanted, boolean keepExisting, @Nullable SharedPreferences.Editor changes)
+            throws IOException, JSONException {
+        Set<String> present = new HashSet<>();
+        ArrayList<File> removals = new ArrayList<>();
+        for (String key : index.getAll().keySet()) {
+            if (!key.startsWith("track.")) continue;
+            JSONObject entry = entry(key);
+            if (entry == null) continue;
+            String id = entry.getJSONObject("track").getString("id"), existingOrigin = origin(entry);
+            if (!keepExisting && AUTOMATIC.equals(existingOrigin) && !wanted.contains(id)) {
+                if (changes == null) changes = index.edit();
+                removeRow(changes, key);
+                File audio = file(entry);
+                if (audio != null) removals.add(audio);
+            } else if (wanted.contains(id) && !CACHE.equals(existingOrigin) && file(entry) != null) present.add(id);
+        }
+        if (changes != null) {
+            requireWrite(changes);
+            for (File file : removals) file.delete();
+            changed();
+        }
+        return present;
+    }
+    private SharedPreferences.Editor removeRow(SharedPreferences.Editor edit, String key) {
+        return edit.remove(key).putLong("revision." + key, index.getLong("revision." + key, 0) + 1);
+    }
     private void discard(String key, JSONObject e) throws IOException {
         File f = file(e);
-        requireWrite(index.edit().remove(key).putLong("revision." + key, index.getLong("revision." + key, 0) + 1));
+        requireWrite(removeRow(index.edit(), key));
         if (f != null)
             f.delete();
     }
@@ -335,7 +402,7 @@ final class OfflineStore {
     }
     private void evict(String origin, long budget) throws IOException, JSONException {
         long kept = 0;
-        for (JSONObject e : entries()) {
+        for (JSONObject e : newestFirst()) {
             if (!origin.equals(origin(e)))
                 continue;
             long size = e.getLong("bytes");
