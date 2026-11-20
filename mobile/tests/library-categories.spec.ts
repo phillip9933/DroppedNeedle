@@ -334,6 +334,20 @@ test('offline categories retain their groups, playlist membership and classified
 	await b('Browse Playlists').click();
 	await expect(b('In rotation')).toBeVisible();
 	await expect(b('No available songs')).toHaveCount(0);
+	await page.setViewportSize({ width: 320, height: 680 });
+	const filters = b('Collection filters');
+	await expect(filters).toBeInViewport();
+	await filters.click();
+	await page.getByLabel('Availability', { exact: true }).selectOption('cached');
+	await expect(b('In rotation')).toHaveCount(0);
+	await page.getByLabel('Availability', { exact: true }).selectOption('automatic');
+	await expect(b('In rotation')).toBeVisible();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+	await page.getByLabel('Availability', { exact: true }).selectOption('all');
+	await expect(page.getByRole('group', { name: 'Offline availability' })).toContainText(
+		'Downloaded'
+	);
+
 	await b('In rotation').click();
 	await expect(names).toHaveText(['Night Passage', 'Arrival', 'Night Passage']);
 	await b('Back to Playlists').click();

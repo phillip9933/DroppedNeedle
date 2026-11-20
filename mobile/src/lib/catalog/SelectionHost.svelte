@@ -16,7 +16,11 @@
 	import { queueSizeCheck } from './libraryQueue';
 	import { offlineSupported, saveOfflineTracks } from '../offline/media';
 	import AddToPlaylist from './AddToPlaylist.svelte';
-	import { LibrarySelection, onLibrarySelectionBack } from './librarySelection.svelte';
+	import {
+		LibrarySelection,
+		onLibrarySelectionBack,
+		type LibraryChoice
+	} from './librarySelection.svelte';
 
 	let {
 		session,
@@ -28,6 +32,8 @@
 		enabled = true,
 		tools,
 		externalToggle = false,
+		choices,
+		contains,
 		localOnly = false
 	}: {
 		session: Session;
@@ -39,11 +45,21 @@
 		enabled?: boolean;
 		tools?: Snippet;
 		externalToggle?: boolean;
+		choices?: () => LibraryChoice[];
+		contains?: (id: string) => boolean;
 		localOnly?: boolean;
 	} = $props();
-	const group = new LibrarySelection(() => active && enabled);
+	const group = new LibrarySelection(
+		() => active && enabled,
+		() => choices?.(),
+		() => !!choices
+	);
+	$effect(() => {
+		if (contains)
+			for (const id of group.selected.keys()) if (!contains(id)) group.selected.delete(id);
+	});
 	export function beginSelection() {
-		if (!group.listed().length) return;
+		if (!group.buttons.size) return;
 		group.selecting = true;
 		group.message = '';
 		error = '';
@@ -57,7 +73,7 @@
 		request: AbortController | undefined;
 	$effect(() => {
 		void scope;
-		void active;
+		if (!choices) void active;
 		void session;
 		request?.abort();
 		group.close();
@@ -65,6 +81,9 @@
 		group.message = '';
 		error = '';
 		playlist = null;
+	});
+	$effect(() => {
+		if (!active) request?.abort();
 	});
 	onDestroy(() => request?.abort());
 	onLibrarySelectionBack(() => {

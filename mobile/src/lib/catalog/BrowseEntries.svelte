@@ -10,7 +10,9 @@
 	import type { Session } from '../connection';
 	import type { OfflineInventory } from '../offline/library';
 	import type { BrowseItem, Category } from './libraryBrowse';
-	import { resolveItem } from './libraryBrowse';
+	import { browseChoice } from './libraryBrowse';
+	import { tick } from 'svelte';
+	import { browseViewport, initialWindow } from './browseViewport';
 	import { useLibrarySelection } from './librarySelection.svelte';
 	import Cover from './Cover.svelte';
 	import { originIndex, itemOrigins, originLabels } from './libraryOrigins';
@@ -22,7 +24,9 @@
 		layout,
 		columns,
 		compact = false,
+		active = true,
 		inventory,
+		total,
 		localOnly = false,
 		open,
 		menu
@@ -33,7 +37,9 @@
 		layout: 'list' | 'grid';
 		columns: number;
 		compact?: boolean;
+		active?: boolean;
 		inventory?: OfflineInventory;
+		total?: number;
 		localOnly?: boolean;
 		open: (item: BrowseItem) => void;
 		menu?: (item: BrowseItem) => void;
@@ -41,8 +47,80 @@
 	const selectable = useLibrarySelection();
 	const storage = $derived(originIndex(session, inventory));
 	const originIcons = { downloaded: Download, automatic: CloudDownload, cached: HardDrive };
-	const status = $derived(new Map(items.map((i) => [i.id, itemOrigins(i, storage)])));
-	const present = $derived([...new Set([...status.values()].flat())]);
+	const status = $derived(
+		storage.size ? new Map(items.map((i) => [i.id, itemOrigins(i, storage)])) : undefined
+	);
+	const present = $derived([...new Set([...(status?.values() ?? [])].flat())]);
+	let element: HTMLDivElement,
+		metrics = $state.raw(initialWindow),
+		pinned = $state(-1);
+	const cols = $derived(layout === 'grid' ? columns : 1);
+	const virtual = $derived(items.length > 64 && metrics.pitch > 0);
+	const mounted = $derived.by(() => {
+		const start = virtual ? metrics.start : 0,
+			end = virtual ? metrics.end : items.length;
+		const rows = items.slice(start, end).map((item, i) => ({ item, index: start + i }));
+		if (virtual && items[pinned] && (pinned < start || pinned >= end)) {
+			const extra = { item: items[pinned], index: pinned };
+			if (pinned < start) rows.unshift(extra);
+			else rows.push(extra);
+		}
+		return rows;
+	});
+	function focusNavigation(node: HTMLElement) {
+		const events = new AbortController(),
+			opts = { signal: events.signal };
+		node.addEventListener('focusin', rememberFocus, opts);
+		node.addEventListener(
+			'focusout',
+			(e) => {
+				if (!node.contains(e.relatedTarget as Node)) pinned = -1;
+			},
+			opts
+		);
+		node.addEventListener('keydown', keyboard, opts);
+		return {
+			destroy() {
+				events.abort();
+			}
+		};
+	}
+
+	export async function focusItem(id: string) {
+		const index = items.findIndex((i) => i.id === id);
+		if (index < 0) return;
+		pinned = index;
+		await tick();
+		element
+			?.querySelector<HTMLButtonElement>('[data-browse-index="' + index + '"] .item')
+			?.focus({ preventScroll: true });
+	}
+	function rememberFocus(e: FocusEvent) {
+		const entry = (e.target as HTMLElement).closest<HTMLElement>('[data-browse-index]');
+		pinned = entry ? Number(entry.dataset.browseIndex) : -1;
+	}
+	async function keyboard(e: KeyboardEvent) {
+		if (!virtual || e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
+		const target = e.target as HTMLElement,
+			entry = target.closest<HTMLElement>('[data-browse-index]');
+		if (!entry) return;
+		const controls = entry.querySelectorAll<HTMLElement>('button:not([disabled])');
+		if (target !== (e.shiftKey ? controls[0] : controls[controls.length - 1])) return;
+		const next = Number(entry.dataset.browseIndex) + (e.shiftKey ? -1 : 1);
+		if (
+			next < 0 ||
+			next >= items.length ||
+			element.querySelector('[data-browse-index="' + next + '"]')
+		)
+			return;
+		e.preventDefault();
+		pinned = next;
+		await tick();
+		const nextControls = element.querySelectorAll<HTMLElement>(
+			'[data-browse-index="' + next + '"] button:not([disabled])'
+		);
+		nextControls[e.shiftKey ? nextControls.length - 1 : 0]?.focus();
+	}
 </script>
 
 {#if present.length}<div class="legend" aria-label="Offline availability" role="group">
@@ -51,7 +129,25 @@
 			>{/each}
 	</div>{/if}
 <div
+	bind:this={element}
+	use:browseViewport={{
+		count: items.length,
+		columns: cols,
+		compact,
+		active,
+		layout,
+		onwindow: (w) => (metrics = w)
+	}}
+	class:windowed={virtual}
+	style:height={virtual
+		? Math.max(0, Math.ceil(items.length / cols) * metrics.pitch - metrics.gap) + 'px'
+		: undefined}
+	style:--cell-width={metrics.width + 'px'}
+	use:focusNavigation
+	role="list"
+	aria-label={category + ' results'}
 	data-part="category-items"
+	data-loaded={items.length}
 	data-layout={layout}
 	data-columns={layout === 'grid' ? columns : 1}
 	class:grid={layout === 'grid'}
@@ -59,10 +155,16 @@
 	class="entries"
 	style:--cols={columns}
 >
-	{#each items as item (item.id)}
-		{@const origins = status.get(item.id) ?? []}
+	{#each mounted as { item, index } (item.id)}
+		{@const origins = status?.get(item.id) ?? []}
 		<div
 			class="entry"
+			data-browse-index={index}
+			role="listitem"
+			aria-posinset={index + 1}
+			aria-setsize={total ?? items.length}
+			style:--entry-top={Math.floor(index / cols) * metrics.pitch + 'px'}
+			style:--entry-left={(index % cols) * (metrics.width + metrics.columnGap) + 'px'}
 			class:artist={category === 'Artists'}
 			class:playlist={category === 'Playlists'}
 			class:genre={category === 'Genres'}
@@ -71,11 +173,7 @@
 				class="item"
 				aria-label={item.track ? 'Play ' + item.title : item.title}
 				onclick={() => open(item)}
-				use:selectable={{
-					id: item.id,
-					title: item.title,
-					tracks: (signal, forQueue) => resolveItem(session, item, signal, forQueue)
-				}}
+				use:selectable={browseChoice(session, item)}
 			>
 				<span
 					class="art"
@@ -128,6 +226,21 @@
 </div>
 
 <style>
+	.entries.windowed {
+		display: block;
+		position: relative;
+		overflow-anchor: none;
+	}
+	.entries.windowed .entry {
+		position: absolute;
+		inset-inline-start: var(--entry-left);
+		inset-block-start: var(--entry-top);
+		width: var(--cell-width);
+	}
+	.grid .entry:not(.artist):not(.genre) .meta {
+		min-height: calc(1.3em + 1.118rem + 0.56rem);
+	}
+
 	.entries {
 		display: grid;
 		gap: 1px;

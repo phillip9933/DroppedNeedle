@@ -34,11 +34,17 @@ export class LibrarySelection {
 	readonly selected = new SvelteMap<string, LibraryChoice>();
 	readonly buttons = new SvelteMap<HTMLElement, LibraryChoice>();
 
-	constructor(readonly enabled: () => boolean) {
+	constructor(
+		readonly enabled: () => boolean,
+		readonly loaded: () => LibraryChoice[] | undefined = () => undefined,
+		readonly modeled: () => boolean = () => false
+	) {
 		setContext(key, this);
 	}
 
 	listed() {
+		const model = this.loaded();
+		if (model) return model;
 		return [...this.buttons]
 			.filter(([node]) => node.getClientRects().length)
 			.sort(([left], [right]) =>
@@ -118,7 +124,7 @@ export function useLibrarySelection() {
 				stop();
 				listeners.abort();
 				group.buttons.delete(node);
-				if (untrack(() => group.selected.has(item.id)))
+				if (!group.modeled() && untrack(() => group.selected.has(item.id)))
 					queueMicrotask(() => {
 						if (![...group.buttons.values()].some((v) => v.id === item.id))
 							group.selected.delete(item.id);

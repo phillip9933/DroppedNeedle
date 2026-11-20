@@ -60,6 +60,7 @@
 		editError = '';
 		try {
 			await action();
+			window.dispatchEvent(new Event('dn-playlists-updated'));
 			dialog = null;
 			remove = null;
 			if (deleted) onback();
