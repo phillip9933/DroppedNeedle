@@ -4,8 +4,9 @@
 	import PlayerActionFace from './player/PlayerActionFace.svelte';
 	import { untrack } from 'svelte';
 	import type { components } from '../../../frontend/src/lib/api/v3/openapi';
-	import { getJson, DnError, type Session } from './connection';
-	import { path, errorMessage } from './catalog/catalog';
+	import type { Session } from './connection';
+	import { trackLyrics } from './offline/lyrics';
+	import { errorMessage } from './catalog/catalog';
 	let {
 		session,
 		trackId,
@@ -30,6 +31,7 @@
 		error = $state(''),
 		busy = $state(false),
 		retry = $state(0);
+	let handledRetry = 0;
 	let current = $derived.by(() => {
 		const lines = lyrics?.lines ?? [];
 		for (let i = lines.length - 1; i >= 0; i--) {
@@ -41,29 +43,28 @@
 	$effect(() => {
 		const id = trackId,
 			account = session;
-		void retry;
+		const attempt = retry;
 		if (!open || sample) return;
-		let active = true;
+		const force = attempt !== handledRetry;
+		handledRetry = attempt;
+		const controller = new AbortController();
 		busy = true;
 		error = '';
 		lyrics = null;
-		getJson<components['schemas']['LyricsView']>(
-			account,
-			path('/api/v3/library/tracks/{id}/lyrics', { id })
-		)
+		trackLyrics(account, id, controller.signal, force)
 			.then(
 				(v) => {
-					if (active) lyrics = v;
+					if (!controller.signal.aborted) lyrics = v;
 				},
 				(e) => {
-					if (active && !(e instanceof DnError && e.status === 404)) error = errorMessage(e);
+					if (!controller.signal.aborted) error = errorMessage(e);
 				}
 			)
 			.finally(() => {
-				if (active) busy = false;
+				if (!controller.signal.aborted) busy = false;
 			});
 		return () => {
-			active = false;
+			controller.abort();
 		};
 	});
 </script>
@@ -94,6 +95,9 @@
 				</p>{/each}
 		</div>
 	{:else if lyrics?.text}<p class="plain">{lyrics.text}</p>{:else}<p>No lyrics available.</p>{/if}
+	{#if !busy && !sample && !error && lyrics}<button class="text-button" onclick={() => retry++}
+			>Refresh lyrics</button
+		>{/if}
 </details>
 
 <style>

@@ -11,7 +11,12 @@
 		type BrowseDestination,
 		type Destination
 	} from './lib/appearance/interface';
-	import { offlineSupported, preferredOffline } from './lib/offline/media';
+	import {
+		offlineSupported,
+		preferredOffline,
+		runAutoDownloads,
+		stopAutoDownloads
+	} from './lib/offline/media';
 	import OfflineLibrary from './lib/offline/OfflineLibrary.svelte';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
@@ -127,6 +132,24 @@
 		}
 		return false;
 	}
+	$effect(() => {
+		const owner = session;
+		if (!owner || !offlineSupported) return;
+		const controller = new AbortController();
+		const sync = () => {
+			if (!document.hidden && navigator.onLine)
+				void runAutoDownloads(owner, controller.signal).catch(() => {});
+		};
+		sync();
+		window.addEventListener('online', sync);
+		document.addEventListener('visibilitychange', sync);
+		return () => {
+			controller.abort();
+			void stopAutoDownloads(owner).catch(() => {});
+			window.removeEventListener('online', sync);
+			document.removeEventListener('visibilitychange', sync);
+		};
+	});
 	async function connected(next: Session) {
 		let restoreError: unknown;
 		try {

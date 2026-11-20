@@ -12,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
@@ -26,6 +25,15 @@ import org.json.JSONObject;
 final class OfflineStore {
     private static final Object LOCK = new Object();
     private static final Set<String> OPENED = new HashSet<>();
+    static final String CACHE = "cached", AUTOMATIC = "automatic", DOWNLOAD = "downloaded";
+    static volatile Runnable mediaChanged;
+    static void changed() {
+        Runnable listener = mediaChanged;
+        if (listener != null) listener.run();
+    }
+    private static String origin(JSONObject e) {
+        return e.optString("origin", e.optBoolean("pinned") ? DOWNLOAD : CACHE);
+    }
     private static final long MIB = 1024L * 1024;
     private final Context context;
     private final File dir;
@@ -148,6 +156,17 @@ final class OfflineStore {
     private long budget() {
         return index.getInt("cacheMiB", 512) * MIB;
     }
+    private String source() { return index.getString("autoDownload", "off"); }
+    private long automaticBudget() { return index.getInt("downloadMiB", 512) * MIB; }
+    private void requireRoom(long added) throws IOException {
+        long used = 0;
+        for (JSONObject item : entries()) if (AUTOMATIC.equals(origin(item))) used += item.optLong("bytes");
+        if (used + added > automaticBudget()) throw new IOException("The automatic download limit has been reached.");
+    }
+    private boolean automaticAllowed(String source, String key) {
+        return source != null && !source.equals("off") && source.equals(source()) && !offlineOnly()
+                && !index.getBoolean("exclude." + key, false);
+    }
     boolean permittedNetwork() {
         if (!index.getBoolean("unmeteredOnly", true))
             return true;
@@ -156,6 +175,7 @@ final class OfflineStore {
     }
     JSONObject options() throws JSONException {
         return new JSONObject()
+                .put("autoDownload", source()).put("downloadMiB", index.getInt("downloadMiB", 512))
                 .put("autoCache", cacheEnabled())
                 .put("offlineOnly", offlineOnly())
                 .put("unmeteredOnly", index.getBoolean("unmeteredOnly", true))
@@ -167,7 +187,7 @@ final class OfflineStore {
             for (JSONObject e : entries()) {
                 list.put(new JSONObject()
                                 .put("track", e.getJSONObject("track"))
-                                .put("pinned", e.getBoolean("pinned"))
+                                .put("origin", origin(e)).put("pinned", DOWNLOAD.equals(origin(e)))
                                 .put("bytes", e.getLong("bytes"))
                                 .put("used", e.getLong("used")));
             }
@@ -176,19 +196,27 @@ final class OfflineStore {
     }
     JSONObject configure(JSONObject options) throws JSONException, IOException {
         int limit = options.getInt("cacheMiB");
-        if (limit < 128 || limit > 4096 || (limit & (limit - 1)) != 0)
+        int downloads = options.optInt("downloadMiB", 512);
+        String source = options.optString("autoDownload", "off");
+        if (!(source.equals("off") || source.equals("favorites") || source.equals("recent"))
+                || downloads < 128 || downloads > 4096 || (downloads & (downloads - 1)) != 0
+                || limit < 128 || limit > 4096 || (limit & (limit - 1)) != 0)
             throw new IllegalArgumentException("Choose a supported cache size.");
         synchronized (LOCK) {
             SharedPreferences.Editor edit =
                     index.edit()
-                            .putInt("cacheMiB", limit)
+                            .putInt("cacheMiB", limit).putString("autoDownload", source).putInt("downloadMiB", downloads)
                             .putBoolean("autoCache", options.getBoolean("autoCache"))
                             .putBoolean("unmeteredOnly", options.getBoolean("unmeteredOnly"))
                             .putBoolean("offlineOnly", options.getBoolean("offlineOnly"));
             if (!options.getBoolean("autoCache"))
                 edit.putLong("cacheGeneration", index.getLong("cacheGeneration", 0) + 1);
+            if (!source.equals(source()) || options.getBoolean("offlineOnly") != offlineOnly())
+                edit.putLong("automaticGeneration", index.getLong("automaticGeneration", 0) + 1);
             requireWrite(edit);
-            evict(budget());
+            evict(CACHE, budget());
+            evict(AUTOMATIC, automaticBudget());
+            changed();
             return options();
         }
     }
@@ -217,17 +245,48 @@ final class OfflineStore {
             return f;
         }
     }
+    long itemRevision(String id) { return index.getLong("revision." + row(id), 0); }
+    long autoGeneration() { return index.getLong("automaticGeneration", 0); }
     boolean pinExisting(String id) throws IOException, JSONException {
+        return keepExisting(id, null, null);
+    }
+    boolean keepExisting(String id, @Nullable String source, @Nullable JSONObject details) throws IOException, JSONException {
         synchronized (LOCK) {
             String key = row(id);
+            if (source != null && !automaticAllowed(source, key)) return true;
             JSONObject e = entry(key);
-            if (file(e) == null)
-                return false;
-            if (!e.optBoolean("pinned")) {
-                e.put("pinned", true).put("used", System.currentTimeMillis());
-                requireWrite(index.edit().putString(key, e.toString()));
-            }
+            if (file(e) == null) return false;
+            String target = source == null ? DOWNLOAD : AUTOMATIC;
+            if (source != null && !CACHE.equals(origin(e))) return true;
+            if (AUTOMATIC.equals(target)) requireRoom(e.getLong("bytes"));
+            if (details != null) addDetails(e.getJSONObject("track"), details);
+            e.put("origin", target).put("pinned", DOWNLOAD.equals(target)).put("used", System.currentTimeMillis());
+            SharedPreferences.Editor editor = index.edit().putString(key, e.toString());
+            if (source == null) editor.remove("exclude." + key);
+            requireWrite(editor);
+            changed();
             return true;
+        }
+    }
+    void cancelAutomatic() throws IOException {
+        synchronized (LOCK) { requireWrite(index.edit().putLong("automaticGeneration", autoGeneration() + 1)); }
+    }
+    JSONObject planAutomatic(String source, JSONArray ids) throws IOException, JSONException {
+        JSONArray result = new JSONArray();
+        synchronized (LOCK) {
+            if (!source.equals(source()) || source.equals("off") || offlineOnly() || !permittedNetwork())
+                return new JSONObject().put("ids", result);
+            java.util.LinkedHashSet<String> wanted = new java.util.LinkedHashSet<>();
+            for (int i = 0; i < Math.min(25, ids.length()); i++) wanted.add(ids.getString(i));
+            Set<String> present = new HashSet<>();
+            for (JSONObject e : entries()) {
+                String id = e.getJSONObject("track").getString("id");
+                if (!CACHE.equals(origin(e))) present.add(id);
+                if (AUTOMATIC.equals(origin(e)) && !wanted.contains(id)) discard(row(id), e);
+            }
+            for (String id : wanted) if (!present.contains(id) && automaticAllowed(source, row(id))) result.put(id);
+            changed();
+            return new JSONObject().put("ids", result);
         }
     }
     private void discard(String key, JSONObject e) throws IOException {
@@ -240,14 +299,16 @@ final class OfflineStore {
         synchronized (LOCK) {
             for (int i = 0; i < ids.length(); i++) {
                 String key = row(ids.getString(i));
+                requireWrite(index.edit().putBoolean("exclude." + key, true));
                 discard(key, entry(key));
             }
+            changed();
         }
     }
-    private void evict(long budget) throws IOException, JSONException {
+    private void evict(String origin, long budget) throws IOException, JSONException {
         long kept = 0;
         for (JSONObject e : entries()) {
-            if (e.getBoolean("pinned"))
+            if (!origin.equals(origin(e)))
                 continue;
             long size = e.getLong("bytes");
             if (kept + size <= budget)
@@ -259,11 +320,23 @@ final class OfflineStore {
     void clearCache() throws IOException, JSONException {
         synchronized (LOCK) {
             requireWrite(index.edit().putLong("cacheGeneration", index.getLong("cacheGeneration", 0) + 1));
-            evict(0);
+            evict(CACHE, 0);
+            changed();
         }
     }
     @Nullable
     Capture begin(JSONObject track, boolean pin, long expected) throws IOException, JSONException {
+        return begin(track, pin ? DOWNLOAD : CACHE, null, expected);
+    }
+    private static void addDetails(JSONObject copy, JSONObject track) throws JSONException {
+        for (String k : new String[]{"albumId","artistId","albumArtist","albumArtistId","genre","format"})
+            if (track.opt(k) instanceof String && !track.getString(k).isEmpty()) copy.put(k, track.getString(k));
+        for (String k : new String[]{"year","trackNumber","discNumber","dateAdded","rating"})
+            if (track.opt(k) instanceof Number) copy.put(k, track.get(k));
+        if (track.opt("favorite") instanceof Boolean) copy.put("favorite", track.get("favorite"));
+    }
+    @Nullable
+    Capture begin(JSONObject track, String origin, @Nullable String source, long expected) throws IOException, JSONException {
         String id = track.getString("id");
         HttpUrl stream = original(id);
         JSONObject copy =
@@ -274,6 +347,7 @@ final class OfflineStore {
                         .put("album", track.optString("album", ""))
                         .put("streamUrl",
                                 "/api/v3/stream/local/" + stream.encodedPath().substring(prefix.length()));
+        addDetails(copy, track);
         if (track.optDouble("duration", 0) > 0)
             copy.put("duration", track.getDouble("duration"));
         // Library artwork is optional offline; keep only its verified same-server path.
@@ -290,32 +364,37 @@ final class OfflineStore {
                 && image.encodedPath().startsWith(api))
             copy.put("artworkUrl", "/api/v3/" + image.encodedPath().substring(api.length()) + "?size=500");
         synchronized (LOCK) {
-            if (!pin
+            if (CACHE.equals(origin)
                     && (!cacheEnabled() || !permittedNetwork() || expected > budget()
                             || file(entry(row(id))) != null))
                 return null;
+            if (AUTOMATIC.equals(origin)) {
+                if (!automaticAllowed(source, row(id)) || !permittedNetwork()) return null;
+                if (expected > 0) requireRoom(expected);
+            }
             prepareDirectory();
-            return new Capture(row(id), copy, pin, expected);
+            return new Capture(row(id), copy, origin, source, expected);
         }
     }
     final class Capture implements Closeable {
         private final String key;
         private final JSONObject track;
-        private final boolean pin;
+        private final String origin, source;
         private final long generation, revision, expected, limit;
         private final File temp;
         private final FileOutputStream output;
         private long bytes;
         private long nextNetworkCheck = 1_048_576;
         private boolean closed;
-        Capture(String key, JSONObject track, boolean pin, long expected) throws IOException {
+        Capture(String key, JSONObject track, String origin, @Nullable String source, long expected) throws IOException {
             this.key = key;
             this.track = track;
-            this.pin = pin;
+            this.origin = origin;
+            this.source = source;
             this.expected = expected;
-            generation = index.getLong("cacheGeneration", 0);
+            generation = index.getLong(AUTOMATIC.equals(origin) ? "automaticGeneration" : "cacheGeneration", 0);
             revision = index.getLong("revision." + key, 0);
-            limit = pin ? Long.MAX_VALUE : budget();
+            limit = DOWNLOAD.equals(origin) ? Long.MAX_VALUE : AUTOMATIC.equals(origin) ? automaticBudget() : budget();
             temp = File.createTempFile("audio-", ".part", dir);
             try {
                 output = new FileOutputStream(temp);
@@ -328,6 +407,8 @@ final class OfflineStore {
             if (bytes + count > limit || (expected >= 0 && bytes + count > expected))
                 throw new IOException("Audio exceeds the available cache limit.");
             if (bytes + count >= nextNetworkCheck) {
+                if (AUTOMATIC.equals(origin) && (autoGeneration() != generation || !automaticAllowed(source, key)))
+                    throw new IOException("The automatic download settings changed.");
                 if (!permittedNetwork())
                     throw new IOException("Connect to an unmetered network or change Offline settings.");
                 nextNetworkCheck = bytes + count + MIB;
@@ -343,24 +424,31 @@ final class OfflineStore {
             synchronized (LOCK) {
                 if (index.getLong("revision." + key, 0) != revision)
                     throw new IOException("The offline copy was removed.");
-                if (!pin
+                if (CACHE.equals(origin)
                         && (!cacheEnabled() || index.getLong("cacheGeneration", 0) != generation
                                 || bytes > budget()))
                     return;
                 JSONObject old = entry(key);
-                if (file(old) != null && (old.optBoolean("pinned") || !pin))
-                    return;
+                if (file(old) != null && (CACHE.equals(origin) || DOWNLOAD.equals(origin(old)) ||
+                        (AUTOMATIC.equals(origin) && AUTOMATIC.equals(origin(old))))) return;
+                if (AUTOMATIC.equals(origin)) {
+                    if (!automaticAllowed(source, key) || index.getLong("automaticGeneration", 0) != generation)
+                        throw new IOException("The automatic download settings changed.");
+                    requireRoom(bytes);
+                }
                 File destination = new File(dir, UUID.randomUUID() + ".audio");
                 if (!temp.renameTo(destination))
                     throw new IOException("Could not finish the audio download.");
                 JSONObject e = new JSONObject()
                                        .put("track", track)
-                                       .put("pinned", pin)
+                                       .put("origin", origin).put("pinned", DOWNLOAD.equals(origin))
                                        .put("used", System.currentTimeMillis())
                                        .put("bytes", bytes)
                                        .put("file", destination.getName());
                 try {
-                    requireWrite(index.edit().putString(key, e.toString()));
+                    SharedPreferences.Editor write = index.edit().putString(key, e.toString());
+                    if (DOWNLOAD.equals(origin)) write.remove("exclude." + key);
+                    requireWrite(write);
                 } catch (IOException failed) {
                     destination.delete();
                     throw failed;
@@ -368,8 +456,8 @@ final class OfflineStore {
                 File previous = file(old);
                 if (previous != null)
                     previous.delete();
-                if (!pin)
-                    evict(budget());
+                if (CACHE.equals(origin)) evict(CACHE, budget());
+                changed();
             }
         }
         @Override

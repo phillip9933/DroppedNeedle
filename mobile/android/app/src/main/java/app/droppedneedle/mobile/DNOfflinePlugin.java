@@ -27,6 +27,9 @@ public final class DNOfflinePlugin extends Plugin {
                                               .readTimeout(30, TimeUnit.SECONDS)
                                               .build();
 
+    private final Runnable changed = () -> notifyListeners("mediaChanged", new JSObject());
+    @Override public void load() { OfflineStore.mediaChanged = changed; }
+
     private interface Task {
         JSONObject run(OfflineStore store) throws Exception;
     }
@@ -76,12 +79,23 @@ public final class DNOfflinePlugin extends Plugin {
         });
     }
     @PluginMethod
+    public void cancelAutomatic(PluginCall call) {
+        execute(call, storage, s -> { s.cancelAutomatic(); return null; });
+    }
+    @PluginMethod
+    public void planAutomatic(PluginCall call) {
+        execute(call, storage, s -> s.planAutomatic(call.getString("source"), call.getArray("ids")));
+    }
+    @PluginMethod
     public void save(PluginCall call) {
         execute(call, transfers, s -> {
             JSONObject track = call.getObject("track");
             String id = track.getString("id");
-            if (s.pinExisting(id))
+            String source = call.getString("source");
+            long revision = s.itemRevision(id), generation = s.autoGeneration();
+            if (s.keepExisting(id, source, track))
                 return null;
+            if (s.offlineOnly()) throw new IOException("Turn off offline-only playback to download new songs.");
             if (!s.permittedNetwork())
                 throw new IOException("Connect to an unmetered network or change Offline settings.");
             String token = call.getString("token");
@@ -97,13 +111,15 @@ public final class DNOfflinePlugin extends Plugin {
                 if (response.code() != 200 || body == null
                         || !OfflineStore.isAudio(response.header("Content-Type")))
                     throw new IOException("DN could not serve this audio file (HTTP " + response.code() + ").");
-                try (OfflineStore.Capture capture = s.begin(track, true, body.contentLength());
-                        InputStream source = body.byteStream()) {
+                try (OfflineStore.Capture capture = s.begin(track, source == null ? OfflineStore.DOWNLOAD : OfflineStore.AUTOMATIC, source, body.contentLength());
+                        InputStream input = body.byteStream()) {
+                    if (revision != s.itemRevision(id) || (source != null && generation != s.autoGeneration()))
+                        throw new IOException("The offline download changed during this request.");
                     if (capture == null)
                         throw new IOException("Could not start this download.");
                     byte[] buf = new byte[65536];
                     int count;
-                    while ((count = source.read(buf)) != -1)
+                    while ((count = input.read(buf)) != -1)
                         capture.write(buf, 0, count);
                     capture.finish();
                 }
@@ -113,6 +129,7 @@ public final class DNOfflinePlugin extends Plugin {
     }
     @Override
     protected void handleOnDestroy() {
+        if (OfflineStore.mediaChanged == changed) OfflineStore.mediaChanged = null;
         http.dispatcher().cancelAll();
         transfers.shutdownNow();
         storage.shutdown();

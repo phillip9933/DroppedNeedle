@@ -3,20 +3,37 @@ import {
 	cacheSizes,
 	offlineDefaults,
 	retainedTrack,
+	type DownloadSource,
 	type OfflineItem,
+	type OfflineOrigin,
 	type OfflineOptions,
 	type OfflineSnapshot
 } from './tracks';
 
 type Account = { serverUrl: string; userId: string };
-type Entry = OfflineItem & { scope: string; id: string; audio: Blob };
+type Entry = Omit<OfflineItem, 'origin'> & {
+	origin?: OfflineOrigin;
+	scope: string;
+	id: string;
+	audio: Blob;
+};
+type EnabledSource = Exclude<DownloadSource, 'off'>;
+const originOf = (item: Entry): OfflineOrigin =>
+	item.origin ?? (item.pinned ? 'downloaded' : 'cached');
+function complete(item: Entry | undefined): item is Entry {
+	return !!item && item.bytes > 0 && item.bytes === item.audio?.size;
+}
 export interface OfflineBridge {
 	snapshot(a: Account): Promise<OfflineSnapshot>;
 	options(a: Account): Promise<OfflineOptions>;
 	configure(a: Account & { options: OfflineOptions }): Promise<OfflineOptions>;
 	clearCache(a: Account): Promise<void>;
 	remove(a: Account & { ids: string[] }): Promise<void>;
-	save(a: Account & { token: string; track: PlayerTrack }): Promise<void>;
+	cancelAutomatic(a: Account): Promise<void>;
+	planAutomatic(a: Account & { source: EnabledSource; ids: string[] }): Promise<{ ids: string[] }>;
+	save(
+		a: Account & { token: string; track: PlayerTrack; source?: EnabledSource; signal?: AbortSignal }
+	): Promise<void>;
 }
 const scope = (a: Account) => JSON.stringify([a.serverUrl, a.userId]);
 let opened: Promise<IDBDatabase> | undefined;
@@ -70,12 +87,15 @@ async function transaction<T>(
 async function rows(store: IDBObjectStore, key: string): Promise<Entry[]> {
 	return result(store.index('scope').getAll(IDBKeyRange.only(key)));
 }
-async function prefs(store: IDBObjectStore, key: string): Promise<OfflineOptions> {
-	return (await result(store.get(key))) ?? { ...offlineDefaults };
+async function bump(store: IDBObjectStore, marker: IDBValidKey) {
+	await result(store.put(((await result(store.get(marker))) ?? 0) + 1, marker));
 }
-async function trim(store: IDBObjectStore, key: string, limit: number) {
+async function prefs(store: IDBObjectStore, key: string): Promise<OfflineOptions> {
+	return { ...offlineDefaults, ...(await result(store.get(key))) };
+}
+async function trim(store: IDBObjectStore, key: string, origin: OfflineOrigin, limit: number) {
 	const automatic = (await rows(store, key))
-		.filter((t) => !t.pinned)
+		.filter((t) => originOf(t) === origin)
 		.sort((a, b) => b.used - a.used);
 	let total = 0;
 	for (const t of automatic) {
@@ -83,10 +103,11 @@ async function trim(store: IDBObjectStore, key: string, limit: number) {
 		else store.delete([key, t.id]);
 	}
 }
-type Revision = { cache: number; item: number };
+type Revision = { cache: number; automatic: number; item: number };
 async function revision(store: IDBObjectStore, key: string, id: string): Promise<Revision> {
 	return {
 		cache: (await result(store.get(['cache', key]))) ?? 0,
+		automatic: (await result(store.get(['automatic', key]))) ?? 0,
 		item: (await result(store.get(['item', key, id]))) ?? 0
 	};
 }
@@ -97,34 +118,73 @@ export async function webPlaybackPolicy(a: Account, id: string) {
 		revision: await revision(settings, key, id)
 	}));
 }
-async function write(a: Account, track: PlayerTrack, audio: Blob, pin: boolean, started: Revision) {
+async function automaticRoom(
+	store: IDBObjectStore,
+	key: string,
+	added: number,
+	options: OfflineOptions
+) {
+	const used = (await rows(store, key)).reduce(
+		(n, item) => n + (originOf(item) === 'automatic' ? item.bytes : 0),
+		0
+	);
+	if (added + used > options.downloadMiB * 1048576)
+		throw Error('The automatic download limit has been reached.');
+}
+
+async function write(
+	a: Account,
+	track: PlayerTrack,
+	audio: Blob,
+	origin: OfflineOrigin,
+	started: Revision,
+	source?: EnabledSource
+) {
 	const key = scope(a);
 	await transaction('readwrite', async (store, settings) => {
 		const existing: Entry | undefined = await result(store.get([key, track.id]));
-		if (existing?.pinned) return;
 		const current = await revision(settings, key, track.id);
 		if (current.item !== started.item) throw Error('The offline copy was removed.');
-		if (!pin && current.cache !== started.cache) return;
 		const opts = await prefs(settings, key);
-		if (!pin && (!opts.autoCache || !audio.size || audio.size > opts.cacheMiB * 1048576)) return;
+		if (
+			origin === 'cached' &&
+			(current.cache !== started.cache || !opts.autoCache || audio.size > opts.cacheMiB * 1048576)
+		)
+			return;
+		if (
+			origin === 'automatic' &&
+			(current.automatic !== started.automatic || opts.autoDownload !== source || opts.offlineOnly)
+		)
+			throw Error('The automatic download settings changed.');
+		if (
+			complete(existing) &&
+			(origin === 'cached' ||
+				originOf(existing) === 'downloaded' ||
+				(origin === 'automatic' && originOf(existing) === 'automatic'))
+		)
+			return;
+		if (origin === 'automatic') await automaticRoom(store, key, audio.size, opts);
+		if (!audio.size) throw Error('The audio download was incomplete.');
 		await result(
 			store.put({
 				scope: key,
 				id: track.id,
 				track: retainedTrack(track, a.serverUrl),
 				audio,
-				pinned: pin,
+				origin,
+				pinned: origin === 'downloaded',
 				bytes: audio.size,
 				used: Date.now()
 			} satisfies Entry)
 		);
-		if (!pin) await trim(store, key, opts.cacheMiB * 1048576);
+		if (origin === 'cached') await trim(store, key, 'cached', opts.cacheMiB * 1048576);
+		if (origin === 'downloaded') await result(settings.delete(['exclude', key, track.id]));
 	});
 }
 export async function webLocalAudio(a: Account, id: string) {
 	return transaction('readwrite', async (store) => {
 		const entry: Entry | undefined = await result(store.get([scope(a), id]));
-		if (!entry) return null;
+		if (!complete(entry)) return null;
 		entry.used = Date.now();
 		await result(store.put(entry));
 		return entry.audio;
@@ -137,7 +197,8 @@ export async function cacheWebPlayback(
 	started: Revision
 ) {
 	try {
-		await write(a, track, audio, false, started);
+		await write(a, track, audio, 'cached', started);
+		window.dispatchEvent(new Event('dn-offline-media'));
 	} catch {
 		/* Optional caching must not interrupt playback if storage is full. */
 	}
@@ -148,7 +209,14 @@ export const webOffline: OfflineBridge = {
 		return transaction('readonly', async (store, settings) => ({
 			options: await prefs(settings, key),
 			items: (await rows(store, key))
-				.map(({ track, bytes, pinned, used }) => ({ track, bytes, pinned, used }))
+				.filter(complete)
+				.map((e) => ({
+					track: e.track,
+					bytes: e.bytes,
+					used: e.used,
+					origin: originOf(e),
+					pinned: originOf(e) === 'downloaded'
+				}))
 				.sort((a, b) => b.used - a.used)
 		}));
 	},
@@ -156,11 +224,22 @@ export const webOffline: OfflineBridge = {
 		return transaction('readonly', async (_, settings) => prefs(settings, scope(a)));
 	},
 	async configure(a) {
-		if (!cacheSizes.includes(a.options.cacheMiB)) throw Error('Choose a supported cache size.');
+		if (
+			!cacheSizes.includes(a.options.cacheMiB) ||
+			!cacheSizes.includes(a.options.downloadMiB) ||
+			!['off', 'recent', 'favorites'].includes(a.options.autoDownload)
+		)
+			throw Error('Choose a supported cache size.');
 		const key = scope(a);
 		return transaction('readwrite', async (store, settings) => {
+			const old = await prefs(settings, key);
+			if ((!a.options.autoCache && old.autoCache) || (a.options.offlineOnly && !old.offlineOnly))
+				await bump(settings, ['cache', key]);
+			if (old.autoDownload !== a.options.autoDownload || old.offlineOnly !== a.options.offlineOnly)
+				await bump(settings, ['automatic', key]);
 			await result(settings.put(a.options, key));
-			await trim(store, key, a.options.cacheMiB * 1048576);
+			await trim(store, key, 'cached', a.options.cacheMiB * 1048576);
+			await trim(store, key, 'automatic', a.options.downloadMiB * 1048576);
 			return a.options;
 		});
 	},
@@ -168,8 +247,8 @@ export const webOffline: OfflineBridge = {
 		const key = scope(a);
 		await transaction('readwrite', async (store, settings) => {
 			for (const id of a.ids) {
-				const marker = ['item', key, id];
-				await result(settings.put(((await result(settings.get(marker))) ?? 0) + 1, marker));
+				await bump(settings, ['item', key, id]);
+				await result(settings.put(true, ['exclude', key, id]));
 				await result(store.delete([key, id]));
 			}
 		});
@@ -177,19 +256,65 @@ export const webOffline: OfflineBridge = {
 	async clearCache(a) {
 		const key = scope(a);
 		await transaction('readwrite', async (store, settings) => {
-			const marker = ['cache', key];
-			await result(settings.put(((await result(settings.get(marker))) ?? 0) + 1, marker));
-			for (const e of await rows(store, key)) if (!e.pinned) store.delete([key, e.id]);
+			await bump(settings, ['cache', key]);
+			await trim(store, key, 'cached', 0);
+		});
+	},
+	async cancelAutomatic(a) {
+		await transaction('readwrite', (_, settings) => bump(settings, ['automatic', scope(a)]));
+	},
+	async planAutomatic(a) {
+		const key = scope(a);
+		return transaction('readwrite', async (store, settings) => {
+			const options = await prefs(settings, key);
+			if (a.source !== options.autoDownload || options.offlineOnly) return { ids: [] };
+			const wanted = new Set(a.ids.slice(0, 25));
+			const eligible = new Set(wanted);
+			for (const entry of await rows(store, key)) {
+				if (!complete(entry)) continue;
+				const origin = originOf(entry);
+				if (origin === 'automatic' && !wanted.has(entry.id)) {
+					await bump(settings, ['item', key, entry.id]);
+					await result(store.delete([key, entry.id]));
+				}
+				if (origin !== 'cached') eligible.delete(entry.id);
+			}
+			const ids: string[] = [];
+			for (const id of eligible)
+				if (!(await result(settings.get(['exclude', key, id])))) ids.push(id);
+			return { ids };
 		});
 	},
 	async save(a) {
 		const key = scope(a);
 		const started = await transaction('readwrite', async (store, settings) => {
 			const cached: Entry | undefined = await result(store.get([key, a.track.id]));
-			if (!cached) return revision(settings, key, a.track.id);
-			cached.pinned = true;
+			const options = await prefs(settings, key);
+			if (
+				a.source &&
+				(options.autoDownload !== a.source ||
+					options.offlineOnly ||
+					(await result(settings.get(['exclude', key, a.track.id]))))
+			)
+				return null;
+			if (!complete(cached)) {
+				if (options.offlineOnly)
+					throw Error('Turn off offline-only playback to download new songs.');
+				return revision(settings, key, a.track.id);
+			}
+			if (a.source && originOf(cached) !== 'cached') return null;
+			if (a.source) await automaticRoom(store, key, cached.bytes, options);
+			cached.origin = a.source ? 'automatic' : 'downloaded';
+			cached.pinned = !a.source;
 			cached.used = Date.now();
+			cached.track = {
+				...cached.track,
+				...Object.fromEntries(
+					Object.entries(retainedTrack(a.track, a.serverUrl)).filter(([, v]) => v !== undefined)
+				)
+			};
 			await result(store.put(cached));
+			if (!a.source) await result(settings.delete(['exclude', key, a.track.id]));
 			return null;
 		});
 		if (!started) return;
@@ -202,7 +327,9 @@ export const webOffline: OfflineBridge = {
 			redirect: 'error',
 			cache: 'no-store',
 			referrerPolicy: 'no-referrer',
-			signal: AbortSignal.timeout(180000)
+			signal: a.signal
+				? AbortSignal.any([a.signal, AbortSignal.timeout(180000)])
+				: AbortSignal.timeout(180000)
 		});
 		if (response.status !== 200 || !isAudio(response.headers.get('content-type')))
 			throw Error('DN could not serve this audio file.');
@@ -213,7 +340,7 @@ export const webOffline: OfflineBridge = {
 			(expected && !response.headers.get('content-encoding') && Number(expected) !== blob.size)
 		)
 			throw Error('The audio download was incomplete.');
-		await write(a, a.track, blob, true, started);
+		await write(a, a.track, blob, a.source ? 'automatic' : 'downloaded', started, a.source);
 	}
 };
 export function isAudio(value: string | null) {

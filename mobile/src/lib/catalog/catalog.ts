@@ -96,6 +96,16 @@ export function localSong(t: Schema['TrackView'], artist = '') {
 			),
 			t.duration_seconds
 		),
+		albumId: t.album_id || undefined,
+		artistId: t.artist_id || undefined,
+		albumArtist: t.album_artist_name || undefined,
+		albumArtistId: t.album_artist_id || undefined,
+		genre: t.genre || undefined,
+		year: t.year ?? undefined,
+		trackNumber: t.track_number ?? undefined,
+		discNumber: t.disc_number ?? undefined,
+		dateAdded: t.date_added ?? undefined,
+		format: t.format || undefined,
 		favorite: t.favorite
 	};
 }
@@ -163,7 +173,12 @@ export async function search(
 			d.album_id,
 			t.art_missing || (!d.release_group_mbid && !d.cover_available)
 		);
-		return [playerTrack(t.id, t.title, t.artist ?? '', d.album_title, art, d.duration_seconds)];
+		return [
+			{
+				...playerTrack(t.id, t.title, t.artist ?? '', d.album_title, art, d.duration_seconds),
+				albumId: d.album_id || undefined
+			}
+		];
 	});
 	const artists = result.artists
 		.filter((a) => a.musicbrainz_id || a.id)

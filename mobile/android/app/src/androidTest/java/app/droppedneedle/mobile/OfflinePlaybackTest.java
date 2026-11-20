@@ -182,4 +182,72 @@ public final class OfflinePlaybackTest {
             store.remove(new JSONArray().put("t"));
         }
     }
+    @Test
+    public void automaticSourcesRetainRealAudioAndManualSavesSurviveRotation() throws Exception {
+        byte[] audio = wav();
+        JSONObject metadata = track().put("genre", "Folk").put("year", 2004).put("rating", 5);
+        assertEquals("off", store.options().getString("autoDownload"));
+        assertNull(store.begin(metadata, OfflineStore.AUTOMATIC, "recent", audio.length));
+        JSONObject opts = store.options().put("autoCache", true).put("autoDownload", "recent")
+                                  .put("downloadMiB", 128).put("unmeteredOnly", false);
+        store.configure(opts);
+        try {
+            // The library only includes data that has reached the atomic completion point.
+            try (OfflineStore.Capture partial = store.begin(metadata, OfflineStore.AUTOMATIC, "recent", audio.length)) {
+                partial.write(audio, 0, 100);
+            }
+            assertEquals(0, store.snapshot().getJSONArray("items").length());
+            try (OfflineStore.Capture complete = store.begin(metadata, false, audio.length)) {
+                complete.write(audio, 0, audio.length);
+                complete.finish();
+            }
+            assertEquals("cached", store.snapshot().getJSONArray("items").getJSONObject(0).getString("origin"));
+            File before = store.playable(URI);
+            assertTrue(store.keepExisting("t", "recent", metadata));
+            assertEquals(before, store.playable(URI));
+            assertEquals("automatic", store.snapshot().getJSONArray("items").getJSONObject(0).getString("origin"));
+            store.clearCache();
+            assertEquals(before, store.playable(URI));
+            assertEquals(0, store.planAutomatic("recent", new JSONArray().put("t")).getJSONArray("ids").length());
+
+            assertTrue(store.pinExisting("t"));
+            store.planAutomatic("recent", new JSONArray());
+            OfflineStore again = OfflineStore.forUser(context, BASE, listener);
+            JSONObject row = again.snapshot().getJSONArray("items").getJSONObject(0);
+            assertEquals("downloaded", row.getString("origin"));
+            assertEquals(5, row.getJSONObject("track").getInt("rating"));
+            assertEquals("Folk", row.getJSONObject("track").getString("genre"));
+            assertEquals(before, again.playable(URI));
+            assertNull(OfflineStore.forUser(context, BASE, listener + "-other").playable(URI));
+            store.remove(new JSONArray().put("t"));
+            assertEquals(0, store.planAutomatic("recent", new JSONArray().put("t")).getJSONArray("ids").length());
+            assertNull(store.begin(metadata, OfflineStore.AUTOMATIC, "recent", audio.length));
+        } finally { store.remove(new JSONArray().put("t")); }
+    }
+
+    @Test
+    public void automaticRequestsObeyBudgetAndChangesWhileTransferring() throws Exception {
+        byte[] audio = wav();
+        JSONObject opts = store.options().put("autoDownload", "recent").put("downloadMiB", 128).put("unmeteredOnly", false);
+        store.configure(opts);
+        try {
+            assertThrows(IOException.class, () -> store.begin(track(), OfflineStore.AUTOMATIC, "recent", 129L * 1024 * 1024));
+            try (OfflineStore.Capture started = store.begin(track(), OfflineStore.AUTOMATIC, "recent", audio.length)) {
+                started.write(audio, 0, audio.length);
+                store.configure(opts.put("autoDownload", "off"));
+                assertThrows(IOException.class, started::finish);
+            }
+            assertNull(store.playable(URI));
+            store.configure(opts.put("autoDownload", "favorites"));
+            assertNull(store.begin(track(), OfflineStore.AUTOMATIC, "recent", audio.length));
+            try (OfflineStore.Capture complete = store.begin(track(), OfflineStore.AUTOMATIC, "favorites", audio.length)) {
+                complete.write(audio, 0, audio.length); complete.finish();
+            }
+            store.configure(opts.put("autoDownload", "off"));
+            assertNotNull(store.playable(URI));
+            store.configure(opts.put("autoDownload", "recent"));
+            store.planAutomatic("recent", new JSONArray().put("another-song"));
+            assertNull(store.playable(URI));
+        } finally { store.remove(new JSONArray().put("t")); }
+    }
 }

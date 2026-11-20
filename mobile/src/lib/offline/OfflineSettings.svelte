@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
+	import ViewedMediaSettings from './ViewedMediaSettings.svelte';
 	import {
 		cacheSizes,
 		clearAutomatic,
@@ -8,6 +9,8 @@
 		nativeOffline,
 		offlineDefaults,
 		offlineSnapshot,
+		runAutoDownloads,
+		watchOfflineMedia,
 		storageSize,
 		type OfflineOptions
 	} from './media';
@@ -15,8 +18,10 @@
 	let options = $state<OfflineOptions>({ ...offlineDefaults }),
 		saved = $state(0),
 		cached = $state(0),
+		automatic = $state(0),
 		loading = $state(true),
 		busy = $state(false),
+		syncing = $state(false),
 		confirming = $state(false),
 		error = $state(''),
 		receipt = $state('');
@@ -25,8 +30,11 @@
 		try {
 			const state = await offlineSnapshot(session);
 			options = state.options;
-			saved = state.items.reduce((n, i) => n + (i.pinned ? i.bytes : 0), 0);
-			cached = state.items.reduce((n, i) => n + (i.pinned ? 0 : i.bytes), 0);
+			const bytes = (origin: 'downloaded' | 'automatic' | 'cached') =>
+				state.items.reduce((n, i) => n + (i.origin === origin ? i.bytes : 0), 0);
+			saved = bytes('downloaded');
+			cached = bytes('cached');
+			automatic = bytes('automatic');
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not read offline storage.';
 		} finally {
@@ -38,12 +46,39 @@
 		busy = true;
 		receipt = '';
 		try {
+			const changedSource =
+				options.autoDownload !== next.autoDownload ||
+				options.downloadMiB !== next.downloadMiB ||
+				(options.offlineOnly && !next.offlineOnly) ||
+				(options.unmeteredOnly && !next.unmeteredOnly);
 			await configureOffline(session, next);
 			await read();
+			busy = false;
+			if (changedSource && next.autoDownload !== 'off' && !next.offlineOnly) await sync();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not save this setting.';
 		} finally {
 			busy = false;
+		}
+	}
+	let syncVisit = 0;
+	async function sync() {
+		const visit = ++syncVisit;
+		syncing = true;
+		error = '';
+		receipt = '';
+		try {
+			if (!navigator.onLine) throw Error('Reconnect to update automatic downloads.');
+			const n = await runAutoDownloads(session);
+			if (visit !== syncVisit) return;
+			receipt = n
+				? n + (n === 1 ? ' automatic download added.' : ' automatic downloads added.')
+				: 'No automatic downloads added.';
+		} catch (e) {
+			if (visit === syncVisit && !(e instanceof DOMException && e.name === 'AbortError'))
+				error = e instanceof Error ? e.message : 'Could not update automatic downloads.';
+		} finally {
+			if (visit === syncVisit) syncing = false;
 		}
 	}
 	async function clear() {
@@ -61,6 +96,7 @@
 	}
 	onMount(() => {
 		void read();
+		return watchOfflineMedia(read);
 	});
 </script>
 
@@ -102,11 +138,53 @@
 				/>Download and cache only on unmetered networks</label
 			>{/if}
 	</fieldset>
+	<fieldset disabled={busy}>
+		<legend>Automatic downloads</legend>
+		<label
+			>Download source<select
+				value={options.autoDownload}
+				onchange={(e) =>
+					change({
+						...options,
+						autoDownload: e.currentTarget.value as OfflineOptions['autoDownload']
+					})}
+			>
+				<option value="off">Off</option>
+				<option value="recent">Recently added songs</option>
+				<option value="favorites">Favorite songs</option>
+			</select></label
+		>
+		{#if options.autoDownload !== 'off'}
+			<p>
+				Keep up to 25 of the most recently added songs from this source while the app is open. Songs
+				you remove stay excluded until you save them yourself.
+			</p>
+			<label
+				>Automatic download limit<select
+					value={options.downloadMiB}
+					onchange={(e) => change({ ...options, downloadMiB: Number(e.currentTarget.value) })}
+				>
+					{#each cacheSizes as size (size)}<option value={size}
+							>{size >= 1024 ? size / 1024 + ' GiB' : size + ' MiB'}</option
+						>{/each}
+				</select></label
+			>
+			<button class="secondary" disabled={options.offlineOnly || syncing} onclick={sync}
+				>Update automatic downloads</button
+			>
+		{/if}
+	</fieldset>
+	<ViewedMediaSettings {session} kind="artwork" />
+	<ViewedMediaSettings {session} kind="lyrics" />
 	<h2>On this device</h2>
 	<dl>
 		<div>
 			<dt>Saved downloads</dt>
 			<dd>{storageSize(saved)}</dd>
+		</div>
+		<div>
+			<dt>Automatic downloads</dt>
+			<dd>{storageSize(automatic)}</dd>
 		</div>
 		<div>
 			<dt>Playback cache</dt>

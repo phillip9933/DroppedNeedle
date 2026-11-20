@@ -28,6 +28,10 @@ async function fixture(page: Page) {
 		title,
 		id: 't' + i,
 		album_id: 'evening',
+		artist_id: 'north',
+		genre: 'Folk',
+		year: 1971,
+		favorite: i === 0,
 		album_title: 'Pacific Lines',
 		artist_name: 'North',
 		disc_number: 1,
@@ -56,8 +60,12 @@ async function fixture(page: Page) {
 		expect(req.headers().authorization).toBe('Bearer fixture-' + user);
 		if (path === '/me') return json({ id: user, display_name: 'Listener', role: 'user' });
 		if (path === '/library/albums') return json({ items: [album], next: null, total: 1 });
-		if (path === '/library/albums/match/evening' || path === '/library/tracks')
-			return json({ items: tracks, total: 2 });
+		if (path === '/ratings/lookup') return json({ tracks: { t0: 5 }, albums: {}, artists: {} });
+		if (path === '/library/albums/match/evening' || path === '/library/tracks') {
+			const rows =
+				url.searchParams.get('favorites') === 'true' ? tracks.filter((t) => t.favorite) : tracks;
+			return json({ items: rows, total: rows.length });
+		}
 		if (await emptyBoardRead(route)) return;
 		return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 	});
@@ -179,4 +187,188 @@ test('completed playback can be cached, pinned and cleared independently of save
 	await page.getByRole('button', { name: 'Playback cache', exact: true }).click();
 	await expect(page.getByText(/Enable caching in Offline settings/)).toBeVisible();
 	expect(env.streams()).toBe(2);
+});
+
+test('opted-in downloads follow their source, keep manual upgrades and respect removals', async ({
+	page
+}) => {
+	const env = await fixture(page);
+	await login(page);
+	await options(page);
+	expect(env.streams()).toBe(0);
+	const source = page.getByLabel('Download source');
+	await expect(source).toHaveValue('off');
+	await source.selectOption('favorites');
+	await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
+	expect(env.streams()).toBe(1);
+	const open = page.getByRole('button', { name: 'Open offline music', exact: true });
+	await open.click();
+	const shelf = page.getByRole('region', { name: 'Offline music' });
+	await shelf.getByRole('button', { name: 'Automatic downloads', exact: true }).click();
+	await expect(shelf.getByText('Held over', { exact: true })).toBeVisible();
+	await expect(shelf.getByText('Platform lights', { exact: true })).toHaveCount(0);
+	await shelf.getByRole('button', { name: 'Keep Held over offline', exact: true }).click();
+	await shelf.getByRole('button', { name: 'Saved downloads', exact: true }).click();
+	await expect(shelf.getByText('Held over', { exact: true })).toBeVisible();
+	expect(env.streams()).toBe(1);
+	await options(page);
+	await source.selectOption('recent');
+	await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
+	expect(env.streams()).toBe(2);
+	await open.click();
+	await shelf.getByRole('button', { name: 'Automatic downloads', exact: true }).click();
+	await expect(shelf.getByText('Platform lights', { exact: true })).toBeVisible();
+	await shelf
+		.getByRole('button', { name: 'Remove offline copy of Platform lights', exact: true })
+		.click();
+	await shelf.getByRole('button', { name: 'Confirm removal', exact: true }).click();
+	await options(page);
+	await page.getByRole('button', { name: 'Update automatic downloads', exact: true }).click();
+	await expect(page.getByText('No automatic downloads added.', { exact: true })).toBeVisible();
+	expect(env.streams()).toBe(2);
+	await source.selectOption('off');
+	await expect(source).toHaveValue('off');
+	await open.click();
+	await shelf.getByRole('button', { name: 'Saved downloads', exact: true }).click();
+	await expect(shelf.getByText('Held over', { exact: true })).toBeVisible();
+	const saved = await page.evaluate(async () => {
+		const db = await new Promise<IDBDatabase>((resolve, reject) => {
+			const req = indexedDB.open('dn.mobile.offline.v1');
+			req.onsuccess = () => resolve(req.result);
+			req.onerror = () => reject(req.error);
+		});
+		return new Promise<Record<string, unknown>>((resolve, reject) => {
+			const read = db.transaction('tracks').objectStore('tracks').getAll();
+			read.onsuccess = () => {
+				resolve(read.result[0].track);
+				db.close();
+			};
+			read.onerror = () => reject(read.error);
+		});
+	});
+	expect(saved).toMatchObject({
+		artistId: 'north',
+		albumId: 'evening',
+		genre: 'Folk',
+		year: 1971,
+		rating: 5
+	});
+	await env.disconnect();
+	await shelf.getByRole('button', { name: 'Play all', exact: true }).click();
+	await expect(
+		page
+			.getByRole('region', { name: 'Now playing' })
+			.getByRole('button', { name: 'Pause', exact: true })
+	).toBeVisible();
+	expect(env.streams()).toBe(2);
+});
+
+test('older pinned and cached entries keep their provenance and incomplete bytes stay hidden', async ({
+	page
+}) => {
+	await fixture(page);
+	await login(page);
+	await page.evaluate(
+		async ({ server }) => {
+			const key = JSON.stringify([server, 'listener']);
+			const db = await new Promise<IDBDatabase>((resolve, reject) => {
+				const req = indexedDB.open('dn.mobile.offline.v1', 1);
+				req.onsuccess = () => resolve(req.result);
+				req.onerror = () => reject(req.error);
+			});
+			await new Promise<void>((resolve, reject) => {
+				const tx = db.transaction(['tracks', 'options'], 'readwrite'),
+					tracks = tx.objectStore('tracks');
+				tx.objectStore('options').put(
+					{ autoCache: true, unmeteredOnly: true, cacheMiB: 128, offlineOnly: false },
+					key
+				);
+				for (const [id, pinned, bytes] of [
+					['old saved', true, 3],
+					['old cached', false, 3],
+					['broken', true, 6]
+				] as const)
+					tracks.put({
+						scope: key,
+						id,
+						pinned,
+						bytes,
+						audio: new Blob(['abc'], { type: 'audio/mpeg' }),
+						used: 1,
+						track: {
+							id,
+							title: id,
+							artist: 'North',
+							album: 'Old',
+							streamUrl: '/api/v3/stream/local/' + encodeURIComponent(id)
+						}
+					});
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+			});
+			db.close();
+		},
+		{ server }
+	);
+	await offline(page);
+	const shelf = page.getByRole('region', { name: 'Offline music' });
+	await expect(shelf.getByText('old saved', { exact: true })).toBeVisible();
+	await expect(shelf.getByText('broken', { exact: true })).toHaveCount(0);
+	await shelf.getByRole('button', { name: 'Automatic downloads', exact: true }).click();
+	await expect(shelf.getByText('old cached', { exact: true })).toHaveCount(0);
+	await shelf.getByRole('button', { name: 'Playback cache', exact: true }).click();
+	await expect(shelf.getByText('old cached', { exact: true })).toBeVisible();
+	await options(page);
+	await expect(page.getByLabel('Download source')).toHaveValue('off');
+	await page.getByRole('button', { name: 'Clear playback cache', exact: true }).click();
+	await page.getByRole('button', { name: 'Confirm clear cache', exact: true }).click();
+	await page.getByRole('button', { name: 'Open offline music', exact: true }).click();
+	await shelf.getByRole('button', { name: 'Saved downloads', exact: true }).click();
+	await expect(shelf.getByText('old saved', { exact: true })).toBeVisible();
+});
+
+test('saved audio keeps viewed timed lyrics usable after restarting in airplane mode', async ({
+	page
+}) => {
+	const env = await fixture(page);
+	let reads = 0;
+	await page.route(server + '/api/v3/library/tracks/t0/lyrics', async (route) => {
+		reads++;
+		await route.fulfill({
+			json: {
+				text: 'The lights come on\nWe pass the harbour',
+				is_synced: true,
+				lines: [
+					{ start_seconds: 0, text: 'The lights come on' },
+					{ start_seconds: 6, text: 'We pass the harbour' }
+				]
+			}
+		});
+	});
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	const lyrics = page.locator('[data-part=lyrics]');
+	await login(page);
+	await album(page);
+	await b('Album actions').click();
+	await page.getByRole('dialog').getByRole('button', { name: 'Save offline', exact: true }).click();
+	await expect(page.getByText('2 songs saved offline.', { exact: true })).toBeAttached();
+	await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+	await b('Play album').click();
+	await b('Pause').click();
+	await lyrics.locator('summary').click();
+	await expect(b('Seek to lyric We pass the harbour')).toBeVisible();
+	expect(reads).toBe(1);
+	await login(page);
+	await offline(page);
+	await env.disconnect();
+	await page
+		.getByRole('region', { name: 'Offline music' })
+		.getByRole('button', { name: /^Held over/ })
+		.click();
+	await b('Pause').click();
+	await lyrics.locator('summary').click();
+	await b('Seek to lyric We pass the harbour').click();
+	await expect(page.getByRole('slider', { name: 'Playback position' })).toHaveValue('6');
+	await expect(lyrics.locator('[aria-current=true]')).toHaveText('We pass the harbour');
+	expect(reads).toBe(1);
 });
