@@ -9,7 +9,7 @@
 	import { availableTracks, matchesAvailability, type Availability } from '../offline/library';
 	import { detailInventory, type DetailInventory } from './detailInventory.svelte';
 	import DetailAvailability from './DetailAvailability.svelte';
-	import { albumTrackCount } from './albumTrackCounts';
+	import { albumTrackCount, type AlbumCount } from './albumTrackCounts';
 	import { offlinePlaylists } from './playlistOffline';
 	import { smartPlaylistTracks } from './smartPlaylists';
 	import { deviceTrackOrder, matchesDeviceTrack } from './trackFilters';
@@ -128,13 +128,27 @@
 	const countOnDevice = $derived(
 		savedAlbum?.length ?? candidates.reduce((n, t) => n + Number(!!inventory?.byId.has(t.id)), 0)
 	);
+	const observedAlbumId = $derived(deviceOnly && isAlbum ? savedAlbum?.[0]?.albumId : undefined);
+	let loadedCount = $state.raw<{ owner: Session; id: string; count: AlbumCount }>();
+	const observation = $derived(
+		loadedCount?.owner === session && loadedCount.id === observedAlbumId
+			? loadedCount.count
+			: undefined
+	);
+	$effect(() => {
+		const id = observedAlbumId,
+			owner = session;
+		if (!id) return;
+		let active = true;
+		void albumTrackCount(owner, id).then((result) => {
+			if (active) loadedCount = result ? { owner, id, count: result } : undefined;
+		});
+		return () => {
+			active = false;
+		};
+	});
 	const knownPlayable = $derived(
-		!deviceOnly
-			? candidates.length
-			: (item.knownPlayable ??
-					(isAlbum
-						? albumTrackCount(session, candidates[0]?.albumId ?? tracks[0]?.albumId)
-						: undefined))
+		!deviceOnly ? candidates.length : (item.knownPlayable ?? observation?.total)
 	);
 	const filteredTracks = $derived(
 		!showAvailability || filter === 'all'
@@ -281,6 +295,7 @@
 			source={device}
 			available={countOnDevice}
 			total={knownPlayable}
+			observedAt={item.knownPlayable === undefined ? observation?.seenAt : undefined}
 			{deviceOnly}
 			value={filter}
 			onchange={(v) => {

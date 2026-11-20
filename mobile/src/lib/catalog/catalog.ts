@@ -1,3 +1,4 @@
+import { rememberAlbumCounts } from './albumTrackCounts';
 import type { components, paths } from '../../../../frontend/src/lib/api/v3/openapi';
 import { DnError, getJson, postJson, type Session } from '../connection';
 import type { LibraryContinuation } from '../player/libraryWindow';
@@ -245,6 +246,8 @@ async function localTracks(
 			total = page.total;
 			if (!page.items.length) break;
 		} while (tracks.length < total);
+		if (album.localId && tracks.length === total)
+			void rememberAlbumCounts(session, [{ id: album.localId, track_count: total }]);
 	} catch (e) {
 		if (e instanceof DnError && e.status === 404 && !tracks.length) return [];
 		throw e;

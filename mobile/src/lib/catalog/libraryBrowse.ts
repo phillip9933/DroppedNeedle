@@ -12,7 +12,7 @@ import {
 	type BrowseFilters
 } from './trackFilters';
 export { requestFilters, type BrowseFilters } from './trackFilters';
-import { rememberAlbumCount } from './albumTrackCounts';
+import { rememberAlbumCounts } from './albumTrackCounts';
 import { offlinePlaylists } from './playlistOffline';
 import { readLibraryGenres, tracksInGenre, displayTag } from './libraryGenres';
 
@@ -252,11 +252,11 @@ export async function browsePage(
 			path('/api/v3/library/albums', {}, params),
 			signal
 		);
+		await rememberAlbumCounts(session, p.items);
 		return {
 			...p,
 			items: p.items.map((a) => {
 				const album = localAlbum(a);
-				rememberAlbumCount(session, a.id, a.track_count);
 				return {
 					id: 'album:' + a.id,
 					title: album.title,

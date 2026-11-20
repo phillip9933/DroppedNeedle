@@ -23,7 +23,6 @@
 	import SelectionHost from './SelectionHost.svelte';
 	import TrackList from './TrackList.svelte';
 	import { trackChoice } from './librarySelection.svelte';
-	import { rememberAlbumCount } from './albumTrackCounts';
 	import { detailInventory } from './detailInventory.svelte';
 	import DetailAvailability from './DetailAvailability.svelte';
 	import { matchesAvailability, type Availability } from '../offline/library';
@@ -107,7 +106,6 @@
 			const found = await albumTracks(session, album);
 			if (!active) return;
 			tracks = found;
-			if (album.localId) rememberAlbumCount(session, album.localId, found.length);
 			if (!tracks.length && !album.requested && !album.imported) await loadChoices();
 		} catch (e) {
 			if (active) error = errorMessage(e);

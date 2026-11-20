@@ -6,6 +6,7 @@ import { silentWav } from './fixtures/silentWav';
 import type { OfflineOrigin } from '../src/lib/offline/tracks';
 
 const server = 'https://partial-collection.example';
+const secondServer = 'https://partial-mirror.example';
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const album = {
 	id: 'paper',
@@ -38,7 +39,7 @@ const playlist = {
 	cover_urls: [],
 	track_count: 5
 };
-async function connect(page: Page) {
+async function connect(page: Page, totals: Record<string, number> = {}) {
 	await page.setViewportSize({ width: 320, height: 780 });
 	const paths: string[] = [],
 		attempts: string[] = [],
@@ -52,19 +53,30 @@ async function connect(page: Page) {
 		track_source_id: n < 0 ? 'remote' : songs[n].id,
 		library_file_id: n < 0 ? null : songs[n].id
 	}));
-	let blocked = false;
-	await page.route(server + '/api/v3/**', async (route) => {
+	let blocked = false,
+		owner = 'listener';
+	const fixtureURL = (url: URL) =>
+		[server, secondServer].includes(url.origin) && url.pathname.startsWith('/api/v3/');
+	await page.route(fixtureURL, async (route) => {
 		const path = new URL(route.request().url()).pathname.slice(7),
 			send = (data: unknown) => route.fulfill({ json: data });
+		if (path === '/auth/providers') return send({ local: true, oidc: false });
+		if (path === '/auth/login') {
+			owner = route.request().postDataJSON().username;
+			return send({ token: 'fixture' });
+		}
+		if (path === '/me') return send({ id: owner, display_name: 'Listener', role: 'user' });
 		if (blocked) {
 			attempts.push(path);
 			return route.abort();
 		}
 		paths.push(path);
-		if (path === '/auth/providers') return send({ local: true, oidc: false });
-		if (path === '/auth/login') return send({ token: 'fixture' });
-		if (path === '/me') return send({ id: 'listener', display_name: 'Listener', role: 'user' });
-		if (path === '/library/albums') return send({ items: [album], total: 1, next: null });
+		if (path === '/library/albums')
+			return send({
+				items: [{ ...album, track_count: totals[owner] ?? album.track_count }],
+				total: 1,
+				next: null
+			});
 		if (path === '/library/albums/match/paper')
 			return send({
 				items: songs.map((t) => ({
@@ -265,4 +277,54 @@ test('a device-filtered category carries its source into album and known playlis
 	expect(state.attempts.filter((p) => !p.endsWith('/lyrics') && p !== '/ratings/lookup')).toEqual(
 		[]
 	);
+});
+
+test('after a cold start each offline account sees its own last DN album count', async ({
+	page
+}) => {
+	const observed = '2025-12-31T14:00:00.000Z';
+	await page.clock.setFixedTime(new Date(observed));
+	const state = await connect(page, { second: 2 });
+	await button(page, 'Browse Albums').click();
+	await expect(button(page, album.title)).toBeVisible();
+	await localSignIn(page, server, 'second');
+	await seedOfflineMusic(page, server, 'second', false, saved.slice(0, 1));
+	await button(page, 'Library').click();
+	await button(page, 'Browse Albums').click();
+	await expect(button(page, album.title)).toBeVisible();
+
+	for (const who of ['listener', 'second']) await seedOfflineMusic(page, server, who, true, []);
+	await seedOfflineMusic(page, secondServer, 'listener', true, saved.slice(0, 1));
+	state.block();
+	await page.clock.setFixedTime(new Date('2026-01-02T14:00:00.000Z'));
+	for (const [address, who, message] of [
+		[server, 'listener', '3 tracks available on this device. DN last showed 4 playable tracks on'],
+		[server, 'second', '1 track available on this device. DN last showed 2 playable tracks on'],
+		[secondServer, 'listener', '1 track available on this device. Full library count unknown.']
+	]) {
+		// The web preview keeps credentials in memory. Only sign-in endpoints are available after reload.
+		await page.context().setOffline(false);
+		await page.reload();
+		await page.getByLabel('Server address').fill(address);
+		await button(page, 'Continue').click();
+		await page.getByLabel('Username', { exact: true }).fill(who);
+		await page.getByLabel('Password', { exact: true }).fill('fixture');
+		await button(page, 'Sign in').click();
+		await expect(page.getByRole('heading', { name: 'Offline music', exact: true })).toBeVisible();
+		await page.context().setOffline(true);
+		await button(page, 'Library').click();
+		await button(page, 'Browse Albums').click();
+		await button(page, album.title).click();
+		await expect(page.getByText(message)).toBeVisible();
+		const date = page.locator('.device-tracks time');
+		if (address === server) await expect(date).toHaveAttribute('datetime', observed);
+		else await expect(date).toHaveCount(0);
+		if (who === 'second') {
+			await seedOfflineMusic(page, server, who, true, saved);
+			await expect(
+				page.getByText('3 tracks available on this device. Full library count unknown.')
+			).toBeVisible();
+		}
+	}
+	expect(state.attempts.filter((path) => path.startsWith('/library/'))).toEqual([]);
 });

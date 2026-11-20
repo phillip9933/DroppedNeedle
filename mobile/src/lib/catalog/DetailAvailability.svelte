@@ -6,6 +6,7 @@
 		source,
 		available,
 		total,
+		observedAt,
 		unavailable = 0,
 		deviceOnly = false,
 		editing = false,
@@ -15,6 +16,7 @@
 		source: DetailInventory;
 		available: number;
 		total?: number;
+		observedAt?: number;
 		unavailable?: number;
 		deviceOnly?: boolean;
 		editing?: boolean;
@@ -33,6 +35,15 @@
 			<span
 				>{available.toLocaleString()}
 				{available === 1 ? 'track' : 'tracks'} available on this device. Full library count unknown.</span
+			>
+		{:else if observedAt}
+			<span
+				>{available.toLocaleString()}
+				{available === 1 ? 'track' : 'tracks'} available on this device. DN last showed {total.toLocaleString()}
+				playable {total === 1 ? 'track' : 'tracks'} on
+				<time datetime={new Date(observedAt).toISOString()}
+					>{new Date(observedAt).toLocaleDateString()}</time
+				>.</span
 			>
 		{:else}
 			<span
