@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Browser } from '@capacitor/browser';
+	import { Capacitor } from '@capacitor/core';
 	import {
 		loginMethods,
 		serverAddress,
@@ -15,44 +17,69 @@
 	let methods = $state<LoginMethods | null>(null);
 	let busy = $state(false);
 	let waiting = $state(false);
+	let approvedServer = $state('');
+	let checking = $state(false);
+	let handoff: ReturnType<typeof watchSignIn>;
 	let error = $state('');
 	let method = $state<'password' | 'jellyfin' | 'token' | null>(null);
 	let username = $state('');
 	let secret = $state('');
+	let browserProvider = $derived(
+		[methods?.oidc && 'single sign-on (OIDC)', methods?.plex && 'Plex'].filter(Boolean).join(' or ')
+	);
+	let missingPairing = $derived(
+		Capacitor.isNativePlatform() && browserProvider && !methods?.pairing
+	);
+	let submitLabel = $derived.by(() => {
+		if (busy || checking) return 'Connecting…';
+		if (approvedServer) return 'Retry connection';
+		if (!methods) return 'Continue';
+		if (method) return 'Sign in';
+		if (missingPairing) return 'Open web player';
+		return waiting ? 'Restart browser sign-in' : 'Continue in browser';
+	});
 	function failure(cause: unknown) {
 		error = cause instanceof Error ? cause.message : 'Could not connect to DroppedNeedle.';
 	}
 	onMount(() => {
 		address = localStorage.getItem('dn.lastServer') ?? '';
-		let disposed = false;
-		let remove: (() => void) | undefined;
-		void watchSignIn(onconnected, failure)
-			.then((stop) => {
-				if (disposed) stop();
-				else remove = stop;
-			})
-			.catch(failure);
-		return () => {
-			disposed = true;
-			remove?.();
-		};
+		handoff = watchSignIn(
+			onconnected,
+			(cause, retryable) => {
+				checking = false;
+				if (!retryable) {
+					approvedServer = '';
+					waiting = false;
+				}
+				failure(cause);
+			},
+			(server) => {
+				address = approvedServer = server;
+				checking = true;
+				error = '';
+			}
+		);
+		return handoff.stop;
 	});
 	async function submit() {
-		if (busy) return;
+		if (busy || checking) return;
 		busy = true;
 		error = '';
 		try {
-			if (!methods) {
+			if (approvedServer) {
+				await handoff.retry();
+			} else if (!methods) {
 				address = serverAddress(address);
 				methods = await loginMethods(address);
 				localStorage.setItem('dn.lastServer', address);
-				method = methods.pairing
-					? null
-					: methods.local
-						? 'password'
-						: methods.jellyfin
-							? 'jellyfin'
-							: 'token';
+				method =
+					methods.pairing || missingPairing
+						? null
+						: methods.local
+							? 'password'
+							: methods.jellyfin
+								? 'jellyfin'
+								: 'token';
 			} else if (method) {
 				await cancelPairing();
 				const session =
@@ -61,6 +88,8 @@
 						: await usePassword(address, username, secret, method === 'jellyfin');
 				secret = '';
 				onconnected(session);
+			} else if (missingPairing) {
+				await Browser.open({ url: address + '/' });
 			} else {
 				await openSignIn(address);
 				waiting = true;
@@ -73,12 +102,16 @@
 	}
 	async function changeServer() {
 		await cancelPairing();
+		approvedServer = '';
+		checking = false;
 		methods = null;
 		method = null;
 		error = secret = username = '';
 		waiting = false;
 	}
-	function select(value: typeof method) {
+	async function select(value: typeof method) {
+		await cancelPairing();
+		waiting = false;
 		method = value;
 		secret = '';
 		error = '';
@@ -92,8 +125,21 @@
 			void submit();
 		}}
 	>
-		<h1>{methods ? 'Sign in' : 'Connect your server'}</h1>
-		{#if !methods}
+		<h1>{methods || approvedServer ? 'Sign in' : 'Connect your server'}</h1>
+		{#if approvedServer}
+			<div class="server">
+				<span>{approvedServer}</span><button
+					type="button"
+					class="text-button"
+					onclick={() => void changeServer()}>Change server</button
+				>
+			</div>
+			<p>
+				{checking
+					? 'Connecting to your server…'
+					: 'Your browser sign-in is ready. Reconnect to your server to finish.'}
+			</p>
+		{:else if !methods}
 			<label
 				>Server address<input
 					required
@@ -114,9 +160,19 @@
 					onclick={() => void changeServer()}>Change</button
 				>
 			</div>
+			{#if missingPairing}
+				<p>
+					To use {browserProvider} in this app, ask your administrator to install the DroppedNeedle web
+					frontend with mobile pairing. You can use your usual sign-in in the web player now.
+				</p>
+			{/if}
 			{#if method && method !== 'token'}
 				<label
-					>{method === 'jellyfin' ? 'Jellyfin username' : 'Username'}<input
+					>{method === 'jellyfin'
+						? 'Jellyfin username'
+						: browserProvider
+							? 'DroppedNeedle username'
+							: 'Username'}<input
 						required
 						bind:value={username}
 						autocomplete="username"
@@ -124,7 +180,11 @@
 					/></label
 				>
 				<label
-					>Password<input
+					>{method === 'jellyfin'
+						? 'Jellyfin password'
+						: browserProvider
+							? 'DroppedNeedle password'
+							: 'Password'}<input
 						required
 						type="password"
 						bind:value={secret}
@@ -146,11 +206,7 @@
 					Use a DroppedNeedle v3 device session token. Music-app passwords work only with Subsonic
 					and Jellyfin.
 				</p>
-				{#if !methods.pairing && (methods.oidc || methods.plex)}<p>
-						For browser sign-in with your existing account, your server needs the DroppedNeedle
-						Mobile pairing page.
-					</p>{/if}
-			{:else}
+			{:else if !missingPairing}
 				<p>
 					{waiting
 						? 'Finish signing in in your browser, then return to this app.'
@@ -159,26 +215,18 @@
 			{/if}
 		{/if}
 		{#if error}<p role="alert">{error}</p>{/if}
-		<button class="primary" type="submit" disabled={busy}
-			>{busy
-				? 'Connecting…'
-				: !methods
-					? 'Continue'
-					: !method
-						? waiting
-							? 'Restart browser sign-in'
-							: 'Continue in browser'
-						: 'Sign in'}</button
-		>
+		<button class="primary" type="submit" disabled={busy || checking}>{submitLabel}</button>
 	</form>
-	{#if methods}
+	{#if methods && !approvedServer}
 		<div class="methods">
-			{#if methods.pairing && method}<button class="text-button" onclick={() => select(null)}
-					>Use browser sign-in</button
+			{#if (methods.pairing || missingPairing) && method}<button
+					class="text-button"
+					onclick={() => select(null)}
+					>{missingPairing ? 'Back to sign-in options' : 'Use browser sign-in'}</button
 				>{/if}
 			{#if methods.local && method !== 'password'}<button
 					class="text-button"
-					onclick={() => select('password')}>Use server password</button
+					onclick={() => select('password')}>Use DroppedNeedle password</button
 				>{/if}
 			{#if methods.jellyfin && method !== 'jellyfin'}<button
 					class="text-button"

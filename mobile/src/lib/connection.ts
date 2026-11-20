@@ -177,7 +177,7 @@ export async function signOut(session: Session) {
 	await postJson(session, '/api/v3/auth/logout');
 }
 
-export async function useToken(address: string, raw: string): Promise<Session> {
+export async function verifyToken(address: string, raw: string): Promise<Session> {
 	const token = raw.trim();
 	if (!token || /\s/.test(token)) throw new Error('Enter a DroppedNeedle device session token.');
 	const session = { serverUrl: serverAddress(address), token, displayName: '' };
@@ -188,8 +188,16 @@ export async function useToken(address: string, raw: string): Promise<Session> {
 	if (typeof me.display_name !== 'string' || typeof me.id !== 'string')
 		throw new Error('This server did not return a DroppedNeedle profile.');
 	session.displayName = me.display_name || me.username || me.id;
+	return session;
+}
+
+export async function saveSession(session: Session) {
 	await writeSecret(SESSION_KEY, session);
 	return session;
+}
+
+export async function useToken(address: string, raw: string) {
+	return saveSession(await verifyToken(address, raw));
 }
 
 export async function usePassword(
