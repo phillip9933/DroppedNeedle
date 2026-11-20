@@ -57,17 +57,20 @@
 	const present = $derived([...new Set([...(status?.values() ?? [])].flat())]);
 	let element: HTMLDivElement,
 		metrics = $state.raw(initialWindow),
-		pinned = $state(-1);
+		pinned = $state(-1),
+		anchor = $state(-1);
 	const cols = $derived(layout === 'grid' ? columns : 1);
 	const virtual = $derived(items.length > 64 && metrics.pitch > 0);
 	const mounted = $derived.by(() => {
 		const start = virtual ? metrics.start : 0,
 			end = virtual ? metrics.end : items.length;
 		const rows = items.slice(start, end).map((item, i) => ({ item, index: start + i }));
-		if (virtual && items[pinned] && (pinned < start || pinned >= end)) {
-			const extra = { item: items[pinned], index: pinned };
-			if (pinned < start) rows.unshift(extra);
-			else rows.push(extra);
+		if (virtual) {
+			for (const extra of new Set([pinned, anchor])) {
+				if (items[extra] && (extra < start || extra >= end))
+					rows.push({ item: items[extra], index: extra });
+			}
+			rows.sort((a, b) => a.index - b.index);
 		}
 		return rows;
 	});
@@ -75,6 +78,14 @@
 		const events = new AbortController(),
 			opts = { signal: events.signal };
 		node.addEventListener('focusin', rememberFocus, opts);
+		node.addEventListener(
+			'dn-selection-anchor',
+			(e) => {
+				const item = (e.target as HTMLElement).closest<HTMLElement>('[data-browse-index]');
+				anchor = (e as CustomEvent<boolean>).detail && item ? Number(item.dataset.browseIndex) : -1;
+			},
+			opts
+		);
 		node.addEventListener(
 			'focusout',
 			(e) => {

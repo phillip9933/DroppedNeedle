@@ -42,15 +42,13 @@ test('Library opens its five categories, shows a true count and switches between
 	await b('Browse Artists').click();
 	const banner = page.getByRole('banner');
 	await expect(banner.getByRole('heading', { name: 'Artists', exact: true })).toBeVisible();
-	await expect(
-		banner.getByRole('button', { name: 'Category settings', exact: true })
-	).toBeVisible();
+	await expect(banner.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
 	await expect(b('North Shore')).toBeVisible();
 	await page.screenshot({ path: test.info().outputPath('library-artists.png') });
 	await b('Collection filters').click();
 	await b('Favorites only').click();
-	await b('Open navigation menu').click();
-	await b('Close navigation menu').click();
+	await b('Settings').click();
+	await b('Back').click();
 	await expect(b('Favorites only')).toHaveAttribute('aria-pressed', 'true');
 	await expect(banner.getByRole('heading', { name: 'Artists', exact: true })).toBeVisible();
 	const items = page.locator('[data-part=category-items]');
@@ -195,7 +193,7 @@ test('catalog pages use themed controls, distinct layouts, real genre tracks and
 	await page.screenshot({ path: testInfo.outputPath('library-albums.png') });
 	const geometry = await b('Evening Shore').locator('.art').boundingBox();
 	expect(geometry!.height).toBeCloseTo(geometry!.width, 0);
-	await b('Category settings').click();
+	await b('Collection options').click();
 	await page.getByLabel('Grid columns').selectOption('3');
 	await expect(tiles).toHaveAttribute('data-columns', '3');
 	await b('Back to Library').click();
@@ -472,7 +470,7 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 	for (const category of ['Artists', 'Albums', 'Tracks', 'Genres', 'Playlists']) {
 		await b('Browse ' + category).tap();
 		await expect(results.locator('.item').first()).toBeVisible();
-		await b('Category settings').tap();
+		await b('Collection options').tap();
 		if (category === 'Tracks') {
 			await expect(display).toHaveValue('list');
 			const row = results.locator('.item').first();
@@ -558,7 +556,7 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 	]) {
 		await b('Browse ' + category).tap();
 		await expect(results).toHaveAttribute('data-columns', n);
-		await b('Category settings').tap();
+		await b('Collection options').tap();
 		await expect(compact).toBeChecked();
 		await b('Back to Library').tap();
 	}

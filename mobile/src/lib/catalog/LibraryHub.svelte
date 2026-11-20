@@ -8,7 +8,8 @@
 		Disc3,
 		Music2,
 		Tags,
-		PanelsTopLeft
+		PanelsTopLeft,
+		Download
 	} from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from './catalog';
@@ -36,7 +37,8 @@
 		onplaylist,
 		ongenre,
 		onplay,
-		onoffline
+		onoffline,
+		initialCategory
 	}: {
 		session: Session;
 		active: boolean;
@@ -46,6 +48,7 @@
 		onplaylist: (p: Playlist) => void;
 		ongenre: (s: string) => void;
 		onplay: OnPlay;
+		initialCategory?: Category;
 		onoffline?: () => void;
 	} = $props();
 	const icons = {
@@ -71,7 +74,10 @@
 	export function getHeader() {
 		return detail ? undefined : browser?.getHeader();
 	}
-	let current = $state<Category | 'sections' | ''>(''),
+	export function getActiveCategory() {
+		return current && current !== 'sections' ? current : undefined;
+	}
+	let current = $state<Category | 'sections' | ''>(untrack(() => initialCategory ?? '')),
 		board = $state<BoardView>(),
 		root: HTMLElement;
 	let detail = $state<{
@@ -178,6 +184,9 @@
 		</nav>
 		<div class="secondary-links">
 			{#if onoffline}
+				<button onclick={onoffline}
+					><Download size={20} />Offline music<ChevronRight size={16} /></button
+				>
 				<LibraryAvailability inline value={availability} onchange={chooseAvailability} />
 			{/if}
 			<button onclick={() => enter('sections')}

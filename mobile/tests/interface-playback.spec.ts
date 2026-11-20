@@ -243,11 +243,8 @@ test('compact player settings follow the listener, persist after sign-in, and co
 		}
 	]);
 	await page.context().setOffline(true);
-	await page.getByRole('button', { name: 'Open navigation menu' }).click();
-	await page
-		.getByRole('dialog', { name: 'Navigation menu' })
-		.getByRole('button', { name: 'Offline music' })
-		.click();
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Offline music', exact: true }).click();
 	await page
 		.getByRole('region', { name: 'Offline music' })
 		.getByRole('button', { name: /On device Saved artist/ })
@@ -265,7 +262,7 @@ test('compact player settings follow the listener, persist after sign-in, and co
 	expect(fixture.streams).toEqual([]);
 });
 
-test('the navigation drawer keeps hidden screens and Settings accessible when every tab is removed', async ({
+test('the Settings shortcuts keep every destination reachable when the dock is empty', async ({
 	page
 }) => {
 	await connect(page);
@@ -276,20 +273,18 @@ test('the navigation drawer keeps hidden screens and Settings accessible when ev
 	await page.getByLabel('Screen transitions').selectOption('gentle');
 	await page.getByRole('button', { name: 'Move Library earlier' }).click();
 	await page.getByRole('checkbox', { name: 'Discover', exact: true }).uncheck();
-	await page.getByRole('checkbox', { name: 'Settings shortcut in header' }).uncheck();
 	await back(page, 'Settings');
 	await back(page, 'Home');
 	const nav = page.getByRole('navigation', { name: 'Music' });
 	await expect(nav.getByRole('button').first()).toHaveText('Library');
 	await expect(nav).toHaveCSS('backdrop-filter', 'blur(19px)');
 	await expect(page.locator('footer')).toHaveCSS('position', 'absolute');
-	const toggle = page.getByRole('button', { name: 'Open navigation menu' });
+	const toggle = page.getByRole('button', { name: 'Settings', exact: true });
 	await toggle.click();
-	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
+	const menu = page.getByRole('navigation', { name: 'Navigation shortcuts' });
 	await menu.getByRole('button', { name: 'Discover', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Discover', exact: true })).toBeVisible();
 	await toggle.click();
-	await menu.getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'Interface and navigation' }).click();
 	for (const id of ['Library', 'Home', 'Search', 'Requests'])
 		await page.getByRole('checkbox', { name: id, exact: true }).uncheck();
@@ -338,66 +333,56 @@ test('an existing blur preference carries over and all three materials paint the
 	await expect(page.locator('html')).toHaveAttribute('data-navigation', 'floating');
 });
 
-test('a touchscreen edge swipe opens the drawer and the player keeps its header actions', async ({
+test('the Home header opens Settings at the right and direct dock shortcuts open their Library category', async ({
 	page
 }) => {
 	await connect(page);
-	const toggle = page.getByRole('button', { name: 'Open navigation menu' });
-	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	const nav = page.getByRole('navigation', { name: 'Music' }),
+		header = page.getByRole('banner');
+	const logo = header.getByRole('img', { name: 'DroppedNeedle' });
+	await expect(logo).toBeVisible();
+	expect((await logo.boundingBox())!.width).toBeGreaterThan(44);
+	expect((await b('Settings').boundingBox())!.x).toBeGreaterThan(page.viewportSize()!.width / 2);
+	await expect(b('Select items')).toHaveCount(0);
 	const touch = await page.context().newCDPSession(page);
-	await swipe(touch, 100, 200, 115, 6);
-	await expect(menu).toHaveCount(0);
-	await swipe(touch, 8, 210, 12, 80);
-	await expect(menu).toHaveCount(0);
-	await swipe(touch, 8, 190, 118, 5);
-	await expect(menu).toBeVisible();
-	await expect
-		.poll(() => menu.evaluate((node) => Math.round(node.getBoundingClientRect().left)))
-		.toBe(0);
-	const rect = (await menu.boundingBox())!;
-	expect(rect.height).toBe(page.viewportSize()!.height);
-	expect(rect.width).toBeLessThan(page.viewportSize()!.width - 44);
-	await swipe(touch, 190, 150, -100, 6);
-	await expect(menu).toHaveCount(0);
-	await expect(toggle).toBeFocused();
-	await toggle.click();
-	await page.touchscreen.tap(page.viewportSize()!.width - 8, 154);
-	await expect(menu).toHaveCount(0);
-	await page
-		.getByRole('button', { name: /Nightfall/ })
-		.first()
-		.click();
-	await page.getByRole('button', { name: 'Play album', exact: true }).click();
-	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
-	const hamburger = (await toggle.boundingBox())!,
-		playerClose = (await page
-			.getByRole('button', { name: 'Close player', exact: true })
-			.boundingBox())!;
-	expect(hamburger.x + hamburger.width).toBeLessThanOrEqual(playerClose.x);
-	await toggle.click();
-	await expect(menu.getByRole('button', { name: 'Home', exact: true })).toBeVisible();
-	await menu.getByRole('button', { name: 'Settings', exact: true }).click();
-	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-	await page.getByRole('button', { name: 'Edit Now Playing layout', exact: true }).click();
-	await page.getByRole('button', { name: 'Add row', exact: true }).click();
-	const columns = page.getByRole('combobox', { name: 'Number of columns' });
-	await columns.selectOption('4');
-	const toolbar = (await page.locator('.composer .bar').boundingBox())!;
-	await swipe(touch, 8, toolbar.y + toolbar.height / 2, 118, 3);
-	await expect(menu).toBeVisible();
-	await menu.getByRole('button', { name: 'Close navigation menu' }).click();
-	await expect(columns).toHaveValue('4');
-	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
-	await page.getByRole('button', { name: 'Show play queue' }).click();
-	await swipe(touch, 8, 160, 100, 4);
-	await menu.getByRole('button', { name: 'Home', exact: true }).click();
+	await swipe(touch, 7, 145, 105, 8);
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
-	await expect(page.getByRole('region', { name: 'Current track' })).toBeVisible();
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await settings(page, 'Interface and navigation');
+	for (const name of ['Discover', 'Requests'])
+		await page.getByRole('checkbox', { name, exact: true }).uncheck();
+	for (const name of ['Albums', 'Settings'])
+		await page.getByRole('checkbox', { name, exact: true }).check();
+	await nav.getByRole('button', { name: 'Albums', exact: true }).click();
+	await expect(header.getByRole('heading', { name: 'Albums', exact: true })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Albums' })).toHaveAttribute('aria-current', 'page');
+	await expect(header.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
+	await expect(header.getByRole('button', { name: 'Collection options' })).toHaveCount(0);
+	await expect(b('Collection options')).toBeVisible();
+	await b('Back to Library').click();
+	await expect(nav.getByRole('button', { name: 'Library' })).toHaveAttribute(
+		'aria-current',
+		'page'
+	);
+	await b('Offline music').click();
+	await expect(page.getByRole('heading', { name: 'Offline music', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
+	await nav.getByRole('button', { name: 'Settings' }).click();
+	await expect(nav.getByRole('button', { name: 'Settings' })).toHaveAttribute(
+		'aria-current',
+		'page'
+	);
+	await page
+		.getByRole('navigation', { name: 'Navigation shortcuts' })
+		.getByRole('button', { name: 'Home' })
+		.click();
+	await expect(header.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
 	await touch.detach();
 });
 
-test('artwork and mini-player swipes change tracks while taps, scrolling and the gesture preference keep working', async ({
+test('artwork and mini-player horizontal swipes change tracks while taps still open the player', async ({
 	page
 }) => {
 	await connect(page, true, undefined, true);
@@ -421,22 +406,7 @@ test('artwork and mini-player swipes change tracks while taps, scrolling and the
 	await expect(mini.getByRole('button', { name: 'Open player for Reflections' })).toBeVisible();
 	await expect(now).toHaveCount(0);
 	await mini.getByRole('button', { name: 'Open player for Reflections' }).tap();
-	await art.scrollIntoViewIfNeeded();
-	const vertical = (await art.boundingBox())!;
-	await swipe(touch, vertical.x + vertical.width / 2, vertical.y + vertical.height / 2, 13, -85);
-	await expect(now.getByText('Reflections', { exact: true }).first()).toBeAttached();
-	await now.getByRole('button', { name: 'Close player' }).click();
-	await settings(page, 'Interface and navigation');
-	await page.getByRole('checkbox', { name: /Swipe album art/ }).uncheck();
-	await back(page, 'Settings');
-	await page.getByRole('button', { name: 'Back', exact: true }).click();
-	await mini.getByRole('button', { name: 'Open player for Reflections' }).tap();
-	await art.scrollIntoViewIfNeeded();
-	const disabled = (await art.boundingBox())!;
-	await swipe(touch, disabled.x + disabled.width * 0.65, disabled.y + disabled.height / 2, -80, 3);
 	await expect(now.getByText('Reflections', { exact: true }).first()).toBeVisible();
-	await now.getByRole('button', { name: 'Next track', exact: true }).first().click();
-	await expect(now.getByText('Overtones', { exact: true }).first()).toBeVisible();
 	await touch.detach();
 });
 

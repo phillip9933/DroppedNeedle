@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { touchRange } from './fixtures/touchRange';
 import type { ManualStatus } from '../src/lib/offline/nativeMedia';
 import {
 	readPairing,
@@ -14,7 +15,6 @@ test.beforeEach(async ({ page }) => {
 			Browser: ['open'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
-			DNDrawer: ['setMenuEdge'],
 			DNOffline: [
 				'snapshot',
 				'options',
@@ -73,10 +73,7 @@ test.beforeEach(async ({ page }) => {
 						if (method === 'removeListener') listeners.delete(opts.eventName);
 						return undefined;
 					}
-					if (plugin === 'DNDrawer' && method === 'setMenuEdge') {
-						sessionStorage.setItem('menu-edge', String(opts.enabled));
-						return;
-					}
+
 					if (plugin === 'SecureStorage') {
 						if (method === 'internalSetItem') sessionStorage.setItem(opts.prefixedKey, opts.data);
 						if (method === 'internalRemoveItem') sessionStorage.removeItem(opts.prefixedKey);
@@ -342,15 +339,16 @@ test('a download notification waits for browser sign-in and opens Offline music 
 	await page.reload();
 	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
 
-	// A warm tap closes the navigation overlay and leaves the restored song paused.
-	await page.getByRole('button', { name: 'Open navigation menu' }).click();
-	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toBeVisible();
+	// A warm tap leaves the restored song paused and takes the listener out of Settings.
+	await page.getByRole('button', { name: 'Close player', exact: true }).click();
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await expect(heading('Settings')).toBeVisible();
 	await page.evaluate(() => {
 		sessionStorage.setItem('notification-tap', '1');
 		window.dispatchEvent(new Event('dn-download-notification'));
 	});
 	await expect(heading('Offline music')).toBeVisible();
-	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toHaveCount(0);
+	await expect(heading('Settings')).toHaveCount(0);
 	expect(await page.evaluate(() => sessionStorage.getItem('notification-opens'))).toBe('3');
 	expect(await page.evaluate(() => sessionStorage.getItem('toggled-playback'))).toBeNull();
 	await page.getByRole('button', { name: 'Home', exact: true }).click();
@@ -479,7 +477,7 @@ test('queued Android downloads survive navigation and expose waiting, retry and 
 	await expect(page.getByRole('heading', { name: 'Offline music', exact: true })).toBeVisible();
 	await expect(queue).toHaveCount(0);
 	await button('Open player for Night service').click();
-	await page.getByText('Track tools', { exact: true }).click();
+	await page.getByRole('button', { name: 'More actions', exact: true }).click();
 	await button('Queue for download').click();
 	await expect(
 		page.getByRole('status').filter({ hasText: '1 song queued for download.' })
@@ -566,17 +564,10 @@ test('an Android listener chooses and disconnects a network output after browser
 	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
 	await deliverApproval(page);
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
-	await expect.poll(() => page.evaluate(() => sessionStorage.getItem('menu-edge'))).toBe('true');
-	await page.getByRole('button', { name: 'Open navigation menu' }).click();
-	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
-	await expect.poll(() => page.evaluate(() => sessionStorage.getItem('menu-edge'))).toBe('false');
-	const rowSize = (name: string) =>
-		menu.getByRole('button', { name, exact: true }).evaluate((button) => {
-			const box = button.getBoundingClientRect(),
-				icon = button.querySelector('svg')!.getBoundingClientRect();
-			return [box.width, box.height, icon.width, icon.left - box.left];
-		});
-	expect(await rowSize('Cast and audio output')).toEqual(await rowSize('Settings'));
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	const menu = page.getByRole('heading', { name: 'Settings', exact: true });
+	const output = page.getByRole('button', { name: 'Cast and audio output', exact: true });
+	expect((await output.boundingBox())!.height).toBeGreaterThanOrEqual(44);
 	await page.getByRole('button', { name: 'Cast and audio output' }).click();
 	const sheet = page.getByRole('dialog', { name: 'Cast and audio output' });
 	expect(await page.evaluate(() => sessionStorage.getItem('cast-search'))).toBeNull();
@@ -587,7 +578,7 @@ test('an Android listener chooses and disconnects a network output after browser
 	await sheet.getByRole('button', { name: 'Choose Google Cast device' }).click();
 	await expect(sheet.getByText('Casting to Fixture Chromecast')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toBeVisible();
+	await expect(menu).toBeVisible();
 	await page.getByRole('button', { name: 'Cast and audio output' }).click();
 	await expect(sheet.getByText('Casting to Fixture Chromecast')).toBeVisible();
 	await sheet.getByRole('button', { name: 'Stop casting' }).click();
@@ -596,11 +587,10 @@ test('an Android listener chooses and disconnects a network output after browser
 		page.evaluate(() => (window as unknown as { pressAndroidBack(): void }).pressAndroidBack());
 	await androidBack();
 	await expect(sheet).toHaveCount(0);
-	await expect(menu.getByRole('button', { name: 'Cast and audio output' })).toBeFocused();
+	await expect(output).toBeFocused();
 	await androidBack();
 	await expect(menu).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'Open navigation menu' })).toBeFocused();
-	await expect.poll(() => page.evaluate(() => sessionStorage.getItem('menu-edge'))).toBe('true');
+	await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
 });
 
 test('Android can finish a returned browser sign-in after the network and app restart', async ({
@@ -633,4 +623,34 @@ test('changing servers cancels profile verification already in flight', async ({
 	expect(
 		await page.evaluate(() => sessionStorage.getItem('capacitor-storage_dn.mobile.session'))
 	).toBeNull();
+});
+
+test('a sustained player swipe survives a native playback-state refresh', async ({ page }) => {
+	await page.addInitScript(() => {
+		sessionStorage.setItem('reconnected', '1');
+		sessionStorage.setItem('restored-song', 'Night service');
+		sessionStorage.setItem('offline-only', '1');
+	});
+	await deliverApproval(page);
+	await page.getByRole('button', { name: 'Open player for Night service' }).click();
+	const touch = await touchRange(page);
+	try {
+		const artwork = page.locator('[data-part=now-playing] .hero');
+		const origin = await touch.point(artwork);
+		await touch.hold(artwork);
+		await touch.moveTo(origin.x, origin.y - 23);
+		// This is the same refresh used by the foreground polling timer. The mock native bridge
+		// supplies fresh track objects, just as Capacitor deserializes each Media3 snapshot.
+		await page.evaluate(async () => {
+			document.dispatchEvent(new Event('visibilitychange'));
+			await new Promise<void>((done) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => done()))
+			);
+		});
+		await touch.moveTo(origin.x, origin.y - 88);
+		await touch.lift();
+		await expect(page.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+	} finally {
+		await touch.close();
+	}
 });

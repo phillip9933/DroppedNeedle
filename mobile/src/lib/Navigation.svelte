@@ -1,16 +1,11 @@
 <script lang="ts">
-	import {
-		destinations,
-		interfacePreferences,
-		type BrowseDestination,
-		type Destination
-	} from './appearance/interface';
+	import { destinations, interfacePreferences, type Destination } from './appearance/interface';
 	let {
 		current,
 		offline,
 		onnavigate
 	}: {
-		current: BrowseDestination;
+		current: Destination;
 		offline: boolean;
 		onnavigate: (id: Destination) => void;
 	} = $props();
@@ -27,6 +22,7 @@
 			<button
 				type="button"
 				data-screen-link
+				data-destination={item.id}
 				aria-current={current === item.id ? 'page' : undefined}
 				onclick={() => onnavigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button
 			>

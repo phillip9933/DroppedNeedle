@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { writeFile } from 'node:fs/promises';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
+import { touchRange } from './fixtures/touchRange';
 import { localSignIn } from './fixtures/localSignIn';
 const server = 'https://large-library.example',
 	wav = fileURLToPath(
@@ -232,7 +233,7 @@ test('grid drill-down and Back retain the row, keyboard focus, layout and active
 	await button(page, 'Browse Albums').click();
 	const shelf = index(page),
 		main = page.locator('main');
-	await button(page, 'Category settings').click();
+	await button(page, 'Collection options').click();
 	await page.getByLabel('Grid columns').selectOption('3');
 	await button(page, 'Search albums').click();
 	await page.getByRole('searchbox').fill('Album');
@@ -354,11 +355,11 @@ test('six-column virtual track grids retain 44px controls, row spacing and keybo
 	await page.evaluate(() => document.documentElement.style.setProperty('--gap', '24px'));
 	await button(page, 'Browse Tracks').click();
 	const shelf = index(page);
-	await button(page, 'Category settings').click();
+	await button(page, 'Collection options').click();
 	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
 	await page.getByLabel('Grid columns').selectOption('6');
 	await page.getByLabel('Compact rows').check();
-	await button(page, 'Category settings').click();
+	await button(page, 'Collection options').click();
 	for (let n = 30; n < 300; n += 30) await step(page, n);
 	await expect(shelf).toHaveClass(/windowed/);
 	expect(await shelf.getByRole('listitem').count()).toBeLessThan(240);
@@ -406,4 +407,110 @@ test('six-column virtual track grids retain 44px controls, row spacing and keybo
 	await page.keyboard.press('Tab');
 	await expect(at(121).locator('button.item')).toBeFocused();
 	await page.screenshot({ path: test.info().outputPath('library-six-column-selection-320.png') });
+});
+
+test('a held finger adds or removes a reversible range and the Select button exits on its second tap', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 820 });
+	const { streams } = await connect(page);
+	await button(page, 'Browse Tracks').tap();
+	const list = index(page);
+	const item = (i: number) => list.locator('[data-browse-index="' + i + '"] button.item');
+	const count = (n: number) => page.getByText(n + ' selected', { exact: true });
+	const touch = await touchRange(page);
+	const hold = (i: number) => touch.hold(item(i));
+	const move = (i: number) => touch.move(item(i));
+	await expect(item(3)).toBeVisible();
+
+	await hold(3);
+	await expect(count(1)).toBeVisible();
+	await expect(item(3)).toHaveAttribute('aria-pressed', 'true');
+	await move(7);
+	await expect(count(5)).toBeVisible();
+	await move(5);
+	await expect(count(3)).toBeVisible();
+	await touch.lift();
+	await expect(item(3)).toHaveAttribute('aria-pressed', 'true');
+	await expect(item(6)).toHaveAttribute('aria-pressed', 'false');
+	await item(0).tap();
+	await expect(count(4)).toBeVisible();
+	await hold(4); // Starting on an existing selection makes this a removal gesture.
+	await expect(count(3)).toBeVisible();
+	await move(3);
+	await expect(count(2)).toBeVisible();
+	await move(4);
+	await expect(count(3)).toBeVisible();
+	await touch.lift();
+	await expect(item(0)).toHaveAttribute('aria-pressed', 'true');
+	await expect(item(3)).toHaveAttribute('aria-pressed', 'true');
+	await expect(item(4)).toHaveAttribute('aria-pressed', 'false');
+	await button(page, 'Select items').tap();
+	await expect(page.getByRole('group', { name: 'Selection actions' })).toHaveCount(0);
+	await button(page, 'Select items').tap();
+	await expect(count(0)).toBeVisible();
+	await button(page, 'Select items').tap();
+	await expect(page.getByRole('group', { name: 'Selection actions' })).toHaveCount(0);
+	// An ordinary flick before the hold threshold scrolls without entering selection.
+	const start = await touch.point(item(3));
+	await hold(3);
+	await touch.moveTo(start.x, start.y - 90);
+	await touch.lift();
+	await expect(page.getByRole('group', { name: 'Selection actions' })).toHaveCount(0);
+	await page.locator('main').evaluate((m) => m.scrollTo(0, 0));
+	expect(streams).toEqual([]);
+	await touch.close();
+});
+
+test('holding a range at the scroll edge continues through cursor pages and virtual rows', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 390, height: 740 });
+	const { streams } = await connect(page, 240);
+	await button(page, 'Browse Tracks').tap();
+	const list = index(page),
+		first = list.locator('[data-browse-index="1"] .item');
+	await expect(first).toBeVisible();
+	const touch = await touchRange(page);
+	const anchor = await touch.point(first),
+		bounds = (await page.locator('main').boundingBox())!;
+	await touch.hold(first);
+	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+	await touch.moveTo(anchor.x, Math.floor(bounds.y + bounds.height - 3));
+	const selection = page.getByRole('group', { name: 'Selection actions' }).locator('strong');
+	await expect
+		.poll(async () => parseInt((await selection.textContent()) || '0'), { timeout: 18000 })
+		.toBeGreaterThan(72);
+	await touch.moveTo(anchor.x, Math.floor(bounds.y + 8));
+	await expect.poll(async () => parseInt((await selection.textContent()) || '0')).toBeLessThan(64);
+	await touch.lift();
+	const count = await selection.textContent();
+	expect(Number(await list.getAttribute('data-loaded'))).toBeGreaterThan(72);
+	await expect(first).toHaveCount(0);
+	expect(await list.getByRole('listitem').count()).toBeLessThan(60);
+	await expect(selection).toHaveText(count!);
+	await button(page, 'Cancel selection').click();
+	expect(streams).toEqual([]);
+	await touch.close();
+});
+
+test('a range in the album grid follows collection order across columns', async ({ page }) => {
+	await connect(page);
+	await button(page, 'Browse Albums').tap();
+	const grid = index(page);
+	await expect(grid).toHaveAttribute('data-columns', '2');
+	const touch = await touchRange(page);
+	const item = (i: number) => grid.locator('[data-browse-index="' + i + '"] .item');
+	await touch.hold(item(0));
+	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+	await touch.move(item(3));
+	await expect(page.getByText('4 selected', { exact: true })).toBeVisible();
+	await touch.move(item(1));
+	await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+	await touch.lift();
+	await expect(grid.locator('[data-browse-index="2"] .item')).toHaveAttribute(
+		'aria-pressed',
+		'false'
+	);
+	await touch.close();
 });

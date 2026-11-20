@@ -135,7 +135,7 @@ export function loadNearEnd(button: HTMLElement, initial: LoadOptions) {
 		const approach = forward || edgeIntent;
 		edgeIntent = false;
 		if (
-			!gesture ||
+			(!gesture && !main!.hasAttribute('data-range-scrolling')) ||
 			!approach ||
 			!options.active ||
 			!options.enabled ||

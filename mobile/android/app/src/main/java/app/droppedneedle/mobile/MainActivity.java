@@ -16,7 +16,6 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DNOfflinePlugin.class);
         registerPlugin(DNPlaylistExportPlugin.class);
         registerPlugin(DNAppearancePlugin.class);
-        registerPlugin(DNDrawerPlugin.class);
         super.onCreate(state);
         creating = false;
     }

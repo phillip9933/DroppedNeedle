@@ -144,7 +144,7 @@
 				>{bar === 'docked' ? 'Docked' : 'Floating'}</button
 			>{/each}
 	</div>
-	<p>Pin up to {maxTabs} destinations. Open the top-left menu for the others and Settings.</p>
+	<p>Pin up to {maxTabs} destinations. The Settings menu includes navigation shortcuts.</p>
 	<div class="choices" data-surface="panel">
 		{#each ordered as id, i (id)}
 			{@const opt = options.find((d) => d.id === id)!}
@@ -171,68 +171,47 @@
 			</div>
 		{/each}
 	</div>
-	<label class="pick"
-		><input
-			type="checkbox"
-			checked={$interfacePreferences.headerSettings}
-			onchange={(e) => setInterface({ headerSettings: e.currentTarget.checked })}
-		/>Settings shortcut in header</label
-	>
-	<h2>Player gestures</h2>
-	<label class="pick">
-		<input
-			type="checkbox"
-			checked={$interfacePreferences.swipeTracks}
-			onchange={(e) => setInterface({ swipeTracks: e.currentTarget.checked })}
-		/>
-		Swipe album art or the mini-player to change tracks
-	</label>
 	{#if session?.userId}
-		<fieldset class="mini-settings">
-			<legend>Mini-player</legend>
-			<label class="pick"
-				><input
+		<h2 id="mini-player-settings">Mini-player</h2>
+		<div class="mini-rows" data-surface="panel" role="group" aria-labelledby="mini-player-settings">
+			<label class="mini-row"
+				><span>Show cover artwork</span><input
 					type="checkbox"
 					checked={mini.artwork}
 					onchange={(e) => changeMini({ artwork: e.currentTarget.checked })}
-				/>Show cover artwork</label
+				/></label
 			>
-			<label
-				>Secondary text
-				<select
+			<label class="mini-row"
+				><span>Secondary text</span><select
 					value={mini.secondary}
 					onchange={(e) =>
 						changeMini({ secondary: e.currentTarget.value as MiniPlayerPreferences['secondary'] })}
 				>
 					{#each Object.entries(miniText) as [value, label] (value)}<option {value}>{label}</option
 						>{/each}
-				</select>
-			</label>
-			<label class="pick"
-				><input
+				</select></label
+			>
+			<label class="mini-row"
+				><span>Show track progress</span><input
 					type="checkbox"
 					checked={mini.progress}
 					onchange={(e) => changeMini({ progress: e.currentTarget.checked })}
-				/>Show track progress</label
+				/></label
 			>
-			<div class="mini-positions">
-				{#each sides as side (side)}
-					<label
-						>{side === 'before' ? 'Before Play/Pause' : 'After Play/Pause'}
-						<select
-							value={mini[side]}
-							onchange={(e) => placeButton(side, e.currentTarget.value as MiniButton)}
-						>
-							{#each Object.entries(miniButtons) as [value, label] (value)}<option {value}
-									>{label}</option
-								>{/each}
-						</select>
-					</label>
-				{/each}
-			</div>
-			<p>Choosing a button from the other side swaps its position.</p>
-			{#if miniIssue}<p role="alert">{miniIssue}</p>{/if}
-		</fieldset>
+			{#each sides as side (side)}
+				<label class="mini-row"
+					><span>{side === 'before' ? 'Before Play/Pause' : 'After Play/Pause'}</span><select
+						value={mini[side]}
+						onchange={(e) => placeButton(side, e.currentTarget.value as MiniButton)}
+					>
+						{#each Object.entries(miniButtons) as [value, label] (value)}<option {value}
+								>{label}</option
+							>{/each}
+					</select></label
+				>
+			{/each}
+		</div>
+		{#if miniIssue}<p role="alert">{miniIssue}</p>{/if}
 	{/if}
 	<button
 		class="secondary"
@@ -245,26 +224,32 @@
 </section>
 
 <style>
-	.mini-settings {
-		display: grid;
-		gap: 0.45rem;
-		min-inline-size: 0;
-		border: 0;
-		margin: 1rem 0 0;
-		padding: 0;
+	.mini-rows {
+		border: 1px solid var(--line);
+		border-radius: var(--radius);
+		overflow: hidden;
 	}
-	.mini-settings legend {
-		font-size: 1.15rem;
-		font-weight: 700;
-		padding: 0;
+	.mini-rows .mini-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.55rem;
+		min-height: 48px;
+		padding: 0.25rem 0.65rem;
 	}
-	.mini-positions {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
-		gap: var(--gap);
+	.mini-row + .mini-row {
+		border-top: 1px solid var(--line);
 	}
-	.mini-positions select {
+	.mini-row input {
+		width: 18px;
+		height: 18px;
+		accent-color: var(--accent);
+		flex: none;
+	}
+	.mini-row select {
 		min-width: 0;
+		max-width: 50%;
+		width: auto;
 	}
 	.controls {
 		display: grid;

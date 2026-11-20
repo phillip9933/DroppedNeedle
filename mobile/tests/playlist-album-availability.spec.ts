@@ -1,5 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
+import { touchRange } from './fixtures/touchRange';
 import { localSignIn } from './fixtures/localSignIn';
 import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { silentWav } from './fixtures/silentWav';
@@ -327,4 +328,49 @@ test('after a cold start each offline account sees its own last DN album count',
 		}
 	}
 	expect(state.attempts.filter((path) => path.startsWith('/library/'))).toEqual([]);
+});
+
+test('held ranges work on album tracks, repeated playlist entries and songs saved to the device', async ({
+	page
+}) => {
+	await connect(page);
+	const touch = await touchRange(page);
+	async function chooseRange(first: Locator, last: Locator, length: number) {
+		await first.scrollIntoViewIfNeeded();
+		await touch.hold(first);
+		await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+		await touch.move(last);
+		await expect(page.getByText(length + ' selected', { exact: true })).toBeVisible();
+		await touch.lift();
+	}
+	await button(page, 'Browse Albums').click();
+	await button(page, album.title).click();
+	const albumRows = page.locator('[data-part=track-list]:visible [data-selectable]');
+	await expect(albumRows).toHaveCount(4);
+	await chooseRange(albumRows.nth(0), albumRows.nth(2), 3);
+	await button(page, 'Select items').click();
+	await button(page, 'Library').click();
+	await button(page, 'Browse Playlists').click();
+	await button(page, playlist.name).click();
+	const rows = page.locator('[data-entry]:visible [data-selectable]');
+	await expect(rows).toHaveCount(4);
+	await chooseRange(rows.first(), rows.last(), 4);
+	await expect(
+		page.locator(
+			'[data-entry=e0] button[aria-pressed=true], [data-entry=e4] button[aria-pressed=true]'
+		)
+	).toHaveCount(2);
+	await button(page, 'Select items').click();
+	await seedOfflineMusic(page, server, 'listener', false, [
+		{ track: songs[3], origin: 'downloaded' }
+	]);
+	await button(page, 'Library').click();
+	await button(page, 'Offline music').click();
+	const offline = page.getByRole('region', { name: 'Offline music' });
+	const local = offline.locator('[data-selectable]');
+	await expect(local).toHaveCount(2);
+	await chooseRange(local.first(), local.last(), 2);
+	await offline.getByRole('button', { name: 'Select songs', exact: true }).click();
+	await expect(offline.getByRole('group', { name: 'Selected offline songs' })).toHaveCount(0);
+	await touch.close();
 });

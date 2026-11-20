@@ -3,6 +3,7 @@
 	import { errorMessage, type Album, type OnPlay } from './catalog';
 	import { artistChart, type DiscoverArtistRef } from './discovery';
 	import Albums from './Albums.svelte';
+	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
 	let {
 		session,
@@ -56,6 +57,9 @@
 		/>{#each result.list.unlinked as label, i (`${i}/${label}`)}<p>{label}</p>{/each}
 	{:else if result.songs?.length}{@const tracks =
 			result.queue}{#each result.songs as entry, i (entry)}{@const index = entry.index}<TrackRow
+				choice={index != null && tracks?.[index]
+					? trackChoice(tracks[index], 'chart:' + i)
+					: undefined}
 				title={entry.song.title}
 				artist={entry.song.artist_name}
 				position={i + 1}

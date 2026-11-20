@@ -3,12 +3,12 @@
 	import { get } from 'svelte/store';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
-	import { Menu, Settings2 } from '@lucide/svelte';
+	import { Menu } from '@lucide/svelte';
 	import Navigation from './lib/Navigation.svelte';
-	import NavigationDrawer from './lib/NavigationDrawer.svelte';
 	import {
 		changeScreen,
 		interfacePreferences,
+		libraryDestinations,
 		readStartScreen,
 		type BrowseDestination,
 		type Destination
@@ -36,11 +36,13 @@
 		type SavedScope
 	} from './lib/player/related';
 	import Catalog from './lib/catalog/Catalog.svelte';
+	import type { Category } from './lib/catalog/libraryBrowse';
 	import Appearance from './lib/appearance/Appearance.svelte';
-	import brand from '../../frontend/static/android-chrome-192x192.png';
+	import brand from '../../frontend/static/logo_icon.png';
 	let session = $state<Session | null>(null);
 	let loading = $state(true);
 	let tab = $state<BrowseDestination>('home');
+	let initialCategory = $state<Category>();
 	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
 	let catalogScroll = 0;
 	let offlineLibrary = $state<OfflineLibrary>();
@@ -60,33 +62,31 @@
 	let issue = $state('');
 	let main: HTMLElement;
 	let shell = $state<HTMLElement>();
-	let drawer = $state<{ show: () => Promise<void>; back: () => boolean }>();
-	let drawerOpen = $state(false);
-	const navigation = {
-		get open() {
-			return drawerOpen;
-		},
-		show: () => {
-			void drawer?.show();
-		}
-	};
-	function visibleMenuButton() {
-		return Array.from(
-			shell?.querySelectorAll<HTMLButtonElement>('[data-drawer-trigger], [data-drawer-fallback]') ??
-				[]
-		).find((button) => button.getClientRects().length > 0);
-	}
 	let footerHeight = $state(0);
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<Catalog>();
 	const catalogHeader = $derived(panel === 'catalog' && session ? catalog?.getHeader() : undefined);
+	const dockDestination = $derived.by((): Destination => {
+		if (panel === 'settings') return 'settings';
+		const category = related
+			? related.kind === 'album'
+				? 'Albums'
+				: 'Artists'
+			: catalog?.getActiveCategory();
+		const direct = libraryDestinations.find((item) => item.label === category);
+		if (direct && $interfacePreferences.tabs.includes(direct.id)) return direct.id;
+		return related || (tab === 'offline' && !$interfacePreferences.tabs.includes('offline'))
+			? 'library'
+			: tab;
+	});
 	function report(error: unknown) {
 		issue = error instanceof Error ? error.message : 'The app could not finish that action.';
 	}
-	function navigate(to: BrowseDestination) {
+	function navigate(to: BrowseDestination, category?: Category) {
 		changeScreen(() => {
 			clearRelated();
 			catalogVisit++;
+			initialCategory = category;
 			tab = to;
 			panel = 'catalog';
 			issue = '';
@@ -99,6 +99,14 @@
 			settingsVisit++;
 			focusMain();
 		} else if (to === 'settings') openPanel('settings');
+		else if (
+			to === 'playlists' ||
+			to === 'artists' ||
+			to === 'albums' ||
+			to === 'tracks' ||
+			to === 'genres'
+		)
+			navigate('library', libraryDestinations.find((d) => d.id === to)?.label);
 		else navigate(to);
 	}
 	async function openDownloadNotification() {
@@ -106,18 +114,24 @@
 		if (!owner?.userId || !offlineSupported || Capacitor.getPlatform() !== 'android') return;
 		const pending = await nativeMedia.takeDownloadNotification().catch(() => undefined);
 		if (pending?.open && session === owner) {
-			drawerOpen = false;
 			navigate('offline');
 		}
 	}
-	function focusMain(offset = 0, miniAction?: MiniAction) {
+	function focusMain(offset = 0, miniAction?: MiniAction, settingsFocus = false) {
 		void tick().then(() => {
 			main?.scrollTo(0, offset);
 			const footerButton =
 				miniAction &&
 				(shell?.querySelector<HTMLElement>(`footer [data-mini-action="${miniAction}"]`) ??
 					shell?.querySelector<HTMLElement>('footer [data-mini-action="player"]'));
-			(footerButton || main)?.focus({ preventScroll: true });
+			(
+				(settingsFocus &&
+					shell?.querySelector<HTMLElement>(
+						'[data-settings-shortcut], [data-destination="settings"]'
+					)) ||
+				footerButton ||
+				main
+			)?.focus({ preventScroll: true });
 		});
 	}
 	function clearRelated() {
@@ -137,6 +151,8 @@
 		const control = creditControl,
 			offset = relatedScroll;
 		changeScreen(() => {
+			panel = 'player';
+			queueFromMini = false;
 			clearRelated();
 			void tick().then(() => {
 				main?.scrollTo(0, offset);
@@ -146,12 +162,16 @@
 			});
 		});
 	}
-	function openPanel(next: 'player' | 'queue' | 'settings', fromMini = false) {
+	function openPanel(
+		next: 'player' | 'queue' | 'settings',
+		fromMini = false,
+		returnOffset?: number
+	) {
 		changeScreen(() => {
-			clearRelated();
+			if (next !== 'settings') clearRelated();
 			fromPlayer = false;
 			if (panel === 'catalog') {
-				catalogScroll = main?.scrollTop ?? 0;
+				catalogScroll = returnOffset ?? main?.scrollTop ?? 0;
 				miniReturn = fromMini && next !== 'settings' ? next : undefined;
 				queueFromMini = miniReturn === 'queue';
 			}
@@ -183,12 +203,15 @@
 	}
 	function closePanel() {
 		changeScreen(() => {
-			const target = panel === 'settings' ? settingsOrigin : 'catalog';
+			const closingSettings = panel === 'settings';
+			const target = closingSettings ? settingsOrigin : 'catalog';
+			if (target === 'catalog') clearRelated();
 			settingsOrigin = 'catalog';
 			panel = target;
 			focusMain(
 				target === 'catalog' ? catalogScroll : playerScroll,
-				target === 'catalog' ? miniReturn : undefined
+				target === 'catalog' ? miniReturn : undefined,
+				closingSettings && target === 'catalog'
 			);
 			if (target === 'catalog') {
 				miniReturn = undefined;
@@ -207,7 +230,6 @@
 		});
 	}
 	function back() {
-		if (drawer?.back()) return true;
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
 		if (related && inPlayer) {
 			returnToPlayer();
@@ -220,6 +242,10 @@
 		}
 		if (panel !== 'catalog') {
 			closePanel();
+			return true;
+		}
+		if (tab === 'offline') {
+			navigate('library');
 			return true;
 		}
 		if (catalog?.backToBoard()) return true;
@@ -279,6 +305,8 @@
 	async function start(tracks: PlayerTrack[], index: number, continuation?: LibraryContinuation) {
 		const account = session;
 		if (!account) return;
+		const originVisit = catalogVisit,
+			offset = panel === 'catalog' ? main?.scrollTop : undefined;
 		const origin = related
 			? related.scope
 			: panel === 'catalog'
@@ -292,7 +320,7 @@
 				queueScope = origin;
 				rememberQueueSource(account, origin, tracks);
 				issue = '';
-				openPanel('player');
+				openPanel('player', false, originVisit === catalogVisit ? offset : undefined);
 			}
 		} catch (error) {
 			report(error);
@@ -305,7 +333,7 @@
 		clearRelated();
 		rememberQueueSource(previous);
 		queueScope = undefined;
-		drawerOpen = false;
+		initialCategory = undefined;
 		panel = 'catalog';
 		tab = 'home';
 		issue = '';
@@ -359,45 +387,26 @@
 	});
 </script>
 
-{#snippet menuToggle()}
-	<button
-		type="button"
-		class="icon-button menu-toggle"
-		data-drawer-trigger
-		aria-label="Open navigation menu"
-		aria-haspopup="dialog"
-		aria-controls={drawerOpen ? 'navigation-drawer' : undefined}
-		aria-expanded={drawerOpen}
-		onclick={() => drawer?.show()}><Menu size={23} /></button
-	>
-{/snippet}
-
 <div class="shell" data-part="app" bind:this={shell} style:--footer-height={footerHeight + 'px'}>
-	{#if session && shell}
-		<NavigationDrawer
-			bind:this={drawer}
-			bind:open={drawerOpen}
-			{shell}
-			trigger={visibleMenuButton}
-			current={panel === 'catalog' ? tab : panel === 'settings' ? 'settings' : undefined}
-			showAll={panel !== 'catalog'}
-			offline={offlineSupported}
-			onnavigate={choose}
-		/>
-	{/if}
 	{#if !inPlayer || related}
 		<header class="mast">
-			{#if session}{@render menuToggle()}{/if}
 			{#if catalogHeader}{@render catalogHeader()}{:else}
-				<span class="wordmark"><img src={brand} alt="" /> DroppedNeedle</span>
-				{#if panel !== 'settings' && (!session || $interfacePreferences.headerSettings)}
-					<button
-						class="icon-button"
-						aria-label="Settings"
-						data-screen-link
-						onclick={() => openPanel('settings')}><Settings2 size={19} /></button
-					>
-				{/if}
+				<span
+					class="brand-mark"
+					role="img"
+					aria-label="DroppedNeedle"
+					style:--brand-mark={'url("' + brand + '")'}
+				></span>
+			{/if}
+			{#if panel !== 'settings' && (!session || !$interfacePreferences.tabs.includes('settings'))}
+				<button
+					type="button"
+					class="icon-button settings-shortcut"
+					data-settings-shortcut
+					aria-label="Settings"
+					data-screen-link
+					onclick={() => openPanel('settings')}><Menu size={24} /></button
+				>
 			{/if}
 		</header>
 	{/if}
@@ -419,6 +428,7 @@
 								{session}
 								active={panel === 'catalog'}
 								{tab}
+								{initialCategory}
 								onplay={start}
 								onoffline={offlineSupported ? () => navigate('offline') : undefined}
 								onnavigate={navigate}
@@ -431,7 +441,7 @@
 				<div class="pad">
 					{#key settingsVisit}<Appearance
 							bind:this={settings}
-							{navigation}
+							onnavigate={choose}
 							initial={fromPlayer ? 'player' : 'menu'}
 							{session}
 							onback={closePanel}
@@ -444,7 +454,6 @@
 				<div hidden={!!related}>
 					<PlayerView
 						oncredit={openCredit}
-						{navigation}
 						{session}
 						expanded={true}
 						queueOpen={panel === 'queue'}
@@ -467,17 +476,17 @@
 			{/if}
 		{/if}
 	</main>
-	{#if session && panel === 'catalog'}
+	{#if session && (panel === 'catalog' || (inPlayer && related) || (panel === 'settings' && !fromPlayer && $interfacePreferences.tabs.includes('settings')))}
 		<footer bind:clientHeight={footerHeight}>
 			<PlayerView
 				{session}
 				expanded={false}
-				onexpand={() => openPanel('player', true)}
+				onexpand={() => (related && inPlayer ? returnToPlayer() : openPanel('player', true))}
 				ontogglequeue={() => openPanel('queue', true)}
 				oncollapse={() => {}}
 				onerror={report}
 			/>
-			<Navigation current={tab} offline={offlineSupported} onnavigate={choose} />
+			<Navigation current={dockDestination} offline={offlineSupported} onnavigate={choose} />
 		</footer>
 	{/if}
 </div>
@@ -502,21 +511,21 @@
 	.shell:has(:global([data-part='layout-preview'])) > .mast {
 		display: none;
 	}
-	.wordmark {
-		margin-inline-end: auto;
-		font-size: 1.05rem;
-		font-weight: 690;
-		display: flex;
-		gap: 0.55rem;
-		align-items: center;
-		letter-spacing: -0.04em;
+	.brand-mark {
+		width: 3.35rem;
+		aspect-ratio: 641 / 334;
+		background: linear-gradient(110deg, #76ab40 0%, #b8dc61 58%, #f3d66a 100%);
+		mask: var(--brand-mark) left center / contain no-repeat;
+		-webkit-mask: var(--brand-mark) left center / contain no-repeat;
 	}
-	.wordmark img {
-		width: 1.85rem;
-		height: 1.85rem;
-		object-fit: contain;
+	@media (forced-colors: active) {
+		.brand-mark {
+			background: CanvasText;
+			forced-color-adjust: none;
+		}
 	}
-	.menu-toggle {
+	.settings-shortcut {
+		margin-inline-start: auto;
 		flex: none;
 	}
 	main {

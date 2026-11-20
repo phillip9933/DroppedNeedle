@@ -1,5 +1,6 @@
 import { getContext, setContext, untrack, onMount } from 'svelte';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { selectionDrag } from './selectionDrag';
 import type { PlayerTrack } from '../player';
 
 export type LibraryChoice = {
@@ -31,6 +32,7 @@ export class LibrarySelection {
 	selecting = $state(false);
 	busy = $state(false);
 	message = $state('');
+	readonly drag = selectionDrag();
 	readonly selected = new SvelteMap<string, LibraryChoice>();
 	readonly buttons = new SvelteMap<HTMLElement, LibraryChoice>();
 
@@ -63,7 +65,37 @@ export class LibrarySelection {
 		if (this.selected.has(item.id)) this.selected.delete(item.id);
 		else this.selected.set(item.id, item);
 	}
+	beginRange(anchor: LibraryChoice) {
+		if (this.busy || !this.enabled()) return;
+		let choices = this.listed();
+		const index = (id: string) => choices.findIndex((item) => item.id === id);
+		const origin = index(anchor.id);
+		if (origin < 0) return;
+		const prior = new SvelteSet(this.selected.keys());
+		const adding = !prior.has(anchor.id);
+		let last = origin;
+		this.toggle(anchor);
+		return (target: HTMLElement) => {
+			const choice = this.buttons.get(target);
+			if (!choice || !this.selecting || !this.enabled()) return;
+			let end = index(choice.id);
+			if (end < 0) {
+				choices = this.listed(); // A cursor page may have arrived during auto-scroll.
+				end = index(choice.id);
+			}
+			if (end < 0 || end === last) return;
+			const low = Math.min(origin, end),
+				high = Math.max(origin, end);
+			for (let i = Math.min(last, end); i <= Math.max(last, end); i++) {
+				const item = choices[i];
+				if (i >= low && i <= high ? adding : prior.has(item.id)) this.selected.set(item.id, item);
+				else this.selected.delete(item.id);
+			}
+			last = end;
+		};
+	}
 	close() {
+		this.drag.stop();
 		this.selected.clear();
 		this.selecting = false;
 	}
@@ -73,55 +105,34 @@ export function useLibrarySelection() {
 	const group = getContext<LibrarySelection | undefined>(key);
 	return function selectable(node: HTMLButtonElement, initial?: LibraryChoice) {
 		if (!group) return;
-		let choice = $state.raw(initial),
-			timer: ReturnType<typeof setTimeout> | undefined;
-		let swallow = false,
-			x = 0,
-			y = 0;
-		function stop() {
-			clearTimeout(timer);
-		}
-		function start(e: PointerEvent) {
-			stop();
-			swallow = false;
-			if (!group!.enabled() || !choice || group!.selecting || e.button !== 0 || !e.isPrimary)
-				return;
-			x = e.clientX;
-			y = e.clientY;
-			timer = setTimeout(() => {
-				if (choice) {
-					group!.toggle(choice);
-					swallow = true;
-				}
-			}, 500);
-		}
-		function move(e: PointerEvent) {
-			if (Math.hypot(e.clientX - x, e.clientY - y) > 10) stop();
+		let choice = $state.raw(initial);
+		function start(event: PointerEvent | TouchEvent) {
+			if (!choice || !group!.enabled() || group!.busy) return;
+			const anchor = choice;
+			group!.drag.start(node, event, () => group!.beginRange(anchor));
 		}
 		function click(e: Event) {
-			if (!choice || (!group!.selecting && !swallow)) return;
+			if (!choice || !group!.enabled() || !group!.selecting) return;
 			e.preventDefault();
 			e.stopImmediatePropagation();
-			if (!swallow) group!.toggle(choice);
-			swallow = false;
+			group!.toggle(choice);
 		}
 		function menu(e: Event) {
-			if (choice) e.preventDefault();
+			if (choice && group!.enabled()) e.preventDefault();
 		}
 		$effect(() => {
 			const item = choice;
-			if (!item) return;
+			if (!item || !group.enabled()) return;
 			const listeners = new AbortController(),
 				opts = { signal: listeners.signal };
 			node.addEventListener('pointerdown', start, opts);
-			node.addEventListener('pointermove', move, opts);
-			for (const event of ['pointerup', 'pointercancel', 'pointerleave'])
-				node.addEventListener(event, stop, opts);
+			node.addEventListener('touchstart', start, { ...opts, passive: true });
+			node.dataset.selectable = '';
 			node.addEventListener('click', click, { ...opts, capture: true });
 			node.addEventListener('contextmenu', menu, opts);
 			group.buttons.set(node, item);
 			return () => {
-				stop();
+				delete node.dataset.selectable;
 				listeners.abort();
 				group.buttons.delete(node);
 				if (!group.modeled() && untrack(() => group.selected.has(item.id)))

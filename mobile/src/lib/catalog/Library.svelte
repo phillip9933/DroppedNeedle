@@ -12,6 +12,7 @@
 	import { Heart, Play, Shuffle } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
+	import { loadNearEnd } from './browseViewport';
 	import { trackChoice, useLibrarySelection } from './librarySelection.svelte';
 	import {
 		albumTracks,
@@ -501,8 +502,11 @@
 {#if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => load(next, generation)}>Try again</button>
 {:else if busy}<p role="status">Loading {noun}…</p>
-{:else if next && !preview}<button class="secondary more" onclick={() => load(next, generation)}
-		>More {noun}</button
+{:else if next && !preview}<button
+		class="secondary more"
+		data-selection-more={artist ? true : undefined}
+		use:loadNearEnd={{ active, enabled: !!artist && !busy, load: () => load(next, generation) }}
+		onclick={() => load(next, generation)}>More {noun}</button
 	>
 {:else if !albums.length && !songs.length && !artists.length}<p>
 		No {noun}

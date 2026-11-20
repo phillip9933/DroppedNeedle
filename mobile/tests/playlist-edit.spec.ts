@@ -211,7 +211,7 @@ test('an owner creates, renames, shares and confirms deletion of a playlist', as
 	const state = await connect(page);
 	await page.getByRole('button', { name: 'Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
-	await page.getByRole('button', { name: 'Category settings' }).click();
+	await page.getByRole('button', { name: 'Collection options' }).click();
 	await page.getByRole('button', { name: 'New playlist' }).click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog.getByRole('button', { name: 'Create playlist' })).toBeDisabled();

@@ -1,3 +1,4 @@
+import { touchRange } from './fixtures/touchRange';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
 
@@ -36,7 +37,11 @@ test('browse a library artist, open their album and keep a favorite across views
 				],
 				next: null
 			});
-		if (path === '/library/artists/artist-one/albums') return json({ items: [album], next: null });
+		if (path === '/library/artists/artist-one/albums')
+			return json({
+				items: [album, { ...album, id: 'album-two', title: 'Last train' }],
+				next: null
+			});
 		if (path === '/library/albums/match/album-one')
 			return json({
 				items: [
@@ -68,6 +73,17 @@ test('browse a library artist, open their album and keep a favorite across views
 	await page.getByRole('button', { name: 'Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Artists', exact: true }).click({ timeout: 2500 });
 	await page.getByRole('button', { name: /Night Train/ }).click();
+	const art = page.locator('[data-part=local-artist-detail] [data-part=album-card]');
+	await expect(art).toHaveCount(2);
+	const touch = await touchRange(page);
+	await art.first().scrollIntoViewIfNeeded();
+	await touch.hold(art.first());
+	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+	await touch.move(art.last());
+	await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+	await touch.lift();
+	await touch.close();
+	await page.getByRole('button', { name: 'Select items', exact: true }).click();
 	await page.getByRole('button', { name: /Return Trip/ }).click();
 	await page.getByRole('button', { name: 'Favorite album', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Remove album from favorites' })).toBeVisible();

@@ -8,20 +8,36 @@ import {
 	Search,
 	ListChecks,
 	Download,
-	Settings2
+	Menu,
+	ListMusic,
+	UsersRound,
+	Disc3,
+	Music2,
+	Tags
 } from '@lucide/svelte';
 
-export const destinations = [
+export const libraryDestinations = [
+	{ id: 'playlists', label: 'Playlists', icon: ListMusic },
+	{ id: 'artists', label: 'Artists', icon: UsersRound },
+	{ id: 'albums', label: 'Albums', icon: Disc3 },
+	{ id: 'tracks', label: 'Tracks', icon: Music2 },
+	{ id: 'genres', label: 'Genres', icon: Tags }
+] as const;
+export const shortcuts = [
 	{ id: 'home', label: 'Home', icon: House },
 	{ id: 'library', label: 'Library', icon: LibraryBig },
 	{ id: 'search', label: 'Search', icon: Search },
 	{ id: 'discover', label: 'Discover', icon: Compass },
-	{ id: 'requests', label: 'Requests', icon: ListChecks },
+	{ id: 'requests', label: 'Requests', icon: ListChecks }
+] as const;
+export const destinations = [
+	...shortcuts,
+	...libraryDestinations,
 	{ id: 'offline', label: 'Offline music', icon: Download },
-	{ id: 'settings', label: 'Settings', icon: Settings2 }
+	{ id: 'settings', label: 'Settings', icon: Menu }
 ] as const;
 export type Destination = (typeof destinations)[number]['id'];
-export type BrowseDestination = Exclude<Destination, 'settings'>;
+export type BrowseDestination = (typeof shortcuts)[number]['id'] | 'offline';
 export type StartScreen = 'automatic' | 'home' | 'library' | 'player';
 function accountKey(session: Session, name: 'start-screen' | 'mini-player') {
 	return 'dn.mobile.' + name + '.v1.' + JSON.stringify([session.serverUrl, session.userId]);
@@ -106,8 +122,6 @@ export type InterfacePreferences = {
 	blur: number;
 	bar: 'docked' | 'floating';
 	tabs: Destination[];
-	headerSettings: boolean;
-	swipeTracks: boolean;
 	motion: 'off' | 'quick' | 'gentle';
 };
 const key = 'dn.mobile.interface.v2';
@@ -117,8 +131,6 @@ export const defaultInterface: InterfacePreferences = {
 	blur: 14,
 	bar: 'docked',
 	tabs: ['home', 'library', 'search', 'discover', 'requests'],
-	headerSettings: true,
-	swipeTracks: true,
 	motion: 'quick'
 };
 function normalize(value: Partial<InterfacePreferences> | null): InterfacePreferences {
@@ -133,8 +145,6 @@ function normalize(value: Partial<InterfacePreferences> | null): InterfacePrefer
 		tabs: Array.isArray(value?.tabs)
 			? [...new Set(value.tabs.filter(valid))].slice(0, maxTabs)
 			: [...defaultInterface.tabs],
-		headerSettings: value?.headerSettings !== false,
-		swipeTracks: value?.swipeTracks !== false,
 		motion: value?.motion === 'off' || value?.motion === 'gentle' ? value.motion : 'quick'
 	};
 }
