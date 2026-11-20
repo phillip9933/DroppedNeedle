@@ -189,6 +189,41 @@ test('completed playback can be cached, pinned and cleared independently of save
 	expect(env.streams()).toBe(2);
 });
 
+for (const retained of ['cached', 'automatic'] as const) {
+	test(
+		'Now Playing keeps a ' + retained + ' copy without a second transfer and confirms removal',
+		async ({ page }) => {
+			const env = await fixture(page);
+			const button = (name: string) => page.getByRole('button', { name, exact: true });
+			await login(page);
+			await options(page);
+			if (retained === 'cached') {
+				await page.getByLabel('Cache songs during playback').check();
+			} else {
+				await page.getByLabel('Download source').selectOption('favorites');
+				await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
+			}
+			await button('Back').click();
+			await button('Back').click();
+			await album(page);
+			await button('Play album').click();
+			await button('Pause').click();
+			expect(env.streams()).toBe(1);
+			await env.disconnect();
+			await page.getByText('Track tools', { exact: true }).click();
+			await button(retained === 'cached' ? 'Keep cached track' : 'Keep automatic download').click();
+			await expect(button('Manage track download')).toHaveText('Downloaded');
+			await button('Manage track download').click();
+			await button('Keep download').click();
+			await expect(page.getByRole('dialog')).toHaveCount(0);
+			await button('Manage track download').click();
+			await button('Remove download').click();
+			await expect(button('Connect to download')).toBeDisabled();
+			expect(env.streams()).toBe(1);
+		}
+	);
+}
+
 test('opted-in downloads follow their source, keep manual upgrades and respect removals', async ({
 	page
 }) => {

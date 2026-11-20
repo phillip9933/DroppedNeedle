@@ -20,7 +20,8 @@ import {
 	UserRound,
 	Album,
 	Type,
-	Volume2
+	Volume2,
+	Download
 } from '@lucide/svelte';
 import { isPlayerIcon, type PlayerIcon } from './layout';
 const choices: Record<Exclude<PlayerIcon, 'default' | 'none'>, typeof Play> = {
@@ -39,6 +40,7 @@ const choices: Record<Exclude<PlayerIcon, 'default' | 'none'>, typeof Play> = {
 	music: Music2,
 	list: ListMusic,
 	plus: Plus,
+	download: Download,
 	settings: SlidersHorizontal,
 	cast: Cast,
 	'chevron-down': ChevronDown,
