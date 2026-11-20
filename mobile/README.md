@@ -1,6 +1,6 @@
 # DroppedNeedle Mobile
 
-The Android and iOS apps connect to your DroppedNeedle v3 server. Browse your library, find an album, request an edition, and play the files when they arrive.
+The Android and iOS apps connect to your DroppedNeedle v3 server. Play music from your DN library, manage your queue and playlists, and request albums or songs from the same server. Android is the primary tested platform.
 
 ## Connect your phone
 
@@ -12,15 +12,21 @@ For OIDC, including authentik, enter the public DroppedNeedle address served by 
 
 Server administrators can add browser sign-in by building the DN web frontend with the `feat/mobile-browser-pairing` change. It provides `/connect/mobile` and `/mobile-pairing.json`. The marker should return JSON containing `"droppedneedle_mobile_pairing": 1`. The phone must be able to reach the DN API and media endpoints using its DN device session. A proxy that requires a separate browser session on those routes needs a compatible access policy.
 
-## Find and play an album
+## Listening and library coverage
 
-**Library** shows recently added albums. Open a cover and select **Play album** or an individual track. Tap the mini-player to open the artwork, seek bar, playback controls, and queue. You can switch tracks from the queue or use the phone's media controls with the screen locked. On Android, Back closes the queue first, then returns you to your place in the library. Playback controls also reflect temporary interruptions when another app takes audio focus.
+| Area | On the phone |
+| --- | --- |
+| Library | Browse albums, artists and songs. Filter, sort, or show favorites. Open a library artist to browse their albums. |
+| Now Playing | Tap the mini-player for artwork, playback, seeking, lyrics and the queue. Synced lyrics highlight the current line when DN supplies timings. Android media controls work with the screen locked. |
+| Queue | Play next, append, move or remove individual entries, shuffle upcoming tracks, and repeat a song or the queue. Android restores the last queue and position paused when you reopen the app after the playback process exits. |
+| Playlists | Create, rename and delete playlists. Add a song or album, reorder tracks, remove one occurrence of a repeated song, and share with viewers or editors. Unavailable entries stay visible. |
+| Search and requests | Search for albums, artists and songs. Choose an album edition or request an individual recording. View active requests and history, withdraw eligible requests, and manage server downloads. Administrators can approve or reject requests. |
+| Discover | Browse recommendations, genres, popular albums, trending artists and personal charts. Open an artist for releases and top songs. Follow artists to see new releases and concerts. Library radio builds a queue from DN files related to an artist, album or genre. |
+| Account | In **Settings > Account on DroppedNeedle**, change your display name, listening visibility and scrobble preferences, or sign out another device. Administrators can check library health and start an incremental scan. |
 
-Choose **Library > Playlists** to open a saved DN playlist. **Play playlist** queues the tracks available in your DN library in their saved order, including repeats. Unavailable entries stay visible in the list.
+The player streams your server’s local files and requires a connection. A download in **Requests > Downloads** is a transfer into the server library. Android reports playback to DN for listening history and linked scrobbling services. Playback reporting and queue restoration after process exit are currently Android features.
 
-In **Search**, enter an artist, album, or song. For an album you do not own, open it, choose an edition, and select **Request album**. **Requests** shows the status and refreshes while open. When the album is imported, open the request and play the local copy. The server applies the same request permissions and approval settings as it does on the web.
-
-The player streams files from this server's local library. It needs a connection to the server. Queue state lasts for the current playback process.
+Account security, linking a music service, full server configuration and advanced library management (including matching, duplicates and bulk edits) open in the DN web app. In the phone app, **Settings > Account on DroppedNeedle > Profile** links to the pages your account can use.
 
 ## Change the appearance
 
