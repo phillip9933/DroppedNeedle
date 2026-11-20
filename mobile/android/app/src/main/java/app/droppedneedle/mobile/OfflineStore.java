@@ -243,7 +243,13 @@ final class OfflineStore {
             throw new IOException("Device storage could not save this change.");
     }
     @Nullable
-    File playable(String streamUrl) {
+    File playable(String streamUrl) { return savedFile(streamUrl, true); }
+
+    @Nullable
+    File artworkSource(String streamUrl) { return savedFile(streamUrl, false); }
+
+    @Nullable
+    private File savedFile(String streamUrl, boolean playing) {
         String id = trackId(streamUrl);
         if (id == null)
             return null;
@@ -251,7 +257,8 @@ final class OfflineStore {
             String key = row(id);
             JSONObject e = entry(key);
             File f = file(e);
-            if (f != null && !e.optBoolean("pinned") && System.currentTimeMillis() - e.optLong("used") > 60000) {
+            if (playing && f != null && !e.optBoolean("pinned")
+                    && System.currentTimeMillis() - e.optLong("used") > 60000) {
                 try {
                     e.put("used", System.currentTimeMillis());
                     index.edit().putString(key, e.toString()).apply();

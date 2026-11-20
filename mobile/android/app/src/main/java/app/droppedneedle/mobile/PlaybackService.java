@@ -16,11 +16,9 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
-import androidx.media3.datasource.DataSourceBitmapLoader;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.session.CacheBitmapLoader;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 import com.getcapacitor.JSArray;
@@ -48,7 +46,8 @@ public final class PlaybackService extends MediaSessionService {
         PlaybackService service() { return PlaybackService.this; }
     }
 
-    private static final class Access implements OfflineDataSource.Library {
+    static final class Access implements OfflineDataSource.Library {
+        final String artworkScope = UUID.randomUUID().toString();
         final HttpUrl base;
         final String apiPath;
         final String token;
@@ -72,6 +71,8 @@ public final class PlaybackService extends MediaSessionService {
 
         @Override public OfflineStore store() { return offline; }
         @Override public JSONObject metadata(String id) { return metadata.get(id); }
+
+        boolean allowsOnlineArt() { return offline == null || !offline.offlineOnly(); }
 
         boolean permits(HttpUrl url, String path) {
             return url != null && url.isHttps() && url.host().equals(base.host())
@@ -133,6 +134,11 @@ public final class PlaybackService extends MediaSessionService {
                     }
                     return chain.proceed(request.newBuilder()
                             .header("Authorization", "Bearer " + current.token).build());
+                }).addNetworkInterceptor(chain -> {
+                    Access artworkOwner = chain.request().tag(Access.class);
+                    if (artworkOwner != null && (artworkOwner != access || !artworkOwner.allowsOnlineArt()))
+                        throw new IOException("Online artwork is unavailable.");
+                    return chain.proceed(chain.request());
                 }).build();
         OkHttpDataSource.Factory source = new OkHttpDataSource.Factory(http);
         ConversionSource audioSource = new ConversionSource(timeline -> {
@@ -272,8 +278,7 @@ public final class PlaybackService extends MediaSessionService {
         };
         session = new MediaSession.Builder(this, player)
                 .setCallback(callback)
-                .setBitmapLoader(new CacheBitmapLoader(new DataSourceBitmapLoader(
-                        DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), source, null, 512)))
+                .setBitmapLoader(new PlaybackArtwork(() -> access, http))
                 .build();
         addSession(session);
     }
@@ -296,8 +301,7 @@ public final class PlaybackService extends MediaSessionService {
             MediaMetadata.Builder metadata = new MediaMetadata.Builder()
                     .setTitle(track.getString("title")).setArtist(track.getString("artist"))
                     .setAlbumTitle(track.getString("album"));
-            String art = track.optString("artworkUrl", "");
-            if (!art.isEmpty() && access.permits(HttpUrl.parse(art), "")) metadata.setArtworkUri(Uri.parse(art));
+            metadata.setArtworkUri(PlaybackArtwork.uri(access, track.getString("id")));
 
             items.add(new MediaItem.Builder().setMediaId(track.getString("id"))
                     .setUri(stream).setTag(track).setMediaMetadata(metadata.build()).build());
@@ -374,17 +378,19 @@ public final class PlaybackService extends MediaSessionService {
         generation++;
         Access next = new Access(this, address, token, userId);
         next.profiles.migrate(profiles);
-        ArrayList<MediaItem> items = items(next, queue);
+        boolean append = placement != null && player.getMediaItemCount() > 0;
+        if (append && (access == null || !access.base.equals(next.base) || !access.token.equals(token)
+                || !java.util.Objects.equals(access.userId, userId))) {
+            throw new IllegalArgumentException("This queue belongs to a different session.");
+        }
+        Access owner = append ? access : next;
+        ArrayList<MediaItem> items = items(owner, queue);
         LibraryWindow window = LibraryWindow.parse(continuation, items.size());
         if (window != null && placement != null) throw new IllegalArgumentException("Invalid initial library queue.");
-        remember(next, items);
-        if (placement != null && player.getMediaItemCount() > 0) {
-            if (access == null || !access.base.equals(next.base) || !access.token.equals(token) || !java.util.Objects.equals(access.userId, userId)) {
-                throw new IllegalArgumentException("This queue belongs to a different session.");
-            }
+        remember(owner, items);
+        if (append) {
             int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
             detachWindow();
-            access.metadata.putAll(next.metadata);
             player.addMediaItems(at, items);
             save(true);
             return;
