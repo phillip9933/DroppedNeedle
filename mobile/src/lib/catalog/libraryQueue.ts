@@ -5,7 +5,7 @@ import { localSong, path } from './catalog';
 
 type TrackPage = components['schemas']['TrackListPage'];
 const pageSize = 200;
-const maxTracks = 2000;
+export const maxQueueTracks = 2000;
 const maxBytes = 1024 * 1024;
 const changed = 'The track list changed while loading. Try again.';
 const tooMany = 'Narrow your filters to 2,000 tracks or fewer to play this selection.';
@@ -15,7 +15,7 @@ export function queueSizeCheck(server: string) {
 	let bytes = 2;
 	let count = 0;
 	return (track: PlayerTrack) => {
-		if (++count > maxTracks) throw new Error(tooMany);
+		if (++count > maxQueueTracks) throw new Error(tooMany);
 		// Android’s bridge returns the full queue with each playback snapshot, including absolute media URLs.
 		bytes +=
 			encoder.encode(
@@ -37,8 +37,14 @@ export async function prepareLibraryQueue(
 	filters: Record<string, string | number | undefined>,
 	signal: AbortSignal,
 	onprogress?: (loaded: number, total: number) => void,
-	forQueue = true
+	forQueue = true,
+	playlist?: { limit: number }
 ): Promise<PlayerTrack[]> {
+	if (
+		playlist &&
+		(!Number.isInteger(playlist.limit) || playlist.limit < 1 || playlist.limit > maxQueueTracks)
+	)
+		throw new Error('Choose a playlist limit between 1 and 2,000 tracks.');
 	const tracks: PlayerTrack[] = [],
 		ids = new Set<string>(),
 		cursors = new Set<string>();
@@ -53,7 +59,7 @@ export async function prepareLibraryQueue(
 				{},
 				{
 					...filters,
-					limit: pageSize,
+					limit: playlist ? Math.min(pageSize, playlist.limit - tracks.length) : pageSize,
 					after
 				}
 			),
@@ -67,7 +73,8 @@ export async function prepareLibraryQueue(
 		)
 			throw new Error(changed);
 		total = page.total;
-		if (forQueue && total > maxTracks) throw new Error(tooMany);
+		const target = playlist ? Math.min(total, playlist.limit) : total;
+		if (forQueue && target > maxQueueTracks) throw new Error(tooMany);
 		const previous = tracks.length;
 		for (const row of page.items) {
 			if (!row.id) throw new Error(changed);
@@ -76,16 +83,18 @@ export async function prepareLibraryQueue(
 			checkSize?.(track);
 			ids.add(row.id);
 			tracks.push(track);
+			if (playlist && tracks.length === target) break;
 		}
 		if (tracks.length > total) throw new Error(changed);
-		after = page.next ?? undefined;
+		after = playlist && tracks.length === target ? undefined : (page.next ?? undefined);
 		if (after) {
 			if (previous === tracks.length || cursors.has(after)) throw new Error(changed);
 			cursors.add(after);
 		}
-		onprogress?.(tracks.length, total);
+		onprogress?.(tracks.length, target);
 	} while (after);
-	if (tracks.length !== total) throw new Error(changed);
-	if (!tracks.length) throw new Error('No tracks match these filters.');
+	if (tracks.length !== (playlist ? Math.min(total, playlist.limit) : total))
+		throw new Error(changed);
+	if (!playlist && !tracks.length) throw new Error('No tracks match these filters.');
 	return tracks;
 }
