@@ -60,6 +60,7 @@ public final class PlaybackService extends MediaSessionService {
     private volatile Access access;
     private ExoPlayer player;
     private MediaSession session;
+    private PlaybackReporter reporter;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -81,6 +82,7 @@ public final class PlaybackService extends MediaSessionService {
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build();
+        reporter = new PlaybackReporter(this, player);
         MediaSession.Callback callback = new MediaSession.Callback() {
             @Override public MediaSession.ConnectionResult onConnect(
                     MediaSession mediaSession, MediaSession.ControllerInfo controller) {
@@ -136,6 +138,7 @@ public final class PlaybackService extends MediaSessionService {
             player.addMediaItems(at, items);
             return;
         }
+        reporter.connect(next.base.newBuilder().encodedPath(next.apiPath + "playback").build(), next.token);
         player.stop();
         access = next;
         player.setMediaItems(items, index, 0);
@@ -147,6 +150,7 @@ public final class PlaybackService extends MediaSessionService {
         int count = player.getMediaItemCount();
         int item = (int) value;
         if ("clear".equals(action) || ("remove".equals(action) && count == 1 && item == 0)) {
+            reporter.disconnect();
             player.pause();
             player.stop();
             player.clearMediaItems();
@@ -240,6 +244,7 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        reporter.close();
         access = null;
         session.release();
         player.release();
