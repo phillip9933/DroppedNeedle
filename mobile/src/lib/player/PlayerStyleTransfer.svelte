@@ -107,7 +107,7 @@
 					oninput={(e) => update(e.currentTarget.value)}
 				></textarea></label
 			><button type="button" class="secondary" disabled={!input.trim()} onclick={preview}
-				>Preview layout</button
+				>Review imported layout</button
 			>
 			{#if review !== null}{@const hasHeader = review.some((s) => s.placement)}{@const canvas =
 					playerCanvas(review)}{@const rows = hasHeader ? canvas : canvas.slice(1)}{@const count =

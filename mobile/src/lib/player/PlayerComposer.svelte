@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
-	import { ArrowLeft, ArrowRight, Eye, Plus, GripVertical, Scaling } from '@lucide/svelte';
+	import {
+		ArrowLeft,
+		ArrowRight,
+		Eye,
+		Plus,
+		GripVertical,
+		Scaling,
+		Undo2,
+		Redo2
+	} from '@lucide/svelte';
 	import { defaults, sectionTitle, type Section } from '../boards/layout';
 	import { playerWidgets, isNavigation } from './layout';
 	import PlayerView from '../PlayerView.svelte';
@@ -53,6 +62,50 @@
 		untrack(() => sections.filter((s) => s.placement === 'hidden').map((s) => ({ ...s })))
 	);
 	let draft = $derived(packPlayerCanvas(rows, hidden));
+	const historyLimit = 31;
+	let snapshots = $state.raw<string[]>([]);
+	let cursor = $state(-1),
+		resizing = $state(false);
+	let typingIn: Element | null = null;
+	function resetEditGroup() {
+		typingIn = null;
+	}
+	$effect(() => {
+		if (resizing) return;
+		const snapshot = JSON.stringify([rows, hidden]);
+		untrack(() => {
+			if (snapshots[cursor] === snapshot) return;
+			const input = document.activeElement;
+			const group = input?.matches(
+				'textarea, input:not([type]), input[type="text"], input[type="range"], input[type="number"]'
+			)
+				? input
+				: null;
+			const continued =
+				group && group === typingIn && cursor === snapshots.length - 1 && cursor > 0;
+			const before = snapshots.slice(0, continued ? cursor : cursor + 1);
+			if (before.at(-1) !== snapshot) before.push(snapshot);
+			snapshots = before.slice(-historyLimit);
+			cursor = snapshots.length - 1;
+			typingIn = group;
+		});
+	});
+	function travel(step: -1 | 1) {
+		const next = cursor + step;
+		if (!snapshots[next] || resizing || previewOpen) return;
+		const [restoredRows, restoredHidden]: [Section[][], Section[]] = JSON.parse(snapshots[next]);
+		cursor = next;
+		rows = restoredRows;
+		hidden = restoredHidden;
+		resetEditGroup();
+		const exists = (id: string) => restoredRows.some((row) => row.some((cell) => cell.id === id));
+		if ((selected && !exists(selected)) || (rowAnchor && !exists(rowAnchor))) {
+			select('');
+			prior = undefined;
+		}
+		swapTarget = null;
+		status = step < 0 ? 'Layout edit undone.' : 'Layout edit restored.';
+	}
 
 	type Destination = { r: number; c: number; edge: 'before' | 'after' | 'left' | 'right' };
 	let target = $state<Destination | null>(null),
@@ -128,6 +181,7 @@
 		const r = rows.findIndex((row) => row.some((s) => s.id === id)),
 			item = rows[r]?.find((s) => s.id === id);
 		if (!item) return;
+		resizing = mode === 'resize';
 		const row = list.querySelector<HTMLElement>('[data-layout-row="' + r + '"]')!;
 		const initialHeight = row.getBoundingClientRect().height,
 			storedHeight = rows[r].map((s) => s.minHeight),
@@ -213,6 +267,7 @@
 				rows[r].forEach((s, c) => (s.minHeight = storedHeight[c]));
 			}
 			if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+			resizing = false;
 			target = null;
 			ghost = null;
 		}
@@ -372,7 +427,30 @@
 			}
 		}
 		window.addEventListener('dn-back', back);
-		return () => window.removeEventListener('dn-back', back);
+		function shortcut(event: KeyboardEvent) {
+			if (
+				event.defaultPrevented ||
+				previewOpen ||
+				(!event.ctrlKey && !event.metaKey) ||
+				event.altKey ||
+				document.querySelector('dialog[open]')
+			)
+				return;
+			if (
+				event.target instanceof Element &&
+				event.target.closest('input, textarea, select, [contenteditable="true"]')
+			)
+				return;
+			const key = event.key.toLowerCase();
+			if (key !== 'z' && key !== 'y') return;
+			event.preventDefault();
+			travel(key === 'y' || event.shiftKey ? 1 : -1);
+		}
+		window.addEventListener('keydown', shortcut);
+		return () => {
+			window.removeEventListener('dn-back', back);
+			window.removeEventListener('keydown', shortcut);
+		};
 	});
 	function editRow(r: number, focus = true) {
 		if (suppressClick) return;
@@ -572,7 +650,13 @@
 	}
 </script>
 
-<div class="composer" data-part="layout-editor" hidden={previewOpen}>
+<div
+	class="composer"
+	data-part="layout-editor"
+	hidden={previewOpen}
+	onfocusout={resetEditGroup}
+	onpointerdowncapture={resetEditGroup}
+>
 	<div class="bar">
 		<button class="text-button" onclick={onback}>Cancel</button>
 		{#if selected || editingRow >= 0}<button
@@ -583,7 +667,7 @@
 		<button class="add-row secondary" onclick={addRow}><Plus size={17} />Add row</button>
 		<button
 			class="secondary preview-action"
-			aria-label="Preview layout"
+			aria-label="Preview current draft"
 			onclick={showPreview}
 			bind:this={previewButton}><Eye size={17} aria-hidden="true" /> Preview</button
 		>
@@ -591,7 +675,27 @@
 			>Save<span class="save-suffix"> layout</span></button
 		>
 	</div>
-	<h1>Edit Now Playing</h1>
+	<div class="editor-heading">
+		<h1>Edit Now Playing</h1>
+		{#if snapshots.length > 1}
+			<div class="history" role="group" aria-label="Layout history">
+				<button
+					class="icon-button"
+					title="Undo"
+					aria-label="Undo layout edit"
+					disabled={cursor < 1}
+					onclick={() => travel(-1)}><Undo2 size={19} /></button
+				>
+				<button
+					class="icon-button"
+					title="Redo"
+					aria-label="Redo layout edit"
+					disabled={cursor >= snapshots.length - 1}
+					onclick={() => travel(1)}><Redo2 size={19} /></button
+				>
+			</div>
+		{/if}
+	</div>
 	{#if error}<p role="alert">{error}</p>{/if}
 	<p class="sr-only" role="status">{status}</p>
 	<p class="hint">
@@ -922,6 +1026,25 @@
 {/if}
 
 <style>
+	.editor-heading,
+	.history {
+		display: flex;
+		align-items: center;
+	}
+	.editor-heading {
+		justify-content: space-between;
+		gap: 0.25rem;
+	}
+	.editor-heading h1 {
+		margin-block: 0.65rem;
+	}
+	.history {
+		flex: none;
+	}
+	.history button {
+		width: 44px;
+		height: 44px;
+	}
 	.preview-body {
 		margin-inline: calc(-1 * var(--gap));
 	}

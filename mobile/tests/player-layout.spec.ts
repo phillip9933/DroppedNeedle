@@ -791,7 +791,7 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	const saved = () => page.evaluate((k) => localStorage.getItem(k), key),
 		original = await saved();
 	const editor = page.locator('[data-part=layout-editor]'),
-		preview = b('Preview layout');
+		preview = b('Preview current draft');
 	await b('Add row').click();
 	await b('Customize Track title').click();
 	await openPlayerPlacement(page);
