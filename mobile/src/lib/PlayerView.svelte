@@ -269,8 +269,9 @@
 					{@render editor?.rowControls?.(r)}
 					<div class="row-surface" class:with-menu={r === 0 && (!!editor || !!menuToggle)}>
 						{#if r === 0 && (editor || menuToggle)}<div class="app-menu-cell">
-								{#if editor}<span class="icon-button sample-menu" aria-hidden="true"
-										><Menu size={23} /></span
+								{#if composing || !menuToggle}<span
+										class="icon-button sample-menu"
+										aria-hidden="true"><Menu size={23} /></span
 									>{:else}{@render menuToggle?.()}{/if}
 							</div>{/if}
 						<div

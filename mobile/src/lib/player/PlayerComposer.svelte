@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
 	import {
 		ArrowLeft,
 		ArrowRight,
@@ -43,10 +43,12 @@
 
 	let {
 		sections,
+		menuToggle,
 		onback,
 		onsave
 	}: {
 		sections: Section[];
+		menuToggle: Snippet;
 		onback: () => void;
 		onsave: (sections: Section[]) => void;
 	} = $props();
@@ -1015,6 +1017,7 @@
 		<div class="preview-body">
 			<PlayerView
 				session={sampleSession}
+				{menuToggle}
 				expanded={true}
 				onexpand={() => {}}
 				oncollapse={() => {}}

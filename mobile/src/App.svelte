@@ -57,8 +57,12 @@
 	let main: HTMLElement;
 	let shell = $state<HTMLElement>();
 	let drawer = $state<{ show: () => Promise<void>; back: () => boolean }>();
-	let drawerOpen = $state(false),
-		menuButton = $state<HTMLButtonElement>();
+	let drawerOpen = $state(false);
+	function visibleMenuButton() {
+		return Array.from(shell?.querySelectorAll<HTMLButtonElement>('.menu-toggle') ?? []).find(
+			(button) => button.getClientRects().length > 0
+		);
+	}
 	let footerHeight = $state(0);
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<Catalog>();
@@ -312,7 +316,6 @@
 		aria-haspopup="dialog"
 		aria-controls={drawerOpen ? 'navigation-drawer' : undefined}
 		aria-expanded={drawerOpen}
-		bind:this={menuButton}
 		onclick={() => drawer?.show()}><Menu size={23} /></button
 	>
 {/snippet}
@@ -323,7 +326,7 @@
 			bind:this={drawer}
 			bind:open={drawerOpen}
 			{shell}
-			trigger={() => menuButton}
+			trigger={visibleMenuButton}
 			current={panel === 'catalog' ? tab : panel === 'settings' ? 'settings' : undefined}
 			showAll={panel !== 'catalog'}
 			offline={offlineSupported}
@@ -376,6 +379,7 @@
 				<div class="pad">
 					{#key settingsVisit}<Appearance
 							bind:this={settings}
+							{menuToggle}
 							initial={fromPlayer ? 'player' : 'menu'}
 							{session}
 							onback={closePanel}
@@ -441,6 +445,9 @@
 		gap: 0.4rem;
 		min-height: 3.75rem;
 		margin: 0 var(--gap);
+	}
+	.shell:has(:global([data-part='layout-preview'])) > .mast {
+		display: none;
 	}
 	.wordmark {
 		margin-inline-end: auto;
