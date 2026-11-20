@@ -12,9 +12,13 @@
 		Minus,
 		Repeat,
 		Repeat1,
+		Settings2,
 		Shuffle
 	} from '@lucide/svelte';
-	import { player } from './player';
+	import { player, type PlayerTrack } from './player';
+	import { accountId, defaults, loadLayout, sectionTitle } from './boards/layout';
+	import TrackTools from './player/TrackTools.svelte';
+	import AddToPlaylist from './catalog/AddToPlaylist.svelte';
 	import type { Session } from './connection';
 	import Cover from './catalog/Cover.svelte';
 	import PlayerLyrics from './PlayerLyrics.svelte';
@@ -23,6 +27,7 @@
 		expanded,
 		queueOpen = false,
 		ontogglequeue,
+		onsettings,
 		onexpand,
 		oncollapse,
 		onerror
@@ -31,11 +36,41 @@
 		expanded: boolean;
 		queueOpen?: boolean;
 		ontogglequeue?: () => void;
+		onsettings?: () => void;
 		onexpand: () => void;
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
 	} = $props();
-	let editing = $state(false);
+	let editing = $state(false),
+		saveQueue = $state<PlayerTrack[] | null>(null);
+	let sections = $state(defaults('player'));
+	$effect(() => {
+		if (!expanded) return;
+		const current = session;
+		let live = true,
+			owner = '';
+		sections = defaults('player');
+		accountId(current)
+			.then((id) => {
+				if (!live) return;
+				owner = id;
+				sections = loadLayout(current.serverUrl, id, 'player');
+			})
+			.catch(() => {
+				/* The default controls stay available while the account is offline. */
+			});
+		function changed(event: Event) {
+			const scope = (event as CustomEvent).detail;
+			if (scope.board === 'player' && scope.user === owner && scope.server === current.serverUrl) {
+				sections = loadLayout(current.serverUrl, owner, 'player');
+			}
+		}
+		window.addEventListener('dn-layout-change', changed);
+		return () => {
+			live = false;
+			window.removeEventListener('dn-layout-change', changed);
+		};
+	});
 	let pending = $state(false);
 	let preview = $state<number | null>(null);
 	const track = $derived($player.tracks[$player.index]);
@@ -70,13 +105,35 @@
 			<button class="icon-button" aria-label="Close player" onclick={oncollapse}
 				><ChevronDown /></button
 			>
-			<strong>Now playing</strong>
-			<button
-				class="icon-button"
-				aria-label={queueOpen ? 'Hide play queue' : 'Show play queue'}
-				aria-pressed={queueOpen}
-				onclick={ontogglequeue}><ListMusic /></button
+			<strong
+				>{queueOpen
+					? 'Now playing'
+					: !sections.some((s) => s.id === 'player-track')
+						? track.title
+						: 'Now playing'}</strong
 			>
+			{#if !queueOpen && !sections.some((s) => s.id === 'player-transport')}
+				<button
+					class="icon-button"
+					aria-label={$player.playing ? 'Pause' : 'Play'}
+					onclick={() => action(player.toggle)}
+				>
+					{#if $player.playing}<Pause />{:else}<Play />{/if}
+				</button>
+			{/if}
+			<div class="header-actions">
+				{#if onsettings}<button
+						class="icon-button"
+						aria-label="Player settings"
+						onclick={onsettings}><Settings2 size={20} /></button
+					>{/if}
+				<button
+					class="icon-button"
+					aria-label={queueOpen ? 'Hide play queue' : 'Show play queue'}
+					aria-pressed={queueOpen}
+					onclick={ontogglequeue}><ListMusic /></button
+				>
+			</div>
 		</header>
 		{#if queueOpen}
 			<div class="queue-tools">
@@ -90,6 +147,9 @@
 					>{editing ? 'Done' : 'Edit queue'}</button
 				>
 			</div>
+			{#if editing}<button class="text-button" onclick={() => (saveQueue = [...$player.tracks])}
+					>Save queue to playlist</button
+				>{/if}
 			<div class="queue" data-part="play-queue">
 				<h1>Play queue</h1>
 				<ol>
@@ -128,63 +188,145 @@
 				</ol>
 			</div>
 		{:else}
-			<div class="hero"><Cover {session} path={art} seed={track.album || track.id} /></div>
-			<div class="track-meta">
-				<h1>{track.title}</h1>
-				<p>{track.artist}</p>
-				{#if track.album}<small>{track.album}</small>{/if}
-			</div>
-			<div class="timeline">
-				<input
-					type="range"
-					aria-label="Playback position"
-					aria-valuetext={stamp(preview ?? $player.position)}
-					min="0"
-					max={duration || 1}
-					step="1"
-					value={preview ?? $player.position}
-					disabled={!duration}
-					oninput={(e) => (preview = Number(e.currentTarget.value))}
-					onpointercancel={() => (preview = null)}
-					onchange={(e) => {
-						const position = Number(e.currentTarget.value);
-						preview = null;
-						action(() => player.seek(position));
-					}}
-				/>
-				<div><span>{stamp(preview ?? $player.position)}</span><span>{stamp(duration)}</span></div>
-			</div>
-			<div class="transport" data-part="transport">
-				<button class="skip" aria-label="Previous track" onclick={() => action(player.previous)}
-					><SkipBack size={28} /></button
-				>
-				<button
-					class="play"
-					aria-label={$player.playing ? 'Pause' : 'Play'}
-					onclick={() => action(player.toggle)}
-					>{#if $player.playing}<Pause fill="currentColor" />{:else}<Play
-							fill="currentColor"
-						/>{/if}</button
-				>
-				<button
-					class="skip"
-					aria-label="Next track"
-					disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
-					onclick={() => action(player.next)}><SkipForward size={28} /></button
-				>
-			</div>
-			<button
-				class="repeat"
-				aria-label={'Repeat ' + $player.repeat + '. Change repeat mode'}
-				aria-pressed={$player.repeat !== 'off'}
-				onclick={() => action(player.cycleRepeat)}
-			>
-				{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
-				Repeat {$player.repeat}
-			</button>
-			<PlayerLyrics {session} trackId={track.id} position={$player.position} />
+			{#each sections as section (section.id)}
+				<div class="player-section" data-section-id={section.id}>
+					{#if section.title && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
+						>
+							{section.title}
+						</h2>{/if}
+					{#if section.id === 'player-artwork'}
+						<div class="hero" class:compact={!section.preview}>
+							<Cover {session} path={art} seed={track.album || track.id} />
+						</div>
+					{:else if section.id === 'player-track'}
+						<div class="track-meta">
+							<h1>{track.title}</h1>
+							<p>{track.artist}</p>
+							{#if section.preview && track.album}<small>{track.album}</small>{/if}
+						</div>
+					{:else if section.id === 'player-timeline'}
+						<div class="timeline">
+							<input
+								type="range"
+								aria-label="Playback position"
+								aria-valuetext={stamp(preview ?? $player.position)}
+								min="0"
+								max={duration || 1}
+								step="1"
+								value={preview ?? $player.position}
+								disabled={!duration}
+								oninput={(e) => (preview = Number(e.currentTarget.value))}
+								onpointercancel={() => (preview = null)}
+								onchange={(e) => {
+									const position = Number(e.currentTarget.value);
+									preview = null;
+									action(() => player.seek(position));
+								}}
+							/>
+							{#if section.preview}<div>
+									<span>{stamp(preview ?? $player.position)}</span><span>{stamp(duration)}</span>
+								</div>{/if}
+						</div>
+					{:else if section.id === 'player-transport'}
+						<div class="transport" data-part="transport" class:compact={!section.preview}>
+							<button
+								class="skip"
+								aria-label="Previous track"
+								onclick={() => action(player.previous)}><SkipBack size={28} /></button
+							>
+							<button
+								class="play"
+								aria-label={$player.playing ? 'Pause' : 'Play'}
+								onclick={() => action(player.toggle)}
+								>{#if $player.playing}<Pause fill="currentColor" />{:else}<Play
+										fill="currentColor"
+									/>{/if}</button
+							>
+							<button
+								class="skip"
+								aria-label="Next track"
+								disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
+								onclick={() => action(player.next)}><SkipForward size={28} /></button
+							>
+						</div>
+					{:else if section.id === 'player-modes'}
+						<div class="modes">
+							<button
+								class="repeat"
+								aria-label={'Repeat ' + $player.repeat + '. Change repeat mode'}
+								aria-pressed={$player.repeat !== 'off'}
+								onclick={() => action(player.cycleRepeat)}
+							>
+								{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
+								{#if section.preview}Repeat {$player.repeat}{/if}
+							</button>
+							<button
+								class="repeat"
+								aria-label="Shuffle upcoming"
+								disabled={$player.tracks.length - $player.index <= 2 || pending}
+								onclick={() => edit(player.shuffleUpcoming)}
+								><Shuffle size={18} />{#if section.preview}Shuffle upcoming{/if}</button
+							>
+						</div>
+					{:else if section.id === 'player-lyrics'}
+						{#key section.preview}<PlayerLyrics
+								{session}
+								trackId={track.id}
+								position={$player.position}
+								title={sectionTitle(section)}
+								startOpen={section.preview}
+								onseek={(p) => action(() => player.seek(p))}
+							/>{/key}
+					{:else if section.id === 'player-tools'}
+						{#key JSON.stringify([track.id, section.preview])}<TrackTools
+								{session}
+								{track}
+								title={sectionTitle(section)}
+								startOpen={section.preview}
+							/>{/key}
+					{:else if section.id === 'player-up-next'}
+						<div class="up-next">
+							<button
+								class="text-button"
+								onclick={ontogglequeue}
+								aria-label={'Open play queue from ' + sectionTitle(section)}
+							>
+								{sectionTitle(section)} <ListMusic size={18} /></button
+							>
+							{#if section.preview}
+								{#each $player.tracks.slice($player.index + 1, $player.index + 4) as next, offset (next.id + ':' + offset)}
+									<button
+										class="up-track"
+										onclick={() => action(() => player.skipTo($player.index + offset + 1))}
+									>
+										<strong>{next.title}</strong><small>{next.artist}</small>
+									</button>
+								{:else}<p>End of the queue.</p>{/each}
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/each}
 		{/if}
 		{#if $player.error}<p role="alert">{$player.error}</p>{/if}
+	</section>
+	{#if saveQueue}<AddToPlaylist
+			{session}
+			tracks={saveQueue}
+			onclose={() => (saveQueue = null)}
+		/>{/if}
+{:else if expanded}
+	<section class="now" data-part="now-playing" aria-label="Now playing">
+		<header class="player-header">
+			<button class="icon-button" aria-label="Close player" onclick={oncollapse}
+				><ChevronDown /></button
+			>
+			{#if onsettings}<button class="icon-button" aria-label="Player settings" onclick={onsettings}
+					><Settings2 size={20} /></button
+				>{/if}
+		</header>
+		<h1>Nothing playing</h1>
+		<button class="secondary" onclick={oncollapse}>Browse music</button>
 	</section>
 {:else if track}
 	<section data-part="mini-player" class="mini" aria-label="Current track">
@@ -208,6 +350,63 @@
 {/if}
 
 <style>
+	.header-actions {
+		display: flex;
+		align-items: center;
+	}
+	.player-header {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: var(--bg);
+	}
+	.player-section {
+		min-width: 0;
+	}
+	.player-section h2 {
+		font-size: 1rem;
+		margin: 0 0 0.4rem;
+	}
+	.hero.compact {
+		width: min(45%, 13rem);
+		min-width: 0;
+	}
+	.transport.compact .play {
+		width: 48px;
+		height: 48px;
+	}
+	.modes {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--gap);
+		flex-wrap: wrap;
+	}
+	.up-next,
+	.up-track {
+		display: grid;
+	}
+	.up-next .text-button {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		justify-content: space-between;
+		font-weight: 600;
+	}
+	.up-track {
+		text-align: start;
+		min-height: 44px;
+		align-content: center;
+	}
+	.up-next p {
+		color: var(--muted);
+	}
+	.player-header strong {
+		min-width: 0;
+		text-overflow: ellipsis;
+		overflow: hidden;
+		white-space: nowrap;
+	}
 	.now {
 		max-width: 32rem;
 		width: 100%;
@@ -277,8 +476,9 @@
 		border-radius: 50%;
 		width: 4.5rem;
 		height: 4.5rem;
-		color: var(--on-accent);
-		background: var(--accent);
+		color: var(--dn-action-content, var(--on-accent));
+		background: var(--dn-action, var(--accent));
+		border: 1px solid var(--dn-action-edge, transparent);
 	}
 	.queue ol {
 		list-style: none;

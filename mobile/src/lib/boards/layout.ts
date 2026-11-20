@@ -1,21 +1,35 @@
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
+import { playerWidgets, playerDefaults } from '../player/layout';
 
 export type Board = 'home' | 'library' | 'discover';
+export type LayoutTarget = Board | 'player';
 export type Section = { id: string; title: string; preview: boolean };
-export const boardNames = { home: 'Home', library: 'Library', discover: 'Discover' } as const;
-const widgets: readonly { id: string; label: string }[] = [...libraryWidgets, ...discoveryWidgets];
+export const boardNames = {
+	home: 'Home',
+	library: 'Library',
+	discover: 'Discover',
+	player: 'Now Playing'
+} as const;
+const widgets: readonly { id: string; label: string }[] = [
+	...libraryWidgets,
+	...discoveryWidgets,
+	...playerWidgets
+];
 
-export function available(board: Board) {
-	return widgets.filter((w) => board === 'home' || w.id.startsWith(board + '-'));
+export function available(board: LayoutTarget) {
+	return widgets.filter((w) =>
+		board === 'home' ? !w.id.startsWith('player-') : w.id.startsWith(board + '-')
+	);
 }
 
 export function sectionTitle(section: Section) {
 	return section.title || widgets.find((w) => w.id === section.id)?.label || section.id;
 }
 
-export function defaults(board: Board): Section[] {
+export function defaults(board: LayoutTarget): Section[] {
+	if (board === 'player') return playerDefaults();
 	const ids =
 		board === 'home'
 			? ['library-recently-added', 'library-recently-played', 'discover-top_picks']
@@ -49,11 +63,11 @@ export function accountId(session: Session): Promise<string> {
 	return lookup;
 }
 
-function key(server: string, user: string, board: Board) {
+function key(server: string, user: string, board: LayoutTarget) {
 	return 'dn.mobile.layout.v1.' + JSON.stringify([server, user, board]);
 }
 
-export function loadLayout(server: string, user: string, board: Board): Section[] {
+export function loadLayout(server: string, user: string, board: LayoutTarget): Section[] {
 	const raw = localStorage.getItem(key(server, user, board));
 	if (raw === null) return defaults(board);
 	let entries: unknown;
@@ -76,9 +90,10 @@ export function loadLayout(server: string, user: string, board: Board): Section[
 	return sections;
 }
 
-export function saveLayout(server: string, user: string, board: Board, sections: Section[]) {
+export function saveLayout(server: string, user: string, board: LayoutTarget, sections: Section[]) {
 	localStorage.setItem(
 		key(server, user, board),
 		JSON.stringify(sections.map((s) => ({ ...s, title: s.title.trim() })))
 	);
+	window.dispatchEvent(new CustomEvent('dn-layout-change', { detail: { server, user, board } }));
 }
