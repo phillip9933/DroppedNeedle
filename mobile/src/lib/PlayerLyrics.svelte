@@ -1,4 +1,7 @@
 <script lang="ts">
+	import type { Section } from './boards/layout';
+	import { MicVocal } from '@lucide/svelte';
+	import PlayerActionFace from './player/PlayerActionFace.svelte';
 	import { untrack } from 'svelte';
 	import type { components } from '../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, DnError, type Session } from './connection';
@@ -10,6 +13,7 @@
 		title = 'Lyrics',
 		startOpen = false,
 		sample = false,
+		section,
 		onseek
 	}: {
 		session: Session;
@@ -18,6 +22,7 @@
 		title?: string;
 		startOpen?: boolean;
 		sample?: boolean;
+		section?: Section;
 		onseek?: (position: number) => void;
 	} = $props();
 	let open = $state(untrack(() => startOpen)),
@@ -64,7 +69,15 @@
 </script>
 
 <details bind:open data-part="lyrics">
-	<summary>{title}</summary>
+	<summary aria-label={title}
+		>{#if (section?.icon && section.icon !== 'default') || section?.iconSize || section?.showLabel !== undefined}<PlayerActionFace
+				{section}
+				glyph={MicVocal}
+				size={18}
+				label={title}
+				defaultLabel
+			/>{:else}{title}{/if}</summary
+	>
 	{#if busy}<p role="status">Loading lyrics…</p>{:else if error}<p role="alert">{error}</p>
 		<button class="secondary" onclick={() => retry++}>Try again</button>
 	{:else if sample}<p class="plain">

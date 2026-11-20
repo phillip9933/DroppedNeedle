@@ -2,15 +2,15 @@
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
-	import { Settings2 } from '@lucide/svelte';
+	import { Menu, Settings2 } from '@lucide/svelte';
 	import Navigation from './lib/Navigation.svelte';
+	import NavigationDrawer from './lib/NavigationDrawer.svelte';
 	import {
 		changeScreen,
 		interfacePreferences,
 		type BrowseDestination,
 		type Destination
 	} from './lib/appearance/interface';
-	import Outputs from './lib/player/Outputs.svelte';
 	import { offlineSupported, preferredOffline } from './lib/offline/media';
 	import OfflineLibrary from './lib/offline/OfflineLibrary.svelte';
 	import Connect from './lib/auth/Connect.svelte';
@@ -27,10 +27,16 @@
 	let catalogScroll = 0;
 	let fromPlayer = $state(false);
 	let playerScroll = 0;
+	let settingsOrigin: 'catalog' | 'player' | 'queue' = 'catalog';
+	let settingsVisit = $state(0);
 	let catalogVisit = $state(0);
 	const inPlayer = $derived(panel === 'player' || panel === 'queue');
 	let issue = $state('');
 	let main: HTMLElement;
+	let shell = $state<HTMLElement>();
+	let drawer = $state<{ show: () => Promise<void>; back: () => boolean }>();
+	let drawerOpen = $state(false),
+		menuButton = $state<HTMLButtonElement>();
 	let footerHeight = $state(0);
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<{ backToBoard: () => boolean }>();
@@ -47,7 +53,11 @@
 		});
 	}
 	function choose(to: Destination) {
-		if (to === 'settings') openPanel('settings');
+		if (to === 'settings' && panel === 'settings') {
+			fromPlayer = false;
+			settingsVisit++;
+			focusMain();
+		} else if (to === 'settings') openPanel('settings');
 		else navigate(to);
 	}
 	function focusMain(offset = 0) {
@@ -59,7 +69,11 @@
 	function openPanel(next: 'player' | 'settings') {
 		changeScreen(() => {
 			fromPlayer = false;
-			catalogScroll = main?.scrollTop ?? 0;
+			if (panel === 'catalog') catalogScroll = main?.scrollTop ?? 0;
+			if (next === 'settings') {
+				settingsOrigin = panel === 'player' || panel === 'queue' ? panel : 'catalog';
+				if (settingsOrigin !== 'catalog') playerScroll = main?.scrollTop ?? 0;
+			}
 			panel = next;
 			focusMain();
 		});
@@ -68,6 +82,7 @@
 		changeScreen(() => {
 			playerScroll = main?.scrollTop ?? 0;
 			fromPlayer = true;
+			settingsOrigin = panel === 'queue' ? 'queue' : 'player';
 			panel = 'settings';
 			focusMain();
 		});
@@ -81,8 +96,10 @@
 	}
 	function closePanel() {
 		changeScreen(() => {
-			panel = 'catalog';
-			focusMain(catalogScroll);
+			const target = panel === 'settings' ? settingsOrigin : 'catalog';
+			settingsOrigin = 'catalog';
+			panel = target;
+			focusMain(target === 'catalog' ? catalogScroll : playerScroll);
 		});
 	}
 	function toggleQueue() {
@@ -92,6 +109,7 @@
 		});
 	}
 	function back() {
+		if (drawer?.back()) return true;
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
 		if (panel === 'settings' && settings?.goBack()) return true;
 		if (panel === 'queue') {
@@ -142,6 +160,7 @@
 		const previous = session;
 		if (!previous) return;
 		session = null;
+		drawerOpen = false;
 		panel = 'catalog';
 		tab = 'home';
 		issue = '';
@@ -190,9 +209,35 @@
 	});
 </script>
 
-<div class="shell" data-part="app" style:--footer-height={footerHeight + 'px'}>
+{#snippet menuToggle()}
+	<button
+		type="button"
+		class="icon-button menu-toggle"
+		aria-label="Open navigation menu"
+		aria-haspopup="dialog"
+		aria-controls={drawerOpen ? 'navigation-drawer' : undefined}
+		aria-expanded={drawerOpen}
+		bind:this={menuButton}
+		onclick={() => drawer?.show()}><Menu size={23} /></button
+	>
+{/snippet}
+
+<div class="shell" data-part="app" bind:this={shell} style:--footer-height={footerHeight + 'px'}>
+	{#if session && shell}
+		<NavigationDrawer
+			bind:this={drawer}
+			bind:open={drawerOpen}
+			{shell}
+			trigger={() => menuButton}
+			current={panel === 'catalog' ? tab : panel === 'settings' ? 'settings' : undefined}
+			showAll={panel !== 'catalog'}
+			offline={offlineSupported}
+			onnavigate={choose}
+		/>
+	{/if}
 	{#if !inPlayer}
 		<header class="mast">
+			{#if session}{@render menuToggle()}{/if}
 			<span class="wordmark"><img src={brand} alt="" /> DroppedNeedle</span>
 			{#if panel !== 'settings' && (!session || $interfacePreferences.headerSettings)}
 				<button
@@ -231,17 +276,18 @@
 			{/if}
 			{#if panel === 'settings'}
 				<div class="pad">
-					<Appearance
-						bind:this={settings}
-						initial={fromPlayer ? 'player' : 'menu'}
-						{session}
-						onback={closePanel}
-						onplayerlayoutclose={finishPlayerLayout}
-						onsignout={() => disconnect()}
-					/>
+					{#key settingsVisit}<Appearance
+							bind:this={settings}
+							initial={fromPlayer ? 'player' : 'menu'}
+							{session}
+							onback={closePanel}
+							onplayerlayoutclose={finishPlayerLayout}
+							onsignout={() => disconnect()}
+						/>{/key}
 				</div>
 			{/if}
 			{#if inPlayer && session}
+				<div class="player-menu-slot">{@render menuToggle()}</div>
 				<PlayerView
 					{session}
 					expanded={true}
@@ -264,9 +310,7 @@
 				oncollapse={() => {}}
 				onerror={report}
 			/>
-			<Navigation current={tab} offline={offlineSupported} onnavigate={choose}>
-				{#snippet outputs()}<Outputs />{/snippet}
-			</Navigation>
+			<Navigation current={tab} offline={offlineSupported} onnavigate={choose} />
 		</footer>
 	{/if}
 </div>
@@ -284,11 +328,12 @@
 	.mast {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 0.4rem;
 		min-height: 3.75rem;
 		margin: 0 var(--gap);
 	}
 	.wordmark {
+		margin-inline-end: auto;
 		font-size: 1.05rem;
 		font-weight: 690;
 		display: flex;
@@ -300,6 +345,27 @@
 		width: 1.85rem;
 		height: 1.85rem;
 		object-fit: contain;
+	}
+	.menu-toggle {
+		flex: none;
+	}
+	.player-menu-slot {
+		position: sticky;
+		top: 0;
+		height: 0;
+		width: min(100%, 32rem);
+		margin-inline: auto;
+		z-index: 2;
+		pointer-events: none;
+	}
+	.player-menu-slot .menu-toggle {
+		position: absolute;
+		inset-inline-start: min(var(--gap), 5vw);
+		top: calc((3.8rem - 44px) / 2);
+		pointer-events: auto;
+	}
+	main :global([data-part='now-playing'] > .player-header) {
+		padding-inline-start: 49px;
 	}
 	main {
 		flex: 1;

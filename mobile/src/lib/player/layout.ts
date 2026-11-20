@@ -1,3 +1,4 @@
+import type { Section } from '../boards/layout';
 export const playerWidgets = [
 	{ id: 'player-artwork', label: 'Artwork', option: 'Use large artwork', enabled: true },
 	{ id: 'player-track', label: 'Track details', option: 'Show album title', enabled: true },
@@ -65,8 +66,90 @@ export const playerFields = [
 	{ id: 'player-shuffle', label: 'Shuffle upcoming' }
 ] as const;
 
-export function playerDefaults() {
+const bounds = {
+	width: [1, 12],
+	contentWidth: [20, 100],
+	minHeight: [0, 640],
+	padding: [0, 32],
+	iconSize: [12, 64],
+	maxLines: [0, 8]
+} as const;
+type Measurement = keyof typeof bounds;
+export const playerMeasurements = Object.keys(bounds) as Measurement[];
+export function validMeasurement(name: Measurement, value: unknown): value is number {
+	const [min, max] = bounds[name];
+	return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+}
+
+export const playerIconOptions = [
+	{ id: 'default', label: 'Default' },
+	{ id: 'none', label: 'No icon' },
+	{ id: 'play', label: 'Play' },
+	{ id: 'circle-play', label: 'Circle play' },
+	{ id: 'square-play', label: 'Square play' },
+	{ id: 'skip-back', label: 'Previous' },
+	{ id: 'skip-forward', label: 'Next' },
+	{ id: 'rewind', label: 'Rewind' },
+	{ id: 'fast-forward', label: 'Fast forward' },
+	{ id: 'shuffle', label: 'Shuffle' },
+	{ id: 'repeat', label: 'Repeat' },
+	{ id: 'heart', label: 'Heart' },
+	{ id: 'star', label: 'Star' },
+	{ id: 'disc', label: 'Record' },
+	{ id: 'music', label: 'Music note' },
+	{ id: 'user-round', label: 'Artist' },
+	{ id: 'album', label: 'Album' },
+	{ id: 'type', label: 'Text' },
+	{ id: 'list', label: 'Queue' },
+	{ id: 'plus', label: 'Add' },
+	{ id: 'settings', label: 'Sliders' },
+	{ id: 'cast', label: 'Cast' },
+	{ id: 'chevron-down', label: 'Chevron' },
+	{ id: 'volume', label: 'Speaker' }
+] as const;
+export type PlayerIcon = (typeof playerIconOptions)[number]['id'];
+export function isPlayerIcon(value: unknown): value is PlayerIcon {
+	return playerIconOptions.some((i) => i.id === value);
+}
+export function isPlayerText(id: string) {
+	return /^player-text(?:-(?:[2-9]|[1-9]\d+))?$/.test(id);
+}
+export function isPlayerMetadata(id: string) {
+	return ['player-title', 'player-artist', 'player-album'].includes(id) || isPlayerText(id);
+}
+export function supportsPlayerIcon(id: string) {
+	return (
+		isPlayerMetadata(id) ||
+		isNavigation(id) ||
+		[
+			'player-previous',
+			'player-toggle',
+			'player-next',
+			'player-repeat',
+			'player-shuffle',
+			'player-favorite',
+			'player-playlist',
+			'player-rating',
+			'player-up-next',
+			'player-lyrics',
+			'player-tools'
+		].includes(id)
+	);
+}
+export function supportsPlayerLines(id: string) {
+	return id === 'player-track' || isPlayerMetadata(id);
+}
+export function playerDefaults(): Section[] {
 	return playerWidgets
 		.filter((w) => w.id !== 'player-up-next')
-		.map((w) => ({ id: w.id, title: '', preview: w.enabled }));
+		.flatMap<Section>((w) =>
+			w.id === 'player-track'
+				? ['player-title', 'player-artist', 'player-album'].map((id) => ({
+						id,
+						title: '',
+						preview: true,
+						padding: 0
+					}))
+				: [{ id: w.id, title: '', preview: w.enabled }]
+		);
 }

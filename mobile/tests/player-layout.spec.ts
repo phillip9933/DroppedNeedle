@@ -1,3 +1,4 @@
+import { openPlayerPlacement } from './fixtures/playerEditor';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 const server = 'https://layout.example/dn';
@@ -129,6 +130,14 @@ async function play(page: Page, user = 'alex', address = server) {
 		.click();
 }
 
+async function addFeature(page: Page, name: string) {
+	await page.getByRole('button', { name: 'Add row', exact: true }).click();
+	await page
+		.getByRole('button', { name: /^Add feature to row [0-9]+, column 1$/ })
+		.last()
+		.click();
+	await page.getByRole('button', { name: 'Use ' + name, exact: true }).click();
+}
 test('a listener saves, cancels and restores the Now Playing layout independently for each account and server', async ({
 	page
 }) => {
@@ -142,10 +151,14 @@ test('a listener saves, cancels and restores the Now Playing layout independentl
 	await edit();
 	await page.getByRole('button', { name: 'Customize Artwork', exact: true }).click();
 	await page.getByRole('button', { name: 'Remove Artwork' }).click();
-	await page.getByRole('button', { name: 'Customize Track details' }).click();
+	await page.getByRole('button', { name: 'Customize Track title' }).click();
+	await openPlayerPlacement(page);
 	await page.getByLabel('Section title').fill('On the turntable');
-	await page.getByLabel('Show album title').uncheck();
-	await page.getByRole('button', { name: 'Add Up next' }).click();
+	await page.getByRole('button', { name: 'Customize Album', exact: true }).click();
+	await page.getByRole('button', { name: 'Remove Album', exact: true }).click();
+	await addFeature(page, 'Up next');
+	await page.getByRole('button', { name: 'Customize Up next' }).click();
+	await openPlayerPlacement(page);
 	await page.getByRole('combobox', { name: 'Position', exact: true }).selectOption('0');
 	await page.getByRole('button', { name: 'Save layout' }).click();
 	await expect(playing).toBeVisible();
@@ -241,8 +254,6 @@ test('a listener arranges independent player fields in columns and saves a live 
 	const player = page.getByRole('region', { name: 'Now playing' });
 	const button = (name: string) => page.getByRole('button', { name, exact: true });
 	await player.getByRole('button', { name: 'Player settings' }).click();
-	await button('Customize Track details').click();
-	await button('Split Track details').click();
 	const edit = async (name: string) => {
 		const toggle = button('Customize ' + name);
 		if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
@@ -257,16 +268,20 @@ test('a listener arranges independent player fields in columns and saves a live 
 	await edit('Artist');
 	const titleRow = await rowIndex('player-title');
 	expect(titleRow).toBeGreaterThanOrEqual(0);
+	await openPlayerPlacement(page);
 	await page
 		.getByRole('combobox', { name: 'Move to row', exact: true })
 		.selectOption(String(titleRow));
 	await edit('Artist');
+	await openPlayerPlacement(page);
 	await button('Move Artist left').click();
 	await edit('Track title');
 	await page.getByRole('combobox', { name: 'Column width', exact: true }).selectOption('2');
-	await page.getByRole('combobox', { name: 'Alignment', exact: true }).selectOption('end');
+	await page
+		.getByRole('combobox', { name: 'Horizontal alignment', exact: true })
+		.selectOption('end');
 	await page.getByRole('combobox', { name: 'Text size', exact: true }).selectOption('large');
-	await button('Add Custom text').click();
+	await addFeature(page, 'Custom text');
 	await edit('Custom text');
 	await page
 		.getByLabel('Text template', { exact: true })
@@ -295,6 +310,7 @@ test('a listener arranges independent player fields in columns and saves a live 
 		.toBeLessThanOrEqual(320);
 	await player.getByRole('button', { name: 'Player settings' }).click();
 	await edit('Artist');
+	await openPlayerPlacement(page);
 	await page.getByRole('combobox', { name: 'Move to row', exact: true }).selectOption('new');
 	await button('Cancel').click();
 	await expect(player).toBeVisible();
@@ -354,10 +370,8 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	const region = page.locator('[data-part=now-playing]'),
 		button = (name: string) => page.getByRole('button', { name, exact: true });
 	await region.getByRole('button', { name: 'Player settings' }).click();
-	await button('Add Favorite').click();
-	await button('Add Add to playlist').click();
-	await button('Customize Track tools').click();
-	await button('Split Track tools').click();
+	await addFeature(page, 'Favorite');
+	await addFeature(page, 'Add to playlist');
 	await button('Customize Playback position').click();
 	await button('Split Playback position').click();
 	await page.getByText('Header controls', { exact: true }).click();
@@ -427,4 +441,117 @@ test('Android Back discards a sample layout and returns to the empty player from
 	await expect(player.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+});
+
+test('a listener sees the five-button row proportions, appearance and reserved text lines in the preview and live player', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 720 });
+	await fixture(page);
+	await play(page);
+	const live = page.locator('[data-part=now-playing]'),
+		sample = page.locator('[data-part=sample-player]');
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	await live.getByRole('button', { name: 'Player settings' }).click();
+	await button('Arrange five playback controls').click();
+	await button('Customize Play or pause').click();
+	await expect(page.getByRole('spinbutton', { name: 'Padding' })).toBeVisible();
+	await expect(page.locator('.canvas details.advanced')).not.toHaveAttribute('open', '');
+	await page.getByLabel('Padding', { exact: true }).fill('0');
+	await page.getByLabel('Horizontal alignment').selectOption('center');
+	await page.getByLabel('Vertical alignment').selectOption('end');
+	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('circle-play');
+	await page.getByLabel('Icon size', { exact: true }).fill('30');
+	await page.getByLabel('Action label').selectOption('hide');
+	const checkRow = async (region: typeof live) => {
+		const toggle = region.locator('[data-section-id=player-toggle]');
+		const row = region
+			.locator('[data-part=player-row]')
+			.filter({ has: page.locator('[data-section-id=player-toggle]') });
+		expect(
+			await row
+				.locator('[data-section-id]')
+				.evaluateAll((cells) => cells.map((c) => c.getAttribute('data-section-id')))
+		).toEqual([
+			'player-shuffle',
+			'player-previous',
+			'player-toggle',
+			'player-next',
+			'player-repeat'
+		]);
+		await expect(toggle).toHaveCSS('align-content', 'end');
+		await expect(toggle).toHaveCSS('text-align', 'center');
+		await expect(toggle.locator('[data-player-icon=circle-play] .glyph')).toHaveCSS(
+			'width',
+			'30px'
+		);
+		expect(
+			await toggle.evaluate((el) => getComputedStyle(el).getPropertyValue('--field-padding').trim())
+		).toBe('0px');
+		const sizes = await row
+			.locator('[data-section-id]')
+			.evaluateAll((cells) => cells.map((c) => c.getBoundingClientRect().width));
+		expect(sizes[2]).toBeGreaterThan(sizes[1] + 5);
+		expect(Math.min(...sizes)).toBeGreaterThanOrEqual(44);
+		return sizes;
+	};
+	const myRow = await page
+		.locator('[data-player-row]')
+		.filter({ has: button('Customize Play or pause') })
+		.getAttribute('data-player-row');
+	await button('Edit row ' + (Number(myRow) + 1)).click();
+	const slider = page.getByRole('slider', { name: 'Column 3 width' });
+	await slider.focus();
+	await slider.press('End');
+	const sizes = await checkRow(sample);
+	const measured = Math.round((100 * sizes[2]) / sizes.reduce((a, b) => a + b, 0));
+	await expect(slider.locator('..').locator('output')).toHaveText(measured + '%');
+	await button('Customize Track title').click();
+	await expect(page.getByLabel('Column width', { exact: true })).toHaveCount(0);
+	await expect(page.getByLabel('Show text', { exact: true })).toHaveCount(0);
+	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('music');
+	await expect(page.getByLabel('Show text', { exact: true })).toBeChecked();
+	await page.getByLabel('Show text', { exact: true }).uncheck();
+	await expect(sample.locator('[data-section-id=player-title]')).not.toContainText('Soft Current');
+	await page.getByLabel('Show text', { exact: true }).check();
+
+	await page.getByLabel('Maximum lines').selectOption('3');
+	await page.getByLabel('Reserve all lines').check();
+	const lines = (region: typeof live) =>
+		region.locator('[data-section-id=player-title] .lines').first();
+	await expect(lines(sample)).toHaveCSS('-webkit-line-clamp', '3');
+	const hasLines = (region: typeof live) =>
+		lines(region).evaluate(
+			(el) =>
+				el.getBoundingClientRect().height >= 3 * parseFloat(getComputedStyle(el).lineHeight) - 1
+		);
+	expect(await hasLines(sample)).toBe(true);
+	const save = button('Save layout');
+	await save.scrollIntoViewIfNeeded();
+	expect(
+		await save.evaluate((b) => {
+			const r = b.getBoundingClientRect(),
+				s = getComputedStyle(b),
+				at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+			return (b === at || b.contains(at)) && s.whiteSpace === 'nowrap';
+		})
+	).toBe(true);
+	const toolbar = page.locator('.composer .bar');
+	await expect(toolbar).toBeVisible();
+	expect(
+		await toolbar.evaluate((bar) => {
+			const canvas = bar.parentElement!.querySelector('.canvas')!.getBoundingClientRect();
+			const rect = bar.getBoundingClientRect(),
+				y = rect.y + rect.height / 2;
+			return [canvas.left + 1, canvas.right - 1].every((x) =>
+				bar.contains(document.elementFromPoint(x, y))
+			);
+		})
+	).toBe(true);
+
+	await save.click();
+	await checkRow(live);
+	await expect(lines(live)).toHaveCSS('-webkit-line-clamp', '3');
+	expect(await hasLines(live)).toBe(true);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

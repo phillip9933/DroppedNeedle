@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { Heart } from '@lucide/svelte';
 	import { putJson, type Session } from '../connection';
 	import { path, errorMessage } from './catalog';
@@ -7,13 +8,15 @@
 		kind,
 		id,
 		value,
-		onchange
+		onchange,
+		face
 	}: {
 		session: Session;
 		kind: 'track' | 'album' | 'artist';
 		id: string;
 		value: boolean;
 		onchange?: (value: boolean) => void;
+		face?: Snippet<[boolean]>;
 	} = $props();
 	let saved = $state<boolean>(),
 		busy = $state(false),
@@ -44,10 +47,25 @@
 
 <button
 	class="icon-button"
+	class:custom-face={!!face}
 	disabled={busy}
 	aria-pressed={active}
 	aria-label={active ? 'Remove ' + kind + ' from favorites' : 'Favorite ' + kind}
 	title={active ? 'Remove from favorites' : 'Add to favorites'}
-	onclick={toggle}><Heart size={18} fill={active ? 'currentColor' : 'none'} /></button
+	onclick={toggle}
+	>{#if face}{@render face(active)}{:else}<Heart
+			size={18}
+			fill={active ? 'currentColor' : 'none'}
+		/>{/if}</button
 >
 {#if error}<p role="alert">{error}</p>{/if}
+
+<style>
+	button.custom-face {
+		width: auto;
+		min-width: min(44px, 100%);
+		height: auto;
+		min-height: 44px;
+		max-width: 100%;
+	}
+</style>

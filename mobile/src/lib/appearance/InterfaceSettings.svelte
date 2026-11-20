@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { ArrowUp, ArrowDown } from '@lucide/svelte';
+	import { ArrowUp, ArrowDown, Check, Play } from '@lucide/svelte';
+	import sampleArtwork from '../player/tidal-memory.webp';
 	import {
 		defaultInterface,
 		destinations,
@@ -30,21 +31,33 @@
 		[tabs[i], tabs[next]] = [tabs[next], tabs[i]];
 		setInterface({ tabs });
 	}
-	const surfaceNames = { web: 'DN web', glass: 'Glass', simple: 'Simple' } as const;
+	const surfaceNames = { solid: 'Solid Theme Color', glass: 'Glass', blur: 'Blur' } as const;
 	const surfaces = Object.keys(surfaceNames) as InterfacePreferences['surface'][];
 </script>
 
 <section class="controls" aria-label="Interface settings">
 	<h2>Button and panel style</h2>
-	<div class="segmented" role="group" aria-label="Surface style">
+	<div class="materials" role="group" aria-label="Surface style">
 		{#each surfaces as style (style)}<button
+				class="material-choice"
+				aria-label={surfaceNames[style]}
 				aria-pressed={$interfacePreferences.surface === style}
-				onclick={() => setInterface({ surface: style })}>{surfaceNames[style]}</button
-			>{/each}
+				onclick={() => setInterface({ surface: style })}
+			>
+				<span class="art-preview" aria-hidden="true" data-material={style}>
+					<img src={sampleArtwork} alt="" />
+					<span class="sample-panel" data-surface="panel">
+						<Play size={13} fill="currentColor" /><span class="sample-lines"></span>
+					</span>
+					{#if $interfacePreferences.surface === style}<span class="check"><Check size={13} /></span
+						>{/if}
+				</span>
+				<span class="material-name">{surfaceNames[style]}</span>
+			</button>{/each}
 	</div>
-	{#if $interfacePreferences.surface === 'glass'}<label
-			>Glass blur <span>{$interfacePreferences.blur} px</span><input
-				aria-label="Glass blur"
+	{#if $interfacePreferences.surface === 'blur'}<label class="strength"
+			><span>Blur strength <output>{$interfacePreferences.blur} px</output></span><input
+				aria-label="Blur strength"
 				type="range"
 				min="0"
 				max="24"
@@ -72,8 +85,8 @@
 				>{bar === 'docked' ? 'Docked' : 'Floating'}</button
 			>{/each}
 	</div>
-	<p>Pin up to {maxTabs} destinations. More holds the others and Settings.</p>
-	<div class="choices">
+	<p>Pin up to {maxTabs} destinations. Open the top-left menu for the others and Settings.</p>
+	<div class="choices" data-surface="panel">
 		{#each ordered as id, i (id)}
 			{@const opt = options.find((d) => d.id === id)!}
 			<div class="row">
@@ -124,12 +137,97 @@
 		margin-top: 1rem;
 	}
 	p,
-	label span {
+	output {
 		color: var(--muted);
 	}
 	label:not(.pick) {
 		display: grid;
 		gap: 0.35rem;
+	}
+	.materials {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.5rem;
+	}
+	.material-choice {
+		display: grid;
+		align-content: start;
+		text-align: start;
+		min-width: 0;
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: var(--radius);
+		overflow: hidden;
+	}
+	.material-choice[aria-pressed='true'] {
+		border-color: var(--dn-focus);
+		box-shadow: 0 0 0 1px var(--dn-focus);
+	}
+	.art-preview {
+		position: relative;
+		display: grid;
+		align-items: center;
+		height: 4.5rem;
+		isolation: isolate;
+		padding: 0.35rem;
+	}
+	.art-preview img {
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: 50% 42%;
+	}
+	.sample-panel {
+		display: flex;
+		gap: 0.3rem;
+		align-items: center;
+		height: 1.9rem;
+		padding-inline: 0.4rem;
+		border-radius: max(3px, calc(var(--radius) * 0.55));
+	}
+	.sample-lines {
+		display: grid;
+		gap: 3px;
+		width: 55%;
+	}
+	.sample-lines::before,
+	.sample-lines::after {
+		content: '';
+		height: 2px;
+		background: currentColor;
+		border-radius: 99px;
+	}
+	.sample-lines::after {
+		width: 65%;
+		opacity: 0.55;
+	}
+	.check {
+		position: absolute;
+		inset-block-start: 0.25rem;
+		inset-inline-end: 0.25rem;
+		display: grid;
+		width: 1.15rem;
+		height: 1.15rem;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--dn-action-content);
+		background: var(--dn-action);
+	}
+	.material-name {
+		padding: 0.45rem;
+		font-size: 0.82rem;
+		font-weight: 650;
+		line-height: 1.2;
+	}
+	.strength span {
+		display: flex;
+		justify-content: space-between;
+	}
+	.strength input {
+		width: 100%;
 	}
 	.segmented {
 		display: flex;
@@ -158,7 +256,6 @@
 		display: flex;
 		align-items: center;
 		padding: 0 0.4rem;
-		background: var(--surface);
 	}
 	.row + .row {
 		border-top: 1px solid var(--line);
