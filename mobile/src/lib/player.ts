@@ -39,6 +39,7 @@ export type PlayerAction =
 	| 'clear'
 	| 'move'
 	| 'remove'
+	| 'clearUpcoming'
 	| 'shuffleUpcoming'
 	| 'cycleRepeat';
 export interface PlaybackBridge {
@@ -161,6 +162,7 @@ export const player = {
 	move: (from: number, to: number) => command('move', from, to),
 	remove: (index: number) => command('remove', index),
 	shuffleUpcoming: () => command('shuffleUpcoming'),
+	clearUpcoming: () => command('clearUpcoming'),
 	cycleRepeat: () => command('cycleRepeat'),
 	toggle: () => command('toggle'),
 	seek: (seconds: number) => command('seek', seconds),

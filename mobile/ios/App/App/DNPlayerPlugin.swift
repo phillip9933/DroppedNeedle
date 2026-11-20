@@ -285,6 +285,8 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         let current = queue[index].key
         switch action {
         case "cycleRepeat": repeatMode = repeatMode == .off ? .all : repeatMode == .all ? .one : .off
+        case "clearUpcoming":
+            queue.removeSubrange((index + 1)..<queue.count)
         case "shuffleUpcoming":
             queue[(index + 1)...].shuffle()
         case "move":
@@ -379,7 +381,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.updateCurrentItem()
                 switch action {
                 case "clear": self.clearQueue()
-                case "cycleRepeat", "shuffleUpcoming", "move", "remove":
+                case "cycleRepeat", "clearUpcoming", "shuffleUpcoming", "move", "remove":
                     try self.edit(action, from: call.getInt("value") ?? -1, to: call.getInt("to") ?? -1)
                 case "toggle": try self.toggle()
                 case "previous": try self.previous()

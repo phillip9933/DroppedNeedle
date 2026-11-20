@@ -113,6 +113,7 @@ export function browserPlayer(): PlaybackBridge {
 				}
 				if (action === 'cycleRepeat')
 					state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
+				if (action === 'clearUpcoming') state.tracks = state.tracks.slice(0, state.index + 1);
 				if (action === 'shuffleUpcoming') {
 					for (let i = state.tracks.length - 1; i > state.index + 1; i--) {
 						const j = state.index + 1 + Math.floor(Math.random() * (i - state.index));

@@ -147,9 +147,16 @@
 					>{editing ? 'Done' : 'Edit queue'}</button
 				>
 			</div>
-			{#if editing}<button class="text-button" onclick={() => (saveQueue = [...$player.tracks])}
-					>Save queue to playlist</button
-				>{/if}
+			{#if editing}<div class="queue-options">
+					<button class="text-button" onclick={() => (saveQueue = [...$player.tracks])}
+						>Save queue to playlist</button
+					>
+					<button
+						class="text-button"
+						disabled={pending || $player.index + 1 >= $player.tracks.length}
+						onclick={() => edit(player.clearUpcoming)}>Clear upcoming</button
+					>
+				</div>{/if}
 			<div class="queue" data-part="play-queue">
 				<h1>Play queue</h1>
 				<ol>
@@ -350,6 +357,13 @@
 {/if}
 
 <style>
+	.queue-options {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--gap);
+		flex-wrap: wrap;
+	}
 	.header-actions {
 		display: flex;
 		align-items: center;

@@ -68,7 +68,8 @@ public final class PlaybackInterruptionTest {
                     } catch (org.json.JSONException error) {
                         throw new AssertionError(error);
                     }
-                    player.setMediaSource(new SilenceMediaSource.Factory().setDurationUs(120_000_000L).createMediaSource());
+                    SilenceMediaSource.Factory source = new SilenceMediaSource.Factory().setDurationUs(120_000_000L);
+                    player.setMediaSources(java.util.Arrays.asList(source.createMediaSource(), source.createMediaSource()));
                     player.prepare();
                 });
                 await("Track is audible", () -> player.isPlaying() && playback.snapshot().optBoolean("playing"));
@@ -81,6 +82,16 @@ public final class PlaybackInterruptionTest {
                 });
                 audio.abandonAudioFocus(interruption);
                 await("The same track resumed", () -> player.isPlaying() && playback.snapshot().optBoolean("playing") && playback.snapshot().optInt("index") == 0);
+                instrumentation.runOnMainSync(() -> {
+                    androidx.media3.common.MediaItem current = player.getCurrentMediaItem();
+                    long before = player.getCurrentPosition();
+                    assertEquals(2, player.getMediaItemCount());
+                    playback.command("clearUpcoming", 0, -1);
+                    assertEquals(1, player.getMediaItemCount());
+                    assertSame(current, player.getCurrentMediaItem());
+                    assertTrue(player.isPlaying());
+                    assertTrue(player.getCurrentPosition() >= before);
+                });
             } finally {
                 audio.abandonAudioFocus(interruption);
                 if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", 0, -1));
