@@ -1,5 +1,6 @@
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { silentWav } from './fixtures/silentWav';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
 
 type Schema = components['schemas'];
@@ -54,7 +55,8 @@ async function connect(page: Page) {
 		playlist('readonly', 'Listening room', false, false)
 	];
 	let members: Schema['PlaylistMember'][] = [];
-	const writes: string[] = [];
+	const writes: string[] = [],
+		streams: string[] = [];
 	await page.route(api + '/**', async (route) => {
 		const req = route.request(),
 			method = req.method(),
@@ -65,6 +67,12 @@ async function connect(page: Page) {
 		if (path === '/auth/login') return json({ token: 'device-token' });
 		expect(req.headers().authorization).toBe('Bearer device-token');
 		if (method !== 'GET') writes.push(method + ' ' + path);
+		if (path.startsWith('/stream/local/')) {
+			streams.push(path.split('/').at(-1)!);
+			return route.fulfill({ body: silentWav(), contentType: 'audio/wav' });
+		}
+		if (path.endsWith('/lyrics')) return json({ lines: [] });
+		if (path === '/ratings/lookup') return json({ artists: {}, albums: {}, tracks: {} });
 		if (path === '/me') return json({ id: 'listener', display_name: 'Listener' });
 		if (path === '/users/directory')
 			return json({
@@ -156,7 +164,8 @@ async function connect(page: Page) {
 			}
 			return json({ members });
 		}
-		expect(p.can_edit).toBe(true);
+		if (!p.can_edit)
+			return json({ error: { code: 'FORBIDDEN', message: 'This playlist is read-only.' } }, 403);
 		if (action === 'tracks' && method === 'POST') {
 			const data = req.postDataJSON() as Schema['AddTracksBody'];
 			const added = data.tracks.map((entry, i) => {
@@ -195,7 +204,7 @@ async function connect(page: Page) {
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
-	return { lists, writes, members: () => members };
+	return { lists, writes, streams, members: () => members };
 }
 
 test('an owner creates, renames, shares and confirms deletion of a playlist', async ({ page }) => {
@@ -263,7 +272,8 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	const entries = page.locator('[data-entry]'),
 		titles = entries.locator('strong');
 	await expect(titles).toHaveText(['Signal', 'Station', 'Signal']);
-	await entries.last().getByRole('button', { name: 'Move Signal up' }).click();
+	await entries.last().getByRole('button', { name: 'Reorder Signal, position 3' }).click();
+	await page.getByRole('dialog').getByRole('button', { name: 'Move Signal up' }).click();
 	await expect(titles).toHaveText(['Signal', 'Signal', 'Station']);
 	await entries.nth(1).getByRole('button', { name: 'Remove Signal' }).click();
 	await page.keyboard.press('Escape');
@@ -309,4 +319,190 @@ test('a listener names an imported playlist and reviews unmatched local entries'
 	await dialog.getByRole('button', { name: 'Done' }).click();
 	await expect(page.getByRole('button', { name: 'Train ride', exact: true })).toBeVisible();
 	expect(state.writes).toEqual(['POST /playlists/import']);
+});
+
+async function openTouchPlaylist(page: Page, length = 4) {
+	await page.setViewportSize({ width: 360, height: 760 });
+	await page.addInitScript(() => {
+		const Audio = window.Audio;
+		window.Audio = new Proxy(Audio, {
+			construct(target, args) {
+				const audio = Reflect.construct(target, args) as HTMLAudioElement;
+				Object.assign(window, { fixtureAudio: audio });
+				return audio;
+			}
+		});
+	});
+	const state = await connect(page);
+	const tracks = Array.from({ length }, (_, i) => {
+		const song = [0, 1, 0, 2][i] ?? i;
+		return {
+			id: 'entry-' + i,
+			position: i,
+			created_at: 1,
+			track_name: ['Signal', 'Station', 'Destination'][song] ?? 'Track ' + i,
+			artist_name: 'North',
+			album_name: 'In transit',
+			duration: 60,
+			source_type: 'local',
+			track_source_id: 'file-' + song,
+			available_sources: ['local']
+		} satisfies Schema['PlaylistTrack'];
+	});
+	for (const p of state.lists.slice(1)) {
+		p.tracks = [...tracks];
+		p.track_count = length;
+	}
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
+	await page.getByRole('button', { name: 'Shared mix', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Shared mix' })).toBeVisible();
+	return state;
+}
+
+async function dragRow(
+	page: Page,
+	source: Locator,
+	destination: Locator,
+	cancel = false,
+	held?: () => Promise<void>
+) {
+	const grip = source.getByRole('button', { name: /^Reorder / });
+	await grip.evaluate((node) => {
+		const main = node.closest('main')!;
+		main.scrollTop += node.getBoundingClientRect().top - main.getBoundingClientRect().top - 200;
+	});
+	await expect(grip).toBeInViewport();
+	await expect(destination).toBeInViewport();
+	const start = (await grip.boundingBox())!,
+		end = (await destination.boundingBox())!;
+	const x = start.x + start.width / 2,
+		from = start.y + start.height / 2,
+		to = end.y + end.height / 2;
+	const cdp = await page.context().newCDPSession(page);
+	try {
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchStart',
+			touchPoints: [{ x, y: from }]
+		});
+		for (let i = 1; i <= 6; i++)
+			await cdp.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [{ x, y: from + ((to - from) * i) / 6 }]
+			});
+		await expect(destination).toHaveAttribute('data-reorder-drop', /before|after/);
+		await held?.();
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: cancel ? 'touchCancel' : 'touchEnd',
+			touchPoints: []
+		});
+	} finally {
+		await cdp.detach();
+	}
+}
+type AudioFixture = Window & { fixtureAudio: HTMLAudioElement };
+
+test('touch reorders the selected occurrence in a shared playlist, with cancel, keyboard and exact positions', async ({
+	page
+}) => {
+	const state = await openTouchPlaylist(page, 55);
+	const rows = page.locator('[data-entry]');
+	await page.getByRole('button', { name: 'Edit playlist' }).tap();
+	const initial = state.lists[1].tracks.map((t) => t.id);
+	await dragRow(page, rows.nth(2), rows.first(), true);
+	expect(state.writes).toEqual([]);
+	await expect(rows.nth(2)).toHaveAttribute('data-entry', 'entry-2');
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await dragRow(page, rows.nth(2), rows.first(), false, () => page.keyboard.press('Escape'));
+	expect(state.writes).toEqual([]);
+	await expect(page.getByRole('heading', { name: 'Shared mix' })).toBeVisible();
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await dragRow(page, rows.nth(2), rows.first());
+	await expect(rows.first()).toHaveAttribute('data-entry', 'entry-2');
+	expect(state.lists[1].tracks.map((t) => t.id)).toEqual([
+		'entry-2',
+		...initial.filter((id) => id !== 'entry-2')
+	]);
+	const first = rows.first().getByRole('button', { name: 'Reorder Signal, position 1' });
+	await first.focus();
+	await page.keyboard.press('ArrowDown');
+	await expect(rows.nth(1)).toHaveAttribute('data-entry', 'entry-2');
+	await expect(
+		rows.nth(1).getByRole('button', { name: 'Reorder Signal, position 2' })
+	).toBeFocused();
+	await page.keyboard.press('Enter');
+	const dialog = page.getByRole('dialog', { name: 'Move Signal' });
+	await dialog.getByLabel('Track position', { exact: false }).fill('55');
+	await dialog.getByRole('button', { name: 'Move track' }).click();
+	await expect.poll(() => state.lists[1].tracks.at(-1)?.id).toBe('entry-2');
+	await expect(
+		page.getByRole('status').filter({ hasText: 'Moved Signal to position 55.' })
+	).toBeVisible();
+	await page.getByRole('button', { name: 'More tracks', exact: true }).tap();
+	await expect(rows.last()).toHaveAttribute('data-entry', 'entry-2');
+	expect(state.writes).toEqual(Array(3).fill('PATCH /playlists/shared/tracks/reorder'));
+	await page.getByRole('button', { name: 'Back to playlists' }).click();
+	await page.getByRole('button', { name: 'Listening room', exact: true }).click();
+	await expect(rows).toHaveCount(50);
+	await expect(page.getByRole('button', { name: /Edit playlist|^Reorder / })).toHaveCount(0);
+});
+
+test('queue drags preserve the playing duplicate through a track transition and reject a changed queue', async ({
+	page
+}) => {
+	const state = await openTouchPlaylist(page);
+	await page.locator('[data-entry="entry-2"]').getByRole('button', { name: 'Play Signal' }).tap();
+	await page.getByRole('button', { name: 'Show play queue' }).tap();
+	await page.getByRole('button', { name: 'Edit queue' }).tap();
+	const queue = page.locator('[data-part="play-queue"]');
+	const rows = queue.locator('li'),
+		playing = queue.locator('li:has([aria-current=true])');
+	await expect(playing).toHaveAttribute('data-reorder-row', '2');
+	await page.evaluate(() => {
+		(window as unknown as AudioFixture).fixtureAudio.currentTime = 8;
+	});
+	await dragRow(page, rows.nth(2), rows.first());
+	await expect(playing).toHaveAttribute('data-reorder-row', '0');
+	await expect(rows.locator('strong')).toHaveText(['Signal', 'Signal', 'Station', 'Destination']);
+	expect(state.streams).toEqual(['file-0']);
+	const transport = await page.evaluate(() => {
+		const audio = (window as unknown as AudioFixture).fixtureAudio;
+		return { playing: !audio.paused, at: audio.currentTime };
+	});
+	expect(transport.playing).toBe(true);
+	expect(transport.at).toBeGreaterThanOrEqual(8);
+	await dragRow(page, rows.first(), rows.last(), false, async () => {
+		await page.evaluate(() =>
+			(window as unknown as AudioFixture).fixtureAudio.dispatchEvent(new Event('ended'))
+		);
+		await expect(playing).toHaveAttribute('data-reorder-row', '1');
+	});
+	await expect(rows.locator('strong')).toHaveText(['Signal', 'Station', 'Destination', 'Signal']);
+	await expect(playing).toHaveAttribute('data-reorder-row', '0');
+	await dragRow(page, rows.first(), rows.nth(2), false, async () => {
+		await queue
+			.getByRole('button', { name: 'Remove Station from queue' })
+			.evaluate((el) => (el as HTMLButtonElement).click());
+		await expect(rows).toHaveCount(3);
+	});
+	await expect(queue.getByRole('status')).toHaveText('The list changed. Choose the track again.');
+	await expect(rows.locator('strong')).toHaveText(['Signal', 'Destination', 'Signal']);
+	await expect(playing).toHaveAttribute('data-reorder-row', '0');
+	expect(state.streams).toEqual(['file-0', 'file-0']);
+});
+
+test('a server permission change while a playlist is open leaves its entries in their original order', async ({
+	page
+}) => {
+	const state = await openTouchPlaylist(page);
+	await page.getByRole('button', { name: 'Edit playlist' }).tap();
+	const rows = page.locator('[data-entry]');
+	state.lists[1].can_edit = false;
+	await dragRow(page, rows.nth(2), rows.first());
+	await expect(page.getByRole('alert')).toHaveText('This playlist is read-only.');
+	await expect(
+		page.getByRole('button', { name: /Edit playlist|Done editing|^Reorder / })
+	).toHaveCount(0);
+	await expect(rows.nth(2)).toHaveAttribute('data-entry', 'entry-2');
+	expect(state.writes).toEqual(['PATCH /playlists/shared/tracks/reorder']);
 });

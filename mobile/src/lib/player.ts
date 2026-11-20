@@ -92,7 +92,15 @@ const empty: PlayerState = {
 };
 export const nativeEqualizer: EqualizerBridge = native;
 const backend = Capacitor.isNativePlatform() ? native : browserPlayer();
-let sequence = 0;
+let sequence = 0,
+	queueRevision = 0;
+const queueEdits = new Set<PlayerAction>([
+	'clear',
+	'move',
+	'remove',
+	'clearUpcoming',
+	'shuffleUpcoming'
+]);
 const state = writable(empty, () => {
 	const timer = setInterval(() => {
 		if (!document.hidden) void refresh();
@@ -131,8 +139,33 @@ async function refresh() {
 }
 
 function command(action: PlayerAction, value?: number, to?: number) {
+	if (queueEdits.has(action)) queueRevision++;
 	window.dispatchEvent(new Event('dn-playback-intent'));
 	return update(() => backend.command({ action, value, to }));
+}
+
+// Capture occurrence order separately from the changing transport position and active track.
+export function queueOrder(state: PlayerState) {
+	return JSON.stringify([
+		queueRevision,
+		state.libraryWindow?.offset ?? null,
+		state.tracks.map((track) => [track.id, track.streamUrl, track.title, track.artist, track.album])
+	]);
+}
+
+async function moveQueueEntry(from: number, to: number, expected?: string) {
+	if (expected === undefined) return command('move', from, to);
+	let moved = false;
+	await update(async () => {
+		const current = await backend.getState();
+		if (queueOrder(current) !== expected) return current;
+		queueRevision++;
+		window.dispatchEvent(new Event('dn-playback-intent'));
+		const next = await backend.command({ action: 'move', value: from, to });
+		moved = true;
+		return next;
+	});
+	if (!moved) throw Error('The play queue changed. Choose the track again.');
 }
 
 function mediaUrl(base: URL, address: string, prefix: string) {
@@ -176,6 +209,7 @@ async function submitTracks(
 		streamUrl: streamAddress(mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'), original),
 		artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
 	}));
+	queueRevision++;
 	return update(() =>
 		backend.setQueue({ ...access, tracks: queue, index, placement, profiles, continuation })
 	);
@@ -203,7 +237,7 @@ export const player = {
 	) => submitTracks(tracks, index, access, undefined, continuation),
 	enqueue: (tracks: PlayerTrack[], access: PlayerAccess, placement: QueuePlacement = 'end') =>
 		submitTracks(tracks, 0, access, placement),
-	move: (from: number, to: number) => command('move', from, to),
+	move: moveQueueEntry,
 	remove: (index: number) => command('remove', index),
 	shuffleUpcoming: () => command('shuffleUpcoming'),
 	clearUpcoming: () => command('clearUpcoming'),

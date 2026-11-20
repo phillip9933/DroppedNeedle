@@ -7,8 +7,6 @@
 		SkipBack,
 		SkipForward,
 		AudioLines,
-		ArrowUp,
-		ArrowDown,
 		Minus,
 		Repeat,
 		Repeat1,
@@ -24,7 +22,8 @@
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import SleepTimer from './player/SleepTimer.svelte';
 	import { isPlayerMetadata, isNavigation, trackToolFields } from './player/layout';
-	import { player, type PlayerTrack } from './player';
+	import { player, queueOrder, type PlayerTrack } from './player';
+	import ReorderList from './controls/ReorderList.svelte';
 	import { interfacePreferences } from './appearance/interface';
 	import { swipeTracks } from './player/swipeTracks';
 	import { accountId, defaults, loadLayout, sectionTitle, type Section } from './boards/layout';
@@ -137,13 +136,15 @@
 		count: String(libraryWindow?.total ?? $store.tracks.length)
 	});
 	async function edit(call: () => Promise<void>) {
-		if (pending || editor) return;
+		if (pending || editor) return false;
 		pending = true;
 		try {
 			await call();
 			if (!$store.tracks.length) oncollapse();
+			return true;
 		} catch (error) {
 			onerror(error);
+			return false;
 		} finally {
 			pending = false;
 		}
@@ -568,42 +569,41 @@
 							Editing this queue keeps the {$store.tracks.length} tracks shown here.
 						</p>{/if}
 				{/if}
-				<ol>
-					{#each $store.tracks as item, i (item.id + ':' + i)}
-						<li>
-							<button
-								class:current={i === $store.index}
-								aria-current={i === $store.index ? 'true' : undefined}
-								onclick={() => action(() => player.skipTo(i))}
-							>
-								{#if i === $store.index}<AudioLines size={18} />{:else}<span
-										>{queueOffset + i + 1}</span
-									>{/if}
-								<span><strong>{item.title}</strong><small>{item.artist}</small></span>
-							</button>
-							{#if editing}
-								<div class="edit-tools">
+				<ReorderList
+					count={$store.tracks.length}
+					offset={queueOffset}
+					order={() => queueOrder($store)}
+					move={(from, to, expected) => edit(() => player.move(from, to, expected))}
+				>
+					{#snippet children(grip)}
+						<ol>
+							{#each $store.tracks as item, i (item.id + ':' + i)}
+								<li data-reorder-row={i}>
 									<button
-										disabled={pending || i === 0}
-										aria-label={'Move ' + item.title + ' up'}
-										onclick={() => edit(() => player.move(i, i - 1))}><ArrowUp size={18} /></button
+										class:current={i === $store.index}
+										aria-current={i === $store.index ? 'true' : undefined}
+										onclick={() => action(() => player.skipTo(i))}
 									>
-									<button
-										disabled={pending || i + 1 === $store.tracks.length}
-										aria-label={'Move ' + item.title + ' down'}
-										onclick={() => edit(() => player.move(i, i + 1))}
-										><ArrowDown size={18} /></button
-									>
-									<button
-										disabled={pending}
-										aria-label={'Remove ' + item.title + ' from queue'}
-										onclick={() => edit(() => player.remove(i))}><Minus size={18} /></button
-									>
-								</div>
-							{/if}
-						</li>
-					{/each}
-				</ol>
+										{#if i === $store.index}<AudioLines size={18} />{:else}<span
+												>{queueOffset + i + 1}</span
+											>{/if}
+										<span><strong>{item.title}</strong><small>{item.artist}</small></span>
+									</button>
+									{#if editing}
+										<div class="edit-tools">
+											{@render grip(i, item.title, pending)}
+											<button
+												disabled={pending}
+												aria-label={'Remove ' + item.title + ' from queue'}
+												onclick={() => edit(() => player.remove(i))}><Minus size={18} /></button
+											>
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ol>
+					{/snippet}
+				</ReorderList>
 			</div>
 		{:else if !track}
 			<h1>Nothing playing</h1>
