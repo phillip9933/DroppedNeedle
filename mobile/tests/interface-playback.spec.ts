@@ -106,13 +106,13 @@ async function back(page: Page, heading: string) {
 	await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
 }
 
-test('a floating glass dock keeps hidden screens and Settings accessible when every tab is removed', async ({
+test('the navigation drawer keeps hidden screens and Settings accessible when every tab is removed', async ({
 	page
 }) => {
 	await connect(page);
 	await settings(page, 'Interface and navigation');
-	await page.getByRole('button', { name: 'Glass', exact: true }).click();
-	await page.getByRole('slider', { name: 'Glass blur' }).fill('19');
+	await page.getByRole('button', { name: 'Blur', exact: true }).click();
+	await page.getByRole('slider', { name: 'Blur strength' }).fill('19');
 	await page.getByRole('button', { name: 'Floating', exact: true }).click();
 	await page.getByLabel('Screen transitions').selectOption('gentle');
 	await page.getByRole('button', { name: 'Move Library earlier' }).click();
@@ -124,26 +124,128 @@ test('a floating glass dock keeps hidden screens and Settings accessible when ev
 	await expect(nav.getByRole('button').first()).toHaveText('Library');
 	await expect(nav).toHaveCSS('backdrop-filter', 'blur(19px)');
 	await expect(page.locator('footer')).toHaveCSS('position', 'absolute');
-	await nav.getByRole('button', { name: 'More navigation options' }).click();
-	const menu = page.getByRole('dialog', { name: 'More destinations' });
+	const toggle = page.getByRole('button', { name: 'Open navigation menu' });
+	await toggle.click();
+	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
 	await menu.getByRole('button', { name: 'Discover', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Discover', exact: true })).toBeVisible();
-	await nav.getByRole('button', { name: 'More navigation options' }).click();
+	await toggle.click();
 	await menu.getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'Interface and navigation' }).click();
 	for (const id of ['Library', 'Home', 'Search', 'Requests'])
 		await page.getByRole('checkbox', { name: id, exact: true }).uncheck();
 	await back(page, 'Settings');
 	await back(page, 'Discover');
-	await expect(nav.getByRole('button')).toHaveCount(1);
-	await nav.getByRole('button').click();
+	await expect(nav).toHaveCount(0);
+	await toggle.click();
 	await expect(menu.getByRole('button', { name: 'Home', exact: true })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(menu).toHaveCount(0);
+	await expect(toggle).toBeFocused();
 	await page.reload();
 	await expect(page.locator('html')).toHaveAttribute('data-navigation', 'floating');
-	await expect(page.locator('html')).toHaveAttribute('data-material', 'glass');
+	await expect(page.locator('html')).toHaveAttribute('data-material', 'blur');
 	await expect(page.locator('html')).toHaveAttribute('data-motion', 'gentle');
+});
+
+test('an existing blur preference carries over and all three materials paint the real controls', async ({
+	page
+}) => {
+	await page.addInitScript(() => {
+		localStorage.setItem(
+			'dn.mobile.interface.v1',
+			JSON.stringify({ surface: 'glass', blur: 21, bar: 'floating', motion: 'off' })
+		);
+	});
+	await connect(page);
+	await settings(page, 'Interface and navigation');
+	const style = page.getByRole('group', { name: 'Surface style' });
+	const control = page.getByRole('button', { name: 'Restore interface defaults' });
+	const panel = page.getByRole('group', { name: 'Navigation bar position' });
+	await expect(style.getByRole('button', { name: 'Blur', exact: true })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+	await expect(control).toHaveCSS('backdrop-filter', 'blur(21px)');
+	await expect(panel).toHaveCSS('backdrop-filter', 'blur(21px)');
+	await style.getByRole('button', { name: 'Glass', exact: true }).click();
+	await expect(control).toHaveCSS('backdrop-filter', 'none');
+	await expect(panel).toHaveCSS('background-image', /linear-gradient\(145deg/);
+	await style.getByRole('button', { name: 'Solid Theme Color' }).click();
+	await expect(panel).toHaveCSS('background-image', 'none');
+	await expect(control).toHaveCSS('background-image', 'none');
+	await page.reload();
+	await expect(page.locator('html')).toHaveAttribute('data-material', 'solid');
+	await expect(page.locator('html')).toHaveAttribute('data-navigation', 'floating');
+});
+
+test('a touchscreen edge swipe opens the drawer and the player keeps its header actions', async ({
+	page
+}) => {
+	await connect(page);
+	const toggle = page.getByRole('button', { name: 'Open navigation menu' });
+	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
+	const touch = await page.context().newCDPSession(page);
+	async function swipe(x: number, y: number, dx: number, dy: number) {
+		await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+		for (let i = 1; i <= 5; i++) {
+			await touch.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [{ x: x + (dx * i) / 5, y: y + (dy * i) / 5 }]
+			});
+		}
+		await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+	}
+	await swipe(100, 200, 115, 6);
+	await expect(menu).toHaveCount(0);
+	await swipe(8, 210, 12, 80);
+	await expect(menu).toHaveCount(0);
+	await swipe(8, 190, 118, 5);
+	await expect(menu).toBeVisible();
+	await expect
+		.poll(() => menu.evaluate((node) => Math.round(node.getBoundingClientRect().left)))
+		.toBe(0);
+	const rect = (await menu.boundingBox())!;
+	expect(rect.height).toBe(page.viewportSize()!.height);
+	expect(rect.width).toBeLessThan(page.viewportSize()!.width - 44);
+	await swipe(190, 150, -100, 6);
+	await expect(menu).toHaveCount(0);
+	await expect(toggle).toBeFocused();
+	await toggle.click();
+	await page.touchscreen.tap(page.viewportSize()!.width - 8, 154);
+	await expect(menu).toHaveCount(0);
+	await page
+		.getByRole('button', { name: /Nightfall/ })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Play album', exact: true }).click();
+	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
+	const hamburger = (await toggle.boundingBox())!,
+		playerClose = (await page
+			.getByRole('button', { name: 'Close player', exact: true })
+			.boundingBox())!;
+	expect(hamburger.x + hamburger.width).toBeLessThanOrEqual(playerClose.x);
+	await toggle.click();
+	await expect(menu.getByRole('button', { name: 'Home', exact: true })).toBeVisible();
+	await menu.getByRole('button', { name: 'Settings', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Edit Now Playing layout', exact: true }).click();
+	await page.getByRole('button', { name: 'Add row', exact: true }).click();
+	const columns = page.getByRole('combobox', { name: 'Number of columns' });
+	await columns.selectOption('4');
+	const toolbar = (await page.locator('.composer .bar').boundingBox())!;
+	await swipe(8, toolbar.y + toolbar.height / 2, 118, 3);
+	await expect(menu).toBeVisible();
+	await menu.getByRole('button', { name: 'Close navigation menu' }).click();
+	await expect(columns).toHaveValue('4');
+	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
+	await page.getByRole('button', { name: 'Show play queue' }).click();
+	await swipe(8, 160, 100, 4);
+	await menu.getByRole('button', { name: 'Home', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Current track' })).toBeVisible();
+	await touch.detach();
 });
 
 test('DN conversion and local fades apply to playback through the normal album action', async ({

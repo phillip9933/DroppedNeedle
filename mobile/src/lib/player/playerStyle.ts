@@ -1,6 +1,13 @@
 import type { Section } from '../boards/layout';
-import { isPlayerText } from './composition';
-import { isNavigation, playerFields, playerWidgets } from './layout';
+import { expandLegacyTrack, isPlayerSlot, isPlayerText } from './composition';
+import {
+	playerMeasurements,
+	validMeasurement,
+	isNavigation,
+	isPlayerIcon,
+	playerFields,
+	playerWidgets
+} from './layout';
 
 const format = 'droppedneedle-player-layout';
 const keys = [
@@ -14,7 +21,14 @@ const keys = [
 	'template',
 	'minHeight',
 	'placement',
-	'contentWidth'
+	'contentWidth',
+	'padding',
+	'vAlign',
+	'icon',
+	'iconSize',
+	'showLabel',
+	'maxLines',
+	'reserveLines'
 ] as const satisfies readonly (keyof Section)[];
 const knownIds = new Set<string>([...playerFields, ...playerWidgets].map((item) => item.id));
 const maxBytes = 64 * 1024;
@@ -47,15 +61,16 @@ function readSection(item: unknown, index: number): Section {
 		title,
 		preview,
 		sameRow,
-		width,
 		align,
 		textSize,
 		template,
-		minHeight,
 		placement,
-		contentWidth
+		vAlign,
+		icon,
+		showLabel,
+		reserveLines
 	} = item;
-	if (typeof id !== 'string' || !(knownIds.has(id) || isPlayerText(id)))
+	if (typeof id !== 'string' || !(knownIds.has(id) || isPlayerText(id) || isPlayerSlot(id)))
 		throw Error(`${label} has an unknown player element ID.`);
 	if (Object.keys(item).some((key) => !keys.some((known) => known === key)))
 		throw Error(`${label} has an unknown option.`);
@@ -64,8 +79,20 @@ function readSection(item: unknown, index: number): Section {
 	if (typeof preview !== 'boolean') throw Error(`${label} needs a true or false preview option.`);
 	if (sameRow !== undefined && typeof sameRow !== 'boolean')
 		throw Error(`${label} has an invalid row setting.`);
-	if (width !== undefined && width !== 1 && width !== 2 && width !== 3)
-		throw Error(`${label} has an invalid width.`);
+	const measurements: Partial<Pick<Section, (typeof playerMeasurements)[number]>> = {};
+	for (const name of playerMeasurements) {
+		const value = item[name];
+		if (value === undefined) continue;
+		if (!validMeasurement(name, value)) throw Error(`${label} has an invalid ${name}.`);
+		measurements[name] = value;
+	}
+	if (icon !== undefined && !isPlayerIcon(icon)) throw Error(`${label} has an invalid icon.`);
+	if (vAlign !== undefined && vAlign !== 'start' && vAlign !== 'center' && vAlign !== 'end')
+		throw Error(`${label} has an invalid vertical alignment.`);
+	if (showLabel !== undefined && typeof showLabel !== 'boolean')
+		throw Error(`${label} has an invalid label setting.`);
+	if (reserveLines !== undefined && typeof reserveLines !== 'boolean')
+		throw Error(`${label} has an invalid line reservation.`);
 	if (align !== undefined && align !== 'start' && align !== 'center' && align !== 'end')
 		throw Error(`${label} has an invalid alignment.`);
 	if (
@@ -81,36 +108,22 @@ function readSection(item: unknown, index: number): Section {
 	)
 		throw Error(`${label} has an invalid custom text template.`);
 	if (
-		contentWidth !== undefined &&
-		(typeof contentWidth !== 'number' ||
-			!Number.isInteger(contentWidth) ||
-			contentWidth < 20 ||
-			contentWidth > 100)
-	)
-		throw Error(`${label} has an invalid element width.`);
-	if (
-		minHeight !== undefined &&
-		(typeof minHeight !== 'number' ||
-			!Number.isInteger(minHeight) ||
-			minHeight < 0 ||
-			minHeight > 640)
-	)
-		throw Error(`${label} has an invalid row height.`);
-	if (
 		placement !== undefined &&
 		(!isNavigation(id) ||
 			(placement !== 'header-start' && placement !== 'header-end' && placement !== 'hidden'))
 	)
 		throw Error(`${label} has an invalid navigation placement.`);
 	return {
-		...(contentWidth === undefined ? {} : { contentWidth }),
-		...(minHeight === undefined ? {} : { minHeight }),
+		...measurements,
+		...(vAlign === undefined ? {} : { vAlign }),
+		...(icon === undefined ? {} : { icon }),
+		...(showLabel === undefined ? {} : { showLabel }),
+		...(reserveLines === undefined ? {} : { reserveLines }),
 		...(placement === undefined ? {} : { placement }),
 		id,
 		title,
 		preview,
 		...(sameRow === undefined ? {} : { sameRow }),
-		...(width === undefined ? {} : { width }),
 		...(align === undefined ? {} : { align }),
 		...(textSize === undefined ? {} : { textSize }),
 		...(template === undefined ? {} : { template })
@@ -139,5 +152,5 @@ export function importPlayerStyle(text: string): Section[] {
 		if (seen.has(item.id)) throw Error('Each player element needs its own ID.');
 		seen.add(item.id);
 	}
-	return sections;
+	return expandLegacyTrack(sections);
 }

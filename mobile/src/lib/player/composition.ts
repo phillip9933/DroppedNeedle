@@ -1,5 +1,17 @@
 import { trackToolFields } from './layout';
+export { isPlayerText } from './layout';
 import type { Section } from '../boards/layout';
+
+export const maxPlayerColumns = 6;
+export function isPlayerSlot(id: string) {
+	return /^player-slot-[1-9]\d*$/.test(id);
+}
+export function nextSlotId(sections: readonly Section[]) {
+	const used = new Set(sections.map((s) => s.id));
+	let index = 1;
+	while (used.has('player-slot-' + index)) index++;
+	return 'player-slot-' + index;
+}
 
 // A missing sameRow starts a fresh row, including every section from the original phone layout.
 export function playerRows(sections: Section[]): Section[][] {
@@ -7,7 +19,7 @@ export function playerRows(sections: Section[]): Section[][] {
 	for (const section of sections) {
 		if (section.placement) continue;
 		const previous = rows.at(-1);
-		if (section.sameRow && previous && previous.length < 3) previous.push(section);
+		if (section.sameRow && previous && previous.length < maxPlayerColumns) previous.push(section);
 		else rows.push([section]);
 	}
 	return rows;
@@ -15,7 +27,7 @@ export function playerRows(sections: Section[]): Section[][] {
 
 export function flattenPlayerRows(rows: Section[][]): Section[] {
 	return rows.flatMap((row) =>
-		row.map((section, index) => ({ ...section, sameRow: index % 3 !== 0 }))
+		row.map((section, index) => ({ ...section, sameRow: index % maxPlayerColumns !== 0 }))
 	);
 }
 
@@ -39,13 +51,19 @@ export function splitPlayerSection(section: Section): Section[] {
 		)
 		.map((id, i) => ({
 			id,
-			title: '',
+			title: i === 0 ? section.title : '',
 			preview: section.preview,
 			width: section.width,
 			align: section.align,
 			textSize: section.textSize,
 			minHeight: section.minHeight,
 			contentWidth: section.contentWidth,
+			padding: section.padding ?? (section.id === 'player-track' ? 0 : undefined),
+			vAlign: section.vAlign,
+			maxLines: section.maxLines,
+			reserveLines: section.reserveLines,
+			iconSize: section.iconSize,
+			showLabel: section.showLabel,
 			sameRow:
 				i === 0
 					? section.sameRow
@@ -57,9 +75,25 @@ export function splitPlayerSection(section: Section): Section[] {
 		}));
 }
 
-export function isPlayerText(id: string) {
-	return /^player-text(?:-(?:[2-9]|[1-9]\d+))?$/.test(id);
+/** Keep explicitly grouped, titled or already composed layouts intact. Plain legacy metadata
+ * can become independent rows without losing adjacent columns, duplicate fields or a custom heading. */
+export function expandLegacyTrack(sections: Section[]): Section[] {
+	const group = sections.find((s) => s.id === 'player-track');
+	if (
+		!group ||
+		group.title ||
+		group.placement ||
+		group.minHeight ||
+		group.padding ||
+		sections.some((s) => ['player-title', 'player-artist', 'player-album'].includes(s.id))
+	)
+		return sections;
+	const row = playerRows(sections).find((r) => r.includes(group));
+	return row?.length === 1
+		? sections.flatMap((s) => (s === group ? splitPlayerSection(s) : [s]))
+		: sections;
 }
+
 export function nextTextId(sections: Section[]) {
 	const used = new Set(sections.map((s) => s.id));
 	if (!used.has('player-text')) return 'player-text';

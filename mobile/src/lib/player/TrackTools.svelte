@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { Star, Heart, ListPlus } from '@lucide/svelte';
+	import type { Section } from '../boards/layout';
+	import PlayerActionFace from './PlayerActionFace.svelte';
+	import { Star, Heart, ListPlus, Wrench } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, putJson, postJson, type Session } from '../connection';
 	import { trackToolFields } from './layout';
@@ -16,6 +18,7 @@
 		title,
 		startOpen,
 		sample = false,
+		section,
 		mode = 'tools',
 		fields = trackToolFields.map((a) => a.id) as readonly string[]
 	}: {
@@ -24,6 +27,7 @@
 		title: string;
 		startOpen: boolean;
 		sample?: boolean;
+		section?: Section;
 		mode?: 'tools' | 'field';
 		fields?: readonly string[];
 	} = $props();
@@ -118,22 +122,44 @@
 	}
 </script>
 
-{#snippet favorite()}{#if sample}<button class="icon-button" aria-label="Favorite track"
-			><Heart size={18} /></button
-		>{:else if library}<Favorite
+{#snippet heart(active: boolean)}<PlayerActionFace
+		section={mode === 'field' ? section : undefined}
+		glyph={Heart}
+		size={18}
+		label={active ? 'Favorited' : 'Favorite'}
+		fill={active}
+	/>{/snippet}
+{#snippet favorite()}{#if sample}<button
+			class="icon-button custom-action"
+			aria-label="Favorite track">{@render heart(false)}</button
+		>
+	{:else if library}<Favorite
 			{session}
 			kind="track"
 			id={track.id}
 			value={library.favorite}
-		/>{:else if !libraryError}<button class="icon-button" disabled aria-label="Loading favorite"
-			><Heart size={18} /></button
+			face={heart}
+		/>
+	{:else if !libraryError}<button
+			class="icon-button custom-action"
+			disabled
+			aria-label="Loading favorite">{@render heart(false)}</button
 		>{/if}{/snippet}
 {#snippet addPlaylist()}<button
-		class="secondary"
+		class="secondary custom-action"
+		aria-label="Add to playlist"
 		onclick={() => {
 			if (!sample) playlist = true;
-		}}><ListPlus size={17} /> Add to playlist</button
-	>{/snippet}
+		}}
+	>
+		<PlayerActionFace
+			section={mode === 'field' ? section : undefined}
+			glyph={ListPlus}
+			size={17}
+			label="Add to playlist"
+			defaultLabel
+		/>
+	</button>{/snippet}
 {#snippet contents()}
 	{#if fields.includes('player-favorite') || fields.includes('player-playlist')}<div class="tools">
 			{#if fields.includes('player-favorite')}{@render favorite()}{/if}{#if fields.includes('player-playlist')}{@render addPlaylist()}{/if}
@@ -149,9 +175,12 @@
 					aria-label={'Rate ' + value + (value === 1 ? ' star' : ' stars')}
 					aria-pressed={rating === value}
 					onclick={() => rate(value)}
-					><Star
+					><PlayerActionFace
+						section={mode === 'field' ? section : undefined}
+						glyph={Star}
 						size={20}
-						fill={(sample ? 3 : (rating ?? 0)) >= value ? 'currentColor' : 'none'}
+						label={String(value)}
+						fill={(sample ? 3 : (rating ?? 0)) >= value}
 					/></button
 				>
 			{/each}
@@ -167,11 +196,27 @@
 		</p>
 		<button class="text-button" onclick={() => retry++}>Try again</button>{/if}{/snippet}
 {#if mode === 'tools'}<details bind:open data-part="track-tools">
-		<summary>{title}</summary>{#if open}{@render contents()}{/if}
+		<summary aria-label={title}
+			>{#if (section?.icon && section.icon !== 'default') || section?.showLabel !== undefined || section?.iconSize}<PlayerActionFace
+					{section}
+					glyph={Wrench}
+					size={18}
+					label={title}
+					defaultLabel
+				/>{:else}{title}{/if}</summary
+		>{#if open}{@render contents()}{/if}
 	</details>{:else}{@render contents()}{/if}
 {#if playlist}<AddToPlaylist {session} tracks={[track]} onclose={() => (playlist = false)} />{/if}
 
 <style>
+	button.custom-action {
+		width: auto;
+		min-width: min(44px, 100%);
+		height: auto;
+		min-height: 44px;
+		max-width: 100%;
+	}
+
 	summary {
 		cursor: pointer;
 		padding: 0.65rem 0;

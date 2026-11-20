@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Outputs from './Outputs.svelte';
-	import { Cast, ChevronDown, ListMusic, Settings2, Ellipsis, Pause, Play } from '@lucide/svelte';
+	import PlayerNavigationAction from './PlayerNavigationAction.svelte';
+	import { ListMusic, Ellipsis, Pause, Play } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
 	import { navigationFields, navigationPlacement, type NavigationId } from './layout';
 	let {
@@ -54,31 +54,20 @@
 	);
 </script>
 
-{#snippet action(id: NavigationId, label: string)}
-	{#if id === 'player-output' && !onselect}<Outputs compact />{:else}
-		<button
-			class="icon-button"
-			data-screen-link={!onselect ? true : undefined}
-			aria-label={onselect
-				? 'Customize ' + label
-				: id === 'player-queue'
-					? queueOpen
-						? 'Hide play queue'
-						: 'Show play queue'
-					: label}
-			onclick={() => activate(id)}
-		>
-			{#if id === 'player-close'}<ChevronDown />{:else if id === 'player-settings'}<Settings2
-					size={20}
-				/>{:else if id === 'player-output'}<Cast />{:else}<ListMusic />{/if}</button
-		>
-	{/if}
+{#snippet action(id: NavigationId)}
+	<PlayerNavigationAction
+		{id}
+		section={sections.find((s) => s.id === id)}
+		{queueOpen}
+		editing={!!onselect}
+		header
+		onactivate={activate}
+	/>
 {/snippet}
 <header class="player-header">
 	<div class="actions">
 		{#each actions.filter((a) => navigationPlacement(a.id, sections) === 'header-start') as a (a.id)}{@render action(
-				a.id,
-				a.label
+				a.id
 			)}{/each}
 		{#if fallback}<button
 				class="icon-button"
@@ -100,8 +89,7 @@
 				>{#if playing}<Pause />{:else}<Play />{/if}</button
 			>{/if}
 		{#each actions.filter((a) => navigationPlacement(a.id, sections) === 'header-end') as a (a.id)}{@render action(
-				a.id,
-				a.label
+				a.id
 			)}{/each}
 	</div>
 	{#if menu}<div class="menu" role="group" aria-label="Player navigation">

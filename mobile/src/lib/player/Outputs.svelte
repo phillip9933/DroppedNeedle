@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { Capacitor } from '@capacitor/core';
+	import { tick } from 'svelte';
+	import type { Section } from '../boards/layout';
+	import PlayerActionFace from './PlayerActionFace.svelte';
 	import { Cast, Speaker } from '@lucide/svelte';
 	import ReviewSheet from '../catalog/ReviewSheet.svelte';
 	import { airplay, nativeOutput as player, type OutputDevice } from './native';
 
-	let { compact = false }: { compact?: boolean } = $props();
+	let {
+		compact = false,
+		drawer = false,
+		section
+	}: { compact?: boolean; drawer?: boolean; section?: Section } = $props();
 	const android = Capacitor.getPlatform() === 'android';
 	const ios = Capacitor.getPlatform() === 'ios';
 	let open = $state(false),
@@ -14,9 +21,11 @@
 		error = $state(''),
 		devices = $state<OutputDevice[]>([]);
 	let revision = 0;
+	let opener = $state<HTMLButtonElement>();
 	function close() {
 		open = false;
 		++revision;
+		void tick().then(() => opener?.isConnected && opener.focus({ preventScroll: true }));
 	}
 	async function run(action: () => Promise<void>) {
 		const version = revision;
@@ -75,11 +84,20 @@
 
 {#if android || ios}
 	<button
-		class={compact ? 'icon-button' : 'secondary'}
+		class:custom-face={!!section}
+		class={drawer ? 'drawer-entry' : compact ? 'icon-button' : 'secondary'}
 		aria-label="Cast and audio output"
+		bind:this={opener}
 		onclick={show}
 	>
-		<Cast size={compact ? 21 : 18} />{#if !compact}Cast and audio output{/if}
+		{#if drawer}<Cast size={20} /><span>Cast and audio output</span>
+		{:else}<PlayerActionFace
+				{section}
+				glyph={Cast}
+				size={compact ? 21 : 18}
+				label="Cast and audio output"
+				defaultLabel={!compact}
+			/>{/if}
 	</button>
 {/if}
 {#if open}
@@ -127,6 +145,14 @@
 {/if}
 
 <style>
+	button.custom-face {
+		width: auto;
+		min-width: min(44px, 100%);
+		height: auto;
+		min-height: 44px;
+		max-width: 100%;
+	}
+
 	.outputs {
 		display: grid;
 		gap: 0.75rem;

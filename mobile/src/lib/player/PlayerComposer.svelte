@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { onDestroy, tick, untrack } from 'svelte';
-	import { ArrowLeft, ArrowRight, Plus, GripVertical, Scaling, X } from '@lucide/svelte';
-	import { available, defaults, sectionTitle, type Section } from '../boards/layout';
+	import {
+		ArrowLeft,
+		ArrowRight,
+		Plus,
+		GripVertical,
+		Scaling,
+		X,
+		Pencil,
+		Columns3
+	} from '@lucide/svelte';
+	import { defaults, sectionTitle, type Section } from '../boards/layout';
 	import {
 		playerWidgets,
 		navigationFields,
@@ -12,11 +21,16 @@
 	import PlayerView from '../PlayerView.svelte';
 	import { sampleSession } from './samplePlayer';
 	import PlayerStyleTransfer from './PlayerStyleTransfer.svelte';
+	import PlayerSlotPicker from './PlayerSlotPicker.svelte';
+	import PlayerCellAppearance from './PlayerCellAppearance.svelte';
+	import PlayerRowInspector from './PlayerRowInspector.svelte';
+	import { emptyColumn, resizeColumns, fillColumn, fiveControlRow, newField } from './composerRows';
 	import {
 		defaultPlayerText,
 		flattenPlayerRows,
 		isPlayerText,
-		nextTextId,
+		isPlayerSlot,
+		maxPlayerColumns,
 		playerRows,
 		playerTokens,
 		sideBySidePlayer,
@@ -35,7 +49,7 @@
 	} = $props();
 	let rows = $state<Section[][]>(untrack(() => playerRows(sections.map((s) => ({ ...s })))));
 	let selected = $state(''),
-		query = $state(''),
+		rowAnchor = $state(''),
 		error = $state(''),
 		status = $state('');
 	let swapTarget = $state<number | null>(null);
@@ -58,19 +72,28 @@
 		);
 	}
 	function placeNav(id: NavigationId, placement: string) {
+		const cells = rows.flat();
+		const original =
+			cells.find((s) => s.id === id) ??
+			headerEntries.find((s) => s.id === id) ??
+			newField(id, cells);
 		headerEntries = headerEntries.filter((s) => s.id !== id);
 		if (placement === 'canvas') {
-			if (!rows.flat().some((s) => s.id === id)) add(id);
+			if (!cells.some((s) => s.id === id)) {
+				rows = [...rows, [{ ...original, placement: undefined, sameRow: false }]];
+				select(id);
+			}
 		} else {
 			rows = rows.map((row) => row.filter((s) => s.id !== id)).filter((row) => row.length);
 			headerEntries = [
 				...headerEntries,
-				{ id, title: '', preview: true, placement: placement as Section['placement'] }
+				{ ...original, sameRow: undefined, placement: placement as Section['placement'] }
 			];
 			if (selected === id) select('');
 		}
-		status = sectionTitle({ id, title: '', preview: true }) + ' placement updated.';
+		status = sectionTitle(original) + ' placement updated.';
 	}
+
 	type Destination = { r: number; c: number; edge: 'before' | 'after' | 'left' | 'right' };
 	let target = $state<Destination | null>(null),
 		ghost = $state<{ x: number; y: number; name: string } | null>(null);
@@ -107,7 +130,10 @@
 		if (dest.edge === 'before' || dest.edge === 'after') {
 			next[from].splice(col, 1);
 			next.splice(dest.r + (dest.edge === 'after' ? 1 : 0), 0, [item]);
-		} else if (dest.r !== from && next[dest.r].length === 3) {
+		} else if (isPlayerSlot(next[dest.r][dest.c].id) && !isPlayerSlot(id)) {
+			moveIntoSlot(id, next[dest.r][dest.c].id);
+			return;
+		} else if (dest.r !== from && next[dest.r].length === maxPlayerColumns) {
 			next[from][col] = next[dest.r][dest.c];
 			next[dest.r][dest.c] = item;
 		} else {
@@ -170,8 +196,8 @@
 					);
 				else if (rows[r].length > 1 && Math.abs(x - e.clientX) > 10)
 					item!.width = Math.min(
-						3,
-						Math.max(1, (initialWidth ?? 1) + Math.round((x - e.clientX) / 45))
+						12,
+						Math.max(1, (initialWidth ?? 1) + Math.round((x - e.clientX) / 24))
 					) as Section['width'];
 				if (Math.abs(y - e.clientY) > 6) setHeight(r, initialHeight + y - e.clientY);
 			}
@@ -231,18 +257,48 @@
 	const column = $derived(rows[rowIndex]?.findIndex((s) => s.id === selected) ?? -1);
 	const field = $derived(rows[rowIndex]?.[column]);
 	const used = $derived(new Set(rows.flat().map((s) => s.id)));
-	const options = $derived(
-		available('player').filter(
-			(w) =>
-				!isNavigation(w.id) &&
-				(isPlayerText(w.id) || !used.has(w.id)) &&
-				w.label.toLowerCase().includes(query.trim().toLowerCase())
-		)
+	const editingRow = $derived(
+		rowAnchor ? rows.findIndex((row) => row.some((s) => s.id === rowAnchor)) : -1
 	);
+
+	let measured = $state<Record<string, number>>({});
+	$effect(() => {
+		const r = editingRow >= 0 ? editingRow : rowIndex;
+		const ids = rows[r]?.map((s) => s.id);
+		if (!ids?.length) {
+			measured = {};
+			return;
+		}
+		let stopped = false;
+		let observer: ResizeObserver | undefined;
+		void tick().then(() => {
+			if (stopped) return;
+			const grid = list?.querySelector<HTMLElement>('[data-player-row="' + r + '"]');
+			if (!grid) return;
+			const cells = Array.from(grid.querySelectorAll<HTMLElement>('[data-section-id]'));
+			const measure = () => {
+				const widths = cells.map((c) => c.getBoundingClientRect().width),
+					total = widths.reduce((sum, w) => sum + w, 0);
+				if (total > 0)
+					measured = Object.fromEntries(
+						cells.map((c, i) => [c.dataset.sectionId!, (100 * widths[i]) / total])
+					);
+			};
+			measure();
+			observer = new ResizeObserver(measure);
+			cells.forEach((c) => observer!.observe(c));
+		});
+		return () => {
+			stopped = true;
+			observer?.disconnect();
+		};
+	});
+
 	const widget = $derived(playerWidgets.find((w) => w.id === field?.id));
 
 	function select(id: string) {
 		selected = id;
+		rowAnchor = '';
 		swapTarget = null;
 		error = '';
 	}
@@ -252,16 +308,98 @@
 			?.querySelector<HTMLButtonElement>('[data-section-id="' + CSS.escape(id) + '"] .field')
 			?.focus();
 	}
-	function add(id: string) {
-		const item: Section = {
-			id: isPlayerText(id) ? nextTextId(rows.flat()) : id,
-			title: '',
-			preview: playerWidgets.find((w) => w.id === id)?.enabled ?? true
-		};
-		rows = [...rows, [item]];
-		select(item.id);
-		status = sectionTitle(item) + ' added in row ' + rows.length + '.';
-		void focusField(item.id);
+	function finishField() {
+		const id = selected;
+		select('');
+		if (id) void focusField(id);
+	}
+	async function finishRow(r: number) {
+		select('');
+		await tick();
+		list
+			?.querySelector<HTMLButtonElement>('button[aria-label="Edit row ' + (r + 1) + '"]')
+			?.focus({ preventScroll: true });
+	}
+
+	function editRow(r: number) {
+		select('');
+		rowAnchor = rows[r]?.[0].id ?? '';
+	}
+	async function addRow() {
+		rows = [...rows, [emptyColumn(rows.flat())]];
+		editRow(rows.length - 1);
+		status = 'Row added.';
+		await tick();
+		list
+			.querySelector<HTMLSelectElement>('[aria-label="Edit row ' + rows.length + '"] select')
+			?.focus();
+	}
+	function changeColumns(r: number, n: number) {
+		rows = resizeColumns(rows, r, n);
+		editRow(r);
+		status = 'Row ' + (r + 1) + ' now has ' + rows[r].length + ' columns.';
+	}
+	function chooseFeature(id: string) {
+		if (!field || !isPlayerSlot(field.id)) return;
+		const choice = fillColumn(
+			rows,
+			field.id,
+			id,
+			headerEntries.find((h) => h.id === id)
+		);
+		if (isNavigation(id)) headerEntries = headerEntries.filter((h) => h.id !== id);
+		rows = choice.rows;
+		select(isPlayerText(choice.id) ? choice.id : '');
+		status = sectionTitle(rows.flat().find((s) => s.id === choice.id)!) + ' placed.';
+		void focusField(choice.id);
+	}
+	function moveIntoSlot(id: string, slot: string) {
+		const source = rows.flat().find((s) => s.id === id);
+		const dest = rows.flat().find((s) => s.id === slot);
+		if (!source || !dest) return;
+		rows = rows
+			.map((row) => {
+				const same = row.some((s) => s.id === slot);
+				return row.flatMap((s) =>
+					s.id === slot
+						? [{ ...source, width: dest.width, minHeight: dest.minHeight }]
+						: s.id === id
+							? same
+								? [{ ...dest, width: source.width, minHeight: source.minHeight }]
+								: []
+							: [s]
+				);
+			})
+			.filter((row) => row.length);
+		select(id);
+		status = sectionTitle(source) + ' moved.';
+		void focusField(id);
+	}
+	function clearColumn(r: number, c: number) {
+		const current = rows[r][c],
+			slot = emptyColumn(rows.flat(), current);
+		rows = rows.map((row, i) => (i === r ? row.map((s, j) => (j === c ? slot : s)) : row));
+		if (isNavigation(current.id))
+			headerEntries = [...headerEntries, { ...current, placement: 'hidden' }];
+		select(slot.id);
+		status = 'Column cleared.';
+	}
+	function removeRow(r: number) {
+		headerEntries = [
+			...headerEntries,
+			...rows[r]
+				.filter((s) => isNavigation(s.id))
+				.map((s) => ({ ...s, placement: 'hidden' as const }))
+		];
+		rows = rows.filter((_, i) => i !== r);
+		select('');
+		status = 'Row removed.';
+	}
+	function standardControls() {
+		rows = fiveControlRow(rows);
+		select('');
+		status = 'Five playback controls arranged in one row.';
+		void focusField('player-toggle');
 	}
 	function remove(r: number, c: number) {
 		const item = rows[r][c];
@@ -297,7 +435,12 @@
 		swapTarget = null;
 		const to = value === 'new' ? rows.length : Number(value);
 		if (to === rowIndex) return;
-		if (rows[to]?.length === 3) {
+		const slot = rows[to]?.find((s) => isPlayerSlot(s.id));
+		if (slot) {
+			moveIntoSlot(field.id, slot.id);
+			return;
+		}
+		if (rows[to]?.length === maxPlayerColumns) {
 			swapTarget = to;
 			return;
 		}
@@ -367,39 +510,68 @@
 		rows = playerRows(items);
 		headerEntries = items.filter((s) => s.placement);
 		select('');
-		query = '';
 		status = message;
 	}
 </script>
 
 <div class="composer" data-part="layout-editor">
 	<div class="bar">
-		<button class="text-button" onclick={onback}>Cancel</button><button
-			class="primary"
-			onclick={save}>Save layout</button
-		>
+		<button class="text-button" onclick={onback}>Cancel</button>
+		<button class="add-row secondary" onclick={addRow}><Plus size={17} />Add row</button>
+		<button class="primary" onclick={save}>Save layout</button>
 	</div>
 	<h1>Edit Now Playing</h1>
 	{#if error}<p role="alert">{error}</p>{/if}
 	<p class="sr-only" role="status">{status}</p>
 	<p class="hint">
-		Tap a field to edit. Drag its grip between fields or to the top or bottom of a row.
+		Add a row, choose its columns, then tap + to place a feature. The pencil edits a feature in the
+		sample player.
 	</p>
+	<button class="secondary transport-preset" onclick={standardControls}
+		>Arrange five playback controls</button
+	>
 	<div class="canvas" bind:this={list} aria-label="Sample player layout">
-		{#snippet overlay(item: Section, r: number, c: number)}
+		{#snippet rowControls(r: number)}
 			<button
-				class="field"
-				aria-label={'Customize ' + sectionTitle(item)}
-				aria-expanded={selected === item.id}
-				onclick={() => select(selected === item.id ? '' : item.id)}
-			></button>
-			{#if selected === item.id}<button
+				class="row-marker"
+				aria-label={'Edit row ' + (r + 1)}
+				aria-expanded={editingRow === r}
+				onclick={() => (editingRow === r ? select('') : editRow(r))}
+			>
+				<Columns3 size={15} /><strong>Row {r + 1}</strong><span
+					>{rows[r].length} {rows[r].length === 1 ? 'column' : 'columns'}</span
+				><Pencil size={13} />
+			</button>
+		{/snippet}
+		{#snippet overlay(item: Section, r: number, c: number)}
+			{#if isPlayerSlot(item.id)}
+				<button
+					class="field empty"
+					aria-label={'Add feature to row ' + (r + 1) + ', column ' + (c + 1)}
+					aria-expanded={selected === item.id}
+					onclick={() => select(item.id)}
+				>
+					<Plus size={19} />
+				</button>
+			{:else}
+				<button
+					class="field filled"
+					aria-label={'Customize ' + sectionTitle(item)}
+					aria-expanded={selected === item.id}
+					onclick={() => select(selected === item.id ? '' : item.id)}
+				>
+					<span class="edit-pencil"><Pencil size={12} /></span>
+				</button>
+			{/if}
+			{#if selected === item.id && !isPlayerSlot(item.id)}<button
 					class="grip"
+					data-layout-drag
 					aria-label={'Drag ' + sectionTitle(item)}
 					onpointerdown={(e) => pointer(e, item.id, 'move')}
 					title="Drag field"><GripVertical size={18} /></button
 				><button
 					class="resize-corner"
+					data-layout-drag
 					aria-label={'Resize ' + sectionTitle(item)}
 					title="Resize field"
 					onpointerdown={(e) => pointer(e, item.id, 'resize')}><Scaling size={17} /></button
@@ -410,7 +582,30 @@
 				></span>{/if}
 		{/snippet}
 		{#snippet inspector(r: number)}
-			{#if r === rowIndex && field}
+			{#if editingRow === r}
+				<PlayerRowInspector
+					{measured}
+					{rows}
+					{r}
+					close={() => void finishRow(r)}
+					resize={(n) => changeColumns(r, n)}
+					setWidth={(c, n) => (rows[r][c].width = n)}
+					{select}
+					move={(to) => moveRow(r, to)}
+					height={rowHeight(r)}
+					setHeight={(n) => setHeight(r, n)}
+					remove={() => removeRow(r)}
+				/>
+			{:else if r === rowIndex && field && isPlayerSlot(field.id)}
+				{#key field.id}<PlayerSlotPicker
+						{r}
+						c={column}
+						{rows}
+						headers={headerEntries}
+						choose={chooseFeature}
+						close={finishField}
+					/>{/key}
+			{:else if r === rowIndex && field}
 				<div
 					class="inspector"
 					hidden={!!ghost}
@@ -421,16 +616,15 @@
 						<strong>{sectionTitle(field)}</strong><button
 							class="tool"
 							aria-label="Finish editing field"
-							onclick={() => select('')}><X size={18} /></button
+							onclick={finishField}><X size={18} /></button
 						>
 					</div>
-					<label
-						>Section title<input
-							maxlength="64"
-							placeholder={sectionTitle({ ...field, title: '' })}
-							bind:value={field.title}
-						/></label
-					>
+					<PlayerCellAppearance
+						{field}
+						change={(patch) => {
+							if (field) Object.assign(field, patch);
+						}}
+					/>
 					{#if isPlayerText(field.id)}
 						<label
 							>Text template<textarea
@@ -450,148 +644,145 @@
 								>{/each}
 						</div>
 					{/if}
-					<div class="pair">
-						<label
-							>Move to row<select
-								aria-label="Move to row"
-								value={swapTarget ?? rowIndex}
-								onchange={(e) => moveField(e.currentTarget.value)}
-							>
-								{#each rows as dest, i (i)}<option value={i}
-										>Row {i + 1}{dest.length === 3 && i !== rowIndex ? ' (full)' : ''}</option
-									>{/each}
-								<option value="new">New row</option>
-							</select></label
-						>
-						<label
-							>Row position<select
-								aria-label="Position"
-								value={rowIndex}
-								onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value))}
-							>
-								{#each rows.keys() as i (i)}<option value={i}>{i + 1}</option>{/each}
-							</select></label
-						>
-					</div>
-					{#if swapTarget !== null && rows[swapTarget]}
-						<label
-							>Swap with<select
-								aria-label="Swap with"
-								value=""
-								onchange={(e) => swapWith(Number(e.currentTarget.value))}
-								><option value="" disabled>Choose a field in row {swapTarget + 1}</option
-								>{#each rows[swapTarget] as partner, i (partner.id)}<option value={i}
-										>{sectionTitle(partner)}</option
-									>{/each}</select
-							></label
-						>
-					{/if}
+					{#if widget}<label class="check"
+							><input type="checkbox" bind:checked={field.preview} />{widget.option}</label
+						>{/if}
 					{#if rows[r].length > 1}
-						<div class="moves">
-							<button
-								class="secondary"
-								aria-label={'Move ' + sectionTitle(field) + ' left'}
-								disabled={column === 0}
-								onclick={() => shift(-1)}><ArrowLeft size={16} />Left</button
-							>
-							<button
-								class="secondary"
-								aria-label={'Move ' + sectionTitle(field) + ' right'}
-								disabled={column === rows[r].length - 1}
-								onclick={() => shift(1)}>Right<ArrowRight size={16} /></button
-							>
-						</div>
-					{/if}
-					<div class="pair">
 						<label
 							>Column width<select
 								aria-label="Column width"
 								value={field.width ?? 1}
 								onchange={(e) => {
-									if (field) field.width = Number(e.currentTarget.value) as Section['width'];
+									if (field) field.width = Number(e.currentTarget.value);
 								}}
 							>
-								<option value="1">1 share</option><option value="2">2 shares</option><option
-									value="3">3 shares</option
+								{#each Array.from({ length: 12 }, (_, i) => i + 1) as w (w)}<option value={w}
+										>{w} {w === 1 ? 'share' : 'shares'}</option
+									>{/each}
+							</select>{#if measured[field.id] !== undefined}<small
+									>{Math.round(measured[field.id])}% of the visible columns</small
+								>{/if}</label
+						>
+					{/if}
+					<details class="advanced">
+						<summary>Placement and sizing</summary>
+						<div>
+							<label
+								>Section title<input
+									maxlength="64"
+									placeholder={sectionTitle({ ...field, title: '' })}
+									bind:value={field.title}
+								/></label
+							>
+							<div class="pair">
+								<label
+									>Move to row<select
+										aria-label="Move to row"
+										value={swapTarget ?? rowIndex}
+										onchange={(e) => moveField(e.currentTarget.value)}
+									>
+										{#each rows as dest, i (i)}<option value={i}
+												>Row {i + 1}{dest.length === maxPlayerColumns && i !== rowIndex
+													? ' (full)'
+													: ''}</option
+											>{/each}
+										<option value="new">New row</option>
+									</select></label
 								>
-							</select></label
-						>
-						<label
-							>Alignment<select
-								aria-label="Alignment"
-								value={field.align ?? ''}
-								onchange={(e) => {
-									if (field) field.align = (e.currentTarget.value || undefined) as Section['align'];
-								}}
-							>
-								<option value="">Default</option><option value="start">Start</option><option
-									value="center">Center</option
-								><option value="end">End</option>
-							</select></label
-						>
-						<label
-							>Text size<select
-								aria-label="Text size"
-								value={field.textSize ?? 'normal'}
-								onchange={(e) => {
-									if (field) field.textSize = e.currentTarget.value as Section['textSize'];
-								}}
-							>
-								<option value="small">Small</option><option value="normal">Normal</option><option
-									value="large">Large</option
+								<label
+									>Row position<select
+										aria-label="Position"
+										value={rowIndex}
+										onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value))}
+									>
+										{#each rows.keys() as i (i)}<option value={i}>{i + 1}</option>{/each}
+									</select></label
 								>
-							</select></label
-						>
-					</div>
-					<div class="pair">
-						<label
-							>Element width (%)<input
-								aria-label="Element width"
-								min="20"
-								max="100"
-								type="number"
-								step="1"
-								value={field.contentWidth ?? 100}
-								onchange={(e) => {
-									if (field && Number.isFinite(e.currentTarget.valueAsNumber))
-										field.contentWidth = Math.round(
-											Math.min(100, Math.max(20, e.currentTarget.valueAsNumber))
-										);
-								}}
-							/></label
-						>
-					</div>
-					<div class="size-tools">
-						<label
-							>Minimum row height (px)<input
-								aria-label="Minimum row height"
-								type="number"
-								min="0"
-								max="640"
-								step="1"
-								value={rowHeight(r)}
-								oninput={(e) => setHeight(r, e.currentTarget.valueAsNumber)}
-							/></label
-						><button
-							class="secondary grip-resize"
-							aria-label={'Drag to resize ' + sectionTitle(field)}
-							onpointerdown={(e) => pointer(e, field!.id, 'resize')}
-							><Scaling size={17} />Drag to resize</button
-						>
-					</div>
-					{#if widget}<label class="check"
-							><input type="checkbox" bind:checked={field.preview} />{widget.option}</label
-						>{/if}
+							</div>
+							{#if swapTarget !== null && rows[swapTarget]}
+								<label
+									>Swap with<select
+										aria-label="Swap with"
+										value=""
+										onchange={(e) => swapWith(Number(e.currentTarget.value))}
+										><option value="" disabled>Choose a field in row {swapTarget + 1}</option
+										>{#each rows[swapTarget] as partner, i (partner.id)}<option value={i}
+												>{sectionTitle(partner)}</option
+											>{/each}</select
+									></label
+								>
+							{/if}
+							{#if rows[r].length > 1}
+								<div class="moves">
+									<button
+										class="secondary"
+										aria-label={'Move ' + sectionTitle(field) + ' left'}
+										disabled={column === 0}
+										onclick={() => shift(-1)}><ArrowLeft size={16} />Left</button
+									>
+									<button
+										class="secondary"
+										aria-label={'Move ' + sectionTitle(field) + ' right'}
+										disabled={column === rows[r].length - 1}
+										onclick={() => shift(1)}>Right<ArrowRight size={16} /></button
+									>
+								</div>
+							{/if}
+							<div class="pair">
+								<label
+									>Element width (%)<input
+										aria-label="Element width"
+										min="20"
+										max="100"
+										type="number"
+										step="1"
+										value={field.contentWidth ?? 100}
+										onchange={(e) => {
+											if (field && Number.isFinite(e.currentTarget.valueAsNumber))
+												field.contentWidth = Math.round(
+													Math.min(100, Math.max(20, e.currentTarget.valueAsNumber))
+												);
+										}}
+									/></label
+								>
+							</div>
+							<div class="size-tools">
+								<label
+									>Minimum row height (px)<input
+										aria-label="Minimum row height"
+										type="number"
+										min="0"
+										max="640"
+										step="1"
+										value={rowHeight(r)}
+										oninput={(e) => setHeight(r, e.currentTarget.valueAsNumber)}
+									/></label
+								><button
+									class="secondary grip-resize"
+									aria-label={'Drag to resize ' + sectionTitle(field)}
+									onpointerdown={(e) => pointer(e, field!.id, 'resize')}
+									><Scaling size={17} />Drag to resize</button
+								>
+							</div>
+						</div>
+					</details>
 					{#if splitAvailable(field.id)}<button
 							class="secondary split"
 							aria-label={'Split ' + sectionTitle(field)}
 							onclick={split}>Split into separate fields</button
 						>{/if}
-					<button
-						class="text-button remove"
-						aria-label={'Remove ' + sectionTitle(field)}
-						onclick={() => remove(rowIndex, column)}>Remove field</button
-					>
+					<div class="field-actions">
+						<button class="secondary" onclick={() => clearColumn(rowIndex, column)}
+							>Clear column</button
+						>
+						<button
+							class="text-button remove"
+							aria-label={'Remove ' + sectionTitle(field)}
+							onclick={() => remove(rowIndex, column)}
+						>
+							{rows[r].length === 1 ? 'Remove row' : 'Remove column'}
+						</button>
+					</div>
 				</div>{/if}{/snippet}
 		<PlayerView
 			session={sampleSession}
@@ -599,9 +790,16 @@
 			onexpand={() => {}}
 			oncollapse={() => {}}
 			onerror={() => {}}
-			editor={{ sections: draft, selected, overlay, inspector, selectNavigation: editNav }}
+			editor={{
+				sections: draft,
+				selected,
+				overlay,
+				rowControls,
+				inspector,
+				selectNavigation: editNav
+			}}
 		/>
-		{#if !rows.length}<p>Add a field below to start your layout.</p>{/if}
+		{#if !rows.length}<p>Add a row to start your layout.</p>{/if}
 	</div>
 	{#if ghost}<div class="ghost" style:left={ghost.x + 'px'} style:top={ghost.y + 'px'}>
 			{ghost.name}
@@ -623,18 +821,6 @@
 		</div>
 	</details>
 
-	<h2>Add fields</h2>
-	<input
-		type="search"
-		placeholder="Find a section"
-		aria-label="Find a section"
-		bind:value={query}
-	/>
-	{#each options as option (option.id)}<button
-			class="add"
-			aria-label={'Add ' + option.label}
-			onclick={() => add(option.id)}><span>{option.label}</span><Plus size={17} /></button
-		>{:else}<p>No matching fields.</p>{/each}
 	<div class="presets">
 		<button
 			class="secondary"
@@ -654,12 +840,64 @@
 </div>
 
 <style>
+	.row-marker {
+		min-height: 44px;
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		width: 100%;
+		text-align: start;
+		color: var(--muted);
+		font-size: 0.81rem;
+	}
+	.row-marker strong {
+		color: var(--text);
+	}
+	.row-marker span {
+		margin-inline-start: auto;
+	}
+	.add-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+	}
+	.field.filled,
+	.field.empty {
+		display: grid;
+		place-items: center;
+		border: 0;
+		background: transparent;
+		padding: 0;
+		min-width: 0;
+		color: var(--text);
+	}
+	.field.filled {
+		align-items: start;
+		justify-items: end;
+	}
+	.edit-pencil {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		border: 1px solid var(--line);
+		background: var(--raised);
+		color: var(--muted);
+	}
+	.field.empty {
+		color: var(--accent);
+	}
+	.field-actions {
+		flex-wrap: wrap;
+	}
+
 	.composer {
 		max-width: 42rem;
 		margin: auto;
 	}
 	.bar,
-	.add,
+	.field-actions,
 	.check,
 	.moves,
 	.tokens {
@@ -671,9 +909,54 @@
 		justify-content: space-between;
 		position: sticky;
 		top: 0;
-		z-index: 1;
+		isolation: isolate;
+		z-index: 12;
 		background: var(--bg);
 		padding: 0.25rem 0;
+	}
+	.bar {
+		gap: 0.25rem;
+	}
+	.bar button {
+		white-space: nowrap;
+		min-width: 0;
+		padding-inline: clamp(0.45rem, 2vw, 0.85rem);
+		flex-shrink: 0;
+	}
+	.canvas {
+		position: relative;
+		isolation: isolate;
+		z-index: 0;
+	}
+	.advanced {
+		border-block: 1px solid var(--line);
+	}
+	.advanced summary {
+		cursor: pointer;
+		line-height: 44px;
+		font-weight: 600;
+	}
+	.advanced[open] > div {
+		display: grid;
+		gap: 0.55rem;
+		padding-bottom: 0.5rem;
+	}
+	@media (max-width: 420px) {
+		.bar {
+			margin-inline: calc(-1 * var(--gap));
+			padding-inline: var(--gap);
+		}
+		.canvas {
+			margin-inline: calc(2px - var(--gap));
+			padding-inline: 0.25rem;
+		}
+		.canvas :global(.now.sample) {
+			padding-inline: 0.25rem;
+		}
+	}
+
+	.transport-preset {
+		margin-bottom: 0.55rem;
 	}
 	.hint {
 		font-size: 0.88rem;
@@ -700,7 +983,7 @@
 	}
 	.resize-corner {
 		position: absolute;
-		top: calc(100% + 3px);
+		bottom: 0;
 		inset-inline-end: 0;
 		z-index: 2;
 		touch-action: none;
@@ -725,7 +1008,7 @@
 	.grip {
 		position: absolute;
 		inset-inline-start: 0;
-		top: calc(100% + 3px);
+		bottom: 0;
 		width: 44px;
 		height: 44px;
 		z-index: 2;
@@ -866,7 +1149,7 @@
 		flex-wrap: wrap;
 	}
 	.tokens button,
-	.add {
+	.add-row {
 		min-height: 44px;
 	}
 	.tokens button {
@@ -874,13 +1157,6 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius);
 		font-size: 0.85rem;
-	}
-	.add {
-		width: 100%;
-		justify-content: space-between;
-		padding: 0.35rem 0.1rem;
-		text-align: start;
-		border-bottom: 1px solid var(--line);
 	}
 	.split {
 		justify-self: start;

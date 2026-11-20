@@ -3,8 +3,16 @@ import { boardDisplay, type BoardDisplay } from './display';
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
-import { isPlayerText } from '../player/composition';
-import { playerWidgets, playerDefaults, playerFields, isNavigation } from '../player/layout';
+import { expandLegacyTrack, isPlayerSlot, isPlayerText } from '../player/composition';
+import {
+	playerMeasurements,
+	validMeasurement,
+	playerWidgets,
+	playerDefaults,
+	playerFields,
+	isNavigation,
+	isPlayerIcon
+} from '../player/layout';
 
 export type Board = 'home' | 'library' | 'discover';
 export type LayoutTarget = Board | 'player';
@@ -18,7 +26,14 @@ export type Section = {
 	contentWidth?: number;
 	placement?: 'header-start' | 'header-end' | 'hidden';
 	sameRow?: boolean;
-	width?: 1 | 2 | 3;
+	width?: number;
+	padding?: number;
+	vAlign?: 'start' | 'center' | 'end';
+	icon?: string;
+	iconSize?: number;
+	showLabel?: boolean;
+	maxLines?: number;
+	reserveLines?: boolean;
 	align?: 'start' | 'center' | 'end';
 	textSize?: 'small' | 'normal' | 'large';
 	template?: string;
@@ -47,7 +62,11 @@ export function sectionTitle(section: Section) {
 		section.filter?.name ||
 		section.title ||
 		widgets.find((w) => w.id === section.id)?.label ||
-		(isPlayerText(section.id) ? 'Custom text' : section.id)
+		(isPlayerSlot(section.id)
+			? 'Empty column'
+			: isPlayerText(section.id)
+				? 'Custom text'
+				: section.id)
 	);
 }
 
@@ -155,7 +174,11 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 			board === 'home' || board === 'library'
 				? boards?.filters.find((f) => f.id === item.id)
 				: undefined;
-		if (!filter && !allowed.has(item.id) && !(board === 'player' && isPlayerText(item.id)))
+		if (
+			!filter &&
+			!allowed.has(item.id) &&
+			!(board === 'player' && (isPlayerText(item.id) || isPlayerSlot(item.id)))
+		)
 			continue;
 		seen.add(item.id);
 		const section: Section = {
@@ -165,21 +188,20 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 			preview: item.preview !== false
 		};
 		if (board === 'player') {
-			if (
-				Number.isInteger(item.contentWidth) &&
-				item.contentWidth >= 20 &&
-				item.contentWidth <= 100
-			)
-				section.contentWidth = item.contentWidth;
-			if (Number.isInteger(item.minHeight) && item.minHeight >= 0 && item.minHeight <= 640)
-				section.minHeight = item.minHeight;
+			for (const measure of playerMeasurements) {
+				const value: unknown = item[measure];
+				if (validMeasurement(measure, value)) section[measure] = value;
+			}
 			if (
 				isNavigation(item.id) &&
 				['header-start', 'header-end', 'hidden'].includes(item.placement)
 			)
 				section.placement = item.placement;
 			if (item.sameRow === true) section.sameRow = true;
-			if ([1, 2, 3].includes(item.width)) section.width = item.width;
+			if (['start', 'center', 'end'].includes(item.vAlign)) section.vAlign = item.vAlign;
+			if (isPlayerIcon(item.icon)) section.icon = item.icon;
+			if (typeof item.showLabel === 'boolean') section.showLabel = item.showLabel;
+			if (typeof item.reserveLines === 'boolean') section.reserveLines = item.reserveLines;
 			if (['start', 'center', 'end'].includes(item.align)) section.align = item.align;
 			if (['small', 'normal', 'large'].includes(item.textSize)) section.textSize = item.textSize;
 			if (isPlayerText(item.id) && typeof item.template === 'string')
@@ -189,7 +211,7 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 		}
 		sections.push(section);
 	}
-	return sections;
+	return board === 'player' ? expandLegacyTrack(sections) : sections;
 }
 
 export function saveLayout(

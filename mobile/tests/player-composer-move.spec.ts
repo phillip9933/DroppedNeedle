@@ -1,3 +1,4 @@
+import { openPlayerPlacement } from './fixtures/playerEditor';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -44,6 +45,9 @@ test('full rows swap a chosen field and preserve independently arranged fields w
 		['player-title', false],
 		['player-artist', true],
 		['player-album', true],
+		['player-elapsed', true],
+		['player-duration', true],
+		['player-remaining', true],
 		['player-text', false]
 	]);
 	await button('Customize Track details').click();
@@ -55,15 +59,38 @@ test('full rows swap a chosen field and preserve independently arranged fields w
 			.nth(r)
 			.locator('[data-section-id]')
 			.evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-section-id')));
-	expect(await ids(0)).toEqual(['player-title', 'player-artist', 'player-album']);
+	expect(await ids(0)).toEqual([
+		'player-title',
+		'player-artist',
+		'player-album',
+		'player-elapsed',
+		'player-duration',
+		'player-remaining'
+	]);
 	await button('Customize Custom text').click();
+	await openPlayerPlacement(page);
 	await page.getByLabel('Move to row', { exact: true }).selectOption('0');
 	await page.getByLabel('Swap with', { exact: true }).selectOption('1');
-	expect(await ids(0)).toEqual(['player-title', 'player-text', 'player-album']);
+	expect(await ids(0)).toEqual([
+		'player-title',
+		'player-text',
+		'player-album',
+		'player-elapsed',
+		'player-duration',
+		'player-remaining'
+	]);
 	expect(await ids(1)).toEqual(['player-artist']);
+	await openPlayerPlacement(page);
 	await button('Move Custom text left').focus();
 	await page.keyboard.press('Enter');
-	expect(await ids(0)).toEqual(['player-text', 'player-title', 'player-album']);
+	expect(await ids(0)).toEqual([
+		'player-text',
+		'player-title',
+		'player-album',
+		'player-elapsed',
+		'player-duration',
+		'player-remaining'
+	]);
 	for (const box of await rows
 		.first()
 		.getByRole('button')
@@ -82,10 +109,16 @@ test('full rows swap a chosen field and preserve independently arranged fields w
 		'player-text',
 		'player-title',
 		'player-album',
+		'player-elapsed',
+		'player-duration',
+		'player-remaining',
 		'player-artist'
 	]);
 	expect(saved.map((s: { sameRow: boolean }) => Boolean(s.sameRow))).toEqual([
 		false,
+		true,
+		true,
+		true,
 		true,
 		true,
 		false
@@ -137,11 +170,13 @@ test('touch editing moves and resizes real sample fields, changes header actions
 		{ x: title!.x + title!.width - 14, y: title!.y + title!.height / 2 }
 	);
 	await expect(row(0).locator('[data-section-id]')).toHaveCount(2);
+	await openPlayerPlacement(page);
 	await page.getByLabel('Minimum row height', { exact: true }).fill('88');
 	await expect(row(0)).toHaveCSS('min-height', '88px');
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 	await button('Finish editing field').click();
 	await button('Customize Artwork').click();
+	await openPlayerPlacement(page);
 	await page.getByLabel('Element width', { exact: true }).fill('80');
 	await page.getByLabel('Element width', { exact: true }).press('Tab');
 	await button('Finish editing field').click();
@@ -160,6 +195,11 @@ test('touch editing moves and resizes real sample fields, changes header actions
 	await page.getByLabel('Close player placement').selectOption('hidden');
 	await expect(sample.locator('[data-section-id="player-settings"]')).toHaveCount(1);
 	await expect(sample.locator('header').getByRole('button', { name: 'Player menu' })).toBeVisible();
+	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('star');
+	await page.getByLabel('Player settings placement').selectOption('header-end');
+	await page.getByLabel('Player settings placement').selectOption('canvas');
+	await expect(page.getByRole('combobox', { name: 'Icon', exact: true })).toHaveValue('star');
+
 	await button('Save layout').click();
 	const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
 	expect(saved).toEqual(
@@ -169,4 +209,42 @@ test('touch editing moves and resizes real sample fields, changes header actions
 			expect.objectContaining({ id: 'player-queue', placement: 'header-start' })
 		])
 	);
+});
+
+test('a listener builds five controls directly from legacy groups and keeps a sixth empty column', async ({
+	page
+}) => {
+	const { key, button } = await startComposer(page, [
+		['player-transport', false],
+		['player-modes', false]
+	]);
+	await button('Add row').click();
+	await page.getByLabel('Number of columns').selectOption('6');
+	const controls = ['Shuffle upcoming', 'Previous track', 'Play or pause', 'Next track', 'Repeat'];
+	for (const [index, name] of controls.entries()) {
+		const target = page.getByRole('button', {
+			name: new RegExp('^Add feature to row [0-9]+, column ' + (index + 1) + '$')
+		});
+		await target.click();
+		await button('Use ' + name).click();
+	}
+	const row = page.locator('[data-player-row]').filter({ has: button('Customize Play or pause') });
+	await expect(row.locator('[data-section-id]')).toHaveCount(6);
+	await button('Save layout').click();
+	const saved: { id: string; sameRow?: boolean }[] = await page.evaluate(
+		(key) => JSON.parse(localStorage.getItem(key)!),
+		key
+	);
+	expect(saved.slice(0, 5).map((s) => s.id)).toEqual([
+		'player-shuffle',
+		'player-previous',
+		'player-toggle',
+		'player-next',
+		'player-repeat'
+	]);
+	expect(saved.at(-1)?.id).toMatch(/^player-slot-\d+$/);
+	expect(saved.filter((s) => !s.sameRow)).toHaveLength(1);
+	await button('Player settings').click();
+	await expect(page.getByRole('button', { name: 'Add feature to row 1, column 6' })).toBeVisible();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

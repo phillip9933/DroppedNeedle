@@ -23,16 +23,17 @@ export type Destination = (typeof destinations)[number]['id'];
 export type BrowseDestination = Exclude<Destination, 'settings'>;
 export const maxTabs = 5;
 export type InterfacePreferences = {
-	surface: 'web' | 'glass' | 'simple';
+	surface: 'solid' | 'glass' | 'blur';
 	blur: number;
 	bar: 'docked' | 'floating';
 	tabs: Destination[];
 	headerSettings: boolean;
 	motion: 'off' | 'quick' | 'gentle';
 };
-const key = 'dn.mobile.interface.v1';
+const key = 'dn.mobile.interface.v2';
+const legacyKey = 'dn.mobile.interface.v1';
 export const defaultInterface: InterfacePreferences = {
-	surface: 'web',
+	surface: 'solid',
 	blur: 14,
 	bar: 'docked',
 	tabs: ['home', 'library', 'search', 'discover', 'requests'],
@@ -42,7 +43,7 @@ export const defaultInterface: InterfacePreferences = {
 function normalize(value: Partial<InterfacePreferences> | null): InterfacePreferences {
 	const valid = (id: unknown): id is Destination => destinations.some((d) => d.id === id);
 	return {
-		surface: value?.surface === 'glass' || value?.surface === 'simple' ? value.surface : 'web',
+		surface: value?.surface === 'glass' || value?.surface === 'blur' ? value.surface : 'solid',
 		blur:
 			typeof value?.blur === 'number' && Number.isInteger(value.blur)
 				? Math.min(24, Math.max(0, value.blur))
@@ -57,7 +58,11 @@ function normalize(value: Partial<InterfacePreferences> | null): InterfacePrefer
 }
 function restore() {
 	try {
-		return normalize(JSON.parse(localStorage.getItem(key) || 'null'));
+		const current = localStorage.getItem(key);
+		if (current !== null) return normalize(JSON.parse(current));
+		const previous = JSON.parse(localStorage.getItem(legacyKey) || 'null');
+		// The earlier Glass style used the listener's adjustable backdrop blur.
+		return normalize({ ...previous, surface: previous?.surface === 'glass' ? 'blur' : 'solid' });
 	} catch {
 		return normalize(null);
 	}
@@ -85,7 +90,7 @@ export function applyInterface() {
 		root.dataset.material = p.surface;
 		root.dataset.navigation = p.bar;
 		root.dataset.motion = p.motion;
-		root.style.setProperty('--glass-blur', p.blur + 'px');
+		root.style.setProperty('--material-blur', p.blur + 'px');
 	});
 	// Fade the outgoing screen on press. A tap commits the route immediately,
 	// including when two navigation actions arrive in the same frame.

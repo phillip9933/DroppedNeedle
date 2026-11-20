@@ -13,6 +13,7 @@ test.beforeEach(async ({ page }) => {
 			Browser: ['open'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
+			DNDrawer: ['setMenuEdge'],
 			DNPlayer: [
 				'getState',
 				'command',
@@ -27,6 +28,7 @@ test.beforeEach(async ({ page }) => {
 		Object.assign(window, {
 			androidBridge: {},
 			deliverLink: (url: string) => listeners.get('appUrlOpen')?.({ url }),
+			pressAndroidBack: () => listeners.get('backButton')?.({ url: '' }),
 			Capacitor: {
 				PluginHeaders: Object.entries(plugins).map(([name, methods]) => ({
 					name,
@@ -52,6 +54,10 @@ test.beforeEach(async ({ page }) => {
 					if (plugin === 'App') {
 						if (method === 'removeListener') listeners.delete(opts.eventName);
 						return undefined;
+					}
+					if (plugin === 'DNDrawer' && method === 'setMenuEdge') {
+						sessionStorage.setItem('menu-edge', String(opts.enabled));
+						return;
 					}
 					if (plugin === 'SecureStorage') {
 						if (method === 'internalSetItem') sessionStorage.setItem(opts.prefixedKey, opts.data);
@@ -168,7 +174,17 @@ test('an Android listener chooses and disconnects a network output after browser
 	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
 	await deliverApproval(page);
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
-	await page.getByRole('button', { name: 'More navigation options' }).click();
+	await expect.poll(() => page.evaluate(() => sessionStorage.getItem('menu-edge'))).toBe('true');
+	await page.getByRole('button', { name: 'Open navigation menu' }).click();
+	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
+	await expect.poll(() => page.evaluate(() => sessionStorage.getItem('menu-edge'))).toBe('false');
+	const rowSize = (name: string) =>
+		menu.getByRole('button', { name, exact: true }).evaluate((button) => {
+			const box = button.getBoundingClientRect(),
+				icon = button.querySelector('svg')!.getBoundingClientRect();
+			return [box.width, box.height, icon.width, icon.left - box.left];
+		});
+	expect(await rowSize('Cast and audio output')).toEqual(await rowSize('Settings'));
 	await page.getByRole('button', { name: 'Cast and audio output' }).click();
 	const sheet = page.getByRole('dialog', { name: 'Cast and audio output' });
 	expect(await page.evaluate(() => sessionStorage.getItem('cast-search'))).toBeNull();
@@ -179,11 +195,20 @@ test('an Android listener chooses and disconnects a network output after browser
 	await sheet.getByRole('button', { name: 'Choose Google Cast device' }).click();
 	await expect(sheet.getByText('Casting to Fixture Chromecast')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(page.getByRole('dialog', { name: 'More destinations' })).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toBeVisible();
 	await page.getByRole('button', { name: 'Cast and audio output' }).click();
 	await expect(sheet.getByText('Casting to Fixture Chromecast')).toBeVisible();
 	await sheet.getByRole('button', { name: 'Stop casting' }).click();
 	await expect(sheet.getByText('Playing on this phone')).toBeVisible();
+	const androidBack = () =>
+		page.evaluate(() => (window as unknown as { pressAndroidBack(): void }).pressAndroidBack());
+	await androidBack();
+	await expect(sheet).toHaveCount(0);
+	await expect(menu.getByRole('button', { name: 'Cast and audio output' })).toBeFocused();
+	await androidBack();
+	await expect(menu).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Open navigation menu' })).toBeFocused();
+	await expect.poll(() => page.evaluate(() => sessionStorage.getItem('menu-edge'))).toBe('true');
 });
 
 test('Android can finish a returned browser sign-in after the network and app restart', async ({

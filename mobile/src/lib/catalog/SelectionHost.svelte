@@ -144,7 +144,7 @@
 	</div>
 	{#if tools && !group.selecting}<div class="tools">{@render tools()}</div>{/if}
 	{#if group.selecting}
-		<div class="toolbar" role="group" aria-label="Selection actions">
+		<div class="toolbar" data-surface="panel" role="group" aria-label="Selection actions">
 			<div class="summary">
 				<button aria-label="Cancel selection" onclick={cancel}><X size={20} /></button><strong
 					aria-live="polite">{group.selected.size} selected</strong
@@ -268,11 +268,6 @@
 		padding: 0.4rem;
 		background: var(--bg);
 		border-block: 1px solid var(--line);
-	}
-	:global(html[data-material='glass']) .toolbar {
-		background: var(--glass-panel);
-		backdrop-filter: blur(var(--glass-blur));
-		-webkit-backdrop-filter: blur(var(--glass-blur));
 	}
 	.summary strong {
 		flex: 1 1 auto;

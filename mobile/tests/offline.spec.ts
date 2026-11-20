@@ -79,8 +79,7 @@ async function login(page: Page, user = 'listener') {
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 }
 async function offline(page: Page) {
-	const nav = page.getByRole('navigation', { name: 'Music' });
-	await nav.getByRole('button', { name: 'More navigation options' }).click();
+	await page.getByRole('button', { name: 'Open navigation menu' }).click();
 	await page
 		.getByRole('dialog')
 		.getByRole('button', { name: 'Offline music', exact: true })
