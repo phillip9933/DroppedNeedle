@@ -1,0 +1,235 @@
+import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
+import { getJson, putJson, type Session } from '../connection';
+import { cover, path, type Album } from './catalog';
+
+type Schema = components['schemas'];
+export type DiscoverArtistRef = { id: string; name: string; localOnly?: boolean };
+export type DiscoverView =
+	'recommendations' | 'popular' | 'trending' | 'top' | 'following' | 'releases' | 'concerts';
+export type ChartRange = Schema['StatsRange'];
+type Artist = { name: string; target?: DiscoverArtistRef; art?: string };
+export type Shelf = { title: string; albums: Album[]; artists: Artist[]; unlinked: string[] };
+export type DiscoveryPage = {
+	shelves: Shelf[];
+	concerts?: Schema['Concert'][];
+	notice?: string;
+	next?: number;
+	refreshing?: boolean;
+};
+
+function shelf(title: string): Shelf {
+	return { title, albums: [], artists: [], unlinked: [] };
+}
+
+export function artistCover(artist: DiscoverArtistRef) {
+	return artist.localOnly
+		? path('/api/v3/library/artists/{id}/artwork', { id: artist.id }, { size: 250 })
+		: path('/api/v3/covers/artist/{artist_id}', { artist_id: artist.id }, { size: 250 });
+}
+
+function addArtist(list: Shelf, row: Schema['ArtistRef']) {
+	const id = row.musicbrainz_id || row.local_id;
+	const target = id ? { id, name: row.name, localOnly: !row.musicbrainz_id } : undefined;
+	if (list.artists.some((a) => (id ? a.target?.id === id : a.name === row.name))) return;
+	list.artists.push({ name: row.name, target, art: target && artistCover(target) });
+}
+
+function addAlbum(list: Shelf, row: Schema['AlbumRef']) {
+	const group = row.musicbrainz_id,
+		localId = row.local_id;
+	if (!group && !localId) {
+		list.unlinked.push([row.title, row.artist_name].filter(Boolean).join(' · '));
+		return;
+	}
+	if (list.albums.some((a) => (a.localId || a.group) === (localId || group))) return;
+	list.albums.push({
+		group,
+		localId,
+		title: row.title,
+		artist: row.artist_name ?? '',
+		year: row.year,
+		requested: row.requested,
+		art: cover(group, localId)
+	});
+}
+
+function recommendations(sections: Schema['PageSection'][]) {
+	const shelves: Shelf[] = [];
+	function fromChart(chart: Schema['ChartSection']) {
+		const list = shelf(chart.title);
+		for (const item of chart.items) {
+			if (item.kind === 'album') addAlbum(list, item);
+			if (item.kind === 'artist') addArtist(list, item);
+		}
+		if (list.albums.length || list.artists.length || list.unlinked.length) shelves.push(list);
+	}
+	for (const { content, zone } of sections) {
+		if (content.shape === 'picks') {
+			const list = shelf(content.picks.title);
+			for (const item of content.picks.items) addAlbum(list, item.album);
+			if (list.albums.length || list.unlinked.length) shelves.push(list);
+		} else if (content.shape === 'because') {
+			for (const item of content.entries) fromChart(item.section);
+		} else if (
+			zone === 'made_for_you' ||
+			zone === 'essentials' ||
+			zone === 'because_you_listened' ||
+			zone === 'for_you' ||
+			zone === 'from_your_library'
+		) {
+			if (content.shape === 'shelf') fromChart(content.shelf);
+			if (content.shape === 'shelves') content.shelves.forEach(fromChart);
+		}
+	}
+	return shelves;
+}
+
+export async function discover(
+	session: Session,
+	view: DiscoverView,
+	range: ChartRange,
+	offset: number
+): Promise<DiscoveryPage> {
+	const query = { range, offset, limit: 24 };
+	switch (view) {
+		case 'recommendations': {
+			const result = await getJson<Schema['DiscoverResponse']>(session, path('/api/v3/discover'));
+			return { shelves: recommendations(result.sections), refreshing: result.refreshing };
+		}
+		case 'top':
+		case 'popular': {
+			const url = view === 'top' ? '/api/v3/home/your-top/albums' : '/api/v3/home/popular/albums';
+			const result = await getJson<Schema['ChartPage_AlbumRef']>(session, path(url, {}, query));
+			const list = shelf('');
+			result.items.forEach((row) => addAlbum(list, row));
+			return {
+				shelves: [list],
+				next: result.has_more && result.limit > 0 ? result.offset + result.limit : undefined
+			};
+		}
+		case 'trending': {
+			const result = await getJson<Schema['ChartPage_ArtistRef']>(
+				session,
+				path('/api/v3/home/trending/artists', {}, query)
+			);
+			const list = shelf('');
+			result.items.forEach((row) => addArtist(list, row));
+			return {
+				shelves: [list],
+				next: result.has_more && result.limit > 0 ? result.offset + result.limit : undefined
+			};
+		}
+		case 'following': {
+			const result = await getJson<Schema['FollowedArtistListResponse']>(
+				session,
+				path('/api/v3/following/artists')
+			);
+			const list = shelf('');
+			result.artists.forEach((a) =>
+				addArtist(list, { name: a.name, musicbrainz_id: a.artist_mbid, in_library: false })
+			);
+			return { shelves: [list] };
+		}
+		case 'releases': {
+			const result = await getJson<Schema['NewReleaseListResponse']>(
+				session,
+				path(
+					'/api/v3/following/new-releases/recent',
+					{},
+					{ days: 90, include_owned: 'true', limit: 100 }
+				)
+			);
+			const list = shelf('');
+			result.items.forEach((r) =>
+				addAlbum(list, {
+					musicbrainz_id: r.release_group_mbid,
+					title: r.title,
+					artist_name: r.artist_name,
+					in_library: r.in_library,
+					requested: false,
+					release_date: r.first_release_date,
+					year: r.first_release_date
+						? Number(r.first_release_date.slice(0, 4)) || undefined
+						: undefined
+				})
+			);
+			return { shelves: [list] };
+		}
+		case 'concerts': {
+			const result = await getJson<Schema['ConcertsResponse']>(
+				session,
+				path('/api/v3/following/concerts')
+			);
+			return {
+				shelves: [],
+				concerts: result.items,
+				notice: result.configured
+					? undefined
+					: 'Concert listings are not configured on this server.'
+			};
+		}
+	}
+}
+
+export async function artistReleases(
+	session: Session,
+	artist: DiscoverArtistRef,
+	offset: number,
+	cursor?: string
+) {
+	if (artist.localOnly) {
+		const result = await getJson<Schema['AlbumPage']>(
+			session,
+			path('/api/v3/library/albums', {}, { artist_id: artist.id, limit: 24, after: cursor })
+		);
+		const albums: Album[] = result.items.map((a) => ({
+			title: a.title,
+			artist: a.artist_name,
+			group: a.release_group_mbid,
+			localId: a.id,
+			year: a.year,
+			art: cover(a.release_group_mbid, a.id, a.art_missing)
+		}));
+		return { albums, next: undefined, cursor: result.next, warming: false };
+	}
+	const result = await getJson<Schema['ArtistReleases']>(
+		session,
+		path(
+			'/api/v3/artists/{artist_mbid}/releases',
+			{ artist_mbid: artist.id },
+			{ offset, limit: 24 }
+		)
+	);
+	const list = shelf('');
+	for (const r of [...result.albums, ...result.eps, ...result.singles]) {
+		if (r.title)
+			addAlbum(list, {
+				title: r.title,
+				artist_name: artist.name,
+				year: r.year,
+				musicbrainz_id: r.id,
+				in_library: r.in_library,
+				requested: r.requested
+			});
+	}
+	return {
+		albums: list.albums,
+		next: result.has_more ? result.next_offset : undefined,
+		cursor: undefined,
+		warming: result.warming
+	};
+}
+
+export function followStatus(session: Session, artist: string) {
+	return getJson<Schema['FollowStatusResponse']>(
+		session,
+		path('/api/v3/artists/{artist_mbid}/follow-status', { artist_mbid: artist })
+	);
+}
+export function follow(session: Session, artist: string, followed: boolean) {
+	return putJson<Schema['FollowStatusResponse']>(
+		session,
+		path('/api/v3/artists/{artist_mbid}/follow', { artist_mbid: artist }),
+		{ followed } satisfies Schema['FollowBody']
+	);
+}
