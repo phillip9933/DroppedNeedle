@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { combineSignals } from '../abortSignals';
 	import { Capacitor, CapacitorHttp } from '@capacitor/core';
 	import { serverAddress, type Session } from '../connection';
 	import { errorMessage, path } from './catalog';
@@ -50,7 +51,7 @@
 						credentials: 'omit',
 						redirect: 'error',
 						cache: 'no-store',
-						signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)])
+						signal: combineSignals(controller.signal, AbortSignal.timeout(15000))
 					});
 					if (response.status !== 206 || Number(response.headers.get('content-length')) > bytes) {
 						await response.body?.cancel();

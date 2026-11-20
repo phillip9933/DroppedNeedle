@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { combineSignals } from '../abortSignals';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { DnError, getJson, postJson, type Session } from '../connection';
 import { localSong, path } from '../catalog/catalog';
@@ -244,8 +245,10 @@ export function runAutoDownloads(session: Session, signal?: AbortSignal): Promis
 	const previous = syncs.get(key);
 	if (previous) return previous.pending;
 	const abort = new AbortController();
-	signal = signal ? AbortSignal.any([signal, abort.signal]) : abort.signal;
+	signal = signal ? combineSignals(signal, abort.signal) : abort.signal;
 	const pending = sync().finally(() => {
+		// Release the listeners linking this completed batch to the signed-in session.
+		abort.abort();
 		if (syncs.get(key)?.pending === pending) syncs.delete(key);
 	});
 	syncs.set(key, { pending, abort });

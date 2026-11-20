@@ -1,4 +1,5 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { combineSignals } from './abortSignals';
 import { SecureStorage, KeychainAccess } from '@aparajita/capacitor-secure-storage';
 
 export interface Session {
@@ -106,7 +107,7 @@ function webRequest(
 			redirect: 'error',
 			cache: 'no-store',
 			signal: signal
-				? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+				? combineSignals(signal, AbortSignal.timeout(timeout))
 				: AbortSignal.timeout(timeout)
 		}),
 		signal

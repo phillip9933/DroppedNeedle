@@ -1,4 +1,5 @@
 import type { PlayerTrack } from '../player';
+import { combineSignals } from '../abortSignals';
 import {
 	cacheSizes,
 	playlistId,
@@ -368,7 +369,7 @@ export const webOffline: OfflineBridge = {
 			cache: 'no-store',
 			referrerPolicy: 'no-referrer',
 			signal: a.signal
-				? AbortSignal.any([a.signal, AbortSignal.timeout(180000)])
+				? combineSignals(a.signal, AbortSignal.timeout(180000))
 				: AbortSignal.timeout(180000)
 		});
 		if (a.source?.startsWith('playlist:') && (response.status === 404 || response.status === 410))
