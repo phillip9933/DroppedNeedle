@@ -76,6 +76,8 @@
 	let {
 		session,
 		category,
+		availability,
+		chooseAvailability,
 		active,
 		onopen,
 		onlocal,
@@ -86,6 +88,8 @@
 	}: {
 		session: Session;
 		category: Category;
+		availability: Availability;
+		chooseAvailability: (value: Availability) => void;
 		active: boolean;
 		onopen: (album: Album) => void;
 		onlocal: (artist: { id: string; name: string }) => void;
@@ -119,8 +123,7 @@
 			order: settings.order
 		}))
 	);
-	let availability = $state<Availability>('all'),
-		connected = $state(navigator.onLine),
+	let connected = $state(navigator.onLine),
 		inventory = $state.raw<OfflineInventory>(),
 		ready = $state(false);
 	const disconnected = $derived(!connected || inventory?.offlineOnly === true);
@@ -666,7 +669,7 @@
 			{filters}
 			{change}
 			{availability}
-			chooseAvailability={(a) => (availability = a)}
+			{chooseAvailability}
 			local={!!available}
 			{localFormats}
 			onsave={category !== 'Genres' && category !== 'Playlists'

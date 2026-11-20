@@ -2,6 +2,16 @@ import type { PlayerTrack } from '../player';
 import type { OfflineItem, OfflineOrigin, OfflineSnapshot } from './tracks';
 
 export type Availability = 'all' | 'offline' | OfflineOrigin;
+export const originLabels = {
+	downloaded: 'Downloaded',
+	automatic: 'Automatically saved',
+	cached: 'Playback cache'
+} as const;
+export const availabilityLabels = {
+	all: 'All library music',
+	offline: 'Available offline',
+	...originLabels
+} satisfies Record<Availability, string>;
 export type OfflineInventory = {
 	items: OfflineItem[];
 	byId: Map<string, OfflineItem>;

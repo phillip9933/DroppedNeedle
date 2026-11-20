@@ -1,4 +1,5 @@
 import type { Session } from '../connection';
+import { availabilityLabels, type Availability } from '../offline/library';
 import { defaultSort, orderChoices, type Category } from './libraryBrowse';
 
 export type BrowsePreferences = {
@@ -8,10 +9,26 @@ export type BrowsePreferences = {
 	sort: string;
 	order: 'asc' | 'desc';
 };
-function key(session: Session, category: Category) {
+function key(session: Session, category: Category | 'availability') {
 	return (
 		'dn.mobile.library-browse.v1.' + JSON.stringify([session.serverUrl, session.userId, category])
 	);
+}
+export function readAvailability(session: Session): Availability {
+	try {
+		const value = session.userId && localStorage.getItem(key(session, 'availability'));
+		return value && Object.hasOwn(availabilityLabels, value) ? (value as Availability) : 'all';
+	} catch {
+		return 'all';
+	}
+}
+export function saveAvailability(session: Session, value: Availability) {
+	if (!session.userId) return;
+	try {
+		localStorage.setItem(key(session, 'availability'), value);
+	} catch {
+		/* Storage can be unavailable in a restricted browser. */
+	}
 }
 export function readBrowsePreferences(session: Session, category: Category): BrowsePreferences {
 	const defaults: BrowsePreferences = {
