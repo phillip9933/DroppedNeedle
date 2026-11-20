@@ -65,6 +65,21 @@ export function libraryFilter(value: Partial<LibraryFilter> = {}): LibraryFilter
 		formatMode: value.formatMode === 'without' ? 'without' : 'with'
 	};
 }
+export function filterFromFields(config: LibraryFilter, formats: string): LibraryFilter {
+	const parts = [
+		...new Set(
+			formats
+				.split(',')
+				.map((value) => value.trim().toLowerCase())
+				.filter(Boolean)
+		)
+	];
+	const normalized = libraryFilter({ ...config, formats: parts });
+	if (config.kind !== 'artists' && normalized.formats.length !== parts.length)
+		throw new Error('Enter audio formats separated by commas, such as flac, mp3.');
+	return normalized;
+}
+
 export function filterSummary(filter: LibraryFilter) {
 	const kind = { songs: 'Songs', artists: 'Artists', albums: 'Albums' }[filter.kind];
 	return [
