@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { saveOfflineTracks, offlineSupported } from '../offline/media';
 	import { Ellipsis } from '@lucide/svelte';
 	import { player, type PlayerTrack } from '../player';
 	import type { Session } from '../connection';
@@ -17,6 +19,39 @@
 		error = $state(''),
 		message = $state(''),
 		saved = $state<boolean>();
+	let downloadRequest = $state<AbortController>();
+	onDestroy(() => downloadRequest?.abort());
+	async function download() {
+		busy = true;
+		error = '';
+		const request = new AbortController();
+		downloadRequest = request;
+		message = 'Saving offline…';
+		try {
+			const result = await saveOfflineTracks(
+				session,
+				tracks,
+				(done, total) => {
+					if (!request.signal.aborted) message = 'Saving offline · ' + done + ' of ' + total;
+				},
+				request.signal
+			);
+			if (!request.signal.aborted) {
+				if (result.failed) {
+					error = result.message;
+					message = '';
+				} else message = result.message;
+			}
+		} catch (e) {
+			if (!request.signal.aborted) {
+				error = errorMessage(e);
+				message = '';
+			}
+		} finally {
+			downloadRequest = undefined;
+			busy = false;
+		}
+	}
 	async function enqueue(placement: 'next' | 'end') {
 		busy = true;
 		error = '';
@@ -41,7 +76,7 @@
 		message = error = '';
 	}}><Ellipsis size={18} /></button
 >
-<span class="sr-only" role="status">{message}</span>
+{#if !menu}<span class="sr-only" role="status">{message}</span>{/if}
 {#if menu === 'actions'}
 	<PlaylistDialog
 		title={tracks.length === 1 ? tracks[0].title : label}
@@ -52,6 +87,7 @@
 			<button disabled={busy} onclick={() => enqueue('next')}>Play next</button>
 			<button disabled={busy} onclick={() => enqueue('end')}>Add to queue</button>
 			<button disabled={busy} onclick={() => (menu = 'playlist')}>Add to playlist</button>
+			{#if offlineSupported}<button disabled={busy} onclick={download}>Save offline</button>{/if}
 			{#if favorite !== undefined && tracks.length === 1}<Favorite
 					{session}
 					kind="track"
@@ -59,9 +95,16 @@
 					value={saved ?? favorite}
 					onchange={(v) => (saved = v)}
 				/>{/if}
-			<button disabled={busy} onclick={() => (menu = null)}>Close</button>
+			{#if downloadRequest}<button
+					onclick={() => {
+						downloadRequest?.abort();
+						menu = null;
+						message = '';
+					}}>Cancel saving</button
+				>
+			{:else}<button disabled={busy} onclick={() => (menu = null)}>Close</button>{/if}
 		</div>
-		{#if error}<p role="alert">{error}</p>{/if}
+		{#if error}<p role="alert">{error}</p>{:else if message}<p role="status">{message}</p>{/if}
 	</PlaylistDialog>
 {:else if menu === 'playlist'}<AddToPlaylist
 		{tracks}

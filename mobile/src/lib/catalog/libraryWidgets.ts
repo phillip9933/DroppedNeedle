@@ -32,7 +32,7 @@ export async function recentListens(session: Session) {
 	return { listens, refreshing: home.refreshing && !disabled, disabled };
 }
 
-export async function findListen(session: Session, listen: Listen) {
+export async function findListen(session: Session, listen: Listen, signal?: AbortSignal) {
 	const id = listen.musicbrainz_id?.trim().toLowerCase(),
 		title = listen.title.trim();
 	if (!id || !title) return 'Local copy unknown';
@@ -42,7 +42,8 @@ export async function findListen(session: Session, listen: Listen) {
 	for (let pages = 0; pages < 5; pages++) {
 		const page = await getJson<Schema['TrackListPage']>(
 			session,
-			path('/api/v3/library/tracks', {}, { q: title, limit: 100, after })
+			path('/api/v3/library/tracks', {}, { q: title, limit: 100, after }),
+			signal
 		);
 		for (const track of page.items) {
 			if (track.recording_mbid?.toLowerCase() !== id) continue;

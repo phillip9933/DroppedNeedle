@@ -11,6 +11,7 @@
 	import { errorMessage, path, type Album, type OnPlay } from './catalog';
 	import type { DiscoverArtistRef } from './discovery';
 	import Favorite from './Favorite.svelte';
+	import SelectionHost from './SelectionHost.svelte';
 	import Library from './Library.svelte';
 	let {
 		session,
@@ -93,16 +94,18 @@
 			></select
 		></label
 	>
-	{#key view}<Library
-			{active}
-			{session}
-			{artist}
-			kind={view === 'songs' ? 'songs' : 'albums'}
-			artistAppearances={view === 'appearances'}
-			{onopen}
-			{onartist}
-			{onplay}
-		/>{/key}
+	{#key view}<SelectionHost {session} {onplay} {active}
+			><Library
+				{active}
+				{session}
+				{artist}
+				kind={view === 'songs' ? 'songs' : 'albums'}
+				artistAppearances={view === 'appearances'}
+				{onopen}
+				{onartist}
+				{onplay}
+			/></SelectionHost
+		>{/key}
 </section>
 
 <style>

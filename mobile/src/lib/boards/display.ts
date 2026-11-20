@@ -1,3 +1,5 @@
+import type { LibraryKind } from './filteredSections';
+
 export type BoardDisplay = {
 	layout: 'grid' | 'list';
 	columns: number;
@@ -8,8 +10,13 @@ export type BoardDisplay = {
 };
 export type Preview = BoardDisplay & { limit: number; capacity: number; visibleColumns: number };
 
-export function boardDisplay(id: string, value?: Partial<BoardDisplay> | null): BoardDisplay {
+export function boardDisplay(
+	id: string,
+	value?: Partial<BoardDisplay> | null,
+	kind?: LibraryKind
+): BoardDisplay {
 	const covers =
+		kind === 'albums' ||
 		/albums|recently-added|top_picks|discover_queue|releases|rediscover|anniversaries|essentials|because_you_listen_to/.test(
 			id
 		);
@@ -20,11 +27,11 @@ export function boardDisplay(id: string, value?: Partial<BoardDisplay> | null): 
 				: covers
 					? 'grid'
 					: 'list',
-		columns: bounded(value?.columns, 4, 6),
+		columns: bounded(value?.columns, 2, 6),
 		listColumns: bounded(value?.listColumns, 1, 6),
 		columnSize:
 			value?.columnSize === 'small' || value?.columnSize === 'large' ? value.columnSize : 'medium',
-		rows: bounded(value?.rows, covers ? 1 : 3, 6),
+		rows: bounded(value?.rows, covers ? 2 : 3, 6),
 		density:
 			value?.density === 'compact' || value?.density === 'spacious' ? value.density : 'normal'
 	};

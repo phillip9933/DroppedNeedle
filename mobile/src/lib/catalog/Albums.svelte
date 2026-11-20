@@ -1,7 +1,9 @@
 <script lang="ts">
 	import type { Session } from '../connection';
-	import type { Album } from './catalog';
+	import { albumTracks, type Album } from './catalog';
+	import { useLibrarySelection } from './librarySelection.svelte';
 	import Cover from './Cover.svelte';
+	const selectable = useLibrarySelection();
 	let {
 		session,
 		albums,
@@ -17,7 +19,16 @@
 
 <div class="albums" class:strip data-part="album-grid">
 	{#each albums as album (album.localId || album.group)}
-		<button class="album" data-part="album-card" onclick={() => onopen(album)}>
+		<button
+			use:selectable={{
+				id: 'album:' + (album.localId || album.group),
+				title: album.title,
+				tracks: (signal) => albumTracks(session, album, signal)
+			}}
+			class="album"
+			data-part="album-card"
+			onclick={() => onopen(album)}
+		>
 			<Cover {session} path={album.art} seed={album.group || album.localId || album.title} />
 			<strong>{album.title}</strong><span>{album.artist}</span>
 		</button>

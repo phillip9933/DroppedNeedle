@@ -95,6 +95,17 @@
 			<li>
 				<PreviewItem
 					{session}
+					choice={listen.musicbrainz_id && !unavailable[i]
+						? {
+								id: 'listen:' + i + ':' + listen.listened_at + ':' + listen.musicbrainz_id,
+								title: listen.title,
+								tracks: async (signal) => {
+									const track = await findListen(session, listen, signal);
+									if (typeof track === 'string') throw Error(listen.title + ' · ' + track);
+									return [track];
+								}
+							}
+						: undefined}
 					title={listen.title}
 					subtitle={[listen.artist_name, listen.album_name].filter(Boolean).join(' · ')}
 					detail={unavailable[i] || (!listen.musicbrainz_id ? 'Local copy unknown' : '')}

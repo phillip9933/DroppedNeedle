@@ -1,9 +1,10 @@
+import { isFilteredSection, libraryFilter, type FilterSection } from './filteredSections';
 import { boardDisplay, type BoardDisplay } from './display';
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
 import { isPlayerText } from '../player/composition';
-import { playerWidgets, playerDefaults, playerFields } from '../player/layout';
+import { playerWidgets, playerDefaults, playerFields, isNavigation } from '../player/layout';
 
 export type Board = 'home' | 'library' | 'discover';
 export type LayoutTarget = Board | 'player';
@@ -12,6 +13,7 @@ export type Section = {
 	title: string;
 	preview: boolean;
 	display?: BoardDisplay;
+	filter?: FilterSection;
 	minHeight?: number;
 	contentWidth?: number;
 	placement?: 'header-start' | 'header-end' | 'hidden';
@@ -42,6 +44,7 @@ export function available(board: LayoutTarget) {
 
 export function sectionTitle(section: Section) {
 	return (
+		section.filter?.name ||
 		section.title ||
 		widgets.find((w) => w.id === section.id)?.label ||
 		(isPlayerText(section.id) ? 'Custom text' : section.id)
@@ -86,14 +89,61 @@ function key(server: string, user: string, board: LayoutTarget) {
 	return 'dn.mobile.layout.v1.' + JSON.stringify([server, user, board]);
 }
 
-export function loadLayout(server: string, user: string, board: LayoutTarget): Section[] {
-	const raw = localStorage.getItem(key(server, user, board));
-	if (raw === null) return defaults(board);
-	let entries: unknown;
+// Sections are shared by Home and Library. Commit their definitions and board references together.
+function boardsKey(server: string, user: string) {
+	return 'dn.mobile.boards.v2.' + JSON.stringify([server, user]);
+}
+type BoardStore = {
+	layouts: Partial<Record<Board, unknown[]>>;
+	filters: FilterSection[];
+};
+function readBoards(server: string, user: string): BoardStore {
+	const empty: BoardStore = { layouts: {}, filters: [] };
 	try {
-		entries = JSON.parse(raw);
+		const data = JSON.parse(localStorage.getItem(boardsKey(server, user)) || 'null');
+		if (
+			!data?.layouts ||
+			typeof data.layouts !== 'object' ||
+			Array.isArray(data.layouts) ||
+			!Array.isArray(data.filters)
+		)
+			return empty;
+		return {
+			layouts: data.layouts,
+			filters: data.filters
+				.filter(
+					(f: FilterSection) =>
+						f &&
+						typeof f.id === 'string' &&
+						isFilteredSection(f.id) &&
+						typeof f.name === 'string' &&
+						f.name.trim()
+				)
+				.map((f: FilterSection) => ({
+					...libraryFilter(f),
+					id: f.id,
+					name: f.name.trim().slice(0, 64)
+				}))
+		};
 	} catch {
-		return defaults(board);
+		return empty;
+	}
+}
+export function savedSections(server: string, user: string) {
+	return readBoards(server, user).filters;
+}
+
+export function loadLayout(server: string, user: string, board: LayoutTarget): Section[] {
+	const boards = board === 'player' ? null : readBoards(server, user);
+	let entries: unknown = board === 'player' ? null : boards?.layouts[board];
+	if (!Array.isArray(entries)) {
+		const raw = localStorage.getItem(key(server, user, board));
+		if (raw === null) return defaults(board);
+		try {
+			entries = JSON.parse(raw);
+		} catch {
+			return defaults(board);
+		}
 	}
 	if (!Array.isArray(entries)) return defaults(board);
 	const allowed = new Set(available(board).map((w) => w.id));
@@ -101,11 +151,17 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 	const seen = new Set<string>();
 	for (const item of entries) {
 		if (!item || typeof item.id !== 'string' || seen.has(item.id)) continue;
-		if (!allowed.has(item.id) && !(board === 'player' && isPlayerText(item.id))) continue;
+		const filter =
+			board === 'home' || board === 'library'
+				? boards?.filters.find((f) => f.id === item.id)
+				: undefined;
+		if (!filter && !allowed.has(item.id) && !(board === 'player' && isPlayerText(item.id)))
+			continue;
 		seen.add(item.id);
 		const section: Section = {
 			id: item.id,
 			title: typeof item.title === 'string' ? item.title.trim().slice(0, 64) : '',
+			...(filter ? { filter } : {}),
 			preview: item.preview !== false
 		};
 		if (board === 'player') {
@@ -118,7 +174,7 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 			if (Number.isInteger(item.minHeight) && item.minHeight >= 0 && item.minHeight <= 640)
 				section.minHeight = item.minHeight;
 			if (
-				['player-close', 'player-settings', 'player-queue'].includes(item.id) &&
+				isNavigation(item.id) &&
 				['header-start', 'header-end', 'hidden'].includes(item.placement)
 			)
 				section.placement = item.placement;
@@ -129,17 +185,49 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 			if (isPlayerText(item.id) && typeof item.template === 'string')
 				section.template = item.template.slice(0, 512);
 		} else if (item.display && typeof item.display === 'object') {
-			section.display = boardDisplay(section.id, item.display);
+			section.display = boardDisplay(section.id, item.display, section.filter?.kind);
 		}
 		sections.push(section);
 	}
 	return sections;
 }
 
-export function saveLayout(server: string, user: string, board: LayoutTarget, sections: Section[]) {
-	localStorage.setItem(
-		key(server, user, board),
-		JSON.stringify(sections.map((s) => ({ ...s, title: s.title.trim() })))
+export function saveLayout(
+	server: string,
+	user: string,
+	board: LayoutTarget,
+	sections: Section[],
+	edits?: { before: FilterSection[]; after: FilterSection[] }
+) {
+	const layout = sections.map((s) => {
+		const item = { ...s, title: s.title.trim() };
+		delete item.filter;
+		return item;
+	});
+	let filtersChanged = false;
+	if (board === 'player') localStorage.setItem(key(server, user, board), JSON.stringify(layout));
+	else {
+		const state = readBoards(server, user);
+		state.layouts[board] = layout;
+		if (edits) {
+			// An open layout editor may predate changes to another saved section in another tab.
+			const previous = new Map(edits.before.map((f) => [f.id, JSON.stringify(f)]));
+			const updates = edits.after.filter((f) => previous.get(f.id) !== JSON.stringify(f));
+			const kept = new Set(edits.after.map((f) => f.id));
+			const removed = new Set(edits.before.filter((f) => !kept.has(f.id)).map((f) => f.id));
+			filtersChanged = updates.length > 0 || removed.size > 0;
+			if (filtersChanged) {
+				const definitions = new Map(state.filters.map((f) => [f.id, f]));
+				for (const id of removed) definitions.delete(id);
+				for (const f of updates) definitions.set(f.id, f);
+				state.filters = [...definitions.values()];
+			}
+		}
+		localStorage.setItem(boardsKey(server, user), JSON.stringify(state));
+	}
+	window.dispatchEvent(
+		new CustomEvent('dn-layout-change', {
+			detail: { server, user, board, filtersChanged }
+		})
 	);
-	window.dispatchEvent(new CustomEvent('dn-layout-change', { detail: { server, user, board } }));
 }

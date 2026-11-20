@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { LibraryFilter, FilterSection } from '../boards/filteredSections';
 	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from './catalog';
@@ -9,6 +10,8 @@
 
 	let {
 		id,
+		filter,
+		onsavefilters,
 		display,
 		session,
 		onopen,
@@ -19,6 +22,8 @@
 		expanded = false
 	}: {
 		id: string;
+		filter?: FilterSection;
+		onsavefilters?: (config: LibraryFilter) => void;
 		session: Session;
 		display: Preview;
 		onopen: (album: Album) => void;
@@ -31,12 +36,12 @@
 	} = $props();
 </script>
 
-{#key id}
+{#key filter ? JSON.stringify(filter) : id}
 	{#if id === 'library-recently-played'}
 		<RecentlyPlayed {display} {session} {onplay} {active} />
 	{:else if id === 'library-playlists'}
 		<Playlists {display} {active} {session} onopen={onplaylist} preview={!expanded} />
-	{:else if id === 'library-recently-added' || id === 'library-albums' || id === 'library-artists' || id === 'library-tracks'}
+	{:else if filter || id === 'library-recently-added' || id === 'library-albums' || id === 'library-artists' || id === 'library-tracks'}
 		<Library
 			{display}
 			{active}
@@ -44,7 +49,10 @@
 			{onopen}
 			{onartist}
 			{onplay}
-			kind={id === 'library-artists' ? 'artists' : id === 'library-tracks' ? 'songs' : 'albums'}
+			kind={filter?.kind ??
+				(id === 'library-artists' ? 'artists' : id === 'library-tracks' ? 'songs' : 'albums')}
+			fixedFilter={filter}
+			{onsavefilters}
 			recent={id === 'library-recently-added'}
 			preview={!expanded}
 		/>

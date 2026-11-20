@@ -5,23 +5,28 @@
 </script>
 
 <script lang="ts">
+	import { useLibrarySelection, type LibraryChoice } from './librarySelection.svelte';
 	import { Play } from '@lucide/svelte';
+	const selectable = useLibrarySelection();
 	let {
 		title,
 		artist,
 		position,
 		duration,
-		onplay
+		onplay,
+		choice
 	}: {
 		title: string;
 		artist: string;
 		position: number;
 		duration?: number | null;
 		onplay?: () => void;
+		choice?: LibraryChoice;
 	} = $props();
 </script>
 
 <button
+	use:selectable={choice}
 	disabled={!onplay}
 	onclick={onplay}
 	aria-label={onplay ? 'Play ' + title : title + ', unavailable in your library'}

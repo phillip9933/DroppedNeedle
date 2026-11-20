@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { useLibrarySelection, type LibraryChoice } from '../catalog/librarySelection.svelte';
 	import Cover from '../catalog/Cover.svelte';
 	import type { Session } from '../connection';
 
+	const selectable = useLibrarySelection();
 	let {
 		session,
 		title,
@@ -15,7 +17,8 @@
 		label,
 		part,
 		disabled = false,
-		actions
+		actions,
+		choice
 	}: {
 		session: Session;
 		title: string;
@@ -29,6 +32,7 @@
 		part?: string;
 		disabled?: boolean;
 		actions?: Snippet;
+		choice?: LibraryChoice;
 	} = $props();
 </script>
 
@@ -41,8 +45,13 @@
 	>
 {/snippet}
 <div class="item" class:actions={!!actions} data-preview-item>
-	{#if onclick}<button class="body" data-part={part} aria-label={label} {onclick} {disabled}
-			>{@render content()}</button
+	{#if onclick}<button
+			use:selectable={choice}
+			class="body"
+			data-part={part}
+			aria-label={label}
+			{onclick}
+			{disabled}>{@render content()}</button
 		>
 	{:else}<div class="body" data-part={part}>{@render content()}</div>{/if}
 	{#if actions}{@render actions()}{/if}
@@ -92,9 +101,8 @@
 		color: var(--muted);
 	}
 	:global([data-preview='grid']) .item {
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: var(--radius);
+		background: transparent;
+		border: 0;
 		align-items: stretch;
 		flex-direction: column;
 		justify-content: flex-start;
@@ -104,7 +112,8 @@
 		flex-direction: column;
 		align-items: stretch;
 		justify-content: flex-start;
-		padding: var(--preview-padding);
+		padding: 0;
+		gap: var(--preview-gap);
 	}
 	:global([data-preview='grid']) .art {
 		width: 100%;

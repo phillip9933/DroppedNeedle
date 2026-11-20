@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ArrowLeft, ChevronRight, PanelsTopLeft } from '@lucide/svelte';
+	import { ArrowLeft, ChevronRight, PanelsTopLeft, Download, ListFilterPlus } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from '../catalog/catalog';
 	import type { DiscoverArtistRef } from '../catalog/discovery';
 	import type { Playlist } from '../catalog/playlists';
+	import FilterSectionDialog from './FilterSectionDialog.svelte';
+	import { type LibraryFilter, type FilterSection } from './filteredSections';
+	import SelectionHost from '../catalog/SelectionHost.svelte';
 	import LibraryWidget from '../catalog/LibraryWidget.svelte';
 	import DiscoveryWidget from '../catalog/DiscoveryWidget.svelte';
 	import type { Preview } from './display';
@@ -14,6 +17,7 @@
 		boardNames,
 		loadLayout,
 		sectionTitle,
+		saveLayout,
 		type Board,
 		type Section
 	} from './layout';
@@ -27,7 +31,8 @@
 		ongenre,
 		onlocal,
 		onplaylist,
-		onplay
+		onplay,
+		onoffline
 	}: {
 		board: Board;
 		session: Session;
@@ -38,10 +43,25 @@
 		onlocal: (a: { id: string; name: string }) => void;
 		onplaylist: (p: Playlist) => void;
 		onplay: OnPlay;
+		onoffline?: () => void;
 	} = $props();
 	let owner = $state(''),
 		sections = $state<Section[]>([]),
 		error = $state('');
+	let newFilter = $state<Partial<LibraryFilter> | null>(null);
+	function createFilter(value: FilterSection) {
+		const current = loadLayout(session.serverUrl, owner, board);
+		saveLayout(
+			session.serverUrl,
+			owner,
+			board,
+			[...current, { id: value.id, preview: true, title: '', filter: value }],
+			{ before: [], after: [value] }
+		);
+		newFilter = null;
+		expanded = null;
+		scroll(0);
+	}
 	let expanded = $state<Section | null>(null);
 	let root: HTMLElement;
 	let offset = 0;
@@ -61,8 +81,20 @@
 		live = true;
 		void load();
 		function changed(event: Event) {
-			const d = (event as CustomEvent<{ server: string; user: string; board: string }>).detail;
-			if (d.server !== session.serverUrl || d.user !== owner || d.board !== board) return;
+			const d = (
+				event as CustomEvent<{
+					server: string;
+					user: string;
+					board: string;
+					filtersChanged?: boolean;
+				}>
+			).detail;
+			if (
+				d.server !== session.serverUrl ||
+				d.user !== owner ||
+				(d.board !== board && !d.filtersChanged)
+			)
+				return;
 			sections = loadLayout(session.serverUrl, owner, board);
 			if (expanded) expanded = sections.find((s) => s.id === expanded?.id) ?? null;
 		}
@@ -95,6 +127,8 @@
 {#snippet widget(item: Section, full: boolean, display: Preview)}
 	{#if item.id.startsWith('library-')}
 		<LibraryWidget
+			filter={item.filter}
+			onsavefilters={board !== 'discover' ? (config) => (newFilter = config) : undefined}
 			id={item.id}
 			{session}
 			{onopen}
@@ -129,68 +163,95 @@
 				><ArrowLeft size={17} /> Back to {boardNames[board]}</button
 			>
 		</div>
-		<h1>{sectionTitle(expanded)}</h1>
-		{@const selected = expanded}
-		<PreviewViewport section={selected} expanded
-			>{#snippet children(display)}{@render widget(
-					selected,
-					true,
-					display
-				)}{/snippet}</PreviewViewport
+		<SelectionHost
+			{session}
+			{onplay}
+			{active}
+			enabled={board !== 'discover'}
+			scope={expanded.id}
+			heading={sectionTitle(expanded)}
 		>
+			{@const selected = expanded}
+			<PreviewViewport section={selected} expanded>
+				{#snippet children(display)}{@render widget(selected, true, display)}{/snippet}
+			</PreviewViewport>
+		</SelectionHost>
 	{/if}
 	<div hidden={!!expanded}>
-		<header class="head"><h1>{boardNames[board]}</h1></header>
-		{#if error}<p role="alert">{error}</p>
-			<button class="text-button" onclick={load}>Try again</button>
-		{:else if !owner}<p role="status">Loading layout…</p>
-		{:else if !sections.length}<div class="empty">
-				<PanelsTopLeft size={28} />
-				<p>Choose sections for {boardNames[board]} in Settings.</p>
-			</div>
-		{:else}
-			{#each sections as item (item.id)}
-				<section
-					class:shortcut={!item.preview}
-					class="shelf"
-					data-widget={item.id}
-					aria-label={sectionTitle(item)}
-				>
-					<h2>
-						<button aria-label={'Browse ' + sectionTitle(item)} onclick={() => enter(item)}
-							><span>{sectionTitle(item)}</span><ChevronRight size={20} /></button
-						>
-					</h2>
-					{#if item.preview}<PreviewViewport section={item}
-							>{#snippet children(display)}{@render widget(
-									item,
-									false,
-									display
-								)}{/snippet}</PreviewViewport
+		<SelectionHost
+			{session}
+			{onplay}
+			active={active && !expanded}
+			enabled={board !== 'discover'}
+			heading={boardNames[board]}
+		>
+			{#snippet tools()}
+				{#if board === 'library'}
+					{#if owner}<button class="board-action secondary" onclick={() => (newFilter = {})}
+							><ListFilterPlus size={17} />New filtered section</button
 						>{/if}
-				</section>
-			{/each}
-		{/if}
+					{#if onoffline}<button class="board-action secondary" onclick={onoffline}
+							><Download size={17} />Offline music</button
+						>{/if}
+				{/if}
+			{/snippet}
+			{#if error}<p role="alert">{error}</p>
+				<button class="text-button" onclick={load}>Try again</button>
+			{:else if !owner}<p role="status">Loading layout…</p>
+			{:else if !sections.length}<div class="empty">
+					<PanelsTopLeft size={28} />
+					<p>Choose sections for {boardNames[board]} in Settings.</p>
+				</div>
+			{:else}
+				{#each sections as item (item.id)}
+					<section
+						class:shortcut={!item.preview}
+						class="shelf"
+						data-widget={item.id}
+						aria-label={sectionTitle(item)}
+					>
+						<h2>
+							<button aria-label={'Browse ' + sectionTitle(item)} onclick={() => enter(item)}
+								><span>{sectionTitle(item)}</span><ChevronRight size={20} /></button
+							>
+						</h2>
+						{#if item.preview}<PreviewViewport section={item}
+								>{#snippet children(display)}{@render widget(
+										item,
+										false,
+										display
+									)}{/snippet}</PreviewViewport
+							>{/if}
+					</section>
+				{/each}
+			{/if}
+		</SelectionHost>
 	</div>
 </div>
 
+{#if newFilter}<FilterSectionDialog
+		initial={newFilter}
+		onclose={() => (newFilter = null)}
+		onsave={createFilter}
+	/>{/if}
+
 <style>
-	.head,
+	.board-action {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+		gap: 0.45rem;
+		padding: 0.35rem 0.7rem;
+	}
+
 	.detailbar,
 	.shelf h2 button {
 		display: flex;
 		align-items: center;
 	}
-	.head,
 	.detailbar {
 		justify-content: space-between;
 		gap: var(--gap);
-	}
-	.head {
-		margin-bottom: 1.1rem;
-	}
-	.head h1 {
-		margin: 0;
 	}
 	.shelf {
 		min-width: 0;

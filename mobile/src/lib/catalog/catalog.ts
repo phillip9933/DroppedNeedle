@@ -195,11 +195,16 @@ export async function search(
 }
 
 /** The match endpoint takes a local copy ID or chooses DN's preferred copy of a group. */
-async function localTracks(session: Session, album: Album): Promise<Schema['TrackView'][]> {
+async function localTracks(
+	session: Session,
+	album: Album,
+	signal?: AbortSignal
+): Promise<Schema['TrackView'][]> {
 	if (album.release && !album.localId) {
 		const status = await getJson<Schema['LibraryAlbumStatus']>(
 			session,
-			path('/api/v3/library/albums/{id}/status', { id: album.release })
+			path('/api/v3/library/albums/{id}/status', { id: album.release }),
+			signal
 		);
 		// Several copies can hold this exact edition. Queue the one DN selects.
 		return status.tracks.filter((track) => track.album_id === status.album_id);
@@ -215,7 +220,7 @@ async function localTracks(session: Session, album: Album): Promise<Schema['Trac
 				{ mbid: id },
 				{ limit: 200, offset: tracks.length }
 			);
-			const page = await getJson<Schema['TrackPage']>(session, url);
+			const page = await getJson<Schema['TrackPage']>(session, url, signal);
 			tracks.push(...page.items);
 			total = page.total;
 			if (!page.items.length) break;
@@ -227,8 +232,8 @@ async function localTracks(session: Session, album: Album): Promise<Schema['Trac
 	return tracks;
 }
 
-export async function albumTracks(session: Session, album: Album) {
-	const tracks = await localTracks(session, album);
+export async function albumTracks(session: Session, album: Album, signal?: AbortSignal) {
+	const tracks = await localTracks(session, album, signal);
 	return tracks
 		.sort((a, b) => a.disc_number - b.disc_number || a.track_number - b.track_number)
 		.map((t) => localSong(t, album.artist));
