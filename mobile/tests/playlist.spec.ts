@@ -64,6 +64,7 @@ test('a mixed playlist plays all local entries in saved order, including repeats
 		if (path === '/auth/login') return route.fulfill({ json: { token: 'fixture-session' } });
 		expect(request.headers().authorization).toBe('Bearer fixture-session');
 		if (path === '/me') return route.fulfill({ json: { display_name: 'Listener', id: 'user' } });
+		if (path === '/home') return route.fulfill({ json: { sections: [], refreshing: false } });
 		if (path === '/library/albums')
 			return route.fulfill({ json: { items: [], next: null, total: 0 } });
 		if (path === '/playlists')
@@ -108,7 +109,10 @@ test('a mixed playlist plays all local entries in saved order, including repeats
 	await page.getByLabel('Username').fill('listener');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await page.getByRole('button', { name: 'Playlists', exact: true }).click({ timeout: 4000 });
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page
+		.getByRole('button', { name: 'Browse Playlists', exact: true })
+		.click({ timeout: 4000 });
 	await page.getByRole('button', { name: /Night drive/ }).click();
 	await expect(page.getByRole('button', { name: /Across Town/ })).toBeDisabled();
 	await expect(page.getByText('Slow Train', { exact: true })).toBeVisible();
