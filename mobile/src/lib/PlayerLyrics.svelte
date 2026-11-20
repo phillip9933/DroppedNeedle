@@ -3,6 +3,7 @@
 	import { MicVocal } from '@lucide/svelte';
 	import PlayerActionFace from './player/PlayerActionFace.svelte';
 	import { untrack } from 'svelte';
+	import { prefersReducedMotion } from 'svelte/motion';
 	import type { components } from '../../../frontend/src/lib/api/v3/openapi';
 	import type { Session } from './connection';
 	import { trackLyrics } from './offline/lyrics';
@@ -32,6 +33,8 @@
 		busy = $state(false),
 		retry = $state(0);
 	let handledRetry = 0;
+	let linesPanel = $state<HTMLDivElement>();
+	let following = $state(true);
 	let current = $derived.by(() => {
 		const lines = lyrics?.lines ?? [];
 		for (let i = lines.length - 1; i >= 0; i--) {
@@ -41,6 +44,47 @@
 		return -1;
 	});
 	$effect(() => {
+		const box = linesPanel;
+		if (!open || !following || current < 0 || !box) return;
+		const row = box.children.item(current);
+		if (!row) return;
+		const bounds = row.getBoundingClientRect();
+		box.scrollTo({
+			top:
+				box.scrollTop +
+				bounds.top -
+				box.getBoundingClientRect().top +
+				(bounds.height - box.clientHeight) / 2,
+			behavior: prefersReducedMotion.current ? 'instant' : 'smooth'
+		});
+	});
+	function readAhead() {
+		if (!following || !linesPanel || linesPanel.scrollHeight <= linesPanel.clientHeight) return;
+		linesPanel.scrollTo({ top: linesPanel.scrollTop, behavior: 'instant' });
+		following = false;
+	}
+	function watchReading(node: HTMLElement) {
+		const keyboard = (e: KeyboardEvent) => {
+			if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', 'Tab'].includes(e.key))
+				readAhead();
+		};
+		const scrollbar = (e: PointerEvent) => {
+			if (e.pointerType === 'mouse' && e.target === node) readAhead();
+		};
+		node.addEventListener('wheel', readAhead, { passive: true });
+		node.addEventListener('touchmove', readAhead, { passive: true });
+		node.addEventListener('keydown', keyboard);
+		node.addEventListener('pointerdown', scrollbar);
+		return {
+			destroy() {
+				node.removeEventListener('wheel', readAhead);
+				node.removeEventListener('touchmove', readAhead);
+				node.removeEventListener('keydown', keyboard);
+				node.removeEventListener('pointerdown', scrollbar);
+			}
+		};
+	}
+	$effect(() => {
 		const id = trackId,
 			account = session;
 		const attempt = retry;
@@ -48,6 +92,7 @@
 		const force = attempt !== handledRetry;
 		handledRetry = attempt;
 		const controller = new AbortController();
+		following = true;
 		busy = true;
 		error = '';
 		lyrics = null;
@@ -83,17 +128,36 @@
 		<button class="secondary" onclick={() => retry++}>Try again</button>
 	{:else if sample}<p class="plain">
 			Our shadows cross the water<br />Where the evening current turns
-		</p>{:else if lyrics?.is_synced && lyrics.lines?.length}<div class="lines">
+		</p>{:else if lyrics?.is_synced && lyrics.lines?.length}<div
+			class="lines"
+			bind:this={linesPanel}
+			use:watchReading
+			role="region"
+			aria-label="Timed lyrics"
+		>
 			{#each lyrics.lines as line, i (i)}<p
 					class:active={i === current}
 					aria-current={i === current ? 'true' : undefined}
 				>
 					{#if line.start_seconds != null && onseek}<button
 							aria-label={'Seek to lyric ' + line.text}
-							onclick={() => onseek?.(line.start_seconds!)}>{line.text}</button
+							onclick={() => {
+								following = true;
+								onseek?.(line.start_seconds!);
+							}}>{line.text}</button
 						>{:else}{line.text}{/if}
 				</p>{/each}
 		</div>
+		{#if !following && current >= 0}<button
+				class="text-button"
+				onclick={(event) => {
+					if (event.currentTarget.matches(':focus-visible'))
+						linesPanel
+							?.querySelector<HTMLButtonElement>('[aria-current=true] button')
+							?.focus({ preventScroll: true });
+					following = true;
+				}}>Follow current line</button
+			>{/if}
 	{:else if lyrics?.text}<p class="plain">{lyrics.text}</p>{:else}<p>No lyrics available.</p>{/if}
 	{#if !busy && !sample && !error && lyrics}<button class="text-button" onclick={() => retry++}
 			>Refresh lyrics</button
