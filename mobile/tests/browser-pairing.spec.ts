@@ -22,6 +22,7 @@ test.beforeEach(async ({ page }) => {
 				'setOfflineHistory',
 				'discardOfflineHistory',
 				'manualStatus',
+				'takeDownloadNotification',
 				'enqueueManual',
 				'cancelManual',
 				'retryManual',
@@ -80,6 +81,18 @@ test.beforeEach(async ({ page }) => {
 						return { data: sessionStorage.getItem(opts.prefixedKey), success: true };
 					}
 					if (plugin === 'DNOffline') {
+						if (method === 'takeDownloadNotification') {
+							if (Object.keys(opts).length) throw Error('A notification tap needs no account data');
+							const open = sessionStorage.getItem('notification-tap') === '1';
+							if (open) {
+								sessionStorage.removeItem('notification-tap');
+								sessionStorage.setItem(
+									'notification-opens',
+									String(Number(sessionStorage.getItem('notification-opens')) + 1)
+								);
+							}
+							return { open };
+						}
 						if (['manualStatus', 'enqueueManual', 'retryManual', 'cancelManual'].includes(method)) {
 							if (
 								opts.serverUrl !== 'https://library.example/dn' ||
@@ -287,6 +300,50 @@ async function deliverApproval(page: Page) {
 	}, reply);
 	return launched;
 }
+
+test('a download notification waits for browser sign-in and opens Offline music only once per tap', async ({
+	page
+}) => {
+	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await page.goto('/');
+	await page.evaluate(() => sessionStorage.setItem('notification-tap', '1'));
+	await expect(page.getByLabel('Server address')).toBeVisible();
+	await page.evaluate(() => window.dispatchEvent(new Event('dn-download-notification')));
+	expect(await page.evaluate(() => sessionStorage.getItem('notification-tap'))).toBe('1');
+	await deliverApproval(page);
+	const heading = (name: string) => page.getByRole('heading', { name, exact: true });
+	await expect(heading('Offline music')).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('notification-opens'))).toBe('1');
+
+	// A cold notification overrides this listener's saved Now Playing screen for this launch.
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'Interface and navigation', exact: true }).click();
+	await page.getByLabel('Start screen').selectOption('player');
+	await page.evaluate(() => {
+		sessionStorage.setItem('restored-song', 'Night service');
+		sessionStorage.setItem('notification-tap', '1');
+	});
+	await page.reload();
+	await expect(heading('Offline music')).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('region', { name: 'Now playing' })).toBeVisible();
+
+	// A warm tap closes the navigation overlay and leaves the restored song paused.
+	await page.getByRole('button', { name: 'Open navigation menu' }).click();
+	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toBeVisible();
+	await page.evaluate(() => {
+		sessionStorage.setItem('notification-tap', '1');
+		window.dispatchEvent(new Event('dn-download-notification'));
+	});
+	await expect(heading('Offline music')).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toHaveCount(0);
+	expect(await page.evaluate(() => sessionStorage.getItem('notification-opens'))).toBe('3');
+	expect(await page.evaluate(() => sessionStorage.getItem('toggled-playback'))).toBeNull();
+	await page.getByRole('button', { name: 'Home', exact: true }).click();
+	await page.evaluate(() => window.dispatchEvent(new Event('dn-download-notification')));
+	await expect(heading('Home')).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('notification-opens'))).toBe('3');
+});
 
 test('the chosen start screen works offline and opens a restored song without starting playback', async ({
 	page

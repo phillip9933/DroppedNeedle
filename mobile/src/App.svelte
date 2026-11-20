@@ -92,6 +92,15 @@
 		} else if (to === 'settings') openPanel('settings');
 		else navigate(to);
 	}
+	async function openDownloadNotification() {
+		const owner = session;
+		if (!owner?.userId || !offlineSupported || Capacitor.getPlatform() !== 'android') return;
+		const pending = await nativeMedia.takeDownloadNotification().catch(() => undefined);
+		if (pending?.open && session === owner) {
+			drawerOpen = false;
+			navigate('offline');
+		}
+	}
 	function focusMain(offset = 0, miniAction?: MiniAction) {
 		void tick().then(() => {
 			main?.scrollTo(0, offset);
@@ -255,6 +264,7 @@
 		panel = start === 'player' && hasCurrentTrack ? 'player' : 'catalog';
 		catalogVisit++;
 		focusMain();
+		await openDownloadNotification();
 		if (restoreError) report(restoreError);
 	}
 	async function start(tracks: PlayerTrack[], index: number, continuation?: LibraryContinuation) {
@@ -327,11 +337,13 @@
 			if (session && offlineSupported) navigate('offline');
 		};
 		window.addEventListener('dn-open-offline', openOffline);
+		window.addEventListener('dn-download-notification', openDownloadNotification);
 		window.addEventListener('dn-session-expired', expired);
 		window.addEventListener('keydown', key);
 		return () => {
 			void listener?.then((handle) => handle.remove());
 			window.removeEventListener('dn-open-offline', openOffline);
+			window.removeEventListener('dn-download-notification', openDownloadNotification);
 			window.removeEventListener('dn-session-expired', expired);
 			window.removeEventListener('keydown', key);
 		};
