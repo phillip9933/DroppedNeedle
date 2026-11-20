@@ -83,7 +83,7 @@ public final class DNPlayerPlugin extends Plugin {
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> {
             p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getArray("tracks"),
-                    call.getInt("index", -1), call.getString("placement"), call.getObject("profiles"));
+                    call.getInt("index", -1), call.getString("placement"), call.getObject("profiles"), call.getObject("continuation"));
             JSObject result = p.snapshot();
             p.afterWrite(() -> call.resolve(result));
         });

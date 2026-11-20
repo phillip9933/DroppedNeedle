@@ -1,4 +1,11 @@
 import { browserFade, browserNetwork, streamProfiles, streamAddress } from './streaming';
+import {
+	nextLibraryBatch,
+	retainedHistory,
+	refillAt,
+	type LibraryContinuation
+} from './libraryWindow';
+import { queueSizeCheck } from '../catalog/libraryQueue';
 import type { PlaybackBridge, PlayerState, PlayerTrack } from '../player';
 import { cacheWebPlayback, isAudio, webLocalAudio, webPlaybackPolicy } from '../offline/web';
 
@@ -19,6 +26,79 @@ export function browserPlayer(): PlaybackBridge {
 	let active: AbortController | undefined;
 	let objectUrl: string | undefined;
 
+	let windowCursor: LibraryContinuation | undefined;
+	let loadingWindow: AbortController | undefined;
+	let windowProblem: string | undefined,
+		waitingAtEnd = false;
+	let retryAlarm: ReturnType<typeof setTimeout> | undefined;
+	function detachWindow() {
+		loadingWindow?.abort();
+		loadingWindow = undefined;
+		windowCursor = undefined;
+		windowProblem = undefined;
+		waitingAtEnd = false;
+		clearTimeout(retryAlarm);
+	}
+	async function extendWindow(retry = false) {
+		const cursor = windowCursor;
+		if (!cursor || loadingWindow || (windowProblem && !retry)) return;
+		if (
+			cursor.after
+				? state.tracks.length - state.index - 1 > refillAt
+				: !waitingAtEnd || state.repeat !== 'all'
+		)
+			return;
+		const request = new AbortController();
+		loadingWindow = request;
+		clearTimeout(retryAlarm);
+		windowProblem = undefined;
+		try {
+			const policy = userId
+				? await webPlaybackPolicy({ serverUrl, userId }, state.tracks[state.index]?.id ?? '').catch(
+						() => null
+					)
+				: null;
+			if (policy?.options.offlineOnly)
+				throw Error('Turn off offline-only mode to load more library tracks.');
+			const batch = await nextLibraryBatch(
+				{ serverUrl, userId, token, displayName: '' },
+				cursor,
+				state.tracks,
+				request.signal
+			);
+			if (request.signal.aborted || windowCursor !== cursor) return;
+			const restart = cursor.after === null;
+			if (
+				restart
+					? !waitingAtEnd || state.repeat !== 'all'
+					: state.tracks.length - state.index - 1 > refillAt
+			)
+				return;
+			const trim = restart ? state.tracks.length : Math.max(0, state.index - retainedHistory);
+			const old = state.tracks.length - trim;
+			const tracks = [...state.tracks.slice(trim), ...batch.tracks];
+			tracks.forEach(queueSizeCheck(serverUrl));
+			state.tracks = tracks;
+			state.index = restart ? 0 : state.index - trim;
+			windowCursor = batch.continuation;
+			const resume = waitingAtEnd;
+			waitingAtEnd = false;
+			if (resume) await playAt(old);
+		} catch (e) {
+			if (request.signal.aborted || cursor !== windowCursor) return;
+			windowProblem = e instanceof Error ? e.message : 'Could not load more library tracks.';
+			if (!retry)
+				retryAlarm = setTimeout(() => {
+					if (waitingAtEnd || !audio.paused) void extendWindow(true);
+				}, 2200);
+		} finally {
+			if (loadingWindow === request) loadingWindow = undefined;
+		}
+	}
+	window.addEventListener('online', () => {
+		if (windowProblem && (waitingAtEnd || !audio.paused)) void extendWindow(true);
+	});
+
 	let sleepAlarm: ReturnType<typeof setTimeout> | undefined;
 	let sleepingTrack: PlayerTrack | undefined;
 	let pauseRevision = 0,
@@ -33,6 +113,7 @@ export function browserPlayer(): PlaybackBridge {
 		if (state.sleepTimer?.mode === 'minutes' && Date.now() >= state.sleepTimer.endsAt) {
 			cancelSleep();
 			pauseRevision++;
+			waitingAtEnd = false;
 			blockAdvance = true;
 			audio.pause();
 		}
@@ -92,7 +173,16 @@ export function browserPlayer(): PlaybackBridge {
 		checkSleep();
 		return {
 			...state,
-			playing: !audio.paused,
+			libraryWindow: windowCursor
+				? {
+						loaded: windowCursor.loaded,
+						total: windowCursor.total,
+						offset: windowCursor.loaded - state.tracks.length,
+						more: !!windowCursor.after,
+						problem: windowProblem
+					}
+				: null,
+			playing: waitingAtEnd || !audio.paused,
 			position: audio.currentTime || 0,
 			duration: Number.isFinite(audio.duration)
 				? audio.duration
@@ -108,6 +198,8 @@ export function browserPlayer(): PlaybackBridge {
 		const playRevision = pauseRevision;
 		unload();
 		state = { ...state, index, error: null };
+		waitingAtEnd = false;
+		if (play) void extendWindow();
 		const request = new AbortController();
 		active = request;
 		try {
@@ -182,6 +274,13 @@ export function browserPlayer(): PlaybackBridge {
 			void audio.play().catch(() => {
 				state.error = 'This track could not be played.';
 			});
+		} else if (
+			windowCursor &&
+			state.index + 1 === state.tracks.length &&
+			(windowCursor.after || state.repeat === 'all')
+		) {
+			waitingAtEnd = true;
+			void extendWindow();
 		} else if (state.index + 1 < state.tracks.length || state.repeat === 'all') {
 			void playAt((state.index + 1) % state.tracks.length).catch(() => {});
 		}
@@ -195,14 +294,17 @@ export function browserPlayer(): PlaybackBridge {
 		},
 		async setQueue(options) {
 			if (options.placement && state.tracks.length) {
-				if (token !== options.token || serverUrl !== options.serverUrl)
+				if (token !== options.token || serverUrl !== options.serverUrl || userId !== options.userId)
 					throw new Error('This queue belongs to a different session.');
+				detachWindow();
 				const at = options.placement === 'next' ? state.index + 1 : state.tracks.length;
 				state.tracks = [...state.tracks.slice(0, at), ...options.tracks, ...state.tracks.slice(at)];
 				return snapshot();
 			}
 			if (serverUrl !== options.serverUrl || userId !== options.userId || token !== options.token)
 				cancelSleep();
+			detachWindow();
+			windowCursor = options.continuation;
 			serverUrl = options.serverUrl;
 			userId = options.userId;
 			token = options.token;
@@ -211,6 +313,27 @@ export function browserPlayer(): PlaybackBridge {
 			return snapshot();
 		},
 		async command({ action, value, to }) {
+			if (action === 'retryLibraryWindow') {
+				await extendWindow(true);
+				return snapshot();
+			}
+			if (['move', 'remove', 'clearUpcoming', 'shuffleUpcoming', 'clear'].includes(action))
+				detachWindow();
+			if (action === 'toggle' && waitingAtEnd) {
+				waitingAtEnd = false;
+				audio.pause();
+				return snapshot();
+			}
+			if (
+				action === 'next' &&
+				windowCursor &&
+				state.index + 1 === state.tracks.length &&
+				(windowCursor.after || state.repeat === 'all')
+			) {
+				waitingAtEnd = true;
+				await extendWindow(true);
+				return snapshot();
+			}
 			if (action === 'cancelSleepTimer') {
 				cancelSleep();
 				return snapshot();
@@ -241,16 +364,22 @@ export function browserPlayer(): PlaybackBridge {
 				userId = undefined;
 				state = { ...state, repeat: 'off', tracks: [], index: -1, error: null };
 			} else if (state.tracks.length) {
-				if (action === 'seek' && Number.isFinite(value)) audio.currentTime = Math.max(0, value!);
+				if (action === 'seek' && Number.isFinite(value)) {
+					waitingAtEnd = false;
+					audio.currentTime = Math.max(0, value!);
+				}
 				if (action === 'skipTo' && Number.isInteger(value)) await playAt(value!);
 				if (action === 'next' && (state.index + 1 < state.tracks.length || state.repeat === 'all'))
 					await playAt((state.index + 1) % state.tracks.length);
 				if (action === 'previous') {
+					waitingAtEnd = false;
 					if (audio.currentTime > 3 || state.index === 0) audio.currentTime = 0;
 					else await playAt(state.index - 1);
 				}
-				if (action === 'cycleRepeat')
+				if (action === 'cycleRepeat') {
 					state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
+					if (windowCursor?.after === null && state.repeat !== 'all') waitingAtEnd = false;
+				}
 				if (action === 'clearUpcoming') state.tracks = state.tracks.slice(0, state.index + 1);
 				if (action === 'shuffleUpcoming') {
 					for (let i = state.tracks.length - 1; i > state.index + 1; i--) {
@@ -278,7 +407,7 @@ export function browserPlayer(): PlaybackBridge {
 				}
 				if (action === 'toggle') {
 					blockAdvance = !audio.paused;
-					if (audio.paused && (!objectUrl || state.error)) await playAt(state.index);
+					if (audio.paused && (audio.ended || !objectUrl || state.error)) await playAt(state.index);
 					else if (audio.paused) await audio.play();
 					else audio.pause();
 				}

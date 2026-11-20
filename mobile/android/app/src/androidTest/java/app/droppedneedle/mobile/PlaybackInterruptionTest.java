@@ -108,6 +108,24 @@ public final class PlaybackInterruptionTest {
         Context app = instrumentation.getTargetContext();
         CountDownLatch connected = new CountDownLatch(1);
         ServiceConnection binding = connection(connected);
+        String address = "https://127.0.0.1:1";
+        String listener = "sleep-" + java.util.UUID.randomUUID();
+        OfflineStore files = OfflineStore.forUser(app, address, listener);
+        JSArray queue = new JSArray();
+        byte[] silence = OfflinePlaybackTest.wav();
+        for (String id : new String[]{"first", "second"}) {
+            JSObject track = new JSObject();
+            track.put("id", id);
+            track.put("title", id);
+            track.put("artist", "Fixture artist");
+            track.put("album", "Fixture record");
+            track.put("streamUrl", address + "/api/v3/stream/local/" + id);
+            try (OfflineStore.Capture capture = files.begin(track, true, silence.length)) {
+                capture.write(silence, 0, silence.length);
+                capture.finish();
+            }
+            queue.put(track);
+        }
         try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
             awaitAppReady(activity);
             Intent intent = new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND);
@@ -116,12 +134,11 @@ public final class PlaybackInterruptionTest {
                 assertTrue(connected.await(10, TimeUnit.SECONDS));
                 AtomicBoolean startedNext = new AtomicBoolean();
                 instrumentation.runOnMainSync(() -> {
-                    JSObject first = new JSObject(), second = new JSObject();
-                    first.put("id", "first"); second.put("id", "second");
-                    SilenceMediaSource.Factory source = new SilenceMediaSource.Factory().setDurationUs(900_000);
-                    player.setMediaSources(java.util.Arrays.asList(source.setTag(first).createMediaSource(),
-                            source.setTag(second).createMediaSource()));
-                    player.setRepeatMode(Player.REPEAT_MODE_ALL);
+                    try {
+                        playback.setQueue(address, "timer-test", listener, queue, 0, null, null);
+                    } catch (org.json.JSONException error) { throw new AssertionError(error); }
+                    playback.command("cycleRepeat", -1, -1);
+                    assertEquals(2, playback.snapshot().optJSONArray("tracks").length());
                     player.addListener(new Player.Listener() {
                         @Override public void onEvents(Player current, Player.Events events) {
                             if (current.isPlaying() && current.getCurrentMediaItemIndex() == 1) startedNext.set(true);
@@ -130,7 +147,6 @@ public final class PlaybackInterruptionTest {
                     playback.command("sleepAfterTrack", -1, -1);
                     assertTrue(player.getPauseAtEndOfMediaItems());
                     assertEquals("track", playback.snapshot().optJSONObject("sleepTimer").optString("mode"));
-                    player.prepare(); player.play();
                 });
                 await("The silent track started", () -> player.isPlaying());
                 await("The sleep timer paused the service", () -> !player.getPlayWhenReady() && playback.snapshot().isNull("sleepTimer"));
@@ -143,6 +159,120 @@ public final class PlaybackInterruptionTest {
                 if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", 0, -1));
                 app.unbindService(binding);
             }
+        } finally {
+            files.remove(new org.json.JSONArray().put("first").put("second"));
+        }
+    }
+
+    @Test public void libraryRefillReachesExoPlayerAndAnExplicitAppendPreservesDuplicates() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        String address = "https://127.0.0.1:1";
+        String listener = "library-" + java.util.UUID.randomUUID(), token = "queue-fixture";
+        OfflineStore files = OfflineStore.forUser(app, address, listener);
+        JSArray queue = new JSArray();
+        org.json.JSONArray ids = new org.json.JSONArray();
+        byte[] silence = OfflinePlaybackTest.wav();
+        for (int i = 0; i < 62; i++) {
+            String id = "s" + i;
+            JSObject track = new JSObject();
+            track.put("id", id); track.put("title", id); track.put("artist", "Test"); track.put("album", "Album");
+            track.put("streamUrl", address + "/api/v3/stream/local/" + id);
+            if (i < 60) queue.put(track);
+            if (i >= 59) {
+                try (OfflineStore.Capture capture = files.begin(track, true, silence.length)) {
+                    capture.write(silence, 0, silence.length);
+                    capture.finish();
+                }
+                ids.put(id);
+            }
+        }
+        org.json.JSONObject continuation = new org.json.JSONObject()
+                .put("filters", new org.json.JSONObject().put("sort", "random").put("order", "asc"))
+                .put("loaded", 76_001).put("total", 76_003).put("after", "random+ordered/seed&cursor=60");
+        org.json.JSONArray incoming = new org.json.JSONArray();
+        for (int i = 60; i < 62; i++) incoming.put(new org.json.JSONObject()
+                .put("id", "s" + i).put("title", "s" + i).put("artist_name", "Test").put("album_title", "Album"));
+        String page = new org.json.JSONObject().put("total", 76_003).put("next", org.json.JSONObject.NULL)
+                .put("items", incoming).toString();
+        CountDownLatch requested = new CountDownLatch(1), release = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<okhttp3.Request> request = new java.util.concurrent.atomic.AtomicReference<>();
+        okhttp3.OkHttpClient synthetic = new okhttp3.OkHttpClient.Builder().addInterceptor(chain -> {
+            request.set(chain.request());
+            requested.countDown();
+            try { if (!release.await(10, TimeUnit.SECONDS)) throw new java.io.IOException("Fixture timed out."); }
+            catch (InterruptedException interrupted) { throw new java.io.IOException(interrupted); }
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(200).message("Fixture").body(okhttp3.ResponseBody.create(
+                            okhttp3.MediaType.get("application/json"), page)).build();
+        }).build();
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
+        try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
+            Intent intent = new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND);
+            assertTrue(app.bindService(intent, binding, Context.BIND_AUTO_CREATE));
+            try {
+                assertTrue(connected.await(10, TimeUnit.SECONDS));
+                AtomicBoolean heardNewTrack = new AtomicBoolean();
+                instrumentation.runOnMainSync(() -> {
+                    try {
+                        // Substitute only the unexported pager's transport in this instrumented process.
+                        // Its production host/dispatcher still mutate the real service queue on the player thread.
+                        java.lang.reflect.Field holder = PlaybackService.class.getDeclaredField("pager");
+                        java.lang.reflect.Field host = LibraryQueuePager.class.getDeclaredField("host");
+                        java.lang.reflect.Field dispatch = LibraryQueuePager.class.getDeclaredField("main");
+                        holder.setAccessible(true); host.setAccessible(true); dispatch.setAccessible(true);
+                        LibraryQueuePager original = (LibraryQueuePager) holder.get(playback);
+                        holder.set(playback, new LibraryQueuePager((LibraryQueuePager.Host) host.get(original),
+                                (LibraryQueuePager.Dispatch) dispatch.get(original), synthetic));
+                        player.addListener(new Player.Listener() {
+                            @Override public void onEvents(Player source, Player.Events events) {
+                                androidx.media3.common.MediaItem item = source.getCurrentMediaItem();
+                                if (source.isPlaying() && item != null && "s60".equals(item.mediaId)) heardNewTrack.set(true);
+                            }
+                        });
+                        playback.setQueue(address, token, listener, queue, 59, null, null, continuation);
+                    } catch (ReflectiveOperationException | org.json.JSONException error) { throw new AssertionError(error); }
+                });
+                assertTrue(requested.await(5, TimeUnit.SECONDS));
+                assertEquals("Bearer " + token, request.get().header("Authorization"));
+                assertEquals("/api/v3/library/tracks", request.get().url().encodedPath());
+                assertEquals("random+ordered/seed&cursor=60", request.get().url().queryParameter("after"));
+                assertEquals("random", request.get().url().queryParameter("sort"));
+                await("First WAV reached the end while DN's next page is delayed", () ->
+                        player.getPlaybackState() == Player.STATE_ENDED && playback.snapshot().optBoolean("playing"));
+                release.countDown();
+                await("A native page brought the next WAV to playing ExoPlayer", heardNewTrack::get);
+                CompletableFuture<org.json.JSONObject> encrypted = new CompletableFuture<>();
+                new SavedQueue(app).load(SavedQueue.key(okhttp3.HttpUrl.get(address).toString(), token), encrypted::complete);
+                org.json.JSONObject saved = encrypted.get(5, TimeUnit.SECONDS);
+                assertNotNull(saved);
+                assertEquals(76_003, saved.getJSONObject("continuation").getInt("loaded"));
+                assertTrue(saved.getJSONObject("continuation").isNull("after"));
+                assertEquals(53, saved.getJSONArray("tracks").length());
+                instrumentation.runOnMainSync(() -> {
+                    try {
+                        JSObject state = playback.snapshot();
+                        assertEquals(53, state.optJSONArray("tracks").length());
+                        assertEquals(75_950, state.optJSONObject("libraryWindow").optInt("offset"));
+                        assertFalse(state.optJSONObject("libraryWindow").optBoolean("more"));
+                        assertEquals("s9", player.getMediaItemAt(0).mediaId);
+                        JSArray one = new JSArray(); one.put(queue.getJSONObject(59));
+                        playback.setQueue(address, token, listener, one, 0, "end", null);
+                        assertEquals(54, player.getMediaItemCount());
+                        assertEquals("s59", player.getMediaItemAt(50).mediaId);
+                        assertEquals("s59", player.getMediaItemAt(53).mediaId);
+                        assertTrue(playback.snapshot().isNull("libraryWindow"));
+                    } catch (org.json.JSONException error) { throw new AssertionError(error); }
+                });
+            } finally {
+                release.countDown();
+                if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", -1, -1));
+                app.unbindService(binding);
+            }
+        } finally {
+            files.remove(ids);
+            synthetic.dispatcher().executorService().shutdownNow();
         }
     }
 
