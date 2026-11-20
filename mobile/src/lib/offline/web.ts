@@ -1,6 +1,10 @@
 import type { PlayerTrack } from '../player';
 import {
 	cacheSizes,
+	playlistId,
+	validDownloadSource,
+	validLocalFileId,
+	type PlaylistSource,
 	offlineDefaults,
 	retainedTrack,
 	type DownloadSource,
@@ -30,7 +34,10 @@ export interface OfflineBridge {
 	clearCache(a: Account): Promise<void>;
 	remove(a: Account & { ids: string[] }): Promise<void>;
 	cancelAutomatic(a: Account): Promise<void>;
-	planAutomatic(a: Account & { source: EnabledSource; ids: string[] }): Promise<{ ids: string[] }>;
+	clearAutomaticPlaylist(a: Account & { source: PlaylistSource }): Promise<OfflineOptions>;
+	planAutomatic(
+		a: Account & { source: EnabledSource; ids: string[]; keepExisting?: boolean }
+	): Promise<{ ids: string[] }>;
 	save(
 		a: Account & { token: string; track: PlayerTrack; source?: EnabledSource; signal?: AbortSignal }
 	): Promise<void>;
@@ -227,9 +234,9 @@ export const webOffline: OfflineBridge = {
 		if (
 			!cacheSizes.includes(a.options.cacheMiB) ||
 			!cacheSizes.includes(a.options.downloadMiB) ||
-			!['off', 'recent', 'favorites'].includes(a.options.autoDownload)
+			!validDownloadSource(a.options.autoDownload)
 		)
-			throw Error('Choose a supported cache size.');
+			throw Error('Choose a supported download source and storage limit.');
 		const key = scope(a);
 		return transaction('readwrite', async (store, settings) => {
 			const old = await prefs(settings, key);
@@ -263,17 +270,49 @@ export const webOffline: OfflineBridge = {
 	async cancelAutomatic(a) {
 		await transaction('readwrite', (_, settings) => bump(settings, ['automatic', scope(a)]));
 	},
+	async clearAutomaticPlaylist(a) {
+		const key = scope(a);
+		return transaction('readwrite', async (store, settings) => {
+			const old = await prefs(settings, key);
+			if (!playlistId(a.source) || old.autoDownload !== a.source)
+				throw Error('The selected playlist changed.');
+			await bump(settings, ['automatic', key]);
+			for (const entry of await rows(store, key)) {
+				if (originOf(entry) !== 'automatic') continue;
+				await bump(settings, ['item', key, entry.id]);
+				await result(store.delete([key, entry.id]));
+			}
+			const next: OfflineOptions = { ...old, autoDownload: 'off' };
+			await result(settings.put(next, key));
+			return next;
+		});
+	},
 	async planAutomatic(a) {
 		const key = scope(a);
 		return transaction('readwrite', async (store, settings) => {
 			const options = await prefs(settings, key);
-			if (a.source !== options.autoDownload || options.offlineOnly) return { ids: [] };
-			const wanted = new Set(a.ids.slice(0, 25));
+			if (
+				options.autoDownload === 'off' ||
+				a.source !== options.autoDownload ||
+				options.offlineOnly
+			)
+				return { ids: [] };
+			if (
+				!validDownloadSource(a.source) ||
+				!Array.isArray(a.ids) ||
+				(a.keepExisting !== undefined && typeof a.keepExisting !== 'boolean')
+			)
+				throw Error('DN returned an incomplete song list.');
+			const wanted = new Set<string>();
+			for (const id of playlistId(a.source) ? a.ids : a.ids.slice(0, 25)) {
+				if (!validLocalFileId(id)) throw Error('DN returned an invalid library song.');
+				wanted.add(id);
+			}
 			const eligible = new Set(wanted);
 			for (const entry of await rows(store, key)) {
 				if (!complete(entry)) continue;
 				const origin = originOf(entry);
-				if (origin === 'automatic' && !wanted.has(entry.id)) {
+				if (origin === 'automatic' && !a.keepExisting && !wanted.has(entry.id)) {
 					await bump(settings, ['item', key, entry.id]);
 					await result(store.delete([key, entry.id]));
 				}

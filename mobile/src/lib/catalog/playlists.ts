@@ -1,5 +1,6 @@
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import type { PlayerTrack } from '../player';
+import { validLocalFileId } from '../offline/tracks';
 import { DnError, getJson, mutateJson, postJson, type Session } from '../connection';
 import { cover, path, playerTrack } from './catalog';
 import { forgetPlaylist, rememberPlaylistList, rememberPlaylistTracks } from './playlistOffline';
@@ -37,10 +38,52 @@ export function playlistCover(p: Playlist) {
 	return playlistArtwork(p)[0];
 }
 
-export async function readPlaylist(session: Session, playlist: Playlist, signal?: AbortSignal) {
+function tagNumber(n?: number | null) {
+	return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
+const incomplete = () =>
+	Error('DN did not return the complete playlist. Existing automatic downloads were kept.');
+function checkMembership(detail: Schema['PlaylistDetail'], id: string) {
+	if (
+		detail?.id !== id ||
+		detail.is_redacted !== false ||
+		typeof detail.is_owner !== 'boolean' ||
+		typeof detail.name !== 'string' ||
+		!Array.isArray(detail.tracks) ||
+		detail.track_count !== detail.tracks.length
+	)
+		throw incomplete();
+	const entries = new Set<string>();
+	for (const row of detail.tracks) {
+		if (
+			!row ||
+			typeof row.id !== 'string' ||
+			!row.id ||
+			entries.has(row.id) ||
+			typeof row.source_type !== 'string' ||
+			typeof row.track_name !== 'string' ||
+			typeof row.artist_name !== 'string' ||
+			typeof row.album_name !== 'string' ||
+			(row.available_sources != null &&
+				(!Array.isArray(row.available_sources) ||
+					!row.available_sources.every((s) => typeof s === 'string')))
+		)
+			throw incomplete();
+		entries.add(row.id);
+	}
+}
+
+export async function readPlaylist(
+	session: Session,
+	playlist: Pick<Playlist, 'id'>,
+	signal?: AbortSignal,
+	requireComplete = false
+) {
 	const params = { playlist_id: playlist.id };
 	const url = path('/api/v3/playlists/{playlist_id}', params);
 	let detail = await getJson<Schema['PlaylistDetail']>(session, url, signal);
+	if (requireComplete) checkMembership(detail, playlist.id);
 	const unresolved = detail.tracks.filter(
 		(t) => !t.source_type && !t.library_file_id && t.album_id
 	);
@@ -52,14 +95,36 @@ export async function readPlaylist(session: Session, playlist: Playlist, signal?
 				session,
 				path('/api/v3/playlists/{playlist_id}/resolve-sources', params)
 			);
-			if (unresolved.some((t) => sources[t.id]?.includes('local')))
+			signal?.throwIfAborted();
+			if (
+				requireComplete &&
+				detail.tracks.some(
+					(t) =>
+						!Array.isArray(sources?.[t.id]) || !sources[t.id].every((s) => typeof s === 'string')
+				)
+			)
+				throw incomplete();
+			const linked = unresolved.filter((t) => sources[t.id]?.includes('local'));
+			if (linked.length) {
 				detail = await getJson<Schema['PlaylistDetail']>(session, url, signal);
+				if (requireComplete) {
+					checkMembership(detail, playlist.id);
+					const confirmed = new Set(
+						detail.tracks
+							.filter((t) => t.library_file_id || (t.source_type === 'local' && t.track_source_id))
+							.map((t) => t.id)
+					);
+					if (linked.some((t) => !confirmed.has(t.id))) throw incomplete();
+				}
+			}
 		} catch (cause) {
 			signal?.throwIfAborted();
 			if (cause instanceof DnError && [401, 403, 404].includes(cause.status)) throw cause;
+			if (requireComplete) throw incomplete();
 			resolutionFailed = true;
 		}
 	}
+	let keepExisting = false;
 	const tracks: PlayerTrack[] = [];
 	const rows = detail.tracks.map((entry) => {
 		const file =
@@ -68,22 +133,38 @@ export async function readPlaylist(session: Session, playlist: Playlist, signal?
 				: entry.available_sources?.includes('local')
 					? entry.library_file_id
 					: null;
+		if (requireComplete) {
+			if (file != null && !validLocalFileId(file)) throw incomplete();
+			if (!file) {
+				const claimsLocal =
+					entry.source_type === 'local' || entry.available_sources?.includes('local');
+				if (detail.is_owner && claimsLocal) throw incomplete();
+				if (!detail.is_owner && (claimsLocal || !entry.source_type)) keepExisting = true;
+			}
+		}
 		const index = file ? tracks.length : null;
 		if (file)
-			tracks.push(
-				playerTrack(
+			tracks.push({
+				...playerTrack(
 					file,
 					entry.track_name,
 					entry.artist_name,
 					entry.album_name,
 					localCover(entry.cover_url),
 					entry.duration
-				)
-			);
+				),
+				albumId: validLocalFileId(entry.album_id) ? entry.album_id : undefined,
+				artistId: validLocalFileId(entry.artist_id) ? entry.artist_id : undefined,
+				format: typeof entry.format === 'string' ? entry.format.trim() || undefined : undefined,
+				discNumber: tagNumber(entry.disc_number),
+				trackNumber: tagNumber(entry.track_number)
+			});
 		return { entry, index };
 	});
-	if (!resolutionFailed) rememberPlaylistTracks(session, detail, tracks, playlistArtwork(detail));
-	return { playlist: detail as Playlist, rows, tracks, resolutionFailed };
+	signal?.throwIfAborted();
+	if (!resolutionFailed && !(requireComplete && keepExisting))
+		rememberPlaylistTracks(session, detail, tracks, playlistArtwork(detail));
+	return { playlist: detail as Playlist, rows, tracks, resolutionFailed, keepExisting };
 }
 
 export function createPlaylist(session: Session, name: string) {

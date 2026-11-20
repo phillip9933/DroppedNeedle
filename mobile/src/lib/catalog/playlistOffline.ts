@@ -26,6 +26,10 @@ function write(k: string, value: RecordValue[]) {
 		/* An exhausted browser cache leaves playback available by track. */
 	}
 }
+export function rememberedPlaylistNames(session: Session) {
+	const k = key(session);
+	return k ? read(k).map(({ id, name }) => ({ id, name })) : [];
+}
 export function rememberPlaylistList(
 	session: Session,
 	list: Playlist[],

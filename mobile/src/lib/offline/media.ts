@@ -1,12 +1,16 @@
 import { Capacitor } from '@capacitor/core';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
-import { getJson, postJson, type Session } from '../connection';
+import { DnError, getJson, postJson, type Session } from '../connection';
 import { localSong, path } from '../catalog/catalog';
+import { readPlaylist } from '../catalog/playlists';
 import { inventory } from './library';
 import { overlayFeedback } from './feedbackStore';
 import type { PlayerAccess, PlayerTrack } from '../player';
 import {
 	retainedTrack,
+	playlistId,
+	type DownloadSource,
+	type PlaylistSource,
 	type OfflineAccount,
 	type OfflineOptions,
 	type OfflineSnapshot
@@ -69,6 +73,17 @@ export async function configureOffline(session: OfflineAccount, options: Offline
 		window.dispatchEvent(new Event('dn-offline-policy'));
 	window.dispatchEvent(new Event(mediaChanged));
 	return next;
+}
+export async function clearPlaylistDownloads(session: OfflineAccount, source: PlaylistSource) {
+	const key = syncKey(session),
+		previous = syncs.get(key);
+	const result = await backend().clearAutomaticPlaylist({ ...account(session), source });
+	if (previous && syncs.get(key) === previous) {
+		syncs.delete(key);
+		previous.abort.abort();
+	}
+	window.dispatchEvent(new Event(mediaChanged));
+	return result;
 }
 export async function clearAutomatic(session: OfflineAccount) {
 	await backend().clearCache(account(session));
@@ -165,6 +180,63 @@ export async function stopAutoDownloads(session: OfflineAccount) {
 	if (session.userId) await backend().cancelAutomatic(account(session));
 }
 
+const playlistIssues = new WeakMap<Session, { source: DownloadSource; message: string }>();
+export function playlistSyncIssue(session: Session, source: DownloadSource) {
+	const issue = playlistIssues.get(session);
+	return issue?.source === source ? issue.message : '';
+}
+function setPlaylistIssue(session: Session, source: DownloadSource, message: string) {
+	if (message) playlistIssues.set(session, { source, message });
+	else playlistIssues.delete(session);
+	window.dispatchEvent(new Event('dn-playlist-sync'));
+}
+
+async function automaticSelection(
+	session: Session,
+	source: Exclude<DownloadSource, 'off'>,
+	signal?: AbortSignal
+) {
+	if (source === 'recent' || source === 'favorites') {
+		const response = await getJson<components['schemas']['TrackListPage']>(
+			session,
+			path(
+				'/api/v3/library/tracks',
+				{},
+				{
+					limit: 25,
+					sort: 'date_added',
+					order: 'desc',
+					favorites: source === 'favorites' ? 'true' : undefined
+				}
+			),
+			signal
+		);
+		return { tracks: response.items.slice(0, 25).map((t) => localSong(t)), keepExisting: false };
+	}
+	const id = playlistId(source);
+	if (!id) throw Error('Choose a valid DN playlist.');
+	try {
+		const detail = await readPlaylist(session, { id }, signal, true);
+		signal?.throwIfAborted();
+		setPlaylistIssue(
+			session,
+			source,
+			detail.keepExisting
+				? 'Some entries have no confirmed local file. Existing automatic copies were kept.'
+				: ''
+		);
+		return detail;
+	} catch (cause) {
+		signal?.throwIfAborted();
+		const message =
+			cause instanceof DnError && [403, 404].includes(cause.status)
+				? 'This playlist was deleted or you no longer have access. Existing automatic copies were kept.'
+				: 'Could not confirm the complete playlist with DN. Existing automatic copies were kept.';
+		setPlaylistIssue(session, source, message);
+		throw Error(message, { cause });
+	}
+}
+
 export function runAutoDownloads(session: Session, signal?: AbortSignal): Promise<number> {
 	if (signal?.aborted || !offlineSupported || !session.userId || !navigator.onLine)
 		return Promise.resolve(0);
@@ -183,43 +255,33 @@ export function runAutoDownloads(session: Session, signal?: AbortSignal): Promis
 		const settings = await backend().options(owner);
 		const source = settings.autoDownload;
 		if (!source || source === 'off' || settings.offlineOnly || signal?.aborted) return 0;
-		const response = await getJson<components['schemas']['TrackListPage']>(
-			session,
-			path(
-				'/api/v3/library/tracks',
-				{},
-				{
-					limit: 25,
-					sort: 'date_added',
-					order: 'desc',
-					favorites: source === 'favorites' ? 'true' : undefined
-				}
-			),
-			signal
-		);
+		const { tracks, keepExisting } = await automaticSelection(session, source, signal);
 		signal?.throwIfAborted();
-		const tracks = response.items.slice(0, 25).map((t) => localSong(t));
+		const byId = new Map<string, PlayerTrack>();
+		for (const track of tracks) if (!byId.has(track.id)) byId.set(track.id, track);
 		const { ids } = await backend().planAutomatic({
 			...owner,
 			source,
-			ids: tracks.map((t) => t.id)
+			ids: [...byId.keys()],
+			keepExisting
 		});
 		const wanted = new Set(ids);
+		const eligible = [...byId.values()].filter((t) => wanted.has(t.id));
 		activeBatches++;
 		try {
-			for (const track of await withRatings(
-				session,
-				tracks.filter((t) => wanted.has(t.id))
-			)) {
+			for (let start = 0; start < eligible.length && navigator.onLine; start += 100) {
 				signal?.throwIfAborted();
-				if (!navigator.onLine) break;
-				await backend().save({
-					...owner,
-					token: session.token,
-					track: retainedTrack(track, session.serverUrl),
-					...(!nativeOffline ? { signal } : {}),
-					source
-				});
+				for (const track of await withRatings(session, eligible.slice(start, start + 100))) {
+					signal?.throwIfAborted();
+					if (!navigator.onLine) break;
+					await backend().save({
+						...owner,
+						token: session.token,
+						track: retainedTrack(track, session.serverUrl),
+						...(!nativeOffline ? { signal } : {}),
+						source
+					});
+				}
 			}
 		} finally {
 			if (--activeBatches === 0) window.dispatchEvent(new Event(mediaChanged));

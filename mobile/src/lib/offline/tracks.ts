@@ -3,7 +3,54 @@ import type { PlayerTrack } from '../player';
 
 export type OfflineAccount = Pick<Session, 'serverUrl' | 'userId'>;
 export type OfflineOrigin = 'cached' | 'automatic' | 'downloaded';
-export type DownloadSource = 'off' | 'recent' | 'favorites';
+export type PlaylistSource = `playlist:${string}`;
+export type DownloadSource = 'off' | 'recent' | 'favorites' | PlaylistSource;
+
+function hasControl(value: string) {
+	for (const ch of value) {
+		const n = ch.charCodeAt(0);
+		if (n < 32 || (n >= 127 && n <= 159)) return true;
+	}
+	return false;
+}
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+export function playlistSource(id: string): PlaylistSource | null {
+	if (typeof id !== 'string' || !id.length || id.length > 256 || id === '.' || id === '..')
+		return null;
+	if (hasControl(id)) return null;
+	const bytes = new TextEncoder().encode(id);
+	if (bytes.length > 256 || utf8.decode(bytes) !== id) return null;
+	return `playlist:${btoa(String.fromCharCode(...bytes))
+		.replaceAll('+', '-')
+		.replaceAll('/', '_')
+		.replace(/=+$/, '')}`;
+}
+export function playlistId(source: unknown): string | null {
+	if (typeof source !== 'string' || !/^playlist:[A-Za-z0-9_-]{1,342}$/.test(source)) return null;
+	try {
+		const bytes = atob(source.slice(9).replaceAll('-', '+').replaceAll('_', '/'));
+		const id = utf8.decode(Uint8Array.from(bytes, (ch) => ch.charCodeAt(0)));
+		return playlistSource(id) === source ? id : null;
+	} catch {
+		return null;
+	}
+}
+export function validDownloadSource(value: unknown): value is DownloadSource {
+	return (
+		value === 'off' || value === 'recent' || value === 'favorites' || playlistId(value) !== null
+	);
+}
+export function validLocalFileId(id: unknown): id is string {
+	return (
+		typeof id === 'string' &&
+		!!id &&
+		id !== '.' &&
+		id !== '..' &&
+		!id.includes('/') &&
+		!id.includes('\\') &&
+		!hasControl(id)
+	);
+}
 export type OfflineOptions = {
 	autoDownload: DownloadSource;
 	downloadMiB: number;
