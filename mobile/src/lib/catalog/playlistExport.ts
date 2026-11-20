@@ -1,25 +1,11 @@
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { downloadFile, nativeDocuments } from '../documentFiles';
+import { Capacitor } from '@capacitor/core';
 import { apiAddress, expiredSession, readFileResponse, type Session } from '../connection';
 import { preferredOffline } from '../offline/media';
 import { path } from './catalog';
 
 export type ExportFormat = 'm3u8' | 'csv';
 const mime = { m3u8: 'audio/x-mpegurl', csv: 'text/csv' };
-interface Headers {
-	contentDisposition?: string;
-	skippedTracks?: string;
-}
-const native = registerPlugin<{
-	prepare(opts: {
-		id: string;
-		serverUrl: string;
-		url: string;
-		token: string;
-		format: ExportFormat;
-	}): Promise<Headers>;
-	save(opts: { id: string; filename: string }): Promise<{ saved: boolean }>;
-	discard(opts: { id: string }): Promise<void>;
-}>('DNPlaylistExport');
 type Writer = { write(data: Blob): Promise<void>; close(): Promise<void>; abort(): Promise<void> };
 type Picker = (options: {
 	suggestedName: string;
@@ -144,7 +130,7 @@ export async function prepareExport(
 	if (Capacitor.isNativePlatform()) {
 		const id = crypto.randomUUID(),
 			cancel = () => {
-				void native.discard({ id }).catch(() => {});
+				void nativeDocuments.discard({ id }).catch(() => {});
 			};
 		signal.addEventListener('abort', cancel, { once: true });
 		const discard = () => {
@@ -152,7 +138,7 @@ export async function prepareExport(
 			cancel();
 		};
 		try {
-			const headers = await native.prepare({
+			const headers = await nativeDocuments.prepare({
 				id,
 				serverUrl: session.serverUrl,
 				url: apiAddress(session.serverUrl, route),
@@ -168,7 +154,7 @@ export async function prepareExport(
 				discard,
 				async save() {
 					signal.throwIfAborted();
-					const result = await native.save({ id, filename });
+					const result = await nativeDocuments.save({ id, filename });
 					return result.saved ? 'saved' : 'cancelled';
 				}
 			};
@@ -279,17 +265,7 @@ export async function prepareExport(
 				}
 				return 'saved';
 			}
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = filename;
-			document.body.append(a);
-			try {
-				a.click();
-			} finally {
-				a.remove();
-				setTimeout(() => URL.revokeObjectURL(url), 30000);
-			}
+			downloadFile(blob, filename);
 			return 'download';
 		}
 	};

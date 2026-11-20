@@ -16,6 +16,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import okhttp3.OkHttpClient;
@@ -26,7 +27,7 @@ public final class DNPlaylistExportPlugin extends Plugin {
     private final OkHttpClient http = PlaylistExportFile.network().build();
     private File dir;
     private PlaylistExportFile active;
-    private String pickerId;
+    private boolean picking;
     private CancellationSignal writing;
 
     @Override
@@ -36,7 +37,7 @@ public final class DNPlaylistExportPlugin extends Plugin {
     }
     @PluginMethod
     public synchronized void prepare(PluginCall call) {
-        if (active != null) {
+        if (active != null || picking || writing != null) {
             call.reject("Finish or cancel the open export before starting another.");
             return;
         }
@@ -82,7 +83,7 @@ public final class DNPlaylistExportPlugin extends Plugin {
             call.reject("The prepared file expired. Prepare the playlist again.");
             return;
         }
-        if (pickerId != null || writing != null) {
+        if (picking || writing != null) {
             call.reject("Close the open Files picker and try again.");
             return;
         }
@@ -93,20 +94,50 @@ public final class DNPlaylistExportPlugin extends Plugin {
             call.reject(e.getMessage());
             return;
         }
-        pickerId = file.id;
+        chooseDocument(call, file.mime, name, file);
+    }
+
+    static final String LAYOUT_NAME = "droppedneedle-player-layout.json";
+    private static final int MAX_LAYOUT_BYTES = 64 * 1024;
+    static byte[] layoutBytes(String text) throws IOException {
+        if (text == null || text.isEmpty()) throw new IOException("No layout is available to save.");
+        if (text.length() > MAX_LAYOUT_BYTES)
+            throw new IOException("Use a layout no larger than 64 KiB.");
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_LAYOUT_BYTES) throw new IOException("Use a layout no larger than 64 KiB.");
+        return bytes;
+    }
+
+    @PluginMethod
+    public synchronized void saveLayout(PluginCall call) {
+        if (active != null || picking || writing != null) {
+            call.reject("Finish the open export and try again.");
+            return;
+        }
+        try {
+            layoutBytes(call.getString("text"));
+        } catch (IOException invalid) {
+            call.reject(invalid.getMessage());
+            return;
+        }
+        chooseDocument(call, "application/json", LAYOUT_NAME, null);
+    }
+
+    private void chooseDocument(PluginCall call, String mime, String name, PlaylistExportFile file) {
+        picking = true;
         getActivity().runOnUiThread(() -> {
             synchronized (this) {
                 if (active != file) {
-                    pickerId = null;
+                    picking = false;
                     call.reject("Export cancelled.");
                     return;
                 }
             }
             try {
-                startActivityForResult(call, destination(file.mime, name), "documentChosen");
+                startActivityForResult(call, destination(mime, name), "documentChosen");
             } catch (RuntimeException e) {
                 synchronized (this) {
-                    pickerId = null;
+                    picking = false;
                 }
                 finish(file);
                 call.reject("No document picker could open. Enable a Files provider and try again.");
@@ -114,17 +145,18 @@ public final class DNPlaylistExportPlugin extends Plugin {
         });
     }
     @ActivityCallback
-    private synchronized void documentChosen(PluginCall call, ActivityResult result) {
-        pickerId = null;
+    synchronized void documentChosen(PluginCall call, ActivityResult result) {
+        picking = false;
         if (call == null)
             return;
-        PlaylistExportFile file = lookup(call);
+        boolean layout = "saveLayout".equals(call.getMethodName());
+        PlaylistExportFile file = layout ? null : lookup(call);
         if (result.getResultCode() == Activity.RESULT_CANCELED) {
             finish(file);
             call.resolve(new JSObject().put("saved", false));
             return;
         }
-        if (file == null || !file.isReady()) {
+        if (!layout && (file == null || !file.isReady())) {
             call.reject("The prepared export expired. Reopen the playlist and try again.");
             return;
         }
@@ -138,12 +170,20 @@ public final class DNPlaylistExportPlugin extends Plugin {
         writing = signal;
         io.execute(() -> {
             try {
-                writeDocument(getContext().getContentResolver(), uri, signal, file);
+                DocumentContent content;
+                if (layout) {
+                    byte[] bytes = layoutBytes(call.getString("text"));
+                    content = out -> out.write(bytes);
+                } else {
+                    content = file::copyTo;
+                }
+                writeDocument(getContext().getContentResolver(), uri, signal, content);
                 finish(file);
                 call.resolve(new JSObject().put("saved", true));
             } catch (Exception e) {
                 finish(file);
-                call.reject("Could not finish writing the playlist. Check the destination for an incomplete file, then "
+                call.reject("Could not finish writing the " + (layout ? "layout" : "playlist")
+                            + ". Check the destination for an incomplete file, then "
                             + "choose a writable location with sufficient space.");
             } finally {
                 synchronized (this) {
@@ -153,7 +193,8 @@ public final class DNPlaylistExportPlugin extends Plugin {
             }
         });
     }
-    static void writeDocument(ContentResolver resolver, Uri uri, CancellationSignal signal, PlaylistExportFile file)
+    interface DocumentContent { void write(OutputStream output) throws IOException; }
+    static void writeDocument(ContentResolver resolver, Uri uri, CancellationSignal signal, DocumentContent content)
         throws IOException {
         if (uri == null || !"content".equals(uri.getScheme()))
             throw new IOException("Choose a document in Files.");
@@ -161,7 +202,7 @@ public final class DNPlaylistExportPlugin extends Plugin {
         if (fd == null)
             throw new IOException("No writable document was returned.");
         try (OutputStream out = new ParcelFileDescriptor.AutoCloseOutputStream(fd)) {
-            file.copyTo(out);
+            content.write(out);
         }
     }
     private synchronized PlaylistExportFile lookup(PluginCall call) {

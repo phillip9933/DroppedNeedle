@@ -34,7 +34,10 @@ const keys = [
 const knownIds = new Set<string>([...playerFields, ...playerWidgets].map((item) => item.id));
 export const maxPlayerStyleBytes = 64 * 1024;
 function fits(text: string) {
-	return text.length <= maxPlayerStyleBytes && new TextEncoder().encode(text).byteLength <= maxPlayerStyleBytes;
+	return (
+		text.length <= maxPlayerStyleBytes &&
+		new TextEncoder().encode(text).byteLength <= maxPlayerStyleBytes
+	);
 }
 function checkSize(text: string) {
 	if (!fits(text)) throw Error('Use a layout no larger than 64 KiB.');

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { sectionTitle, type Section } from '../boards/layout';
+	import { readLayoutFile, saveLayoutFile } from './layoutFiles';
 	import { playerCanvas } from './composition';
 	import { exportPlayerStyle, importPlayerStyle } from './playerStyle';
 	let { sections, onload }: { sections: Section[]; onload: (sections: Section[]) => void } =
@@ -11,6 +12,9 @@
 		error = $state(''),
 		notice = $state('');
 	let output = $state<HTMLTextAreaElement>();
+	let chooser = $state<HTMLInputElement>();
+	let saving = $state(false);
+	let operation = 0;
 	const exported = $derived.by(() => {
 		if (!open || mode !== 'export') return { text: '', error: '' };
 		try {
@@ -23,18 +27,21 @@
 		}
 	});
 	function tabs(next: typeof mode) {
+		operation++;
 		mode = next;
 		error = notice = '';
 		review = null;
 	}
 	function select() {
 		if (!output) return;
+		error = '';
 		output.focus();
 		output.select();
 		output.setSelectionRange(0, output.value.length);
 		notice = 'Layout text selected.';
 	}
 	async function copy() {
+		error = '';
 		try {
 			await navigator.clipboard.writeText(exported.text);
 			if (open && mode === 'export') notice = 'Layout copied.';
@@ -45,6 +52,7 @@
 		}
 	}
 	function update(text: string) {
+		operation++;
 		input = text;
 		review = null;
 		error = notice = '';
@@ -56,6 +64,43 @@
 		} catch (cause) {
 			review = null;
 			error = cause instanceof Error ? cause.message : 'Could not read the layout.';
+		}
+	}
+	async function saveFile() {
+		if (saving) return;
+		const ticket = ++operation;
+		saving = true;
+		error = notice = '';
+		try {
+			const result = await saveLayoutFile(exported.text);
+			if (ticket === operation && open)
+				notice =
+					result === 'saved'
+						? 'Layout file saved.'
+						: result === 'download'
+							? 'Layout download started.'
+							: 'Save cancelled.';
+		} catch (cause) {
+			if (ticket === operation && open)
+				error = cause instanceof Error ? cause.message : 'Could not save the layout file.';
+		} finally {
+			saving = false;
+		}
+	}
+	async function chooseFile(inputElement: HTMLInputElement) {
+		const file = inputElement.files?.[0];
+		inputElement.value = '';
+		if (!file) return;
+		update('');
+		const ticket = operation;
+		try {
+			const text = await readLayoutFile(file);
+			if (ticket !== operation || !open) return;
+			input = text;
+			preview();
+		} catch (cause) {
+			if (ticket === operation && open)
+				error = cause instanceof Error ? cause.message : 'Could not open the layout file.';
 		}
 	}
 	function load() {
@@ -93,13 +138,28 @@
 					></textarea></label
 				>
 				<div class="switch">
+					<button type="button" class="secondary" disabled={saving} onclick={saveFile}
+						>Save layout file</button
+					>
 					<button type="button" class="secondary" onclick={copy}>Copy layout</button><button
 						type="button"
 						class="text-button"
 						onclick={select}>Select text</button
 					>
 				</div>{/if}
-		{:else}<label
+		{:else}
+			<input
+				hidden
+				bind:this={chooser}
+				type="file"
+				accept=".json,application/json"
+				aria-label="Layout JSON file"
+				onchange={(e) => chooseFile(e.currentTarget)}
+			/>
+			<button type="button" class="secondary" onclick={() => chooser?.click()}
+				>Choose layout file</button
+			>
+			<label
 				>Shared layout JSON<textarea
 					rows="5"
 					spellcheck="false"

@@ -1,5 +1,6 @@
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
-import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { expect, test, type Page } from '@playwright/test';
 import type { Section } from '../src/lib/boards/layout';
 import { exportPlayerStyle, importPlayerStyle } from '../src/lib/player/playerStyle';
 
@@ -63,17 +64,9 @@ test('versioned player layout JSON round trips supported options and rejects mal
 	expect(() => importPlayerStyle('界'.repeat(25000))).toThrow(/64 KiB/);
 });
 
-test('a shared player layout previews first, preserves invalid drafts and saves only through the composer', async ({
-	page
-}) => {
-	const server = 'https://layout.example/music',
-		key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'listener', 'player']);
-	await page.addInitScript(() => {
-		Object.defineProperty(navigator, 'clipboard', {
-			configurable: true,
-			value: { writeText: () => Promise.reject(new Error('Clipboard unavailable')) }
-		});
-	});
+const server = 'https://layout.example/music',
+	key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'listener', 'player']);
+async function openEditor(page: Page) {
 	await page.route(server + '/api/v3/**', async (route) => {
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/music/api/v3'.length),
@@ -100,7 +93,21 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 		preview = page.getByRole('button', { name: 'Review imported layout', exact: true }),
 		load = page.getByRole('button', { name: 'Load into editor', exact: true });
 	await edit.click();
+	await expect(page.getByRole('button', { name: 'Save layout file' })).toHaveCount(0);
 	await share.click();
+	return { share, input, output, preview, load };
+}
+
+test('a shared player layout previews first, preserves invalid drafts and saves only through the composer', async ({
+	page
+}) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText: () => Promise.reject(new Error('Clipboard unavailable')) }
+		});
+	});
+	const { share, input, output, preview, load } = await openEditor(page);
 	const original = await output.inputValue();
 	await page.getByRole('button', { name: 'Copy layout', exact: true }).click();
 	await expect(
@@ -153,6 +160,66 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 	expect(await output.inputValue()).toBe(original);
 	await importDraft();
 	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+	const saved = await page.evaluate((k) => localStorage.getItem(k), key);
+	expect(JSON.parse(saved || '[]')[0]).toMatchObject(layout[0]);
+});
+
+test('layout files round trip offline through review, cancellation and an explicit save', async ({
+	page
+}) => {
+	const { share, input, output, load } = await openEditor(page);
+	const original = await output.inputValue();
+	const draft = exportPlayerStyle(layout);
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	async function choose(data: Buffer | null) {
+		const chooser = page.waitForEvent('filechooser');
+		await button('Choose layout file').click();
+		await (
+			await chooser
+		).setFiles(data ? { name: 'layout.json', mimeType: 'application/json', buffer: data } : []);
+	}
+
+	await page.context().setOffline(true);
+	await button('Import').click();
+	await choose(Buffer.from(draft));
+	await expect(page.getByText('1 row · 2 elements')).toBeVisible();
+	await choose(null);
+	await expect(input).toHaveValue(draft);
+	await expect(load).toBeVisible();
+	await choose(Buffer.from('{'));
+	await expect(page.getByRole('alert')).toHaveText('Enter valid layout JSON.');
+	await expect(load).toHaveCount(0);
+	await choose(Buffer.from([0xc3, 0x28]));
+	await expect(page.getByRole('alert')).toHaveText('Could not read this layout as UTF-8 text.');
+	await choose(Buffer.alloc(65537, ' '));
+	await expect(page.getByRole('alert')).toHaveText('Use a layout no larger than 64 KiB.');
+	await button('Export').click();
+	await expect(output).toHaveValue(original);
+	await button('Import').click();
+	await choose(Buffer.from(draft));
+	await load.click();
+	await button('Export').click();
+	const exported = await output.inputValue();
+	const downloading = page.waitForEvent('download');
+	await button('Save layout file').click();
+	const download = await downloading;
+	expect(download.suggestedFilename()).toBe('droppedneedle-player-layout.json');
+	const bytes = await readFile((await download.path())!);
+	expect(bytes.toString('utf8')).toEqual(exported);
+	expect(importPlayerStyle(exported)[0]).toMatchObject(layout[0]);
+	await button('Cancel').click();
+	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
+
+	await button('Player settings').click();
+	await share.click();
+	await expect(output).toHaveValue(original);
+	await button('Import').click();
+	await choose(bytes);
+	await expect(input).toHaveValue(exported);
+	await expect(page.getByText('1 row · 2 elements')).toBeVisible();
+	await load.click();
+	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
+	await button('Save layout').click();
 	const saved = await page.evaluate((k) => localStorage.getItem(k), key);
 	expect(JSON.parse(saved || '[]')[0]).toMatchObject(layout[0]);
 });
