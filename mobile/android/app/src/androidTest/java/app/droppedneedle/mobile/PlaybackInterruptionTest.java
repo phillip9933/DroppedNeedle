@@ -38,7 +38,7 @@ public final class PlaybackInterruptionTest {
         ServiceConnection binding = new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName name, IBinder binder) {
                 playback = ((PlaybackService.LocalBinder) binder).service();
-                player = (ExoPlayer) playback.onGetSession(null).getPlayer();
+                player = (ExoPlayer) playback.output().local;
                 connected.countDown();
             }
             @Override public void onServiceDisconnected(ComponentName name) {}
@@ -64,7 +64,7 @@ public final class PlaybackInterruptionTest {
                     try {
                         JSArray queue = new JSArray();
                         queue.put(track);
-                        playback.setQueue(address, "fixture", queue, 0, null);
+                        playback.setQueue(address, "fixture", "fixture-listener", queue, 0, null);
                     } catch (org.json.JSONException error) {
                         throw new AssertionError(error);
                     }

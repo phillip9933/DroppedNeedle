@@ -1,7 +1,9 @@
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
 import { writable } from 'svelte/store';
+import { streamAddress, streamQuality } from './player/streaming';
 import { browserPlayer } from './player/browser';
 import type { EqualizerBridge } from './player/equalizer';
+import { nativePlayer as native } from './player/native';
 
 export interface PlayerTrack {
 	id: string;
@@ -14,6 +16,7 @@ export interface PlayerTrack {
 }
 
 export interface PlayerAccess {
+	userId?: string;
 	serverUrl: string;
 	token: string;
 }
@@ -60,9 +63,6 @@ const empty: PlayerState = {
 	duration: 0,
 	error: null
 };
-const native = registerPlugin<
-	PlaybackBridge & EqualizerBridge & { restore(access: PlayerAccess): Promise<PlayerState> }
->('DNPlayer');
 export const nativeEqualizer: EqualizerBridge = native;
 const backend = Capacitor.isNativePlatform() ? native : browserPlayer();
 let sequence = 0;
@@ -142,9 +142,10 @@ async function submitTracks(
 		throw new Error('Playback requires a secure DroppedNeedle connection.');
 	}
 	base.pathname = base.pathname.replace(/\/?$/, '/');
+	const quality = streamQuality(access);
 	const queue = tracks.map((track) => ({
 		...track,
-		streamUrl: mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'),
+		streamUrl: streamAddress(mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'), quality),
 		artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
 	}));
 	return update(() => backend.setQueue({ ...access, tracks: queue, index, placement }));
@@ -153,7 +154,9 @@ async function submitTracks(
 export const player = {
 	async restore(access: PlayerAccess) {
 		if (Capacitor.getPlatform() === 'android') {
-			await update(() => native.restore({ serverUrl: access.serverUrl, token: access.token }));
+			await update(() =>
+				native.restore({ serverUrl: access.serverUrl, token: access.token, userId: access.userId })
+			);
 		}
 	},
 	subscribe: state.subscribe,

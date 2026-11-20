@@ -15,17 +15,19 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DataSourceBitmapLoader;
+import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.CacheBitmapLoader;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import okhttp3.HttpUrl;
@@ -41,12 +43,15 @@ public final class PlaybackService extends MediaSessionService {
         PlaybackService service() { return PlaybackService.this; }
     }
 
-    private static final class Access {
+    private static final class Access implements OfflineDataSource.Library {
         final HttpUrl base;
         final String apiPath;
         final String token;
+        final OfflineStore offline;
+        final ConcurrentHashMap<String, JSONObject> metadata = new ConcurrentHashMap<>();
 
-        Access(String address, String token) {
+        Access(String address, String token, OfflineStore offline) {
+            this.offline = offline;
             base = HttpUrl.parse(address);
             if (base == null || !base.isHttps() || !base.username().isEmpty()
                     || !base.password().isEmpty() || token == null || token.isEmpty()) {
@@ -55,6 +60,9 @@ public final class PlaybackService extends MediaSessionService {
             this.token = token;
             apiPath = base.encodedPath().replaceAll("/+$", "") + "/api/v3/";
         }
+
+        @Override public OfflineStore store() { return offline; }
+        @Override public JSONObject metadata(String id) { return metadata.get(id); }
 
         boolean permits(HttpUrl url, String path) {
             return url != null && url.isHttps() && url.host().equals(base.host())
@@ -65,10 +73,11 @@ public final class PlaybackService extends MediaSessionService {
 
     private final LocalBinder binder = new LocalBinder();
     private volatile Access access;
-    private ExoPlayer player;
+    private RoutedPlayer player;
     private MediaSession session;
     private PlaybackReporter reporter;
     private PlaybackEqualizer equalizer;
+    private PlaybackFades fades;
     private SavedQueue saved;
     private SecretKey queueKey;
     private String revision;
@@ -102,27 +111,53 @@ public final class PlaybackService extends MediaSessionService {
                 .addInterceptor(chain -> {
                     Request request = chain.request();
                     Access current = access;
-                    if (current == null || !current.permits(request.url(), "")) {
+                    String authorization = request.header("Authorization");
+                    if (current == null || !current.permits(request.url(), "") ||
+                            (authorization != null && !authorization.equals("Bearer " + current.token))) {
                         throw new IOException("Invalid DroppedNeedle media address.");
                     }
                     return chain.proceed(request.newBuilder()
                             .header("Authorization", "Bearer " + current.token).build());
                 }).build();
         OkHttpDataSource.Factory source = new OkHttpDataSource.Factory(http);
-        player = new ExoPlayer.Builder(this)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source))
+        ConversionSource audioSource = new ConversionSource(timeline -> {
+            Access current = access;
+            DataSource.Factory stream = current == null ? source : new OkHttpDataSource.Factory(http)
+                    .setDefaultRequestProperties(Collections.singletonMap("Authorization", "Bearer " + current.token));
+            return new OfflineDataSource(current, stream, timeline);
+        });
+        ExoPlayer local = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(audioSource)
                 .setAudioAttributes(AudioAttributes.DEFAULT, true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build();
+        player = new RoutedPlayer(this, local, item -> {
+            Access owner = access;
+            String url = item.localConfiguration.uri.toString();
+            return (range, head) -> {
+                Access current = access;
+                if (owner == null || current == null || !owner.token.equals(current.token)
+                        || !owner.base.equals(current.base) || !owner.permits(HttpUrl.parse(url), "stream/local/")) {
+                    throw new IOException("The playback session changed.");
+                }
+                if (owner.offline != null) {
+                    File file = owner.offline.playable(url);
+                    if (file != null) return CastRelay.fromFile(file, CastRelay.audioType(file)).open(range, head);
+                    if (owner.offline.offlineOnly()) throw new IOException("This song is not saved on this device.");
+                }
+                return CastRelay.fromDn(http, url, owner.token).open(range, head);
+            };
+        });
+        fades = new PlaybackFades(this, local);
         equalizer = new PlaybackEqualizer(this);
-        int audioSession = player.getAudioSessionId();
+        int audioSession = local.getAudioSessionId();
         if (audioSession <= 0) {
             try {
                 AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
                 int allocated = audio == null ? 0 : audio.generateAudioSessionId();
                 if (allocated > 0) {
-                    player.setAudioSessionId(allocated);
+                    local.setAudioSessionId(allocated);
                     audioSession = allocated;
                 }
             } catch (RuntimeException ignored) {
@@ -132,8 +167,10 @@ public final class PlaybackService extends MediaSessionService {
         equalizer.setSession(audioSession);
         saved = new SavedQueue(this);
         reporter = new PlaybackReporter(this, player);
-        player.addListener(new Player.Listener() {
+        local.addListener(new Player.Listener() {
             @Override public void onAudioSessionIdChanged(int id) { equalizer.setSession(id); }
+        });
+        player.addListener(new Player.Listener() {
             @Override public void onEvents(Player source, Player.Events events) {
                 if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
                         Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) checkpoint();
@@ -179,24 +216,26 @@ public final class PlaybackService extends MediaSessionService {
                     .setAlbumTitle(track.getString("album"));
             String art = track.optString("artworkUrl", "");
             if (!art.isEmpty() && access.permits(HttpUrl.parse(art), "")) metadata.setArtworkUri(Uri.parse(art));
+            access.metadata.put(track.getString("id"), track);
             items.add(new MediaItem.Builder().setMediaId(track.getString("id"))
                     .setUri(stream).setTag(track).setMediaMetadata(metadata.build()).build());
         }
         return items;
     }
 
-    void setQueue(String address, String token, JSArray queue, int index, @Nullable String placement) throws JSONException {
+    void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index, @Nullable String placement) throws JSONException {
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
         generation++;
-        Access next = new Access(address, token);
+        Access next = new Access(address, token, OfflineStore.forUser(this, address, userId));
         ArrayList<MediaItem> items = items(next, queue);
         if (placement != null && player.getMediaItemCount() > 0) {
             if (access == null || !access.base.equals(next.base) || !access.token.equals(token)) {
                 throw new IllegalArgumentException("This queue belongs to a different session.");
             }
             int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
+            access.metadata.putAll(next.metadata);
             player.addMediaItems(at, items);
             save(true);
             return;
@@ -210,14 +249,17 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     private void attach(Access next) {
+        if (access != null && (!access.base.equals(next.base) || !access.token.equals(next.token))) {
+            player.disconnect(true, "");
+        }
         revision = null;
         queueKey = SavedQueue.key(next.base.toString(), next.token);
         reporter.connect(next.base.newBuilder().encodedPath(next.apiPath + "playback").build(), next.token);
         access = next;
     }
 
-    void restore(String address, String token, Runnable complete, Runnable superseded) {
-        Access next = new Access(address, token);
+    void restore(String address, String token, @Nullable String userId, Runnable complete, Runnable superseded) {
+        Access next = new Access(address, token, OfflineStore.forUser(this, address, userId));
         long version = ++generation;
         if (access != null) {
             if (!access.base.equals(next.base) || !access.token.equals(next.token)) {
@@ -257,6 +299,9 @@ public final class PlaybackService extends MediaSessionService {
 
     PlaybackEqualizer equalizer() { return equalizer; }
 
+    PlaybackFades fades() { return fades; }
+    RoutedPlayer output() { return player; }
+
     void afterWrite(Runnable complete) { saved.afterWrite(complete); }
 
     void command(String action, double value, int to) {
@@ -268,6 +313,7 @@ public final class PlaybackService extends MediaSessionService {
             queueKey = null;
             saved.clear();
             reporter.disconnect();
+            player.disconnect(true, "");
             player.pause();
             player.stop();
             player.clearMediaItems();
@@ -358,6 +404,7 @@ public final class PlaybackService extends MediaSessionService {
         JSONObject track = tracks.optJSONObject(index);
         double duration = player.getDuration() == C.TIME_UNSET
                 ? (track == null ? 0 : track.optDouble("duration", 0)) : player.getDuration() / 1000.0;
+        if (player.remoteDuration() > 0) duration = player.remoteDuration() / 1000.0;
         JSObject result = new JSObject();
         int repeat = player.getRepeatMode();
         result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
@@ -366,7 +413,8 @@ public final class PlaybackService extends MediaSessionService {
         result.put("playing", index >= 0 && showsPauseControl());
         result.put("position", player.getCurrentPosition() / 1000.0);
         result.put("duration", duration);
-        result.put("error", player.getPlayerError() == null ? JSONObject.NULL : "This track could not be played.");
+        result.put("error", !player.routeError().isEmpty() ? player.routeError()
+                : player.getPlayerError() == null ? JSONObject.NULL : "This track could not be played.");
         return result;
     }
 
@@ -376,6 +424,7 @@ public final class PlaybackService extends MediaSessionService {
         queueKey = null;
         main.removeCallbacks(checkpoint);
         reporter.close();
+        fades.release();
         equalizer.release();
         access = null;
         session.release();
