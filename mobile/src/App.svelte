@@ -49,6 +49,9 @@
 		creditControl: HTMLElement | undefined;
 	let fromPlayer = $state(false);
 	let playerScroll = 0;
+	type MiniAction = 'player' | 'queue';
+	let miniReturn: MiniAction | undefined;
+	let queueFromMini = false;
 	let settingsOrigin: 'catalog' | 'player' | 'queue' = 'catalog';
 	let settingsVisit = $state(0);
 	let catalogVisit = $state(0);
@@ -88,10 +91,14 @@
 		} else if (to === 'settings') openPanel('settings');
 		else navigate(to);
 	}
-	function focusMain(offset = 0) {
+	function focusMain(offset = 0, miniAction?: MiniAction) {
 		void tick().then(() => {
 			main?.scrollTo(0, offset);
-			main?.focus({ preventScroll: true });
+			const footerButton =
+				miniAction &&
+				(shell?.querySelector<HTMLElement>(`footer [data-mini-action="${miniAction}"]`) ??
+					shell?.querySelector<HTMLElement>('footer [data-mini-action="player"]'));
+			(footerButton || main)?.focus({ preventScroll: true });
 		});
 	}
 	function clearRelated() {
@@ -120,11 +127,16 @@
 			});
 		});
 	}
-	function openPanel(next: 'player' | 'settings') {
+	function openPanel(next: 'player' | 'queue' | 'settings', fromMini = false) {
 		changeScreen(() => {
 			clearRelated();
 			fromPlayer = false;
-			if (panel === 'catalog') catalogScroll = main?.scrollTop ?? 0;
+			if (panel === 'catalog') {
+				catalogScroll = main?.scrollTop ?? 0;
+				miniReturn = fromMini && next !== 'settings' ? next : undefined;
+				queueFromMini = miniReturn === 'queue';
+			}
+			if (next === 'player') queueFromMini = false;
 			if (next === 'settings') {
 				settingsOrigin = panel === 'player' || panel === 'queue' ? panel : 'catalog';
 				if (settingsOrigin !== 'catalog') playerScroll = main?.scrollTop ?? 0;
@@ -144,6 +156,7 @@
 	}
 	function finishPlayerLayout() {
 		changeScreen(() => {
+			queueFromMini = false;
 			panel = 'player';
 			focusMain(fromPlayer ? playerScroll : 0);
 			fromPlayer = false;
@@ -154,10 +167,21 @@
 			const target = panel === 'settings' ? settingsOrigin : 'catalog';
 			settingsOrigin = 'catalog';
 			panel = target;
-			focusMain(target === 'catalog' ? catalogScroll : playerScroll);
+			focusMain(
+				target === 'catalog' ? catalogScroll : playerScroll,
+				target === 'catalog' ? miniReturn : undefined
+			);
+			if (target === 'catalog') {
+				miniReturn = undefined;
+				queueFromMini = false;
+			}
 		});
 	}
 	function toggleQueue() {
+		if (panel === 'queue' && queueFromMini) {
+			closePanel();
+			return;
+		}
 		changeScreen(() => {
 			panel = panel === 'queue' ? 'player' : 'queue';
 			focusMain();
@@ -225,6 +249,8 @@
 			tab = offline ? 'offline' : 'home';
 		} else tab = start === 'player' ? 'library' : start;
 		session = next;
+		miniReturn = undefined;
+		queueFromMini = false;
 		panel = start === 'player' && hasCurrentTrack ? 'player' : 'catalog';
 		catalogVisit++;
 		focusMain();
@@ -420,7 +446,8 @@
 			<PlayerView
 				{session}
 				expanded={false}
-				onexpand={() => openPanel('player')}
+				onexpand={() => openPanel('player', true)}
+				ontogglequeue={() => openPanel('queue', true)}
 				oncollapse={() => {}}
 				onerror={report}
 			/>

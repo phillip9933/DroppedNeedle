@@ -24,7 +24,12 @@
 	import { isPlayerMetadata, isNavigation, trackToolFields } from './player/layout';
 	import { player, queueOrder, type PlayerTrack } from './player';
 	import ReorderList from './controls/ReorderList.svelte';
-	import { interfacePreferences } from './appearance/interface';
+	import {
+		defaultMiniPlayer,
+		interfacePreferences,
+		readMiniPlayer,
+		type MiniButton
+	} from './appearance/interface';
 	import { swipeTracks } from './player/swipeTracks';
 	import { accountId, defaults, loadLayout, sectionTitle, type Section } from './boards/layout';
 	import {
@@ -127,6 +132,15 @@
 	const rows = $derived(playerCanvas(sections));
 	const flushRows = $derived(rows.map((row) => row.every((s) => s.padding === 0)));
 	const clock = $derived(preview ?? $store.position);
+	const compact = $derived(expanded ? defaultMiniPlayer : readMiniPlayer(session));
+	const secondaryId = $props.id();
+	const secondary = $derived(
+		compact.secondary === 'artist-album'
+			? [track?.artist, track?.album].filter(Boolean).join(' · ')
+			: compact.secondary === 'hidden'
+				? ''
+				: track?.[compact.secondary]
+	);
 	const libraryWindow = $derived($store.libraryWindow);
 	const canGoNext = $derived(
 		$store.index + 1 < $store.tracks.length || !!libraryWindow?.more || $store.repeat === 'all'
@@ -239,6 +253,31 @@
 			defaultLabel={label}
 		/>
 	</button>
+{/snippet}
+{#snippet compactButton(button: MiniButton)}
+	{#if button === 'queue'}
+		<button
+			class="mini-control"
+			data-screen-link
+			data-mini-action="queue"
+			aria-label="Open play queue"
+			onclick={ontogglequeue}
+		>
+			<PlayerActionFace glyph={ListMusic} label="Queue" />
+		</button>
+	{:else if button === 'next' || button === 'previous'}
+		<button
+			class="mini-control"
+			aria-label={button === 'next' ? 'Next track' : 'Previous track'}
+			disabled={button === 'next' && !canGoNext}
+			onclick={() => skip(button)}
+		>
+			<PlayerActionFace
+				glyph={button === 'next' ? SkipForward : SkipBack}
+				label={button === 'next' ? 'Next' : 'Previous'}
+			/>
+		</button>
+	{/if}
 {/snippet}
 {#if expanded}
 	<section
@@ -642,24 +681,40 @@
 			class="open-mini"
 			use:swipeTracks={swipeAction}
 			data-screen-link
+			data-mini-action="player"
 			onclick={onexpand}
 			aria-label={'Open player for ' + track.title}
+			aria-describedby={secondary ? secondaryId : undefined}
 		>
-			<span class="mini-art"><Cover {session} path={art} seed={track.album || track.id} /></span>
-			<span class="mini-meta"><strong>{track.title}</strong><small>{track.artist}</small></span>
+			{#if compact.artwork}<span class="mini-art"
+					><Cover {session} path={art} seed={track.album || track.id} /></span
+				>{/if}
+			<span class="mini-meta"
+				><strong>{track.title}</strong>{#if secondary}<small id={secondaryId}>{secondary}</small
+					>{/if}</span
+			>
 		</button>
+		{@render compactButton(compact.before)}
 		<button
 			class="mini-control"
 			aria-label={$store.playing ? 'Pause' : 'Play'}
 			onclick={() => action(player.toggle)}
-			>{#if $store.playing}<Pause />{:else}<Play />{/if}</button
 		>
-		<button
-			class="mini-control"
-			aria-label="Next track"
-			disabled={!canGoNext}
-			onclick={() => action(player.next)}><SkipForward /></button
-		>
+			<PlayerActionFace
+				glyph={$store.playing ? Pause : Play}
+				label={$store.playing ? 'Pause' : 'Play'}
+			/>
+		</button>
+		{@render compactButton(compact.after)}
+		{#if compact.progress && Number.isFinite(duration) && duration > 0}
+			<progress
+				class="mini-progress"
+				aria-label="Track progress"
+				max={duration}
+				value={clock}
+				aria-valuetext={stamp(clock) + ' of ' + stamp(duration)}
+			></progress>
+		{/if}
 	</section>
 {/if}
 
@@ -1059,6 +1114,7 @@
 		color: var(--accent);
 	}
 	.mini {
+		position: relative;
 		display: flex;
 		align-items: center;
 		margin: 0.3rem var(--gap);
@@ -1072,7 +1128,30 @@
 		gap: 0.7rem;
 		align-items: center;
 		min-width: 0;
+		min-height: 44px;
 		flex: 1;
+	}
+	.mini-progress {
+		pointer-events: none;
+		position: absolute;
+		inset: auto 0.55rem 0;
+		width: calc(100% - 1.1rem);
+		height: 2px;
+		border: 0;
+		border-radius: 1px;
+		overflow: hidden;
+		appearance: none;
+		background: var(--line);
+		color: var(--accent);
+	}
+	.mini-progress::-webkit-progress-bar {
+		background: var(--line);
+	}
+	.mini-progress::-webkit-progress-value {
+		background: var(--accent);
+	}
+	.mini-progress::-moz-progress-bar {
+		background: var(--accent);
 	}
 	.mini-art {
 		width: 46px;
