@@ -4,6 +4,7 @@
 	import type { Session } from '../connection';
 	import ViewedMediaSettings from './ViewedMediaSettings.svelte';
 	import AndroidHistorySettings from './AndroidHistorySettings.svelte';
+	import DownloadNotifications from './DownloadNotifications.svelte';
 	import {
 		cacheSizes,
 		clearAutomatic,
@@ -176,9 +177,13 @@
 			>
 		{/if}
 	</fieldset>
-	{#if Capacitor.getPlatform() === 'android' && session.userId}<AndroidHistorySettings
-			{session}
-		/>{/if}
+	{#if Capacitor.getPlatform() === 'android'}
+		<fieldset>
+			<legend>Download notifications</legend>
+			<DownloadNotifications />
+		</fieldset>
+		{#if session.userId}<AndroidHistorySettings {session} />{/if}
+	{/if}
 	<ViewedMediaSettings {session} kind="artwork" />
 	<ViewedMediaSettings {session} kind="lyrics" />
 	<h2>On this device</h2>

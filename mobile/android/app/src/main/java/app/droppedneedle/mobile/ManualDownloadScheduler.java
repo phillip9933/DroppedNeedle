@@ -25,7 +25,7 @@ final class ManualDownloadScheduler implements ManualDownloads.Scheduler {
     private static final int FIRST = 0x444e10, SECOND = FIRST + 1;
     static final int NOTIFICATION = 0x444e23;
     static final String OWNER = "owner";
-    private static final String CHANNEL = "offline-downloads";
+    static final String CHANNEL = "offline-downloads";
     private final Context context;
 
     ManualDownloadScheduler(Context context) { this.context = context; }

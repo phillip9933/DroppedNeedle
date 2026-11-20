@@ -23,6 +23,8 @@ test.beforeEach(async ({ page }) => {
 				'discardOfflineHistory',
 				'manualStatus',
 				'takeDownloadNotification',
+				'downloadNotificationSettings',
+				'openDownloadNotificationSettings',
 				'enqueueManual',
 				'cancelManual',
 				'retryManual',
@@ -81,6 +83,17 @@ test.beforeEach(async ({ page }) => {
 						return { data: sessionStorage.getItem(opts.prefixedKey), success: true };
 					}
 					if (plugin === 'DNOffline') {
+						if (
+							method === 'downloadNotificationSettings' ||
+							method === 'openDownloadNotificationSettings'
+						) {
+							if (Object.keys(opts).length)
+								throw Error('Android notification settings need no account');
+							if (method === 'downloadNotificationSettings')
+								return { state: sessionStorage.getItem('notification-state') ?? 'appOff' };
+							sessionStorage.setItem('opened-notification-settings', '1');
+							return;
+						}
 						if (method === 'takeDownloadNotification') {
 							if (Object.keys(opts).length) throw Error('A notification tap needs no account data');
 							const open = sessionStorage.getItem('notification-tap') === '1';
@@ -258,6 +271,7 @@ test.beforeEach(async ({ page }) => {
 				}
 			}
 		});
+		window.addEventListener('fixture-system-resume', () => listeners.get('resume')?.({ url: '' }));
 		window.addEventListener('fixture-download-update', () =>
 			listeners.get('manualChanged')?.({ url: '' })
 		);
@@ -386,6 +400,39 @@ test('the chosen start screen works offline and opens a restored song without st
 	await page.getByRole('button', { name: 'Restore interface defaults' }).click();
 	await page.reload();
 	await expect(heading('Offline music')).toBeVisible();
+});
+
+test('download notification settings open on demand and reflect Android changes on return', async ({
+	page
+}) => {
+	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await deliverApproval(page);
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'Offline and cache', exact: true }).click();
+	const group = page.getByRole('group', { name: 'Download notifications' });
+	await expect(group.getByRole('status')).toHaveText('Off for DroppedNeedle.');
+	expect(
+		await page.evaluate(() => sessionStorage.getItem('opened-notification-settings'))
+	).toBeNull();
+	await group.getByRole('button', { name: 'Open Android notification settings' }).click();
+	await expect
+		.poll(() => page.evaluate(() => sessionStorage.getItem('opened-notification-settings')))
+		.toBe('1');
+	for (const [state, text] of [
+		[
+			'appOn',
+			'On for DroppedNeedle. The download channel appears after your first download starts.'
+		],
+		['channelOff', 'Off for offline downloads.'],
+		['on', 'On for offline downloads.']
+	]) {
+		await page.evaluate((value) => {
+			sessionStorage.setItem('notification-state', value);
+			window.dispatchEvent(new Event('fixture-system-resume'));
+		}, state);
+		await expect(group.getByRole('status')).toHaveText(text);
+	}
 });
 
 test('Android offline history settings preserve pending listens until discard is confirmed', async ({

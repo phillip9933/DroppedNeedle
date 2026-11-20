@@ -1,5 +1,7 @@
 package app.droppedneedle.mobile;
 
+import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -126,6 +128,28 @@ public final class DNOfflinePlugin extends Plugin {
     @PluginMethod public void takeDownloadNotification(PluginCall call) {
         boolean open = getActivity() instanceof MainActivity activity && activity.takeDownloadNotification();
         call.resolve(new JSObject().put("open", open));
+    }
+    @PluginMethod public void downloadNotificationSettings(PluginCall call) {
+        try {
+            call.resolve(new JSObject().put("state", DownloadNotificationSettings.read(getContext()).state));
+        } catch (SecurityException e) {
+            call.reject("Could not read Android notification settings.");
+        }
+    }
+    @PluginMethod public void openDownloadNotificationSettings(PluginCall call) {
+        main.post(() -> {
+            Activity activity = getActivity();
+            if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                call.reject("Return to DroppedNeedle before opening Android notification settings.");
+                return;
+            }
+            try {
+                DownloadNotificationSettings.read(activity).open(activity);
+                call.resolve();
+            } catch (ActivityNotFoundException | SecurityException e) {
+                call.reject("Android notification settings are unavailable on this device.");
+            }
+        });
     }
     @PluginMethod public void retryManual(PluginCall call) {
         execute(call, storage, s -> ManualDownloads.get(getContext()).retry(s));
