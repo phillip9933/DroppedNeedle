@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle state) {
         registerPlugin(DNPlayerPlugin.class);
         registerPlugin(DNOfflinePlugin.class);
+        registerPlugin(DNPlaylistExportPlugin.class);
         registerPlugin(DNAppearancePlugin.class);
         registerPlugin(DNDrawerPlugin.class);
         super.onCreate(state);
