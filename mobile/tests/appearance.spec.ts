@@ -231,3 +231,92 @@ test('account theme changes are explicit and send only the DN theme enum', async
 	await expect(sheet).toHaveCSS('background-color', 'rgb(34, 45, 36)');
 	await expect(sheet).toHaveCSS('--muted', '#a9b8a8');
 });
+
+test('preview and import only supported account CSS colors from a current or historical DN style', async ({
+	page
+}) => {
+	const server = 'https://palette.example/dn',
+		requests: string[] = [],
+		foreign: string[] = [];
+	const current = `@import url("https://unused.example/theme.css");
+ :root, [data-theme] { --color-primary: #abc; --dn-muted: oklch(50% 0 0); --dn-action: rgb(120 40 140); --radius-box: 0.5rem; --color-error: url(https://unused.example/ignore); }
+ [data-theme='light'] { --color-primary: rgb(12 34 56) !important; }
+ :root {--color-primary: #ffeedd;}
+ [data-theme='dark'] { --color-primary: #010203; }
+ .web-only { font-family: never; background: url(https://unused.example/image); }`;
+	await page.route('https://unused.example/**', (r) => {
+		foreign.push(r.request().url());
+		return r.abort();
+	});
+	await page.route(server + '/api/v3/**', (route) => {
+		const req = route.request(),
+			p = new URL(req.url()).pathname.slice('/dn/api/v3'.length);
+		const json = (data: unknown) => route.fulfill({ json: data });
+		if (p === '/auth/providers') return json({ local: true, oidc: false });
+		if (p === '/auth/login') return json({ token: 'fixture' });
+		expect(req.headers().authorization).toBe('Bearer fixture');
+		if (p === '/me') return json({ id: 'listener', role: 'user', display_name: 'Listener' });
+		if (p === '/home') return json({ sections: [] });
+		if (p === '/me/section-prefs') return json({ pages: {} });
+		if (p === '/library/albums') return json({ items: [], next: null, total: 0 });
+		if (p === '/me/appearance' || p === '/me/appearance/css-saves') {
+			expect(req.method()).toBe('GET');
+			requests.push(p);
+			return json(
+				p.endsWith('css-saves')
+					? [
+							{
+								id: 7,
+								saved_at: 1764054000000,
+								css: ':root {--dn-title: #4a7; --color-success: #116644}'
+							},
+							{ id: 8, saved_at: 1764055000000, css: 'main button { text-indent: 1px }' }
+						]
+					: { theme: 'light', custom_css: { text: current, enabled: true }, stored: true, site: {} }
+			);
+		}
+		throw Error('Unexpected palette fixture endpoint ' + p);
+	});
+	await page.goto('/');
+	await page.getByLabel('Server address').fill(server);
+	await page.getByRole('button', { name: 'Continue', exact: true }).click();
+	await page.getByLabel('Username', { exact: true }).fill('listener');
+	await page.getByLabel('Password', { exact: true }).fill('fixture');
+	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Home', exact: true })).toBeVisible();
+	await settings(page);
+	await expect(page.getByText('Account theme: Light.')).toBeVisible();
+	expect(requests).toEqual(['/me/appearance']);
+	await page.getByText('Import colors from a web style', { exact: true }).click();
+	const panel = page
+		.locator('details')
+		.filter({ has: page.getByText('Import colors from a web style', { exact: true }) });
+	await expect(panel.getByText('4 compatible variables in the Light palette.')).toBeVisible();
+	await expect(panel.getByText('.web-only', { exact: true })).toBeVisible();
+	await expect(panel.getByText('@import', { exact: true })).toBeVisible();
+	await expect(panel.getByText('--color-error (unsupported value)', { exact: true })).toBeVisible();
+	await expect(
+		panel.getByText('Rules for other themes were excluded from this palette.')
+	).toBeVisible();
+	const root = page.locator('html');
+	await expect(root).toHaveCSS('--accent', '#b8ef64');
+	await panel.getByRole('button', { name: 'Apply palette to this device' }).click();
+	await expect(root).toHaveCSS('--accent', '#0c2238');
+	await expect(root).toHaveCSS('--dn-action', '#78288c');
+	await expect(root).toHaveCSS('--radius', '8px');
+	await expect(root).toHaveCSS('--muted', '#636363');
+	await panel.getByLabel('Web style').selectOption('8');
+	await expect(panel.getByText('No compatible palette variables found.')).toBeVisible();
+	await expect(panel.getByRole('button', { name: 'Apply palette to this device' })).toHaveCount(0);
+	await panel.getByLabel('Web style').selectOption('7');
+	await panel.getByLabel('Palette to import').selectOption('midnight');
+	await expect(panel.getByText('2 compatible variables in the Midnight palette.')).toBeVisible();
+	await panel.getByRole('button', { name: 'Apply palette to this device' }).click();
+	await expect(root).toHaveCSS('--color-success', '#116644');
+	await expect(root).toHaveCSS('--heading', '#44aa77');
+	expect(requests).toEqual(['/me/appearance', '/me/appearance/css-saves']);
+	expect(foreign).toEqual([]);
+	await page.reload();
+	await expect(root).toHaveCSS('--color-success', '#116644');
+	await expect(root).toHaveCSS('--heading', '#44aa77');
+});

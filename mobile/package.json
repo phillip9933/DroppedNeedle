@@ -24,6 +24,7 @@
     "@capacitor/core": "8.6.2",
     "@capacitor/ios": "8.6.2",
     "@lucide/svelte": "^1.76.0",
+    "postcss": "8.5.33",
     "svelte": "^5.57.1"
   },
   "devDependencies": {
@@ -35,7 +36,6 @@
     "eslint": "^10.15.0",
     "eslint-plugin-svelte": "^3.24.1",
     "globals": "^17.14.0",
-    "postcss": "8.5.33",
     "prettier": "^3.10.1",
     "prettier-plugin-svelte": "^3.5.2",
     "svelte-check": "^4.7.6",

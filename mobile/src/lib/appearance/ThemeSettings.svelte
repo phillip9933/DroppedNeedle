@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import WebPaletteImport from './WebPaletteImport.svelte';
 	import { Check } from '@lucide/svelte';
 	import { getJson, putJson, type Session } from '../connection';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -26,6 +27,7 @@
 	let feedback = $state(''),
 		error = $state(''),
 		matchesLight = $state(false);
+	let currentCss = $state('');
 	let account = $state<Mode | null | undefined>(undefined),
 		accountError = $state(''),
 		accountMessage = $state(''),
@@ -77,6 +79,7 @@
 		void retry;
 		const request = ++version;
 		account = undefined;
+		currentCss = '';
 		accountError = accountMessage = '';
 		saving = false;
 		if (active)
@@ -86,6 +89,7 @@
 					if (result.theme != null && !isMode(result.theme))
 						throw Error('This account uses a theme this version cannot display.');
 					account = result.theme ?? null;
+					currentCss = result.custom_css?.text ?? '';
 				})
 				.catch((cause) => {
 					if (version === request)
@@ -108,6 +112,7 @@
 			} satisfies components['schemas']['AppearanceUpdate']);
 			if (version === owner) {
 				account = updated.theme ?? null;
+				currentCss = updated.custom_css?.text ?? '';
 				accountMessage = 'Account theme saved.';
 			}
 		} catch (cause) {
@@ -194,7 +199,13 @@
 						Custom theme JSON is stored on this device. Choose a built-in theme to save it to your
 						account.
 					</p>{/if}
-			</div>{:else if !accountError}<p role="status">Loading account theme…</p>{/if}
+			</div>
+			<WebPaletteImport
+				{session}
+				css={currentCss}
+				mode={account ?? 'dark'}
+				onapply={(theme) => choose({ mode: 'custom', theme })}
+			/>{:else if !accountError}<p role="status">Loading account theme…</p>{/if}
 		{#if accountError}<p role="alert">{accountError}</p>
 			<button class="text-button" disabled={saving} onclick={() => retry++}
 				>Reload account theme</button

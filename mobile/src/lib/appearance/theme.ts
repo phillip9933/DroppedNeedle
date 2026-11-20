@@ -12,7 +12,25 @@ export const labels: Record<Mode, string> = {
 };
 declare const __DN_WEB_PALETTES__: Record<Palette, Record<string, string>>;
 const palettes = __DN_WEB_PALETTES__;
+export const roleKeys = [
+	'--dn-title',
+	'--dn-action',
+	'--dn-action-content',
+	'--dn-action-edge',
+	'--dn-focus',
+	'--dn-edge',
+	'--color-info',
+	'--color-info-content',
+	'--color-success',
+	'--color-success-content',
+	'--color-warning',
+	'--color-warning-content',
+	'--color-error',
+	'--color-error-content'
+] as const;
+export type RoleKey = (typeof roleKeys)[number];
 export interface Theme {
+	roles?: Partial<Record<RoleKey, string>>;
 	base?: Palette;
 	version: 1;
 	name: string;
@@ -23,7 +41,7 @@ export interface Theme {
 }
 
 const colors = ['bg', 'surface', 'raised', 'text', 'muted', 'accent', 'on-accent', 'line'] as const;
-type ColorKey = (typeof colors)[number];
+export type ColorKey = (typeof colors)[number];
 const storageKey = 'dn.mobile.appearance.v1';
 const modeKey = 'dn.mobile.appearance.mode.v2';
 
@@ -69,6 +87,16 @@ export function readTheme(json: string): Theme {
 	if (
 		data?.version !== 1 ||
 		(data.base !== undefined && !['dark', 'light', 'midnight'].includes(data.base)) ||
+		(data.roles !== undefined &&
+			(typeof data.roles !== 'object' ||
+				data.roles === null ||
+				Array.isArray(data.roles) ||
+				!Object.entries(data.roles).every(
+					([key, value]) =>
+						roleKeys.includes(key as RoleKey) &&
+						typeof value === 'string' &&
+						/^#[a-f\d]{6}$/i.test(value)
+				))) ||
 		typeof data.name !== 'string' ||
 		!data.name.trim() ||
 		data.name.length > 40 ||
@@ -88,6 +116,7 @@ export function readTheme(json: string): Theme {
 	return {
 		version: 1,
 		name: data.name.trim(),
+		...(data.roles ? { roles: data.roles } : {}),
 		...(data.base ? { base: data.base } : {}),
 		colors: Object.fromEntries(colors.map((k) => [k, data.colors[k]])) as Theme['colors'],
 		corners: data.corners,
@@ -117,7 +146,7 @@ export function restoreTheme(): Selection {
 export function isMode(value: unknown): value is Mode {
 	return typeof value === 'string' && Object.hasOwn(labels, value);
 }
-const sources: Record<ColorKey, string> = {
+export const colorSources: Record<ColorKey, string> = {
 	bg: '--color-base-100',
 	surface: '--color-base-200',
 	raised: '--color-neutral',
@@ -152,7 +181,9 @@ export function asTheme(selection: Selection): Theme {
 		corners: 12,
 		spacing: 16,
 		typeface: 'sans',
-		colors: Object.fromEntries(colors.map((key) => [key, tokens[sources[key]]])) as Theme['colors']
+		colors: Object.fromEntries(
+			colors.map((key) => [key, tokens[colorSources[key]]])
+		) as Theme['colors']
 	};
 }
 function paint(selection: Selection) {
@@ -161,7 +192,7 @@ function paint(selection: Selection) {
 		tokens = { ...palettes[mode] };
 	const root = document.documentElement;
 	if (selection.mode === 'custom') {
-		for (const key of colors) tokens[sources[key]] = theme.colors[key];
+		for (const key of colors) tokens[colorSources[key]] = theme.colors[key];
 		if (
 			!theme.base ||
 			theme.colors.accent !== palettes[mode]['--color-primary'] ||
@@ -178,11 +209,13 @@ function paint(selection: Selection) {
 		if (!theme.base || theme.colors.accent !== palettes[mode]['--color-primary'])
 			tokens['--dn-focus'] = theme.colors.accent;
 	}
+	if (theme.roles) Object.assign(tokens, theme.roles);
+	root.style.setProperty('--heading', theme.roles?.['--dn-title'] ?? theme.colors.text);
 	root.dataset.theme = mode;
 	// The web album track list uses its page's stock with controls in Light or Midnight ink.
 	root.dataset.paperSheet = selection.mode === 'custom' ? 'off' : 'on';
 	const inner = palettes[mode === 'midnight' ? 'midnight' : 'light'];
-	for (const key of colors) root.style.setProperty('--sheet-' + key, inner[sources[key]]);
+	for (const key of colors) root.style.setProperty('--sheet-' + key, inner[colorSources[key]]);
 	root.style.setProperty('--sheet-focus', inner['--dn-focus']);
 	for (const [name, value] of Object.entries(tokens)) root.style.setProperty(name, value);
 	for (const key of colors) root.style.setProperty('--' + key, theme.colors[key]);
