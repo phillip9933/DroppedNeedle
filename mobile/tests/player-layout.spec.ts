@@ -757,3 +757,105 @@ test('sleep timers pause the browser queue at a wall-clock deadline and before a
 	await button('Sleep timer').click();
 	await expect(page.getByText('The sleep timer is off.')).toBeVisible();
 });
+
+test('a clean draft preview preserves the inspector and scroll while the real track keeps playing', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 720 });
+	await page.addInitScript(() => {
+		const Audio = window.Audio;
+		window.Audio = new Proxy(Audio, {
+			construct(target, args) {
+				const el = Reflect.construct(target, args) as HTMLAudioElement;
+				Object.assign(window, { fixtureAudio: el });
+				return el;
+			}
+		});
+	});
+	const streams: string[] = [];
+	page.on('request', (r) => {
+		if (r.url().includes('/api/v3/stream/local/')) streams.push(r.url());
+	});
+	await fixture(page);
+	await play(page);
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	const main = page.locator('main'),
+		live = page.locator('[data-part=now-playing]');
+	await live.getByRole('slider', { name: 'Playback position' }).fill('15');
+	await live
+		.locator('[data-part=transport]')
+		.getByRole('button', { name: 'Play', exact: true })
+		.click();
+	await b('Player settings').click();
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	const saved = () => page.evaluate((k) => localStorage.getItem(k), key),
+		original = await saved();
+	const editor = page.locator('[data-part=layout-editor]'),
+		preview = b('Preview layout');
+	await b('Add row').click();
+	await b('Customize Track title').click();
+	await openPlayerPlacement(page);
+	await page.getByLabel('Section title').fill('Draft sleeve');
+	const scroll = await main.evaluate((el) => el.scrollTop);
+	expect(scroll).toBeGreaterThan(50);
+	const toolbar = await editor.locator('.bar button:visible').evaluateAll((nodes) =>
+		nodes.map((el) => {
+			const { x, y, width, height } = el.getBoundingClientRect();
+			return { x, y, width, height };
+		})
+	);
+	for (const box of toolbar) {
+		expect(box.x).toBeGreaterThanOrEqual(0);
+		expect(box.x + box.width).toBeLessThanOrEqual(320);
+		expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+	}
+	await preview.tap();
+	const sample = page.getByRole('region', { name: 'Now Playing layout preview' });
+	const back = b('Back to editing');
+	await expect(back).toBeFocused();
+	await expect(editor).toBeHidden();
+	await expect(sample.getByRole('heading', { name: 'Draft sleeve' })).toBeVisible();
+	await expect(sample.getByRole('heading', { name: 'Soft Current' })).toBeVisible();
+	await expect(sample.getByRole('img', { name: 'Tidal Memory album cover' })).toBeVisible();
+	await expect(
+		sample.locator('[data-layout-drag], .editing-field, .active-field, [data-inspector], .field')
+	).toHaveCount(0);
+	await expect(sample.locator('[data-slot=true]')).toHaveCount(1);
+	await expect(sample.getByRole('button')).toHaveCount(0);
+	await page.screenshot({ path: test.info().outputPath('now-playing-draft-preview-320.png') });
+	const next = sample.locator('[data-part=transport] button[aria-label="Next track"]');
+	await next.scrollIntoViewIfNeeded();
+	const box = (await next.boundingBox())!;
+	await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+	await expect(back).toBeInViewport();
+	await b('Open navigation menu').tap();
+	await b('Close navigation menu').tap();
+	await page.keyboard.press('Escape');
+	await expect(preview).toBeFocused();
+	await expect(page.getByLabel('Section title')).toHaveValue('Draft sleeve');
+	await expect(editor.locator('.canvas details.advanced')).toHaveAttribute('open', '');
+	expect(Math.abs((await main.evaluate((el) => el.scrollTop)) - scroll)).toBeLessThan(2);
+	await preview.tap();
+	await back.tap();
+	await expect(preview).toBeFocused();
+	await preview.tap();
+	expect(
+		await page.evaluate(() =>
+			window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))
+		)
+	).toBe(false);
+	await expect(preview).toBeFocused();
+	expect(await saved()).toBe(original);
+	await b('Cancel').click();
+	await expect(live.getByRole('heading', { name: 'Night Train' })).toBeVisible();
+	await expect(live.getByRole('heading', { name: 'Draft sleeve' })).toHaveCount(0);
+	await expect(
+		live.locator('[data-part=transport]').getByRole('button', { name: 'Pause', exact: true })
+	).toBeVisible();
+	const time = await page.evaluate(
+		() => (window as unknown as { fixtureAudio: HTMLAudioElement }).fixtureAudio.currentTime
+	);
+	expect(time).toBeGreaterThanOrEqual(15);
+	expect(streams).toEqual([server + '/api/v3/stream/local/t0']);
+	expect(await saved()).toBe(original);
+});

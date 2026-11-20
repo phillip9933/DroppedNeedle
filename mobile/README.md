@@ -30,7 +30,7 @@ Use **Select** or hold a library item to start a selection. The actions at the t
 
 ### Arrange the expanded player
 
-Open **Settings → Edit Now Playing layout**, or tap the settings control on the expanded player. The editor shows a sample album, song, queue and lyrics. You can edit with an empty queue or while your own music plays. Saving or canceling returns you to Now Playing. Android Back closes the current field or row first, then exits the editor.
+Open **Settings → Edit Now Playing layout**, or tap the settings control on the expanded player. The editor shows a sample album, song, queue and lyrics. You can edit with an empty queue or while your own music plays. Tap **Preview** to see the current draft at player size. **Back to editing** returns to the same spot with your edits in place. Android Back leaves the preview, then closes any open field or row before exiting the editor. Saving or canceling returns you to Now Playing.
 
 Choose **Add row**, set its column count, then tap **+** in each empty column to choose what goes there. A row can have up to six columns. **Arrange five playback controls** puts shuffle, previous, play/pause, next and repeat on one row in a single step. Empty columns keep their place when you save. Tap a row heading to change its column widths and see how much space each one uses.
 
