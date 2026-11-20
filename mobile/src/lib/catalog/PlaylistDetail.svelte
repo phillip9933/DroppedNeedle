@@ -1,8 +1,8 @@
 <script lang="ts">
 	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
-	import { ArrowLeft, ArrowUp, ArrowDown, Play, Trash2 } from '@lucide/svelte';
-	import type { Session } from '../connection';
+	import { ArrowLeft, Play, Trash2 } from '@lucide/svelte';
+	import { DnError, type Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
 	import {
 		readPlaylist,
@@ -16,6 +16,7 @@
 	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
+	import ReorderList from '../controls/ReorderList.svelte';
 	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	import PlaylistSharing from './PlaylistSharing.svelte';
 	let {
@@ -42,11 +43,12 @@
 	let remove = $state<{ id: string; title: string } | null>(null);
 	const current = $derived(detail?.playlist ?? playlist);
 	async function load() {
-		busy = true;
+		busy = !detail;
 		error = '';
 		editError = '';
 		try {
 			detail = await readPlaylist(session, playlist);
+			if (!detail.playlist.can_edit && !detail.playlist.can_delete) editing = false;
 		} catch (e) {
 			detail = undefined;
 			error = errorMessage(e);
@@ -55,7 +57,7 @@
 		}
 	}
 	async function change(action: () => Promise<unknown>, deleted = false) {
-		if (saving) return;
+		if (saving) return false;
 		saving = true;
 		editError = '';
 		try {
@@ -65,11 +67,19 @@
 			remove = null;
 			if (deleted) onback();
 			else await load();
+			return !error;
 		} catch (cause) {
+			if (cause instanceof DnError && cause.status === 403) await load();
 			editError = errorMessage(cause);
+			return false;
 		} finally {
 			saving = false;
 		}
+	}
+	async function moveEntry(from: number, to: number) {
+		const entry = detail?.rows[from]?.entry;
+		if (!entry || !editing || !current.can_edit) return false;
+		return change(() => movePlaylistEntry(session, current.id, entry.id, to));
 	}
 	function close() {
 		dialog = null;
@@ -134,53 +144,48 @@
 				: 'This playlist is empty.'}
 		</p>
 	{/if}
-	<SelectionHost {session} {onplay} enabled={!editing} scope={String(editing)}
-		><div data-part="track-list">
-			{#each detail.rows.slice(0, count) as { entry, index }, position (entry.id)}
-				<div class="entry" data-entry={entry.id}>
-					<TrackRow
-						choice={index === null
-							? undefined
-							: trackChoice(detail.tracks[index], 'entry:' + entry.id)}
-						title={entry.track_name}
-						artist={entry.artist_name}
-						duration={entry.duration}
-						position={position + 1}
-						onplay={index === null ? undefined : () => detail && onplay(detail.tracks, index)}
-					/>
-					{#if editing && current.can_edit}
-						<div class="tools">
-							<button
-								class="icon-button"
-								aria-label={'Move ' + entry.track_name + ' up'}
-								disabled={saving || position === 0}
-								onclick={() =>
-									change(() => movePlaylistEntry(session, current.id, entry.id, position - 1))}
-								><ArrowUp size={17} /></button
-							>
-							<button
-								class="icon-button"
-								aria-label={'Move ' + entry.track_name + ' down'}
-								disabled={saving || position === detail.rows.length - 1}
-								onclick={() =>
-									change(() => movePlaylistEntry(session, current.id, entry.id, position + 1))}
-								><ArrowDown size={17} /></button
-							>
-							<button
-								class="icon-button"
-								aria-label={'Remove ' + entry.track_name}
-								disabled={saving}
-								onclick={() => {
-									remove = { id: entry.id, title: entry.track_name };
-									dialog = 'remove';
-									editError = '';
-								}}><Trash2 size={17} /></button
-							>
-						</div>
-					{/if}
-				</div>
-			{/each}
-		</div>
+	<SelectionHost {session} {onplay} enabled={!editing} scope={String(editing)}>
+		<ReorderList
+			count={detail.rows.length}
+			order={() => JSON.stringify(detail?.rows.map(({ entry }) => entry.id))}
+			move={moveEntry}
+		>
+			{#snippet children(grip)}
+				{#if detail}
+					<div data-part="track-list">
+						{#each detail.rows.slice(0, count) as { entry, index }, position (entry.id)}
+							<div class="entry" data-entry={entry.id} data-reorder-row={position}>
+								<TrackRow
+									choice={index === null
+										? undefined
+										: trackChoice(detail.tracks[index], 'entry:' + entry.id)}
+									title={entry.track_name}
+									artist={entry.artist_name}
+									duration={entry.duration}
+									position={position + 1}
+									onplay={index === null ? undefined : () => detail && onplay(detail.tracks, index)}
+								/>
+								{#if editing && current.can_edit}
+									<div class="tools">
+										{@render grip(position, entry.track_name, saving)}
+										<button
+											class="icon-button"
+											aria-label={'Remove ' + entry.track_name}
+											disabled={saving}
+											onclick={() => {
+												remove = { id: entry.id, title: entry.track_name };
+												dialog = 'remove';
+												editError = '';
+											}}><Trash2 size={17} /></button
+										>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/snippet}
+		</ReorderList>
 		{#if count < detail.rows.length}<button class="secondary more" onclick={() => (count += 50)}
 				>More tracks</button
 			>{/if}</SelectionHost
@@ -263,9 +268,14 @@
 		align-items: center;
 		gap: 0.5rem;
 	}
+	.entry {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+	}
 	.tools {
-		justify-content: flex-end;
-		padding-bottom: 0.4rem;
+		flex-wrap: nowrap;
+		gap: 0;
 	}
 	.more {
 		margin-top: var(--gap);

@@ -58,12 +58,14 @@ test('editing the queue keeps the current entry and repeat all wraps to the visi
 	await page.getByRole('button', { name: 'Show play queue' }).click();
 	await page.getByRole('button', { name: 'Edit queue' }).click();
 	const queue = page.locator('[data-part="play-queue"]');
-	await queue.getByRole('button', { name: 'Move Third up' }).click();
+	await queue.getByRole('button', { name: 'Reorder Third, position 3' }).click();
+	await page.getByRole('dialog').getByRole('button', { name: 'Move Third up' }).click();
 	await expect(queue.locator('strong')).toHaveText(['First', 'Third', 'Second']);
 	await expect(queue.locator('[aria-current="true"]')).toContainText('Third');
 	await queue.getByRole('button', { name: 'Remove First from queue' }).click();
 	await expect(queue.locator('strong')).toHaveText(['Third', 'Second']);
-	await queue.getByRole('button', { name: 'Move Third down' }).click();
+	await queue.getByRole('button', { name: 'Reorder Third, position 1' }).click();
+	await page.getByRole('dialog').getByRole('button', { name: 'Move Third down' }).click();
 	await expect(queue.locator('[aria-current="true"]')).toContainText('Third');
 	expect(played).toEqual(['First', 'Second', 'Third']);
 	await page.getByRole('button', { name: 'Hide play queue' }).click();
