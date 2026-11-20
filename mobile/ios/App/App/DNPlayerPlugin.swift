@@ -14,7 +14,7 @@ private final class ArtworkSession: NSObject, URLSessionTaskDelegate {
 public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "DNPlayerPlugin"
     public let jsName = "DNPlayer"
-    public let pluginMethods: [CAPPluginMethod] = ["getState", "setQueue", "command"].map {
+    public let pluginMethods: [CAPPluginMethod] = ["getState", "setQueue", "command", "getTrackFade", "setTrackFade"].map {
         CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)
     }
 
@@ -53,9 +53,44 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in self?.observePlayback() }
     }
 
+    private let fadeKey = "dn.trackFades"
+    private var fadeObserver: Any?
+    private var fadeMs: Int = 0
+
+    private func applyFade() {
+        guard fadeMs > 0, player.currentItem != nil else { player.volume = 1; return }
+        let ramp = duration > 0 ? min(Double(fadeMs) / 1000, duration / 2) : Double(fadeMs) / 1000
+        let distance = duration > 0 ? min(position, duration - position) : position
+        player.volume = Float(max(0, min(1, distance / ramp)))
+    }
+
+    private func configureFade(_ value: Int) {
+        if let fadeObserver { player.removeTimeObserver(fadeObserver); self.fadeObserver = nil }
+        fadeMs = [500, 2000, 4000, 8000].contains(value) ? value : 0
+        applyFade()
+        if fadeMs > 0 {
+            fadeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { [weak self] _ in
+                self?.applyFade()
+            }
+        }
+    }
+
+    @objc func getTrackFade(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { call.resolve(["milliseconds": self.fadeMs]) }
+    }
+
+    @objc func setTrackFade(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.configureFade(call.getInt("milliseconds") ?? 0)
+            UserDefaults.standard.set(self.fadeMs, forKey: self.fadeKey)
+            call.resolve()
+        }
+    }
+
     private func observePlayback() {
+        configureFade(UserDefaults.standard.integer(forKey: fadeKey))
         observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.updateCurrentItem() }
+            DispatchQueue.main.async { self?.updateCurrentItem(); self?.applyFade() }
         })
         observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async { self?.publishNowPlaying() }
@@ -111,7 +146,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func activateAudio() throws {
         let audio = AVAudioSession.sharedInstance()
-        try audio.setCategory(.playback, mode: .default)
+        try audio.setCategory(.playback, mode: .default, policy: .longFormAudio)
         try audio.setActive(true)
     }
 
@@ -135,6 +170,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         append(position)
         updateCurrentItem()
         wantsPlayback = play
+        applyFade()
         if play { player.play() }
     }
 
@@ -396,6 +432,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     deinit {
+        if let fadeObserver { player.removeTimeObserver(fadeObserver) }
         player.pause()
         for (_, entry) in streams { entry.stream.close() }
         artworkSession.invalidateAndCancel()

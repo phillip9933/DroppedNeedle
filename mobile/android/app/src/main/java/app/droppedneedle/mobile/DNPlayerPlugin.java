@@ -7,12 +7,19 @@ import android.content.ServiceConnection;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "DNPlayer")
 public final class DNPlayerPlugin extends Plugin {
@@ -20,6 +27,11 @@ public final class DNPlayerPlugin extends Plugin {
     private boolean bound;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ArrayList<Runnable> waiting = new ArrayList<>();
+    private final HashMap<String, DlnaRenderer> outputs = new HashMap<>();
+    private final ExecutorService discovery = Executors.newSingleThreadExecutor();
+    private boolean looking;
+    private boolean destroyed;
+    private GoogleCastPicker googlePicker;
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -70,7 +82,7 @@ public final class DNPlayerPlugin extends Plugin {
 
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> {
-            p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getArray("tracks"),
+            p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getArray("tracks"),
                     call.getInt("index", -1), call.getString("placement"));
             JSObject result = p.snapshot();
             p.afterWrite(() -> call.resolve(result));
@@ -86,8 +98,23 @@ public final class DNPlayerPlugin extends Plugin {
     }
 
     @PluginMethod public void restore(PluginCall call) {
-        execute(call, p -> p.restore(call.getString("serverUrl"), call.getString("token"),
+        execute(call, p -> p.restore(call.getString("serverUrl"), call.getString("token"), call.getString("userId"),
                 () -> call.resolve(p.snapshot()), () -> call.reject("The playback session changed.")));
+    }
+
+    @PluginMethod public void getTrackFade(PluginCall call) {
+        execute(call, p -> {
+            JSObject result = new JSObject();
+            result.put("milliseconds", p.fades().length());
+            call.resolve(result);
+        });
+    }
+
+    @PluginMethod public void setTrackFade(PluginCall call) {
+        execute(call, p -> {
+            p.fades().configure(call.getInt("milliseconds", 0));
+            call.resolve();
+        });
     }
 
     @PluginMethod public void getEqualizer(PluginCall call) {
@@ -101,8 +128,98 @@ public final class DNPlayerPlugin extends Plugin {
 
     @PluginMethod public void getState(PluginCall call) { execute(call, p -> call.resolve(p.snapshot())); }
 
+    private static JSObject outputState(RoutedPlayer player) {
+        JSObject result = new JSObject();
+        result.put("destination", player.destination());
+        return result;
+    }
+
+    @PluginMethod public void outputState(PluginCall call) {
+        execute(call, p -> call.resolve(outputState(p.output())));
+    }
+
+    @PluginMethod public void findOutputs(PluginCall call) {
+        main.post(() -> {
+            if (looking || destroyed) { call.reject("A speaker search is already in progress."); return; }
+            looking = true;
+            outputs.clear();
+            discovery.execute(() -> {
+                try {
+                    List<DlnaRenderer> found = DlnaDiscovery.find(getContext());
+                    main.post(() -> {
+                        looking = false;
+                        if (destroyed) return;
+                        JSArray devices = new JSArray();
+                        for (DlnaRenderer device : found) {
+                            String id = UUID.randomUUID().toString();
+                            outputs.put(id, device);
+                            JSObject entry = new JSObject();
+                            entry.put("id", id);
+                            entry.put("name", device.name);
+                            devices.put(entry);
+                        }
+                        JSObject result = new JSObject();
+                        result.put("devices", devices);
+                        call.resolve(result);
+                    });
+                } catch (Exception e) {
+                    main.post(() -> {
+                        looking = false;
+                        if (!destroyed) call.reject("Could not search this network. Connect to Wi-Fi and try again.");
+                    });
+                }
+            });
+        });
+    }
+
+    @PluginMethod public void castTo(PluginCall call) {
+        execute(call, p -> {
+            DlnaRenderer device = outputs.get(call.getString("id"));
+            if (device == null) { call.reject("Find the speaker again before connecting."); return; }
+            p.output().connect(device, error -> {
+                if (error.isEmpty()) call.resolve(outputState(p.output()));
+                else call.reject(error);
+            });
+        });
+    }
+
+    @PluginMethod public void stopCasting(PluginCall call) {
+        execute(call, p -> { p.output().disconnect(true, ""); call.resolve(outputState(p.output())); });
+    }
+
+    @PluginMethod public void googleCast(PluginCall call) {
+        execute(call, p -> {
+            if (googlePicker != null || !p.output().destination().isEmpty()) {
+                call.reject("Stop the current cast before choosing a new receiver.");
+                return;
+            }
+            googlePicker = new GoogleCastPicker(getActivity(), p.output(), error -> {
+                googlePicker = null;
+                if (error.isEmpty()) call.resolve(outputState(p.output())); else call.reject(error);
+            });
+            googlePicker.show(discovery);
+        });
+    }
+
+    @PluginMethod public void castScreen(PluginCall call) {
+        main.post(() -> {
+            try {
+                getActivity().startActivity(new Intent(Settings.ACTION_CAST_SETTINGS));
+                call.resolve();
+            } catch (android.content.ActivityNotFoundException e) {
+                call.reject("Cast display settings are unavailable on this phone.");
+            }
+        });
+    }
+
     @Override protected void handleOnDestroy() {
-        main.post(this::disconnect);
+        main.post(() -> {
+            destroyed = true;
+            if (googlePicker != null) googlePicker.cancel();
+            outputs.clear();
+            discovery.shutdownNow();
+            disconnect();
+        });
         super.handleOnDestroy();
     }
 }

@@ -1,0 +1,185 @@
+package app.droppedneedle.mobile;
+
+import static org.junit.Assert.*;
+
+import android.app.Instrumentation;
+import android.content.Context;
+import android.net.Uri;
+import androidx.media3.common.C;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.datasource.ByteArrayDataSource;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
+@RunWith(AndroidJUnit4.class)
+public final class OfflinePlaybackTest {
+    private static final String BASE = "https://offline.example/dn";
+    private static final String URI = BASE + "/api/v3/stream/local/t";
+    private final Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+    private final Context context = instrumentation.getTargetContext();
+    private final String listener = UUID.randomUUID().toString();
+    private final AtomicInteger requests = new AtomicInteger();
+    private final OfflineStore store = OfflineStore.forUser(context, BASE, listener);
+
+    private static JSONObject track() throws JSONException {
+        return new JSONObject()
+                .put("id", "t")
+                .put("title", "Fixture tone")
+                .put("artist", "Test artist")
+                .put("album", "Test record")
+                .put("streamUrl", URI);
+    }
+    private OfflineDataSource source(OfflineStore owner, DataSource.Factory upstream) throws JSONException {
+        JSONObject metadata = track();
+        return new OfflineDataSource(new OfflineDataSource.Library() {
+            @Override
+            public OfflineStore store() {
+                return owner;
+            }
+            @Override
+            public JSONObject metadata(String id) {
+                return metadata;
+            }
+        }, upstream);
+    }
+    private static byte[] wav() {
+        int count = 4000;
+        ByteBuffer file = ByteBuffer.allocate(44 + count * 2).order(ByteOrder.LITTLE_ENDIAN);
+        file.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + count * 2);
+        file.put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16);
+        file.putShort((short) 1).putShort((short) 1).putInt(8000).putInt(16000).putShort((short) 2).putShort(
+                (short) 16);
+        file.put("data".getBytes(StandardCharsets.US_ASCII)).putInt(count * 2);
+        return file.array();
+    }
+    @Test
+    public void savedAudioPlaysToEndAfterReopeningWithNoNetworkSource() throws Exception {
+        byte[] audio = wav();
+        OfflineStore.Capture capture = store.begin(track(), true, audio.length);
+        try {
+            try (OfflineStore.Capture writing = capture) {
+                writing.write(audio, 0, audio.length);
+                writing.finish();
+            }
+            OfflineStore reopened = OfflineStore.forUser(context, BASE, listener);
+            assertEquals("Fixture tone",
+                    reopened.snapshot().getJSONArray("items").getJSONObject(0).getJSONObject("track").getString(
+                            "title"));
+            assertNull(OfflineStore.forUser(context, BASE, listener + "-other").playable(URI));
+            assertNull(OfflineStore.forUser(context, BASE + "/elsewhere", listener).playable(URI));
+            assertNull(reopened.playable("https://other.example/dn/api/v3/stream/local/t"));
+            assertNotNull(reopened.playable(URI + "?format=mp3&max_bitrate=128"));
+            play(reopened);
+            assertEquals("Reading a saved track must never create an HTTP data source", 0, requests.get());
+            reopened.clearCache();
+            assertNotNull(reopened.playable(URI));
+        } finally {
+            store.remove(new JSONArray().put("t"));
+        }
+        assertNull(store.playable(URI));
+    }
+
+    private void play(OfflineStore reopened) throws Exception {
+        CompletableFuture<Boolean> ended = new CompletableFuture<>();
+        ExoPlayer[] player = new ExoPlayer[1];
+        DataSource.Factory local = () -> {
+            try {
+                return source(reopened, () -> {
+                    requests.incrementAndGet();
+                    throw new AssertionError("An offline playback attempted to use the network.");
+                });
+            } catch (JSONException impossible) {
+                throw new AssertionError(impossible);
+            }
+        };
+        instrumentation.runOnMainSync(() -> {
+            player[0] = new ExoPlayer.Builder(context)
+                                .setMediaSourceFactory(
+                                        new DefaultMediaSourceFactory(context).setDataSourceFactory(local))
+                                .build();
+            player[0].setVolume(0f);
+            player[0].addListener(new Player.Listener() {
+                @Override
+                public void onPlaybackStateChanged(int state) {
+                    if (state == Player.STATE_ENDED)
+                        ended.complete(true);
+                }
+                @Override
+                public void onPlayerError(PlaybackException err) {
+                    ended.completeExceptionally(err);
+                }
+            });
+            player[0].setMediaItem(MediaItem.fromUri(URI + "?format=mp3"));
+            player[0].prepare();
+            player[0].play();
+        });
+        try {
+            assertTrue(ended.get(12, TimeUnit.SECONDS));
+        } finally {
+            instrumentation.runOnMainSync(() -> player[0].release());
+        }
+    }
+
+    @Test
+    public void partialAndCancelledDownloadsStayInvisibleAndClearPreservesPins() throws Exception {
+        byte[] data = wav();
+        store.configure(new JSONObject()
+                        .put("autoCache", true)
+                        .put("offlineOnly", false)
+                        .put("unmeteredOnly", false)
+                        .put("cacheMiB", 128));
+        try {
+            try (OfflineStore.Capture writing = store.begin(track(), false, data.length)) {
+                writing.write(data, 0, 100);
+            }
+            assertNull(store.playable(URI));
+            try (OfflineStore.Capture writing = store.begin(track(), false, data.length)) {
+                writing.write(data, 0, data.length);
+                store.clearCache();
+                writing.finish();
+            }
+            assertNull(store.playable(URI));
+            try (OfflineStore.Capture writing = store.begin(track(), false, data.length)) {
+                writing.write(data, 0, data.length);
+                writing.finish();
+            }
+            assertFalse(store.snapshot().getJSONArray("items").getJSONObject(0).getBoolean("pinned"));
+            assertTrue(store.pinExisting("t"));
+            store.clearCache();
+            assertNotNull(store.playable(URI));
+            store.remove(new JSONArray().put("t"));
+            assertEquals(0, store.snapshot().getJSONArray("items").length());
+            try (OfflineStore.Capture writing = store.begin(track(), true, data.length)) {
+                writing.write(data, 0, 100);
+                assertThrows(IOException.class, writing::finish);
+            }
+            assertNull(store.playable(URI));
+        } finally {
+            store.remove(new JSONArray().put("t"));
+        }
+    }
+}
