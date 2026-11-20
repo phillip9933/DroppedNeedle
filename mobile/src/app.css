@@ -17,6 +17,7 @@ body {
 	margin: 0;
 }
 h1 {
+	color: var(--heading, inherit);
 	font-size: clamp(2rem, 7.5vw, 3.2rem);
 	line-height: 1.08;
 	letter-spacing: -0.055em;
