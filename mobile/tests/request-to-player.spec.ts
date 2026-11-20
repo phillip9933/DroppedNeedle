@@ -184,5 +184,11 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await page.getByRole('button', { name: 'Play album' }).click();
 	await expect(page.getByRole('heading', { name: 'Fading Light', exact: true })).toBeVisible();
 	expect(played).toEqual(['/stream/local/track-1', '/stream/local/track-2']);
+	await page.getByRole('button', { name: 'Show play queue' }).click();
+	await expect(page.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('heading', { name: 'Fading Light', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('button', { name: 'Open player for Fading Light' })).toBeVisible();
 	expect(unknown).toEqual([]);
 });

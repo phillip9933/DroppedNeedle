@@ -14,17 +14,20 @@
 	let {
 		session,
 		expanded,
+		queueOpen = false,
+		ontogglequeue,
 		onexpand,
 		oncollapse,
 		onerror
 	}: {
 		session: Session;
 		expanded: boolean;
+		queueOpen?: boolean;
+		ontogglequeue?: () => void;
 		onexpand: () => void;
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
 	} = $props();
-	let queueOpen = $state(false);
 	let preview = $state<number | null>(null);
 	const track = $derived($player.tracks[$player.index]);
 	const duration = $derived($player.duration || track?.duration || 0);
@@ -38,22 +41,20 @@
 	function action(call: () => Promise<void>) {
 		void call().catch(onerror);
 	}
-	function close() {
-		queueOpen = false;
-		oncollapse();
-	}
 </script>
 
 {#if track && expanded}
 	<section class="now" data-part="now-playing" aria-label="Now playing">
 		<header class="player-header">
-			<button class="icon-button" aria-label="Close player" onclick={close}><ChevronDown /></button>
+			<button class="icon-button" aria-label="Close player" onclick={oncollapse}
+				><ChevronDown /></button
+			>
 			<strong>Now playing</strong>
 			<button
 				class="icon-button"
-				aria-label="Show play queue"
+				aria-label={queueOpen ? 'Hide play queue' : 'Show play queue'}
 				aria-pressed={queueOpen}
-				onclick={() => (queueOpen = !queueOpen)}><ListMusic /></button
+				onclick={ontogglequeue}><ListMusic /></button
 			>
 		</header>
 		{#if queueOpen}
