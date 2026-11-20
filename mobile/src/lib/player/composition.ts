@@ -61,7 +61,7 @@ function legacyHeader(sections: Section[]): Section[] {
 						preview: true,
 						width: 2,
 						align: 'center' as const,
-						maxLines: 1
+						maxLines: 2
 					}
 				]),
 		...sides['header-end']

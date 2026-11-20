@@ -821,7 +821,11 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 		sample.locator('[data-layout-drag], .editing-field, .active-field, [data-inspector], .field')
 	).toHaveCount(0);
 	await expect(sample.locator('[data-slot=true]')).toHaveCount(1);
-	await expect(sample.getByRole('button')).toHaveCount(0);
+	await expect(sample.getByRole('button')).toHaveCount(1);
+	await expect(sample.getByRole('button', { name: 'Open navigation menu' })).toBeVisible();
+	await expect(page.locator('.mast')).toBeHidden();
+	const title = sample.locator('[data-section-id=player-heading] .lines');
+	expect(await title.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
 	await page.screenshot({ path: test.info().outputPath('now-playing-draft-preview-320.png') });
 	const next = sample.locator('[data-part=transport] button[aria-label="Next track"]');
 	await next.scrollIntoViewIfNeeded();
