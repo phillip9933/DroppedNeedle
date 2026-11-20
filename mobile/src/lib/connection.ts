@@ -54,7 +54,7 @@ export function serverAddress(value: string): string {
 	return url.origin + url.pathname.replace(/\/+$/, '');
 }
 
-function apiAddress(server: string, path: string) {
+export function apiAddress(server: string, path: string) {
 	const base = serverAddress(server);
 	if (
 		!path.startsWith('/api/v3/') ||
@@ -87,6 +87,48 @@ export async function writeSecret(key: string, value: unknown) {
 export async function removeSecret(key: string) {
 	if (Capacitor.isNativePlatform()) await SecureStorage.remove(key, false);
 	memory.delete(key);
+}
+
+function webRequest(
+	url: string,
+	method: string,
+	headers: Record<string, string>,
+	body?: unknown,
+	signal?: AbortSignal,
+	timeout = 30000
+) {
+	return overNetwork(
+		fetch(url, {
+			method,
+			headers,
+			body: body === undefined ? undefined : JSON.stringify(body),
+			credentials: 'omit',
+			redirect: 'error',
+			cache: 'no-store',
+			signal: signal
+				? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+				: AbortSignal.timeout(timeout)
+		}),
+		signal
+	);
+}
+export function readFileResponse(
+	session: Session,
+	path: string,
+	accept: string,
+	signal: AbortSignal
+) {
+	return webRequest(
+		apiAddress(session.serverUrl, path),
+		'GET',
+		{ Accept: accept, Authorization: 'Bearer ' + session.token },
+		undefined,
+		signal,
+		10 * 60_000
+	);
+}
+export function expiredSession(session: Session) {
+	window.dispatchEvent(new CustomEvent('dn-session-expired', { detail: session }));
 }
 
 async function request<T>(
@@ -129,20 +171,7 @@ async function request<T>(
 		contentType =
 			Object.entries(result.headers).find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
 	} else {
-		const response = await overNetwork(
-			fetch(url, {
-				method,
-				headers,
-				body: body === undefined ? undefined : JSON.stringify(body),
-				credentials: 'omit',
-				redirect: 'error',
-				cache: 'no-store',
-				signal: signal
-					? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
-					: AbortSignal.timeout(30_000)
-			}),
-			signal
-		);
+		const response = await webRequest(url, method, headers, body, signal);
 		status = response.status;
 		contentType = response.headers.get('content-type') ?? '';
 		if (response.ok && artwork) {
@@ -160,7 +189,7 @@ async function request<T>(
 	if (status < 200 || status >= 300) {
 		const problem = (data as { error?: { code?: string; message?: string } } | null)?.error;
 		if (session && status === 401 && problem?.code === 'UNAUTHORIZED') {
-			window.dispatchEvent(new CustomEvent('dn-session-expired', { detail: session }));
+			expiredSession(session);
 		}
 		throw new DnError(
 			problem?.message ?? 'DroppedNeedle returned HTTP ' + status + '.',

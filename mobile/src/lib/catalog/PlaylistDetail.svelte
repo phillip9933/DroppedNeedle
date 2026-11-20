@@ -16,6 +16,8 @@
 	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
+	import PlaylistExport from './PlaylistExport.svelte';
+	import { Download } from '@lucide/svelte';
 	import ReorderList from '../controls/ReorderList.svelte';
 	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	import PlaylistSharing from './PlaylistSharing.svelte';
@@ -39,7 +41,8 @@
 		saving = $state(false),
 		error = $state(''),
 		editError = $state('');
-	let dialog = $state<'rename' | 'sharing' | 'remove' | 'delete' | null>(null);
+	let exportStatus = $state('');
+	let dialog = $state<'export' | 'rename' | 'sharing' | 'remove' | 'delete' | null>(null);
 	let remove = $state<{ id: string; title: string } | null>(null);
 	const current = $derived(detail?.playlist ?? playlist);
 	async function load() {
@@ -107,6 +110,13 @@
 				><Play size={18} />Play playlist</button
 			>
 		{/if}
+		<button
+			class="secondary"
+			onclick={() => {
+				exportStatus = '';
+				dialog = 'export';
+			}}><Download size={17} />Export playlist</button
+		>
 		{#if current.can_edit || current.can_delete}
 			<button
 				class="secondary"
@@ -119,6 +129,7 @@
 			>
 		{/if}
 	</div>
+	{#if exportStatus}<p role="status">{exportStatus}</p>{/if}
 	{#if editing}
 		<div class="actions">
 			{#if current.is_owner}
@@ -256,6 +267,16 @@
 	route={'/playlists/' + encodeURIComponent(playlist.id)}
 	label="Open playlist in web app"
 />
+
+{#if dialog === 'export'}<PlaylistExport
+		{session}
+		playlist={current}
+		onclose={close}
+		onsaved={(message) => {
+			close();
+			exportStatus = message;
+		}}
+	/>{/if}
 
 <style>
 	h1 {
