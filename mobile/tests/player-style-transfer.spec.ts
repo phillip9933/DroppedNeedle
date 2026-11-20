@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
 import type { Section } from '../src/lib/boards/layout';
 import { exportPlayerStyle, importPlayerStyle } from '../src/lib/player/playerStyle';
@@ -9,6 +10,8 @@ const layout: Section[] = [
 		preview: false,
 		align: 'end',
 		width: 2,
+		minHeight: 88,
+		contentWidth: 75,
 		textSize: 'large',
 		template: '{artist} — {title}'
 	},
@@ -40,6 +43,9 @@ test('versioned player layout JSON round trips supported options and rejects mal
 		[{ ...first, preview: 0 }],
 		[{ ...first, sameRow: 'true' }],
 		[{ ...first, width: 0 }],
+		[{ ...first, minHeight: 641 }],
+		[{ ...first, contentWidth: 19 }],
+		[{ ...first, placement: 'hidden' }],
 		[{ ...first, align: 'middle' }],
 		[{ ...first, textSize: 'giant' }]
 	])
@@ -68,7 +74,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 			value: { writeText: () => Promise.reject(new Error('Clipboard unavailable')) }
 		});
 	});
-	await page.route(server + '/api/v3/**', (route) => {
+	await page.route(server + '/api/v3/**', async (route) => {
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/music/api/v3'.length),
 			json = (data: unknown) => route.fulfill({ json: data });
@@ -76,9 +82,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 		if (p === '/auth/login') return json({ token: 'fixture' });
 		expect(req.headers().authorization).toBe('Bearer fixture');
 		if (p === '/me') return json({ id: 'listener', role: 'user', display_name: 'Listener' });
-		if (p === '/home') return json({ sections: [] });
-		if (p === '/library/albums') return json({ items: [], total: 0 });
-		if (p === '/me/section-prefs') return json({ pages: {} });
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected fixture request ' + p);
 	});
 	await page.goto('/');
@@ -144,7 +148,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 	await importDraft();
 	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-	await edit.click();
+	await page.getByRole('button', { name: 'Player settings', exact: true }).click();
 	await share.click();
 	expect(await output.inputValue()).toBe(original);
 	await importDraft();

@@ -9,6 +9,7 @@
 		position,
 		title = 'Lyrics',
 		startOpen = false,
+		sample = false,
 		onseek
 	}: {
 		session: Session;
@@ -16,6 +17,7 @@
 		position: number;
 		title?: string;
 		startOpen?: boolean;
+		sample?: boolean;
 		onseek?: (position: number) => void;
 	} = $props();
 	let open = $state(untrack(() => startOpen)),
@@ -35,7 +37,7 @@
 		const id = trackId,
 			account = session;
 		void retry;
-		if (!open) return;
+		if (!open || sample) return;
 		let active = true;
 		busy = true;
 		error = '';
@@ -65,7 +67,9 @@
 	<summary>{title}</summary>
 	{#if busy}<p role="status">Loading lyrics…</p>{:else if error}<p role="alert">{error}</p>
 		<button class="secondary" onclick={() => retry++}>Try again</button>
-	{:else if lyrics?.is_synced && lyrics.lines?.length}<div class="lines">
+	{:else if sample}<p class="plain">
+			Our shadows cross the water<br />Where the evening current turns
+		</p>{:else if lyrics?.is_synced && lyrics.lines?.length}<div class="lines">
 			{#each lyrics.lines as line, i (i)}<p
 					class:active={i === current}
 					aria-current={i === current ? 'true' : undefined}

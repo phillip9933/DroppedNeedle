@@ -1,9 +1,11 @@
+import { trackToolFields } from './layout';
 import type { Section } from '../boards/layout';
 
 // A missing sameRow starts a fresh row, including every section from the original phone layout.
 export function playerRows(sections: Section[]): Section[][] {
 	const rows: Section[][] = [];
 	for (const section of sections) {
+		if (section.placement) continue;
 		const previous = rows.at(-1);
 		if (section.sameRow && previous && previous.length < 3) previous.push(section);
 		else rows.push([section]);
@@ -20,7 +22,9 @@ export function flattenPlayerRows(rows: Section[][]): Section[] {
 const parts: Record<string, string[]> = {
 	'player-track': ['player-title', 'player-artist', 'player-album'],
 	'player-transport': ['player-previous', 'player-toggle', 'player-next'],
-	'player-modes': ['player-repeat', 'player-shuffle']
+	'player-modes': ['player-repeat', 'player-shuffle'],
+	'player-tools': trackToolFields.map((w) => w.id),
+	'player-timeline': ['player-seek', 'player-elapsed', 'player-duration']
 };
 
 export function splitAvailable(id: string) {
@@ -30,7 +34,9 @@ export function splitPlayerSection(section: Section): Section[] {
 	const ids = parts[section.id];
 	if (!ids) return [section];
 	return ids
-		.filter((id) => id !== 'player-album' || section.preview)
+		.filter(
+			(id) => !['player-album', 'player-elapsed', 'player-duration'].includes(id) || section.preview
+		)
 		.map((id, i) => ({
 			id,
 			title: '',
@@ -38,7 +44,16 @@ export function splitPlayerSection(section: Section): Section[] {
 			width: section.width,
 			align: section.align,
 			textSize: section.textSize,
-			sameRow: i === 0 ? section.sameRow : section.id !== 'player-track'
+			minHeight: section.minHeight,
+			contentWidth: section.contentWidth,
+			sameRow:
+				i === 0
+					? section.sameRow
+					: section.id === 'player-timeline'
+						? id === 'player-duration'
+						: section.id === 'player-tools'
+							? id === 'player-playlist'
+							: section.id !== 'player-track'
 		}));
 }
 

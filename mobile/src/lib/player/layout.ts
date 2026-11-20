@@ -19,7 +19,37 @@ export const playerWidgets = [
 	{ id: 'player-up-next', label: 'Up next', option: 'Show upcoming tracks', enabled: true }
 ] as const;
 
+export const navigationFields = [
+	{ id: 'player-close', label: 'Close player' },
+	{ id: 'player-settings', label: 'Player settings' },
+	{ id: 'player-queue', label: 'Play queue' }
+] as const;
+export type NavigationId = (typeof navigationFields)[number]['id'];
+export function isNavigation(id: string): id is NavigationId {
+	return navigationFields.some((action) => action.id === id);
+}
+export function navigationPlacement(
+	id: NavigationId,
+	sections: readonly { id: string; placement?: 'header-start' | 'header-end' | 'hidden' }[]
+) {
+	const action = sections.find((s) => s.id === id);
+	return action
+		? (action.placement ?? 'canvas')
+		: id === 'player-close'
+			? 'header-start'
+			: 'header-end';
+}
+
+export const trackToolFields = [
+	{ id: 'player-favorite', label: 'Favorite' },
+	{ id: 'player-playlist', label: 'Add to playlist' },
+	{ id: 'player-rating', label: 'Track rating' },
+	{ id: 'player-quality', label: 'Audio quality' }
+] as const;
 export const playerFields = [
+	...navigationFields,
+	...trackToolFields,
+	{ id: 'player-seek', label: 'Seek bar' },
 	{ id: 'player-title', label: 'Track title' },
 	{ id: 'player-artist', label: 'Artist' },
 	{ id: 'player-album', label: 'Album' },

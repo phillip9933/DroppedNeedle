@@ -49,11 +49,13 @@
 	let {
 		session,
 		onback,
+		onplayerlayoutclose,
 		onsignout,
 		initial = 'menu'
 	}: {
 		session: Session | null;
 		onback: () => void;
+		onplayerlayoutclose: () => void;
 		onsignout: () => Promise<void>;
 		initial?: Page;
 	} = $props();
@@ -129,6 +131,10 @@
 	}
 	export function goBack() {
 		if (page === 'menu') return false;
+		if (page === 'player') {
+			onplayerlayoutclose();
+			return true;
+		}
 		page = 'menu';
 		focus(offset);
 		return true;

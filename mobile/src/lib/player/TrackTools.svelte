@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { Star, ListPlus } from '@lucide/svelte';
+	import { Star, Heart, ListPlus } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, putJson, postJson, type Session } from '../connection';
+	import { trackToolFields } from './layout';
 	import type { PlayerTrack } from '../player';
 	import { errorMessage, path } from '../catalog/catalog';
 	import Favorite from '../catalog/Favorite.svelte';
@@ -13,8 +14,19 @@
 		session,
 		track,
 		title,
-		startOpen
-	}: { session: Session; track: PlayerTrack; title: string; startOpen: boolean } = $props();
+		startOpen,
+		sample = false,
+		mode = 'tools',
+		fields = trackToolFields.map((a) => a.id) as readonly string[]
+	}: {
+		session: Session;
+		track: PlayerTrack;
+		title: string;
+		startOpen: boolean;
+		sample?: boolean;
+		mode?: 'tools' | 'field';
+		fields?: readonly string[];
+	} = $props();
 	let open = $state(untrack(() => startOpen)),
 		playlist = $state(false);
 	let library = $state<Model['TrackView'] | null>(null),
@@ -39,7 +51,7 @@
 	);
 
 	$effect(() => {
-		if (!open) return;
+		if (!open || sample) return;
 		const id = trackId,
 			name = trackTitle,
 			current = session;
@@ -69,18 +81,20 @@
 			} while (live);
 			if (live) libraryError = 'Library details are unavailable for this track.';
 		}
-		void findTrack().catch((e) => {
-			if (live) libraryError = errorMessage(e);
-		});
-		void postJson<Model['RatingLookupResponse']>(current, path('/api/v3/ratings/lookup'), {
-			track_ids: [id]
-		})
-			.then((v) => {
-				if (live) rating = v.tracks[id] ?? 0;
-			})
-			.catch((e) => {
-				if (live) ratingError = errorMessage(e);
+		if (fields.includes('player-favorite') || fields.includes('player-quality'))
+			void findTrack().catch((e) => {
+				if (live) libraryError = errorMessage(e);
 			});
+		if (fields.includes('player-rating'))
+			void postJson<Model['RatingLookupResponse']>(current, path('/api/v3/ratings/lookup'), {
+				track_ids: [id]
+			})
+				.then((v) => {
+					if (live) rating = v.tracks[id] ?? 0;
+				})
+				.catch((e) => {
+					if (live) ratingError = errorMessage(e);
+				});
 		return () => {
 			live = false;
 		};
@@ -104,36 +118,57 @@
 	}
 </script>
 
-<details bind:open data-part="track-tools">
-	<summary>{title}</summary>
-	{#if open}
-		<div class="tools">
-			{#if library}<Favorite {session} kind="track" id={track.id} value={library.favorite} />{/if}
-			<button class="secondary" onclick={() => (playlist = true)}
-				><ListPlus size={17} /> Add to playlist</button
-			>
-		</div>
-		{#if rating !== null}<div class="stars" role="group" aria-label="Your track rating">
-				{#each [1, 2, 3, 4, 5] as value (value)}
-					<button
-						disabled={saving}
-						aria-label={'Rate ' + value + (value === 1 ? ' star' : ' stars')}
-						aria-pressed={rating === value}
-						onclick={() => rate(value)}
-						><Star size={20} fill={rating >= value ? 'currentColor' : 'none'} /></button
-					>
-				{/each}
-				{#if rating > 0}<button class="text-button" disabled={saving} onclick={() => rate(0)}
-						>Clear rating</button
-					>{/if}
-			</div>{/if}
-		{#if quality}<p>{quality}</p>{/if}
-		{#if libraryError || ratingError}<p role="alert">
-				{[libraryError, ratingError].filter(Boolean).join(' ')}
-			</p>
-			<button class="text-button" onclick={() => retry++}>Try again</button>{/if}
-	{/if}
-</details>
+{#snippet favorite()}{#if sample}<button class="icon-button" aria-label="Favorite track"
+			><Heart size={18} /></button
+		>{:else if library}<Favorite
+			{session}
+			kind="track"
+			id={track.id}
+			value={library.favorite}
+		/>{:else if !libraryError}<button class="icon-button" disabled aria-label="Loading favorite"
+			><Heart size={18} /></button
+		>{/if}{/snippet}
+{#snippet addPlaylist()}<button
+		class="secondary"
+		onclick={() => {
+			if (!sample) playlist = true;
+		}}><ListPlus size={17} /> Add to playlist</button
+	>{/snippet}
+{#snippet contents()}
+	{#if fields.includes('player-favorite') || fields.includes('player-playlist')}<div class="tools">
+			{#if fields.includes('player-favorite')}{@render favorite()}{/if}{#if fields.includes('player-playlist')}{@render addPlaylist()}{/if}
+		</div>{/if}
+	{#if fields.includes('player-rating') && (rating !== null || sample)}<div
+			class="stars"
+			role="group"
+			aria-label="Your track rating"
+		>
+			{#each [1, 2, 3, 4, 5] as value (value)}
+				<button
+					disabled={saving}
+					aria-label={'Rate ' + value + (value === 1 ? ' star' : ' stars')}
+					aria-pressed={rating === value}
+					onclick={() => rate(value)}
+					><Star
+						size={20}
+						fill={(sample ? 3 : (rating ?? 0)) >= value ? 'currentColor' : 'none'}
+					/></button
+				>
+			{/each}
+			{#if (rating ?? 0) > 0}<button class="text-button" disabled={saving} onclick={() => rate(0)}
+					>Clear rating</button
+				>{/if}
+		</div>{/if}
+	{#if fields.includes('player-quality') && (quality || sample)}<p>
+			{sample ? 'FLAC · 24-bit · 48 kHz' : quality}
+		</p>{/if}
+	{#if libraryError || ratingError}<p role="alert">
+			{[libraryError, ratingError].filter(Boolean).join(' ')}
+		</p>
+		<button class="text-button" onclick={() => retry++}>Try again</button>{/if}{/snippet}
+{#if mode === 'tools'}<details bind:open data-part="track-tools">
+		<summary>{title}</summary>{#if open}{@render contents()}{/if}
+	</details>{:else}{@render contents()}{/if}
 {#if playlist}<AddToPlaylist {session} tracks={[track]} onclose={() => (playlist = false)} />{/if}
 
 <style>

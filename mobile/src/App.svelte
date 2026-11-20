@@ -59,13 +59,12 @@
 		panel = 'settings';
 		focusMain();
 	}
+	function finishPlayerLayout() {
+		panel = 'player';
+		focusMain(fromPlayer ? playerScroll : 0);
+		fromPlayer = false;
+	}
 	function closePanel() {
-		if (panel === 'settings' && fromPlayer) {
-			fromPlayer = false;
-			panel = 'player';
-			focusMain(playerScroll);
-			return;
-		}
 		panel = 'catalog';
 		focusMain(catalogScroll);
 	}
@@ -201,6 +200,7 @@
 						initial={fromPlayer ? 'player' : 'menu'}
 						{session}
 						onback={closePanel}
+						onplayerlayoutclose={finishPlayerLayout}
 						onsignout={() => disconnect()}
 					/>
 				</div>
