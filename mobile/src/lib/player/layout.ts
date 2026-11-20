@@ -22,7 +22,8 @@ export const playerWidgets = [
 export const navigationFields = [
 	{ id: 'player-close', label: 'Close player' },
 	{ id: 'player-settings', label: 'Player settings' },
-	{ id: 'player-queue', label: 'Play queue' }
+	{ id: 'player-queue', label: 'Play queue' },
+	{ id: 'player-output', label: 'Cast and audio output' }
 ] as const;
 export type NavigationId = (typeof navigationFields)[number]['id'];
 export function isNavigation(id: string): id is NavigationId {

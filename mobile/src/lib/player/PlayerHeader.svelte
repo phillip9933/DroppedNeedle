@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { ChevronDown, ListMusic, Settings2, Ellipsis, Pause, Play } from '@lucide/svelte';
+	import Outputs from './Outputs.svelte';
+	import { Cast, ChevronDown, ListMusic, Settings2, Ellipsis, Pause, Play } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
 	import { navigationFields, navigationPlacement, type NavigationId } from './layout';
 	let {
@@ -54,21 +55,24 @@
 </script>
 
 {#snippet action(id: NavigationId, label: string)}
-	<button
-		class="icon-button"
-		aria-label={onselect
-			? 'Customize ' + label
-			: id === 'player-queue'
-				? queueOpen
-					? 'Hide play queue'
-					: 'Show play queue'
-				: label}
-		onclick={() => activate(id)}
-	>
-		{#if id === 'player-close'}<ChevronDown />{:else if id === 'player-settings'}<Settings2
-				size={20}
-			/>{:else}<ListMusic />{/if}</button
-	>
+	{#if id === 'player-output' && !onselect}<Outputs compact />{:else}
+		<button
+			class="icon-button"
+			data-screen-link={!onselect ? true : undefined}
+			aria-label={onselect
+				? 'Customize ' + label
+				: id === 'player-queue'
+					? queueOpen
+						? 'Hide play queue'
+						: 'Show play queue'
+					: label}
+			onclick={() => activate(id)}
+		>
+			{#if id === 'player-close'}<ChevronDown />{:else if id === 'player-settings'}<Settings2
+					size={20}
+				/>{:else if id === 'player-output'}<Cast />{:else}<ListMusic />{/if}</button
+		>
+	{/if}
 {/snippet}
 <header class="player-header">
 	<div class="actions">

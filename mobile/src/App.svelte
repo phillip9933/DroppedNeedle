@@ -2,18 +2,27 @@
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
-	import { House, LibraryBig, Compass, Search, ListChecks, Settings2 } from '@lucide/svelte';
+	import { Settings2 } from '@lucide/svelte';
+	import Navigation from './lib/Navigation.svelte';
+	import {
+		changeScreen,
+		interfacePreferences,
+		type BrowseDestination,
+		type Destination
+	} from './lib/appearance/interface';
+	import Outputs from './lib/player/Outputs.svelte';
+	import { offlineSupported, preferredOffline } from './lib/offline/media';
+	import OfflineLibrary from './lib/offline/OfflineLibrary.svelte';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
 	import { player, type PlayerTrack } from './lib/player';
 	import PlayerView from './lib/PlayerView.svelte';
 	import Catalog from './lib/catalog/Catalog.svelte';
-	import type { CatalogTab } from './lib/catalog/catalog';
 	import Appearance from './lib/appearance/Appearance.svelte';
 	import brand from '../../frontend/static/android-chrome-192x192.png';
 	let session = $state<Session | null>(null);
 	let loading = $state(true);
-	let tab = $state<CatalogTab>('home');
+	let tab = $state<BrowseDestination>('home');
 	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
 	let catalogScroll = 0;
 	let fromPlayer = $state(false);
@@ -22,24 +31,24 @@
 	const inPlayer = $derived(panel === 'player' || panel === 'queue');
 	let issue = $state('');
 	let main: HTMLElement;
+	let footerHeight = $state(0);
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<{ backToBoard: () => boolean }>();
-	const tabs = [
-		{ id: 'home', label: 'Home', icon: House },
-		{ id: 'library', label: 'Library', icon: LibraryBig },
-		{ id: 'search', label: 'Search', icon: Search },
-		{ id: 'discover', label: 'Discover', icon: Compass },
-		{ id: 'requests', label: 'Requests', icon: ListChecks }
-	] as const;
 	function report(error: unknown) {
 		issue = error instanceof Error ? error.message : 'The app could not finish that action.';
 	}
-	function navigate(to: CatalogTab) {
-		catalogVisit++;
-		tab = to;
-		panel = 'catalog';
-		issue = '';
-		focusMain();
+	function navigate(to: BrowseDestination) {
+		changeScreen(() => {
+			catalogVisit++;
+			tab = to;
+			panel = 'catalog';
+			issue = '';
+			focusMain();
+		});
+	}
+	function choose(to: Destination) {
+		if (to === 'settings') openPanel('settings');
+		else navigate(to);
 	}
 	function focusMain(offset = 0) {
 		void tick().then(() => {
@@ -48,29 +57,39 @@
 		});
 	}
 	function openPanel(next: 'player' | 'settings') {
-		fromPlayer = false;
-		catalogScroll = main?.scrollTop ?? 0;
-		panel = next;
-		focusMain();
+		changeScreen(() => {
+			fromPlayer = false;
+			catalogScroll = main?.scrollTop ?? 0;
+			panel = next;
+			focusMain();
+		});
 	}
 	function playerSettings() {
-		playerScroll = main?.scrollTop ?? 0;
-		fromPlayer = true;
-		panel = 'settings';
-		focusMain();
+		changeScreen(() => {
+			playerScroll = main?.scrollTop ?? 0;
+			fromPlayer = true;
+			panel = 'settings';
+			focusMain();
+		});
 	}
 	function finishPlayerLayout() {
-		panel = 'player';
-		focusMain(fromPlayer ? playerScroll : 0);
-		fromPlayer = false;
+		changeScreen(() => {
+			panel = 'player';
+			focusMain(fromPlayer ? playerScroll : 0);
+			fromPlayer = false;
+		});
 	}
 	function closePanel() {
-		panel = 'catalog';
-		focusMain(catalogScroll);
+		changeScreen(() => {
+			panel = 'catalog';
+			focusMain(catalogScroll);
+		});
 	}
 	function toggleQueue() {
-		panel = panel === 'queue' ? 'player' : 'queue';
-		focusMain();
+		changeScreen(() => {
+			panel = panel === 'queue' ? 'player' : 'queue';
+			focusMain();
+		});
 	}
 	function back() {
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
@@ -97,8 +116,13 @@
 		} catch (error) {
 			restoreError = error;
 		}
+		const offline =
+			offlineSupported && (!navigator.onLine || (await preferredOffline(next).catch(() => false)));
 		session = next;
-		navigate('home');
+		tab = offline ? 'offline' : 'home';
+		panel = 'catalog';
+		catalogVisit++;
+		focusMain();
 		if (restoreError) report(restoreError);
 	}
 	async function start(tracks: PlayerTrack[], index: number) {
@@ -151,23 +175,31 @@
 						if (!back()) void NativeApp.minimizeApp().catch(report);
 					})
 				: null;
+		const openOffline = () => {
+			if (session && offlineSupported) navigate('offline');
+		};
+		window.addEventListener('dn-open-offline', openOffline);
 		window.addEventListener('dn-session-expired', expired);
 		window.addEventListener('keydown', key);
 		return () => {
 			void listener?.then((handle) => handle.remove());
+			window.removeEventListener('dn-open-offline', openOffline);
 			window.removeEventListener('dn-session-expired', expired);
 			window.removeEventListener('keydown', key);
 		};
 	});
 </script>
 
-<div class="shell" data-part="app">
+<div class="shell" data-part="app" style:--footer-height={footerHeight + 'px'}>
 	{#if !inPlayer}
 		<header class="mast">
 			<span class="wordmark"><img src={brand} alt="" /> DroppedNeedle</span>
-			{#if panel !== 'settings'}
-				<button class="icon-button" aria-label="Settings" onclick={() => openPanel('settings')}
-					><Settings2 size={19} /></button
+			{#if panel !== 'settings' && (!session || $interfacePreferences.headerSettings)}
+				<button
+					class="icon-button"
+					aria-label="Settings"
+					data-screen-link
+					onclick={() => openPanel('settings')}><Settings2 size={19} /></button
 				>
 			{/if}
 		</header>
@@ -181,14 +213,18 @@
 		{:else}
 			{#if session}
 				<div hidden={panel !== 'catalog'} class="pad">
-					{#key catalogVisit}<Catalog
-							bind:this={catalog}
-							{session}
-							active={panel === 'catalog'}
-							{tab}
-							onplay={start}
-							onnavigate={navigate}
-						/>{/key}
+					{#key catalogVisit}{#if tab === 'offline'}<OfflineLibrary
+								{session}
+								onplay={start}
+							/>{:else}<Catalog
+								bind:this={catalog}
+								{session}
+								active={panel === 'catalog'}
+								{tab}
+								onplay={start}
+								onoffline={offlineSupported ? () => navigate('offline') : undefined}
+								onnavigate={navigate}
+							/>{/if}{/key}
 				</div>
 			{:else if panel !== 'settings'}
 				<div class="pad"><Connect onconnected={connected} /></div>
@@ -220,7 +256,7 @@
 		{/if}
 	</main>
 	{#if session && panel === 'catalog'}
-		<footer>
+		<footer bind:clientHeight={footerHeight}>
 			<PlayerView
 				{session}
 				expanded={false}
@@ -228,21 +264,16 @@
 				oncollapse={() => {}}
 				onerror={report}
 			/>
-			<nav aria-label="Music">
-				{#each tabs as item (item.id)}
-					<button
-						aria-current={tab === item.id ? 'page' : undefined}
-						onclick={() => navigate(item.id)}
-						><item.icon size={21} /><span>{item.label}</span></button
-					>
-				{/each}
-			</nav>
+			<Navigation current={tab} offline={offlineSupported} onnavigate={choose}>
+				{#snippet outputs()}<Outputs />{/snippet}
+			</Navigation>
 		</footer>
 	{/if}
 </div>
 
 <style>
 	.shell {
+		position: relative;
 		height: 100dvh;
 		display: flex;
 		flex-direction: column;
@@ -294,27 +325,18 @@
 		padding-bottom: env(safe-area-inset-bottom);
 		background: var(--bg);
 	}
-	nav {
-		display: flex;
-		align-items: center;
-		justify-content: space-evenly;
-		padding: 0.1rem 0 0.22rem;
+	:global(html[data-navigation='floating']) .shell:has(footer) .pad {
+		padding-bottom: calc(var(--footer-height) + var(--gap));
 	}
-	nav button {
-		display: grid;
-		place-content: center;
-		justify-items: center;
-		gap: 0.2rem;
-		min-height: 52px;
-		min-width: 0;
-		flex: 1;
-		color: var(--muted);
+	:global(html[data-navigation='floating']) footer {
+		position: absolute;
+		inset: auto env(safe-area-inset-right) 0 env(safe-area-inset-left);
+		background: transparent;
+		pointer-events: none;
 	}
-	nav span {
-		font-size: 0.77rem;
-	}
-	nav [aria-current='page'] {
-		color: var(--accent);
-		font-weight: 700;
+	:global(html[data-navigation='floating']) footer :global(.mini),
+	:global(html[data-navigation='floating']) footer :global(nav),
+	:global(html[data-navigation='floating']) footer :global(dialog) {
+		pointer-events: auto;
 	}
 </style>
