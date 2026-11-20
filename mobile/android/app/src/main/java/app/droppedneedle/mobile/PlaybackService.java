@@ -2,6 +2,7 @@ package app.droppedneedle.mobile;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.media.AudioManager;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.Handler;
@@ -67,6 +68,7 @@ public final class PlaybackService extends MediaSessionService {
     private ExoPlayer player;
     private MediaSession session;
     private PlaybackReporter reporter;
+    private PlaybackEqualizer equalizer;
     private SavedQueue saved;
     private SecretKey queueKey;
     private String revision;
@@ -113,9 +115,25 @@ public final class PlaybackService extends MediaSessionService {
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build();
+        equalizer = new PlaybackEqualizer(this);
+        int audioSession = player.getAudioSessionId();
+        if (audioSession <= 0) {
+            try {
+                AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+                int allocated = audio == null ? 0 : audio.generateAudioSessionId();
+                if (allocated > 0) {
+                    player.setAudioSessionId(allocated);
+                    audioSession = allocated;
+                }
+            } catch (RuntimeException ignored) {
+                // Playback can still use the framework-selected session when one becomes available.
+            }
+        }
+        equalizer.setSession(audioSession);
         saved = new SavedQueue(this);
         reporter = new PlaybackReporter(this, player);
         player.addListener(new Player.Listener() {
+            @Override public void onAudioSessionIdChanged(int id) { equalizer.setSession(id); }
             @Override public void onEvents(Player source, Player.Events events) {
                 if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
                         Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) checkpoint();
@@ -237,6 +255,8 @@ public final class PlaybackService extends MediaSessionService {
         });
     }
 
+    PlaybackEqualizer equalizer() { return equalizer; }
+
     void afterWrite(Runnable complete) { saved.afterWrite(complete); }
 
     void command(String action, double value, int to) {
@@ -356,6 +376,7 @@ public final class PlaybackService extends MediaSessionService {
         queueKey = null;
         main.removeCallbacks(checkpoint);
         reporter.close();
+        equalizer.release();
         access = null;
         session.release();
         player.release();
