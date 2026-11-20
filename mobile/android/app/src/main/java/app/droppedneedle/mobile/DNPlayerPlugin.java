@@ -90,6 +90,15 @@ public final class DNPlayerPlugin extends Plugin {
                 () -> call.resolve(p.snapshot()), () -> call.reject("The playback session changed.")));
     }
 
+    @PluginMethod public void getEqualizer(PluginCall call) {
+        execute(call, p -> call.resolve(p.equalizer().read()));
+    }
+
+    @PluginMethod public void setEqualizer(PluginCall call) {
+        execute(call, p -> call.resolve(p.equalizer().configure(call.getBoolean("enabled", false),
+                call.getString("preset"), call.getArray("centers"), call.getArray("levels"))));
+    }
+
     @PluginMethod public void getState(PluginCall call) { execute(call, p -> call.resolve(p.snapshot())); }
 
     @Override protected void handleOnDestroy() {

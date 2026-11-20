@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { writable } from 'svelte/store';
 import { browserPlayer } from './player/browser';
+import type { EqualizerBridge } from './player/equalizer';
 
 export interface PlayerTrack {
 	id: string;
@@ -60,8 +61,9 @@ const empty: PlayerState = {
 	error: null
 };
 const native = registerPlugin<
-	PlaybackBridge & { restore(access: PlayerAccess): Promise<PlayerState> }
+	PlaybackBridge & EqualizerBridge & { restore(access: PlayerAccess): Promise<PlayerState> }
 >('DNPlayer');
+export const nativeEqualizer: EqualizerBridge = native;
 const backend = Capacitor.isNativePlatform() ? native : browserPlayer();
 let sequence = 0;
 const state = writable(empty, () => {
