@@ -28,7 +28,7 @@ final class RoutedPlayer extends ForwardingSimpleBasePlayer {
     private final Runnable poll = this::poll;
     private final Runnable idleTimeout = () -> disconnect(true, "The paused cast expired.");
     private final PowerManager.WakeLock networkPlayback;
-    private boolean idleTimer;
+    private boolean idleTimer, stopAtTrackEnd;
     private long lastWake;
     private static final DeviceInfo REMOTE = new DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE).build();
     private NetworkRenderer device;
@@ -56,6 +56,7 @@ final class RoutedPlayer extends ForwardingSimpleBasePlayer {
         });
     }
 
+    void pauseRemoteAtEnd(boolean enabled) { stopAtTrackEnd = enabled; }
     String destination() { return device == null ? "" : device.name; }
     int routeGeneration() { return connection; }
     String routeError() { return error; }
@@ -281,7 +282,7 @@ final class RoutedPlayer extends ForwardingSimpleBasePlayer {
             if ("FINISHED".equals(reading.state) || duration <= 0 || previous >= duration - 3500) {
                 int i = local.getCurrentMediaItemIndex();
                 int next = local.getRepeatMode() == REPEAT_MODE_ONE ? i : local.getNextMediaItemIndex();
-                if (next != C.INDEX_UNSET) {
+                if (!stopAtTrackEnd && next != C.INDEX_UNSET) {
                     if (next == i) load(item, 0);
                     else { local.seekTo(next, 0); syncTrack(); }
                     return;

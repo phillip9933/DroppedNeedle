@@ -76,7 +76,16 @@ public final class CastPlaybackTest {
                 await("Seek reached speaker", () -> speaker.time.equals("0:00:42"));
                 instrumentation.runOnMainSync(() -> player.pause());
                 await("Pause reached speaker", () -> speaker.state.equals("PAUSED_PLAYBACK") && !player.isPlaying());
-                instrumentation.runOnMainSync(() -> { player.seekToNextMediaItem(); player.play(); });
+                instrumentation.runOnMainSync(() -> { player.pauseRemoteAtEnd(true); player.play(); });
+                await("The selected speaker resumed", () -> speaker.state.equals("PLAYING") && player.isPlaying());
+                speaker.time = "0:01:59";
+                await("The renderer reported the final second", () -> player.getCurrentPosition() >= 119000);
+                speaker.state = "STOPPED";
+                await("The renderer ended without advancing the queue", () -> !player.isPlaying()
+                        && player.getPlaybackState() == androidx.media3.common.Player.STATE_ENDED);
+                assertEquals(firstUrl, speaker.uri);
+                instrumentation.runOnMainSync(() -> { assertEquals(0, player.getCurrentMediaItemIndex());
+                    player.pauseRemoteAtEnd(false); player.seekToNextMediaItem(); player.play(); });
                 await("Next item replaced the published media",
                         () -> !speaker.uri.equals(firstUrl) && speaker.state.equals("PLAYING") && player.getCurrentMediaItemIndex() == 1);
                 assertEquals("Second", SyntheticSpeaker.element(speaker.metadata, "dc:title"));

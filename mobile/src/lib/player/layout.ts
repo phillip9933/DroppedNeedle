@@ -39,6 +39,7 @@ export const trackToolFields = [
 export const playerFields = [
 	...navigationFields,
 	{ id: 'player-heading', label: 'Player heading' },
+	{ id: 'player-sleep', label: 'Sleep timer' },
 	...trackToolFields,
 	{ id: 'player-seek', label: 'Seek bar' },
 	{ id: 'player-title', label: 'Track title' },
@@ -122,6 +123,7 @@ export function supportsPlayerIcon(id: string) {
 			'player-shuffle',
 			'player-favorite',
 			'player-playlist',
+			'player-sleep',
 			'player-rating',
 			'player-up-next',
 			'player-lyrics',
@@ -143,6 +145,11 @@ export function playerDefaults(): Section[] {
 						preview: true,
 						padding: 0
 					}))
-				: [{ id: w.id, title: '', preview: w.enabled }]
+				: w.id === 'player-modes'
+					? [
+							{ id: w.id, title: '', preview: w.enabled },
+							{ id: 'player-sleep', title: '', preview: true }
+						]
+					: [{ id: w.id, title: '', preview: w.enabled }]
 		);
 }

@@ -24,7 +24,10 @@ export interface PlayerAccess {
 export type QueuePlacement = 'next' | 'end';
 export type RepeatMode = 'off' | 'all' | 'one';
 
+export type SleepTimerState = { mode: 'minutes'; endsAt: number } | { mode: 'track' };
+
 export interface PlayerState {
+	sleepTimer?: SleepTimerState | null;
 	repeat: RepeatMode;
 	tracks: PlayerTrack[];
 	index: number;
@@ -45,7 +48,10 @@ export type PlayerAction =
 	| 'remove'
 	| 'clearUpcoming'
 	| 'shuffleUpcoming'
-	| 'cycleRepeat';
+	| 'cycleRepeat'
+	| 'setSleepMinutes'
+	| 'sleepAfterTrack'
+	| 'cancelSleepTimer';
 export interface PlaybackBridge {
 	setQueue(
 		options: PlayerAccess & {
@@ -179,6 +185,9 @@ export const player = {
 	shuffleUpcoming: () => command('shuffleUpcoming'),
 	clearUpcoming: () => command('clearUpcoming'),
 	cycleRepeat: () => command('cycleRepeat'),
+	setSleepMinutes: (minutes: number) => command('setSleepMinutes', minutes),
+	sleepAfterTrack: () => command('sleepAfterTrack'),
+	cancelSleepTimer: () => command('cancelSleepTimer'),
 	toggle: () => command('toggle'),
 	seek: (seconds: number) => command('seek', seconds),
 	skipTo: (index: number) => command('skipTo', index),
