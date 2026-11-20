@@ -1,0 +1,7 @@
+{
+  "appId": "app.droppedneedle.mobile",
+  "appName": "DroppedNeedle",
+  "webDir": "dist",
+  "loggingBehavior": "none",
+  "backgroundColor": "#131c20"
+}
