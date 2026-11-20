@@ -283,9 +283,7 @@ test('missing originals let later playlist tracks finish, then retry only the un
 	}
 });
 
-test('a superseded playlist response cannot replace the newest selection after a round trip', async ({
-	page
-}) => {
+async function switchWhileRefreshing(page: Page) {
 	const env = await setup(page);
 	await localSignIn(page, server);
 	await settings(page);
@@ -321,4 +319,17 @@ test('a superseded playlist response cannot replace the newest selection after a
 	}
 	await expect(syncButton(page)).toBeEnabled();
 	expect(env.streams).toEqual(['one', 'two', 'sun', 'current']);
+}
+
+test('a superseded playlist response cannot replace the newest selection after a round trip', async ({
+	page
+}) => {
+	await switchWhileRefreshing(page);
+});
+
+test('an older WebView can browse playlists and cancel a superseded refresh', async ({ page }) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined });
+	});
+	await switchWhileRefreshing(page);
 });
