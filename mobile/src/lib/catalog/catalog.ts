@@ -259,10 +259,10 @@ export function activeRequests(session: Session) {
 	return getJson<Schema['ActiveRequestsResponse']>(session, path('/api/v3/requests/active'));
 }
 
-export function requestHistory(session: Session, page: number) {
+export function requestHistory(session: Session, page: number, status?: string, sort?: string) {
 	return getJson<Schema['HistoryResponse']>(
 		session,
-		path('/api/v3/requests/history', {}, { page, page_size: 30 })
+		path('/api/v3/requests/history', {}, { page, page_size: 30, status, sort })
 	);
 }
 

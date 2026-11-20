@@ -68,6 +68,8 @@ async function connect(page: Page, role: S['Role']) {
 		{
 			...task('stalled', 'Stalled transfer', 'downloading'),
 			candidate_index: 0,
+			progress_percent: 37,
+			files_completed: 1,
 			remote_queued: true,
 			has_next_source: true
 		},
@@ -85,7 +87,8 @@ async function connect(page: Page, role: S['Role']) {
 			search_job_id: name
 		})),
 		{ ...task('held', 'Held recording', 'partial'), held_for_review: true },
-		task('manual', 'Look again', 'failed')
+		task('manual', 'Look again', 'failed'),
+		{ ...task('scheduled', 'Later transfer', 'failed'), retry_max: 2, next_retry_at: 1799999999 }
 	];
 	await page.route(api + '/**', async (route) => {
 		const req = route.request(),
@@ -103,7 +106,11 @@ async function connect(page: Page, role: S['Role']) {
 		if (path === '/home') return json({ sections: [] });
 		if (path === '/library/albums') return json({ items: [], total: 0 });
 		if (path === '/requests/active') return json({ items: active });
-		if (path === '/requests/history') return json({ items: history, page: 1, total_pages: 1 });
+		if (path === '/requests/history') {
+			const filter = url.searchParams.get('status');
+			const items = filter ? history.filter((r) => r.status === filter) : history;
+			return json({ items, total: items.length, page: 1, total_pages: 1 });
+		}
 		if (path === '/requests/approvals') {
 			expect(role).toBe('admin');
 			return json({ items: approvals });
@@ -154,7 +161,7 @@ async function connect(page: Page, role: S['Role']) {
 							file_count: 2,
 							size_bytes: 1048576,
 							tier: 'refused',
-							files: [],
+							files: [{ filename: 'folder/disc-1.flac', extension: 'flac', size: 1048576 }],
 							refusal: ['over_size_cap']
 						}
 					]
@@ -236,7 +243,7 @@ test('a listener can withdraw a shared track, retry history, and manage their ow
 }) => {
 	const calls = await connect(page, 'user'),
 		modal = page.getByRole('dialog');
-	await expect(page.getByRole('button', { name: 'Approvals', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('tab', { name: 'Approvals', exact: true })).toHaveCount(0);
 	await page.getByRole('button', { name: 'Actions for Shared train' }).click();
 	await expect(modal).toContainText('Other listeners keep theirs.');
 	await modal.getByRole('button', { name: 'Go back' }).click();
@@ -251,7 +258,7 @@ test('a listener can withdraw a shared track, retry history, and manage their ow
 	await page.getByRole('button', { name: 'Actions for Missed train' }).click();
 	await modal.getByRole('button', { name: 'Retry request' }).click();
 	await expect(page.getByText('Retry awaiting approval.')).toBeVisible();
-	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('tab', { name: 'Downloads', exact: true }).click();
 	await expect(page.getByText('Finished transfer')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Actions for Finished transfer' })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Actions for Failed transfer' })).toHaveCount(0);
@@ -267,7 +274,7 @@ test('an admin reviews pending track and album requests and retries a failed imp
 }) => {
 	await connect(page, 'admin');
 	const modal = page.getByRole('dialog');
-	await page.getByRole('button', { name: 'Approvals', exact: true }).click();
+	await page.getByRole('tab', { name: 'Approvals', exact: true }).click();
 	for (const [title, action] of [
 		['Junction', 'Approve request'],
 		['Crossing', 'Reject request']
@@ -278,7 +285,7 @@ test('an admin reviews pending track and album requests and retries a failed imp
 		await expect(page.getByRole('button', { name: 'Actions for ' + title })).toHaveCount(0);
 	}
 	await expect(page.getByText('No requests awaiting approval.')).toBeVisible();
-	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('tab', { name: 'Downloads', exact: true }).click();
 	await page.getByRole('button', { name: 'Actions for Failed transfer' }).click();
 	await modal.getByRole('button', { name: 'Retry import' }).click();
 	await modal.getByRole('button', { name: 'Retry import' }).click();
@@ -289,7 +296,7 @@ test('a listener reviews matches, confirms a settings override, watches or cance
 	page
 }) => {
 	const calls = await connect(page, 'user');
-	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('tab', { name: 'Downloads', exact: true }).click();
 	const modal = page.getByRole('dialog');
 	await page.getByRole('button', { name: 'Actions for Look again' }).click();
 	await modal.getByRole('button', { name: 'Search manually' }).click();
@@ -305,6 +312,8 @@ test('a listener reviews matches, confirms a settings override, watches or cance
 	await page.getByRole('button', { name: 'Review matches for Matches choose' }).click();
 	await modal.getByRole('button', { name: /Night edition/ }).click();
 	await expect(modal.getByText('Exceeds your size limit')).toBeVisible();
+	await modal.getByText('View files (1)').click();
+	await expect(modal.getByText('disc-1.flac')).toBeVisible();
 	expect(calls.some((c) => c.endsWith('/pick'))).toBe(false);
 	await modal.getByRole('button', { name: 'Download anyway' }).click();
 	await expect(page.getByText('Download started from your selection.')).toBeVisible();
@@ -347,7 +356,7 @@ test('administrators see links to the deployed upgrade, import, auto-download an
 	page
 }) => {
 	await connect(page, 'admin');
-	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('tab', { name: 'Downloads', exact: true }).click();
 	await page.getByText('More on your server').click();
 	const pages = {
 		'Import files into the library': '/downloads?tab=import',
@@ -362,3 +371,77 @@ test('administrators see links to the deployed upgrade, import, auto-download an
 		0
 	);
 });
+
+test('request tabs, history filters and transfer groups expose their state', async ({ page }) => {
+	const calls = await connect(page, 'user');
+	const tabs = page.getByRole('tablist', { name: 'Request views' });
+	const current = tabs.getByRole('tab', { name: 'Activity', selected: true });
+	await expect(current).toBeVisible();
+	const history = page.getByRole('region', { name: 'Request history' });
+	await history.getByText('Filter and sort history').click();
+	await history.getByLabel('History status').selectOption('imported');
+	await expect(history.getByText('No requests match this status.')).toBeVisible();
+	await history.getByLabel('History order').selectOption('oldest');
+	await expect.poll(() => calls.some((c) => c.includes('status=imported&sort=oldest'))).toBe(true);
+	await history.getByLabel('History status').selectOption('failed');
+	await expect(history.getByText('Missed train')).toBeVisible();
+	await expect(history.getByRole('option', { name: 'Can reimport' })).toHaveCount(0);
+	await current.focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(tabs.getByRole('tab', { name: 'Downloads', selected: true })).toBeFocused();
+	const panel = page.getByRole('tabpanel', { name: 'Downloads' });
+	await expect(
+		panel.getByRole('region', { name: 'Needs review' }).getByText('Held recording')
+	).toBeVisible();
+	const moving = panel.getByRole('region', { name: 'In progress' });
+	await expect(
+		moving.getByRole('progressbar', { name: 'Download progress for Stalled transfer' })
+	).toHaveAttribute('value', '37');
+	await expect(moving.getByText('1 of 2 files')).toBeVisible();
+	await expect(
+		panel.getByRole('region', { name: 'Scheduled retries' }).getByText('Later transfer')
+	).toBeVisible();
+	await expect(
+		panel.getByRole('region', { name: 'Download history' }).getByText('Finished transfer')
+	).toBeVisible();
+	await page.keyboard.press('Home');
+	await expect(tabs.getByRole('tab', { name: 'Activity', selected: true })).toBeFocused();
+});
+
+for (const theme of ['dark', 'light', 'midnight']) {
+	test('request text and statuses remain legible in ' + theme, async ({ page }, testInfo) => {
+		await page.addInitScript(
+			(mode) => localStorage.setItem('dn.mobile.appearance.mode.v2', mode),
+			theme
+		);
+		await connect(page, 'admin');
+		await page.getByRole('tab', { name: 'Downloads' }).click();
+		await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+		const badges = page.locator('[data-part="download-task"] [data-tone]');
+		await expect(badges.first()).toBeVisible();
+		const ratios = await badges.evaluateAll((elements) => {
+			// Canvas resolves both sRGB and the web themes’ OKLCH colors to sRGB.
+			const ctx = document.createElement('canvas').getContext('2d')!;
+			function luminance(color: string) {
+				ctx.fillStyle = color;
+				ctx.fillRect(0, 0, 1, 1);
+				const [r, g, b] = Array.from(ctx.getImageData(0, 0, 1, 1).data).map((v) => {
+					const s = v / 255;
+					return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+				});
+				return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+			}
+			return elements.map((el) => {
+				const st = getComputedStyle(el),
+					ink = luminance(st.color),
+					bg = luminance(st.backgroundColor);
+				return (Math.max(ink, bg) + 0.05) / (Math.min(ink, bg) + 0.05);
+			});
+		});
+		expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+			390
+		);
+		await page.screenshot({ path: testInfo.outputPath('downloads-' + theme + '.png') });
+	});
+}
