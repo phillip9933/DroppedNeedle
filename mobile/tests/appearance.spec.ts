@@ -1,29 +1,233 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-test('a shared theme survives restart and invalid input leaves the selected theme active', async ({
+const oldKey = 'dn.mobile.appearance.v1';
+const legacy = {
+	version: 1,
+	name: 'Quiet',
+	corners: 0,
+	spacing: 20,
+	typeface: 'serif',
+	colors: {
+		bg: '#131c20',
+		surface: '#1b272c',
+		raised: '#26373e',
+		text: '#f3f6f1',
+		muted: '#adbfbd',
+		accent: '#b5ebc5',
+		'on-accent': '#11251b',
+		line: '#52645f'
+	}
+};
+
+async function settings(page: Page) {
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'Themes', exact: true }).click();
+}
+
+test('DN Dark, Light and Midnight use the web palettes; System tracks the device after restart', async ({
 	page
 }) => {
 	await page.goto('/');
-	await page.getByRole('button', { name: 'Settings' }).click();
-	await page.getByRole('button', { name: 'Paper' }).click();
+	const root = page.locator('html');
+	await expect(root).toHaveAttribute('data-theme', 'dark');
+	await settings(page);
+	const palettes = [
+		[
+			'Dark',
+			'dark',
+			'#090e0b',
+			'#121913',
+			'#263128',
+			'#bac9b8',
+			'#f6f3e8',
+			'#b8ef64',
+			'#b8ef64',
+			'#ff837a'
+		],
+		[
+			'Light',
+			'light',
+			'#f6f3e8',
+			'#fffdf5',
+			'#e7eddf',
+			'#3f5649',
+			'#fffdf5',
+			'#1e6a38',
+			'#b8ef64',
+			'#a32628'
+		],
+		[
+			'Midnight',
+			'midnight',
+			'#090e0b',
+			'#0b0f0c',
+			'#2c3a2f',
+			'#a9b8a8',
+			'#222d24',
+			'#b8ef64',
+			'#b8ef64',
+			'#ff837a'
+		]
+	];
+	for (const [name, mode, bg, surface, raised, muted, paper, accent, action, error] of palettes) {
+		await page.getByRole('button', { name, exact: true }).click();
+		await expect(root).toHaveAttribute('data-theme', mode);
+		for (const [key, value] of Object.entries({
+			'--bg': bg,
+			'--surface': surface,
+			'--raised': raised,
+			'--muted': muted,
+			'--dn-paper': paper,
+			'--accent': accent,
+			'--dn-action': action,
+			'--color-error': error
+		})) {
+			await expect(root).toHaveCSS(key, value);
+		}
+		await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', bg);
+	}
+	await page.emulateMedia({ colorScheme: 'light' });
+	await page.getByRole('button', { name: 'System', exact: true }).click();
+	await expect(root).toHaveAttribute('data-theme', 'light');
+	await page.emulateMedia({ colorScheme: 'dark' });
+	await expect(root).toHaveAttribute('data-theme', 'dark');
+	await page.reload();
+	await page.emulateMedia({ colorScheme: 'light' });
+	await expect(root).toHaveAttribute('data-theme', 'light');
+	await settings(page);
+	await expect(page.getByRole('button', { name: 'System', exact: true })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+});
+
+test('an existing custom theme survives upgrade, switching presets, invalid imports and restart', async ({
+	page
+}) => {
+	await page.goto('/');
+	await page.evaluate(
+		({ oldKey, legacy }) => localStorage.setItem(oldKey, JSON.stringify(legacy)),
+		{ oldKey, legacy }
+	);
+	await page.reload();
+	const root = page.locator('html');
+	await expect(root).toHaveCSS('--bg', legacy.colors.bg);
+	await expect(root).toHaveCSS('--gap', '20px');
+	await settings(page);
+	await page.getByRole('button', { name: 'Light', exact: true }).click();
+	await page.getByRole('button', { name: 'Use custom theme Quiet' }).click();
 	await page.getByText('Edit or share theme').click();
 	const editor = page.getByLabel('Theme JSON');
-	const theme = JSON.parse(await editor.inputValue());
-	theme.name = 'Quiet';
-	theme.spacing = 20;
-	theme.corners = 0;
-	theme.typeface = 'serif';
-	await editor.fill(JSON.stringify(theme));
-	await page.getByRole('button', { name: 'Apply theme' }).click();
-	await expect(page.getByRole('status')).toHaveText('Applied Quiet.');
+	expect(JSON.parse(await editor.inputValue())).toEqual(legacy);
+	const updated = { ...legacy, name: 'Reading', corners: 7 };
+	await editor.fill(JSON.stringify(updated));
+	await page.getByRole('button', { name: 'Apply theme', exact: true }).click();
+	await expect(root).toHaveCSS('--radius', '7px');
 	await editor.fill(
-		JSON.stringify({ ...theme, colors: { ...theme.colors, bg: 'url(https://invalid.example)' } })
+		JSON.stringify({
+			...updated,
+			colors: { ...updated.colors, bg: 'url(https://invalid.example)' }
+		})
 	);
-	await page.getByRole('button', { name: 'Apply theme' }).click();
+	await page.getByRole('button', { name: 'Apply theme', exact: true }).click();
 	await expect(page.getByRole('alert')).toBeVisible();
 	await page.reload();
-	await page.getByRole('button', { name: 'Settings' }).click();
+	await settings(page);
 	await page.getByText('Edit or share theme').click();
-	expect(JSON.parse(await editor.inputValue())).toEqual(theme);
-	await expect(page.locator('html')).toHaveCSS('--gap', '20px');
+	expect(JSON.parse(await editor.inputValue())).toEqual(updated);
+	await expect(root).toHaveCSS('--dn-action', updated.colors.accent);
+});
+
+test('account theme changes are explicit and send only the DN theme enum', async ({ page }) => {
+	const server = 'https://themes.example/music';
+	let mode = 'midnight',
+		fail = false;
+	const writes: unknown[] = [];
+	await page.route(server + '/api/v3/**', (route) => {
+		const req = route.request(),
+			path = new URL(req.url()).pathname.slice('/music/api/v3'.length);
+		const json = (data: unknown) => route.fulfill({ json: data });
+		if (path === '/auth/providers') return json({ local: true, oidc: false });
+		if (path === '/auth/login') return json({ token: 'fixture' });
+		expect(req.headers().authorization).toBe('Bearer fixture');
+		if (path === '/me') return json({ id: 'user', role: 'user', display_name: 'Listener' });
+		if (path === '/home') return json({ sections: [] });
+		if (path === '/me/section-prefs') return json({ pages: {} });
+		if (path === '/library/albums')
+			return json({
+				items: [{ id: 'first', title: 'Night Press', artist_name: 'Listener', art_missing: true }],
+				next: null,
+				total: 1
+			});
+		if (path === '/library/albums/match/first')
+			return json({
+				items: [
+					{
+						id: 'cut-one',
+						title: 'Night Press A',
+						album_title: 'Night Press',
+						artist_name: 'Listener',
+						disc_number: 1,
+						track_number: 1,
+						art_missing: true
+					}
+				],
+				total: 1
+			});
+		if (path === '/me/appearance') {
+			if (fail)
+				return route.fulfill({
+					status: 503,
+					json: { error: { code: 'UNAVAILABLE', message: 'Appearance unavailable.' } }
+				});
+			if (req.method() === 'PUT') {
+				const body = req.postDataJSON();
+				writes.push(body);
+				mode = body.theme;
+			}
+			return json({
+				theme: mode,
+				custom_css: { css: 'body {color: red}' },
+				site: {},
+				stored: true
+			});
+		}
+		throw Error('Unexpected fixture route ' + path);
+	});
+	await page.goto('/');
+	await page.getByLabel('Server address').fill(server);
+	await page.getByRole('button', { name: 'Continue', exact: true }).click();
+	await page.getByLabel('Username', { exact: true }).fill('listener');
+	await page.getByLabel('Password', { exact: true }).fill('fixture');
+	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Home', exact: true })).toBeVisible();
+	await settings(page);
+	const root = page.locator('html');
+	await expect(page.getByText('Account theme: Midnight.')).toBeVisible();
+	await expect(root).toHaveAttribute('data-theme', 'dark');
+	await page.getByRole('button', { name: 'Use account theme on this device' }).click();
+	await expect(root).toHaveAttribute('data-theme', 'midnight');
+	await page.getByRole('button', { name: 'Light', exact: true }).click();
+	expect(writes).toEqual([]);
+	await page.getByRole('button', { name: 'Save device theme to account' }).click();
+	await expect(page.getByText('Account theme saved.')).toBeVisible();
+	expect(writes).toEqual([{ theme: 'light' }]);
+	fail = true;
+	await page.getByRole('button', { name: 'Dark', exact: true }).click();
+	await page.getByRole('button', { name: 'Save device theme to account' }).click();
+	await expect(page.getByText('Appearance unavailable.')).toBeVisible();
+	await expect(root).toHaveAttribute('data-theme', 'dark');
+	expect(mode).toBe('light');
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await page.getByRole('button', { name: 'Night Press Listener' }).click();
+	const sheet = page.locator('[data-part="track-list"]');
+	await expect(sheet).toHaveCSS('background-color', 'rgb(246, 243, 232)');
+	await expect(sheet).toHaveCSS('--muted', '#3f5649');
+	await settings(page);
+	await page.getByRole('button', { name: 'Midnight', exact: true }).click();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await expect(sheet).toHaveCSS('background-color', 'rgb(34, 45, 36)');
+	await expect(sheet).toHaveCSS('--muted', '#a9b8a8');
 });

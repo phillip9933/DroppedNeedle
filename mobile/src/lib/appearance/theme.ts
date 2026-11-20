@@ -1,6 +1,19 @@
 import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
 
+import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
+export type Mode = components['schemas']['ThemeChoice'];
+export type Palette = Exclude<Mode, 'system'>;
+export type Selection = { mode: Mode } | { mode: 'custom'; theme: Theme };
+export const labels: Record<Mode, string> = {
+	dark: 'Dark',
+	light: 'Light',
+	midnight: 'Midnight',
+	system: 'System'
+};
+declare const __DN_WEB_PALETTES__: Record<Palette, Record<string, string>>;
+const palettes = __DN_WEB_PALETTES__;
 export interface Theme {
+	base?: Palette;
 	version: 1;
 	name: string;
 	colors: Record<ColorKey, string>;
@@ -12,6 +25,7 @@ export interface Theme {
 const colors = ['bg', 'surface', 'raised', 'text', 'muted', 'accent', 'on-accent', 'line'] as const;
 type ColorKey = (typeof colors)[number];
 const storageKey = 'dn.mobile.appearance.v1';
+const modeKey = 'dn.mobile.appearance.mode.v2';
 
 export const studio: Theme = {
 	version: 1,
@@ -54,6 +68,7 @@ export function readTheme(json: string): Theme {
 	const data = JSON.parse(json);
 	if (
 		data?.version !== 1 ||
+		(data.base !== undefined && !['dark', 'light', 'midnight'].includes(data.base)) ||
 		typeof data.name !== 'string' ||
 		!data.name.trim() ||
 		data.name.length > 40 ||
@@ -73,6 +88,7 @@ export function readTheme(json: string): Theme {
 	return {
 		version: 1,
 		name: data.name.trim(),
+		...(data.base ? { base: data.base } : {}),
 		colors: Object.fromEntries(colors.map((k) => [k, data.colors[k]])) as Theme['colors'],
 		corners: data.corners,
 		spacing: data.spacing,
@@ -80,16 +96,95 @@ export function readTheme(json: string): Theme {
 	};
 }
 
-export function restoreTheme(): Theme {
+export function savedCustom(): Theme | null {
 	try {
 		return readTheme(localStorage.getItem(storageKey) ?? '');
 	} catch {
-		return studio;
+		return null;
 	}
 }
-
-export function applyTheme(theme: Theme) {
+export function restoreTheme(): Selection {
+	try {
+		const mode = localStorage.getItem(modeKey);
+		if (isMode(mode)) return { mode };
+		const custom = savedCustom();
+		if (custom) return { mode: 'custom', theme: custom };
+	} catch {
+		/* Storage may be unavailable on a new device. */
+	}
+	return { mode: 'dark' };
+}
+export function isMode(value: unknown): value is Mode {
+	return typeof value === 'string' && Object.hasOwn(labels, value);
+}
+const sources: Record<ColorKey, string> = {
+	bg: '--color-base-100',
+	surface: '--color-base-200',
+	raised: '--color-neutral',
+	text: '--color-base-content',
+	muted: '--dn-muted',
+	accent: '--color-primary',
+	'on-accent': '--color-primary-content',
+	line: '--dn-line'
+};
+const prefersLight = () => matchMedia('(prefers-color-scheme: light)');
+function isLight(background: string) {
+	const rgb = background
+		.slice(1)
+		.match(/../g)!
+		.map((v) => parseInt(v, 16));
+	return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 140;
+}
+function base(selection: Selection): Palette {
+	if (selection.mode === 'system') return prefersLight().matches ? 'light' : 'dark';
+	if (selection.mode === 'custom')
+		return selection.theme.base ?? (isLight(selection.theme.colors.bg) ? 'light' : 'dark');
+	return selection.mode;
+}
+export function asTheme(selection: Selection): Theme {
+	if (selection.mode === 'custom') return selection.theme;
+	const resolved = base(selection),
+		tokens = palettes[resolved];
+	return {
+		version: 1,
+		name: labels[resolved],
+		base: resolved,
+		corners: 12,
+		spacing: 16,
+		typeface: 'sans',
+		colors: Object.fromEntries(colors.map((key) => [key, tokens[sources[key]]])) as Theme['colors']
+	};
+}
+function paint(selection: Selection) {
+	const mode = base(selection),
+		theme = asTheme(selection),
+		tokens = { ...palettes[mode] };
 	const root = document.documentElement;
+	if (selection.mode === 'custom') {
+		for (const key of colors) tokens[sources[key]] = theme.colors[key];
+		if (
+			!theme.base ||
+			theme.colors.accent !== palettes[mode]['--color-primary'] ||
+			theme.colors['on-accent'] !== palettes[mode]['--color-primary-content']
+		) {
+			tokens['--dn-action'] = theme.colors.accent;
+			tokens['--dn-action-content'] = theme.colors['on-accent'];
+			tokens['--dn-action-edge'] = theme.colors.accent;
+		}
+		if (!theme.base || theme.colors.text !== palettes[mode]['--color-base-content'])
+			tokens['--dn-title'] = theme.colors.text;
+		if (!theme.base || theme.colors.line !== palettes[mode]['--dn-line'])
+			tokens['--dn-edge'] = theme.colors.line;
+		if (!theme.base || theme.colors.accent !== palettes[mode]['--color-primary'])
+			tokens['--dn-focus'] = theme.colors.accent;
+	}
+	root.dataset.theme = mode;
+	// The web album track list uses its page's stock with controls in Light or Midnight ink.
+	root.dataset.paperSheet = selection.mode === 'custom' ? 'off' : 'on';
+	const inner = palettes[mode === 'midnight' ? 'midnight' : 'light'];
+	for (const key of colors) root.style.setProperty('--sheet-' + key, inner[sources[key]]);
+	root.style.setProperty('--sheet-focus', inner['--dn-focus']);
+	for (const [name, value] of Object.entries(tokens)) root.style.setProperty(name, value);
 	for (const key of colors) root.style.setProperty('--' + key, theme.colors[key]);
 	root.style.setProperty('--radius', theme.corners + 'px');
 	root.style.setProperty('--gap', theme.spacing + 'px');
@@ -101,22 +196,28 @@ export function applyTheme(theme: Theme) {
 			serif: 'Georgia, serif'
 		}[theme.typeface]
 	);
-	const rgb = theme.colors.bg
-		.slice(1)
-		.match(/../g)!
-		.map((c) => parseInt(c, 16));
-	root.style.colorScheme =
-		rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 140 ? 'light' : 'dark';
+	root.style.colorScheme = isLight(theme.colors.bg) ? 'light' : 'dark';
 	if (Capacitor.isNativePlatform()) {
 		const style = root.style.colorScheme === 'light' ? SystemBarsStyle.Light : SystemBarsStyle.Dark;
-		void SystemBars.setStyle({ style }).catch(() => {
-			/* Older WebViews use the system default. */
-		});
+		void SystemBars.setStyle({ style }).catch(() => {});
 	}
 	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.colors.bg);
 }
-
-export function saveTheme(theme: Theme) {
-	localStorage.setItem(storageKey, JSON.stringify(theme));
-	applyTheme(theme);
+let stopWatching: (() => void) | undefined;
+export function applyTheme(selection: Selection) {
+	stopWatching?.();
+	stopWatching = undefined;
+	paint(selection);
+	if (selection.mode === 'system') {
+		const media = prefersLight();
+		const follow = () => paint(selection);
+		media.addEventListener('change', follow);
+		stopWatching = () => media.removeEventListener('change', follow);
+	}
+}
+export function saveTheme(selection: Selection) {
+	if (selection.mode === 'custom')
+		localStorage.setItem(storageKey, JSON.stringify(selection.theme));
+	localStorage.setItem(modeKey, selection.mode);
+	applyTheme(selection);
 }
