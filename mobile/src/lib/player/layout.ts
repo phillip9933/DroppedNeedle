@@ -21,6 +21,7 @@ export const playerWidgets = [
 ] as const;
 
 export const navigationFields = [
+	{ id: 'player-menu', label: 'Navigation menu' },
 	{ id: 'player-close', label: 'Close player' },
 	{ id: 'player-settings', label: 'Player settings' },
 	{ id: 'player-queue', label: 'Play queue' },
@@ -29,6 +30,9 @@ export const navigationFields = [
 export type NavigationId = (typeof navigationFields)[number]['id'];
 export function isNavigation(id: string): id is NavigationId {
 	return navigationFields.some((action) => action.id === id);
+}
+export function showsNavigationMenu(section: Section) {
+	return section.id === 'player-menu' && !(section.icon === 'none' && section.showLabel === false);
 }
 export const trackToolFields = [
 	{ id: 'player-favorite', label: 'Favorite' },

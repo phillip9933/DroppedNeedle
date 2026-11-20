@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Ellipsis, ListMusic, Pause, Play } from '@lucide/svelte';
+	import type { DrawerControl } from '../NavigationDrawer.svelte';
 	import type { Section } from '../boards/layout';
 	let {
 		row,
@@ -8,6 +9,8 @@
 		track,
 		playing,
 		readOnly = false,
+		menuVisible,
+		navigation,
 		onclose,
 		onqueue,
 		onsettings,
@@ -19,6 +22,8 @@
 		track: boolean;
 		playing: boolean;
 		readOnly?: boolean;
+		menuVisible: boolean;
+		navigation?: DrawerControl;
 		onclose: () => void;
 		onqueue?: () => void;
 		onsettings?: () => void;
@@ -26,6 +31,7 @@
 	} = $props();
 	let menu = $state(false),
 		trigger = $state<HTMLButtonElement>();
+	const missingMenu = $derived(!!navigation && !menuVisible);
 	const missingClose = $derived(!row.some((s) => s.id === 'player-close'));
 	const queueExit = $derived(queueOpen && !row.some((s) => s.id === 'player-queue'));
 	const missingPlay = $derived(
@@ -50,43 +56,58 @@
 	});
 </script>
 
-{#if missingClose || queueExit || missingPlay}
-	<div class="fallback" inert={readOnly}>
-		{#if missingClose}<button
+{#if missingMenu || missingClose || queueExit || missingPlay}
+	<div class="fallback" inert={readOnly && !missingMenu}>
+		{#if missingClose || missingMenu}<button
 				class="icon-button"
 				bind:this={trigger}
+				data-drawer-fallback={missingMenu || undefined}
 				aria-label="Player menu"
 				aria-expanded={menu}
 				onclick={() => (menu = !menu)}><Ellipsis /></button
 			>{/if}
 		{#if missingPlay}<button
 				class="icon-button"
+				inert={readOnly}
 				aria-label={playing ? 'Pause' : 'Play'}
 				onclick={ontoggle}
 				>{#if playing}<Pause />{:else}<Play />{/if}</button
 			>{/if}
-		{#if queueExit}<button class="icon-button" aria-label="Hide play queue" onclick={onqueue}
-				><ListMusic /></button
+		{#if queueExit}<button
+				class="icon-button"
+				inert={readOnly}
+				aria-label="Hide play queue"
+				onclick={onqueue}><ListMusic /></button
 			>{/if}
 		{#if menu}<div class="menu" role="group" aria-label="Player navigation">
-				<button
-					onclick={() => {
-						dismiss();
-						onclose();
-					}}>Close player</button
-				>
-				{#if onsettings}<button
+				{#if missingMenu && navigation}<button
+						aria-label="Open navigation menu"
+						aria-haspopup="dialog"
+						aria-expanded={navigation.open}
+						aria-controls={navigation.open ? 'navigation-drawer' : undefined}
 						onclick={() => {
 							dismiss();
-							onsettings();
-						}}>Player settings</button
+							navigation?.show();
+						}}>Navigation menu</button
 					>{/if}
-				{#if track}<button
+				{#if !readOnly && missingClose}<button
 						onclick={() => {
 							dismiss();
-							onqueue?.();
-						}}>{queueOpen ? 'Hide play queue' : 'Show play queue'}</button
-					>{/if}
+							onclose();
+						}}>Close player</button
+					>
+					{#if onsettings}<button
+							onclick={() => {
+								dismiss();
+								onsettings();
+							}}>Player settings</button
+						>{/if}
+					{#if track}<button
+							onclick={() => {
+								dismiss();
+								onqueue?.();
+							}}>{queueOpen ? 'Hide play queue' : 'Show play queue'}</button
+						>{/if}{/if}
 			</div>{/if}
 	</div>{/if}
 

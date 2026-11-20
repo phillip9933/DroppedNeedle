@@ -864,3 +864,135 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	expect(streams).toEqual([server + '/api/v3/stream/local/t0']);
 	expect(await saved()).toBe(original);
 });
+
+test('the navigation field can be dragged, styled and saved, with one drawer trigger on the player and queue at 320px', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 760 });
+	await fixture(page);
+	await play(page);
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	const live = page.locator('[data-part=now-playing]');
+	const sample = page.locator('[data-part=sample-player]');
+	const cells = (within: typeof live) =>
+		within.locator('[data-part=player-header-row] > [data-section-id]');
+	const trigger = b('Open navigation menu');
+	const checkDrawer = async (returned: typeof trigger) => {
+		await trigger.click();
+		await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toBeVisible();
+		await b('Close navigation menu').click();
+		await expect(returned).toBeFocused();
+	};
+	await expect(cells(live)).toHaveCount(6);
+	await expect(cells(live).first()).toHaveAttribute('data-section-id', 'player-menu');
+	await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+	await checkDrawer(trigger);
+	const boxes = await cells(live).evaluateAll((nodes) =>
+		nodes.map((n) => {
+			const b = n.getBoundingClientRect();
+			return [b.x, b.right, b.width];
+		})
+	);
+	for (const [left, right, width] of boxes) {
+		expect(left).toBeGreaterThanOrEqual(0);
+		expect(right).toBeLessThanOrEqual(320);
+		expect(width).toBeGreaterThanOrEqual(44);
+	}
+	await b('Player settings').click();
+	await expect(sample.locator('[data-section-id=player-menu]')).toHaveCount(1);
+	const handle = b('Customize Navigation menu').locator('[data-layout-drag]');
+	const heading = sample.locator('[data-section-id=player-heading]');
+	const box = (await heading.boundingBox())!;
+	await handle.dragTo(heading, { targetPosition: { x: box.width - 5, y: box.height / 2 } });
+	await expect(cells(sample).nth(2)).toHaveAttribute('data-section-id', 'player-menu');
+	await b('Cancel').click();
+	await expect(cells(live).first()).toHaveAttribute('data-section-id', 'player-menu');
+	await b('Player settings').click();
+	await b('Customize Navigation menu').click();
+	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('heart');
+	await openPlayerPlacement(page);
+	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
+	await b('Finish editing field').click();
+	await page.getByText('Share player layout', { exact: true }).click();
+	const exported = JSON.parse(await page.getByLabel('Current layout JSON').inputValue());
+	expect(exported.sections.filter((s: { id: string }) => s.id === 'player-menu')).toEqual([
+		expect.objectContaining({ id: 'player-menu', icon: 'heart' })
+	]);
+	await b('Save layout').click();
+	await expect(live.locator('header [data-section-id=player-menu]')).toHaveCount(0);
+	await expect(
+		live.locator('[data-section-id=player-menu] [data-player-icon=heart]')
+	).toBeVisible();
+	await checkDrawer(trigger);
+	await expect(b('Player menu')).toHaveCount(0);
+	await b('Show play queue').click();
+	await expect(trigger).toHaveCount(0);
+	await b('Player menu').click();
+	await checkDrawer(b('Player menu'));
+	await b('Hide play queue').click();
+	await expect(trigger).toBeVisible();
+	await b('Player settings').click();
+	await b('Customize Navigation menu').click();
+	await b('Remove Navigation menu').click();
+	await b('Save layout').click();
+	await expect(live.locator('[data-section-id=player-menu]')).toHaveCount(0);
+	await b('Player menu').click();
+	await checkDrawer(b('Player menu'));
+});
+
+test('an explicit six-column header keeps all columns and the empty player offers drawer access', async ({
+	page
+}) => {
+	const ids = [
+		'player-close',
+		'player-heading',
+		'player-queue',
+		'player-output',
+		'player-settings',
+		'player-slot-1'
+	];
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	await page.addInitScript(
+		({ ids, key }) =>
+			localStorage.setItem(
+				key,
+				JSON.stringify(ids.map((id) => ({ id, title: '', preview: true, placement: 'header' })))
+			),
+		{ ids, key }
+	);
+	await page.setViewportSize({ width: 320, height: 720 });
+	await fixture(page);
+	await page.goto('/');
+	await page.getByLabel('Server address').fill(server);
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	await b('Continue').click();
+	await page.getByLabel('Username').fill('alex');
+	await page.getByLabel('Password', { exact: true }).fill('fixture');
+	await b('Sign in').click();
+	await b('Settings').click();
+	await b('Edit Now Playing layout').click();
+	const fields = () =>
+		page
+			.locator('[data-part=player-header-row]:visible > [data-section-id]')
+			.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-section-id')));
+	await expect.poll(fields).toEqual(ids);
+	await b('Cancel').click();
+	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
+	await expect.poll(fields).toEqual(ids);
+	await expect(b('Open navigation menu')).toHaveCount(0);
+	await b('Player menu').click();
+	await expect(b('Close player')).toHaveCount(1);
+	await b('Open navigation menu').click();
+	await b('Close navigation menu').click();
+	await expect(b('Player menu')).toBeFocused();
+	await b('Player settings').click();
+	await addFeature(page, 'Navigation menu');
+	await b('Save layout').click();
+	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
+	await expect.poll(fields).toEqual(ids);
+	await expect(b('Open navigation menu')).toHaveCount(0);
+	await b('Player menu').click();
+	await b('Open navigation menu').click();
+	await b('Close navigation menu').click();
+	await expect(b('Player menu')).toBeFocused();
+});

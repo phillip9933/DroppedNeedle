@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Cast, ChevronDown, ListMusic, Settings2 } from '@lucide/svelte';
+	import { Cast, ChevronDown, ListMusic, Menu, Settings2 } from '@lucide/svelte';
+	import type { DrawerControl } from '../NavigationDrawer.svelte';
 	import type { Section } from '../boards/layout';
 	import { navigationFields, type NavigationId } from './layout';
 	import Outputs from './Outputs.svelte';
@@ -8,6 +9,7 @@
 		id,
 		section,
 		queueOpen = false,
+		navigation,
 		editing = false,
 		disabled = false,
 		onactivate
@@ -15,15 +17,23 @@
 		id: NavigationId;
 		section?: Section;
 		queueOpen?: boolean;
+		navigation?: DrawerControl;
 		editing?: boolean;
 		disabled?: boolean;
 		onactivate: (id: NavigationId) => void;
 	} = $props();
 	const label = $derived(navigationFields.find((field) => field.id === id)!.label);
 	const accessible = $derived(
-		id === 'player-queue' ? (queueOpen ? 'Hide play queue' : 'Show play queue') : label
+		id === 'player-menu'
+			? 'Open navigation menu'
+			: id === 'player-queue'
+				? queueOpen
+					? 'Hide play queue'
+					: 'Show play queue'
+				: label
 	);
 	const glyphs = {
+		'player-menu': Menu,
 		'player-close': ChevronDown,
 		'player-settings': Settings2,
 		'player-queue': ListMusic,
@@ -43,6 +53,10 @@
 			data-screen-link={!editing ? true : undefined}
 			{disabled}
 			aria-label={accessible}
+			data-drawer-trigger={id === 'player-menu' && navigation ? true : undefined}
+			aria-haspopup={id === 'player-menu' ? 'dialog' : undefined}
+			aria-expanded={id === 'player-menu' ? navigation?.open : undefined}
+			aria-controls={id === 'player-menu' && navigation?.open ? 'navigation-drawer' : undefined}
 			onclick={() => onactivate(id)}
 		>
 			<PlayerActionFace

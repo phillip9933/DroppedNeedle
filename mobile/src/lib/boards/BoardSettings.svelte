@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
+	import type { DrawerControl } from '../NavigationDrawer.svelte';
+	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import {
 		accountId,
@@ -16,9 +17,10 @@
 	let {
 		board,
 		session,
-		menuToggle,
+		navigation,
 		onback
-	}: { board: LayoutTarget; session: Session; menuToggle: Snippet; onback: () => void } = $props();
+	}: { board: LayoutTarget; session: Session; navigation: DrawerControl; onback: () => void } =
+		$props();
 	let filters = $state<FilterSection[]>([]);
 	let recovery = $state.raw<PlayerDraft>();
 	let owner = $state(''),
@@ -59,7 +61,7 @@
 		onclick={onback}>Back</button
 	>
 {:else if board === 'player' && recovery}
-	<PlayerComposer {recovery} {menuToggle} {onback} onsave={persist} />
+	<PlayerComposer {recovery} {navigation} {onback} onsave={persist} />
 {:else if board !== 'player' && owner}
 	<LayoutEditor {board} {sections} {filters} {onback} onsave={save} />
 {:else}<p role="status">Loading layout…</p>{/if}

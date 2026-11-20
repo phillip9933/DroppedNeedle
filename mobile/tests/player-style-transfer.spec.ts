@@ -1,6 +1,8 @@
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
+import { playerCanvas, packPlayerCanvas } from '../src/lib/player/composition';
+import { playerDefaults } from '../src/lib/player/layout';
 import type { Section } from '../src/lib/boards/layout';
 import { exportPlayerStyle, importPlayerStyle } from '../src/lib/player/playerStyle';
 
@@ -62,6 +64,43 @@ test('versioned player layout JSON round trips supported options and rejects mal
 		expect(() => importPlayerStyle(JSON.stringify(value))).toThrow();
 	expect(() => importPlayerStyle('x'.repeat(65537))).toThrow(/64 KiB/);
 	expect(() => importPlayerStyle('界'.repeat(25000))).toThrow(/64 KiB/);
+});
+
+test('version 1 layout files retain the implicit menu, a customized menu or an explicitly hidden menu', () => {
+	const defaults = playerDefaults(),
+		header = playerCanvas(defaults)[0];
+	expect(header.map((s) => s.id)).toEqual([
+		'player-menu',
+		'player-close',
+		'player-heading',
+		'player-settings',
+		'player-queue',
+		'player-output'
+	]);
+	const checkRoundTrip = (sections: Section[]) => {
+		const canvas = playerCanvas(sections);
+		const packed = packPlayerCanvas(
+			canvas,
+			sections.filter((s) => s.placement === 'hidden')
+		);
+		const imported = importPlayerStyle(exportPlayerStyle(packed));
+		expect(imported).toEqual(packed);
+		const arrangement = (rows: Section[][]) => rows.map((row) => row.map((s) => s.id));
+		expect(arrangement(playerCanvas(imported))).toEqual(arrangement(canvas));
+	};
+	checkRoundTrip(defaults);
+	for (const placement of ['header', 'hidden', undefined] as const) {
+		const menu: Section = {
+			id: 'player-menu',
+			title: 'Controls',
+			preview: true,
+			icon: 'star',
+			iconSize: 23,
+			placement
+		};
+		checkRoundTrip([...defaults, menu]);
+		expect(importPlayerStyle(exportPlayerStyle([menu]))).toEqual([menu]);
+	}
 });
 
 const server = 'https://layout.example/music',
