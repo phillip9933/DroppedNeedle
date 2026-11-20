@@ -19,7 +19,7 @@ export type Album = {
 	imported?: boolean;
 };
 
-function path<T extends keyof paths>(
+export function path<T extends keyof paths>(
 	template: T,
 	params: Record<string, string> = {},
 	query: Record<string, string | number | undefined> = {}
@@ -46,7 +46,7 @@ export function cover(group?: string | null, localId?: string | null, missing = 
 	if (localId) return path('/api/v3/library/albums/{id}/artwork', { id: localId }, { size: 500 });
 }
 
-function playerTrack(
+export function playerTrack(
 	id: string,
 	title: string,
 	artist: string,

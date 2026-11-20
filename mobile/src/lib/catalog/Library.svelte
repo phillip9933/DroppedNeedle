@@ -32,7 +32,6 @@
 	});
 </script>
 
-<h1>Library</h1>
 {#if albums.length}<h2>Recently added</h2>
 	<Albums {session} {albums} {onopen} />{/if}
 {#if error}<p role="alert">{error}</p>
