@@ -362,3 +362,56 @@ test('visible shelves share the Discover response and limit overlapping cover re
 	expect(new Set(covers).size).toBe(6);
 	expect(pages).toBe(1);
 });
+
+test('visible shelves load on mount and resume while intersection callbacks are deferred', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 540 });
+	await fixture(page);
+	const reads: string[] = [];
+	page.on('request', (req) => {
+		if (req.url().startsWith(server + '/api/v3/library/')) reads.push(new URL(req.url()).pathname);
+	});
+	await page.addInitScript((server) => {
+		window.IntersectionObserver = class extends IntersectionObserver {
+			observe(target: Element) {
+				if (!target.matches('[data-preview]')) super.observe(target);
+			}
+		};
+		const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'id-alex', 'home']);
+		const shortcuts = [
+			'popular_albums',
+			'trending_artists',
+			'your_top_albums',
+			'following',
+			'releases',
+			'concerts',
+			'top_picks',
+			'weekly_exploration',
+			'anniversaries',
+			'missing_essentials',
+			'rediscover',
+			'genre_list'
+		];
+		localStorage.setItem(
+			key,
+			JSON.stringify([
+				{ id: 'library-recently-added', preview: true },
+				...shortcuts.map((id) => ({ id: 'discover-' + id, preview: false })),
+				{ id: 'library-artists', preview: true }
+			])
+		);
+	}, server);
+	await page.goto('/');
+	await login(page);
+	await expect(page.getByRole('button', { name: 'Night train Southerly' })).toBeVisible();
+	const artists = page.locator('[data-widget="library-artists"]');
+	await expect(artists.locator('[data-preview-item]')).toHaveCount(0);
+	expect(reads).not.toContain('/dn/api/v3/library/artists');
+	await artists.evaluate((el) => {
+		el.scrollIntoView({ block: 'center' });
+		document.dispatchEvent(new Event('visibilitychange'));
+	});
+	await expect(artists.getByRole('button', { name: 'Southerly 1 album' })).toBeVisible();
+	expect(reads.filter((path) => path === '/dn/api/v3/library/artists')).toHaveLength(1);
+});

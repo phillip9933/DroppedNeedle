@@ -8,8 +8,12 @@
 		expanded = false
 	}: { section: Section; expanded?: boolean; children: Snippet<[Preview]> } = $props();
 	let width = $state(0);
+	let checkViewport: (() => void) | undefined;
 	function measured(next: number | undefined) {
-		if (next && next > 0) width = next;
+		if (next && next > 0) {
+			width = next;
+			checkViewport?.();
+		}
 	}
 	const preview = $derived(
 		measurePreview(boardDisplay(section.id, section.display), width, expanded)
@@ -17,21 +21,64 @@
 	let host: HTMLElement;
 	let visible = $state(false);
 	onMount(() => {
-		if (expanded || typeof IntersectionObserver === 'undefined') {
+		const root = host.closest('main');
+		const listeners = new AbortController();
+		let observer: IntersectionObserver | undefined;
+		function stop() {
+			checkViewport = undefined;
+			listeners.abort();
+			observer?.disconnect();
+		}
+		function show() {
+			width = host.clientWidth || width;
 			visible = true;
+			stop();
+		}
+		function check() {
+			const box = host.getBoundingClientRect(),
+				frame = root?.getBoundingClientRect();
+			const top = Math.max(0, frame?.top ?? 0),
+				left = Math.max(0, frame?.left ?? 0);
+			const bottom = Math.min(window.innerHeight, frame?.bottom ?? window.innerHeight);
+			const right = Math.min(window.innerWidth, frame?.right ?? window.innerWidth);
+			if (
+				box.height &&
+				box.width &&
+				Math.min(box.bottom, bottom) > Math.max(box.top, top) &&
+				Math.min(box.right, right) > Math.max(box.left, left)
+			)
+				show();
+		}
+		if (expanded) {
+			show();
 			return;
 		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) {
-					visible = true;
-					observer.disconnect();
-				}
+		// A dozing WebView can lay out a visible shelf before it delivers an intersection.
+		checkViewport = check;
+		check();
+		if (visible) return;
+		const options = { signal: listeners.signal };
+		document.addEventListener(
+			'visibilitychange',
+			() => {
+				if (!document.hidden) check();
 			},
-			{ root: host.closest('main'), rootMargin: '160px 0px' }
+			options
 		);
-		observer.observe(host);
-		return () => observer.disconnect();
+		window.addEventListener('pageshow', check, options);
+		window.addEventListener('focus', check, options);
+		if (typeof IntersectionObserver !== 'undefined') {
+			observer = new IntersectionObserver(
+				(entries) => {
+					if (entries.some((e) => e.isIntersecting)) show();
+				},
+				{ root, rootMargin: '160px 0px' }
+			);
+			observer.observe(host);
+		} else {
+			(root ?? window).addEventListener('scroll', check, { ...options, passive: true });
+		}
+		return stop;
 	});
 </script>
 
