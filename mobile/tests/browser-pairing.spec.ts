@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { ManualStatus } from '../src/lib/offline/nativeMedia';
 import {
 	readPairing,
 	recipient,
@@ -20,6 +21,10 @@ test.beforeEach(async ({ page }) => {
 				'historySettings',
 				'setOfflineHistory',
 				'discardOfflineHistory',
+				'manualStatus',
+				'enqueueManual',
+				'cancelManual',
+				'retryManual',
 				'addListener',
 				'removeListener',
 				'cancelAutomatic'
@@ -75,6 +80,63 @@ test.beforeEach(async ({ page }) => {
 						return { data: sessionStorage.getItem(opts.prefixedKey), success: true };
 					}
 					if (plugin === 'DNOffline') {
+						if (['manualStatus', 'enqueueManual', 'retryManual', 'cancelManual'].includes(method)) {
+							if (
+								opts.serverUrl !== 'https://library.example/dn' ||
+								opts.userId !== 'fixture-id' ||
+								'token' in opts
+							)
+								throw Error('Wrong download account');
+							const empty: ManualStatus = {
+								state: 'idle',
+								total: 0,
+								saved: 0,
+								pending: 0,
+								failed: 0,
+								lastError: ''
+							};
+							const before: ManualStatus =
+								JSON.parse(sessionStorage.getItem('download-queue') ?? 'null') ?? empty;
+							let status = before;
+							if (method === 'enqueueManual') {
+								const tracks = opts.tracks as unknown as { id: string; streamUrl: string }[];
+								if (
+									tracks.length !== 1 ||
+									tracks[0].id !== 'saved' ||
+									tracks[0].streamUrl !== '/api/v3/stream/local/saved'
+								)
+									throw Error('Invalid retained song');
+								status = { ...empty, state: 'waitingOffline', pending: 1, total: 1 };
+							}
+							if (method === 'retryManual')
+								status = {
+									...empty,
+									state: 'queued',
+									total: before.total,
+									pending: before.failed + before.pending,
+									saved: before.saved
+								};
+							if (method === 'cancelManual') {
+								status = empty;
+								sessionStorage.setItem(
+									'cancel-downloads',
+									String(1 + Number(sessionStorage.getItem('cancel-downloads')))
+								);
+							}
+							if (method !== 'manualStatus') {
+								sessionStorage.setItem('download-queue', JSON.stringify(status));
+								listeners.get('manualChanged')?.({ url: '' });
+							}
+							return method === 'enqueueManual'
+								? {
+										queued: before.pending ? 0 : 1,
+										alreadyQueued: before.pending ? 1 : 0,
+										saved: 0,
+										failed: 0,
+										status
+									}
+								: status;
+						}
 						const options = {
 							offlineOnly: sessionStorage.getItem('offline-only') === '1',
 							autoDownload: 'off',
@@ -167,7 +229,8 @@ test.beforeEach(async ({ page }) => {
 							}
 							if (!sessionStorage.getItem('reconnected')) throw new Error('Server unreachable.');
 							data = { id: 'fixture-id', display_name: 'Listener' };
-						} else if (opts.url.endsWith('/me/section-prefs'))
+						} else if (opts.url.endsWith('/auth/logout')) data = {};
+						else if (opts.url.endsWith('/me/section-prefs'))
 							data = { pages: { home: [], discover: [] } };
 						else if (
 							opts.method === 'GET' &&
@@ -182,6 +245,9 @@ test.beforeEach(async ({ page }) => {
 				}
 			}
 		});
+		window.addEventListener('fixture-download-update', () =>
+			listeners.get('manualChanged')?.({ url: '' })
+		);
 	});
 });
 
@@ -292,6 +358,102 @@ test('Android offline history settings preserve pending listens until discard is
 	await expect
 		.poll(() => page.evaluate(() => sessionStorage.getItem('history-enabled')))
 		.toBe('true');
+});
+
+test('queued Android downloads survive navigation and expose waiting, retry and cancel in Offline music', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 760 });
+	await page.addInitScript(() => {
+		sessionStorage.setItem('reconnected', '1');
+		sessionStorage.setItem('restored-song', 'Night service');
+		sessionStorage.setItem('offline-only', '1');
+	});
+	await deliverApproval(page);
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	const queue = page.getByRole('region', { name: 'Download queue' });
+	await expect(page.getByRole('heading', { name: 'Offline music', exact: true })).toBeVisible();
+	await expect(queue).toHaveCount(0);
+	await button('Open player for Night service').click();
+	await page.getByText('Track tools', { exact: true }).click();
+	await button('Queue for download').click();
+	await expect(
+		page.getByRole('status').filter({ hasText: '1 song queued for download.' })
+	).toBeVisible();
+	await button('Queue for download').click();
+	await expect(
+		page.getByRole('status').filter({ hasText: '1 song already in the download queue.' })
+	).toBeVisible();
+	await button('View download queue').click();
+	await expect(queue.getByRole('status')).toContainText('Waiting for offline-only playback');
+	await page.reload();
+	await expect(queue.getByRole('status')).toContainText('0 of 1 saved');
+	await page.evaluate(() => {
+		sessionStorage.setItem(
+			'download-queue',
+			JSON.stringify({
+				state: 'downloading',
+				total: 1,
+				pending: 1,
+				failed: 0,
+				saved: 0,
+				lastError: '',
+				current: { id: 'saved', title: 'Night service', artist: 'Strings' }
+			})
+		);
+		window.dispatchEvent(new Event('fixture-download-update'));
+	});
+	await expect(queue.getByText('Night service · Strings', { exact: true })).toBeVisible();
+	await page.evaluate(() => {
+		sessionStorage.setItem(
+			'download-queue',
+			JSON.stringify({
+				state: 'failed',
+				total: 1,
+				pending: 0,
+				failed: 1,
+				saved: 0,
+				lastError: 'File unavailable on DN.',
+				failures: [
+					{
+						id: 'saved',
+						title: 'Night service',
+						artist: 'Strings',
+						reason: 'File unavailable on DN.'
+					}
+				]
+			})
+		);
+		window.dispatchEvent(new Event('fixture-download-update'));
+	});
+	await expect(
+		queue.getByRole('list', { name: 'Failed songs' }).getByText('File unavailable on DN.')
+	).toBeVisible();
+	await button('Retry failed downloads').click();
+	await expect(queue.getByRole('status')).toContainText('Queued for download');
+	await button('Cancel remaining downloads').click();
+	await expect(queue).toHaveCount(0);
+	await page.evaluate(() => {
+		sessionStorage.setItem(
+			'download-queue',
+			JSON.stringify({
+				state: 'complete',
+				total: 1,
+				pending: 0,
+				failed: 0,
+				saved: 1,
+				lastError: ''
+			})
+		);
+		window.dispatchEvent(new Event('fixture-download-update'));
+	});
+	await expect(queue.getByRole('status')).toContainText('Downloads complete · 1 of 1 saved');
+	await button('Dismiss download summary').click();
+	await expect(queue).toHaveCount(0);
+	await button('Settings').click();
+	await button('Sign out').click();
+	await expect(page.getByLabel('Server address')).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('cancel-downloads'))).toBe('3');
 });
 
 test('an Android listener chooses and disconnects a network output after browser sign-in', async ({

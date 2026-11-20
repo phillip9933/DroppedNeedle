@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { Capacitor } from '@capacitor/core';
 	import type { Section } from '../boards/layout';
 	import PlayerActionFace from './PlayerActionFace.svelte';
 	import { Star, Heart, ListPlus, Wrench, Download, CircleCheck } from '@lucide/svelte';
@@ -58,6 +59,8 @@
 		confirmRemove = $state(false),
 		changingDownload = $state(false),
 		downloadError = $state('');
+	let downloadReceipt = $state<{ id: string; text: string }>();
+	const backgroundDownloads = Capacitor.getPlatform() === 'android';
 	const sourceActions: Record<OfflineOrigin, string> = {
 		downloaded: 'Downloaded',
 		automatic: 'Keep automatic download',
@@ -67,6 +70,7 @@
 		if (sample) return 'Save offline';
 		if (changingDownload) return 'Updating download…';
 		if (origin) return sourceActions[origin];
+		if (backgroundDownloads && (!online || offlineOnly)) return 'Queue for download';
 		if (!online) return 'Connect to download';
 		return offlineOnly ? 'Offline-only playback' : 'Save offline';
 	});
@@ -227,6 +231,8 @@
 		if (sample || changingDownload) return;
 		changingDownload = true;
 		downloadError = '';
+		downloadReceipt = undefined;
+		const id = track.id;
 		try {
 			if (remove) {
 				await removeOffline(session, [track.id]);
@@ -234,6 +240,7 @@
 			} else {
 				const result = await saveOfflineTracks(session, [track]);
 				if (result.failed) throw Error(result.message);
+				if (result.queued && id === track.id) downloadReceipt = { id, text: result.message };
 			}
 		} catch (error) {
 			downloadError = errorMessage(error);
@@ -303,7 +310,9 @@
 					aria-label={origin === 'downloaded' ? 'Manage track download' : downloadLabel}
 					title={downloadLabel}
 					disabled={!sample &&
-						(!deviceReady || changingDownload || (!origin && (!online || offlineOnly)))}
+						(!deviceReady ||
+							changingDownload ||
+							(!backgroundDownloads && !origin && (!online || offlineOnly)))}
 					onclick={() => {
 						if (origin === 'downloaded') confirmRemove = true;
 						else void download();
@@ -318,6 +327,14 @@
 				>{/if}
 		</div>{/if}
 	{#if downloadError && !confirmRemove}<p role="alert">{downloadError}</p>{/if}
+	{#if downloadReceipt?.id === track.id && !origin}
+		<p role="status">
+			{downloadReceipt.text}
+			<button class="text-button" onclick={() => window.dispatchEvent(new Event('dn-open-offline'))}
+				>View download queue</button
+			>
+		</p>
+	{/if}
 	{#if fields.includes('player-rating') && (rating !== null || sample)}<div
 			class="stars"
 			role="group"

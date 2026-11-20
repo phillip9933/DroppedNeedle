@@ -20,6 +20,7 @@
 		stopAutoDownloads
 	} from './lib/offline/media';
 	import OfflineLibrary from './lib/offline/OfflineLibrary.svelte';
+	import { nativeMedia } from './lib/offline/nativeMedia';
 	import { connectTrackFeedback } from './lib/offline/feedback';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
@@ -290,6 +291,9 @@
 		tab = 'home';
 		issue = '';
 		const outcomes = await Promise.allSettled([
+			...(Capacitor.getPlatform() === 'android' && previous.userId
+				? [nativeMedia.cancelManual({ serverUrl: previous.serverUrl, userId: previous.userId })]
+				: []),
 			player.clear(),
 			expired ? forgetSession() : signOut(previous)
 		]);
