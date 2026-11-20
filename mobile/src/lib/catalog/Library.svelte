@@ -30,6 +30,51 @@
 	let sort = $state(''),
 		query = $state(''),
 		favorites = $state(false);
+	let rating = $state(0),
+		ratingMode = $state<Schema['RatingMode']>('at_least'),
+		formats = $state<string[]>([]),
+		formatMode = $state<Schema['FormatMode']>('with');
+	let formatRequest = $state(0),
+		availableFormats = $state<string[] | null>(null),
+		formatError = $state('');
+	const advanced = $derived({
+		rating: rating || undefined,
+		rating_mode: rating ? ratingMode : undefined,
+		formats: formats.length ? formats.join(',') : undefined,
+		format_mode: formats.length ? formatMode : undefined
+	});
+	$effect(() => {
+		if (!formatRequest) return;
+		const account = session,
+			albums = kind === 'albums';
+		let valid = true;
+		formatError = '';
+		availableFormats = null;
+		const options = albums
+			? getJson<Schema['AlbumFormatCounts']>(account, path('/api/v3/library/albums/formats')).then(
+					(r) => r.items.map((i) => i.format)
+				)
+			: getJson<Schema['StatsView']>(account, path('/api/v3/library/stats')).then((r) =>
+					Object.keys(r.format_breakdown)
+				);
+		void options.then(
+			(items) => {
+				if (valid) availableFormats = items.sort();
+			},
+			(e) => {
+				if (valid) formatError = errorMessage(e);
+			}
+		);
+		return () => {
+			valid = false;
+		};
+	});
+	function clearAdvanced() {
+		formats = [];
+		formatMode = 'with';
+		rating = 0;
+		ratingMode = 'at_least';
+	}
 	let albums = $state<Album[]>([]),
 		artists = $state<Schema['ArtistView'][]>([]),
 		songs = $state<ReturnType<typeof localSong>[]>([]);
@@ -90,7 +135,8 @@
 			sort: by,
 			order: ['album_count', 'date_added', 'year'].includes(by) ? 'desc' : 'asc',
 			q: query.trim() || undefined,
-			favorites: favorites ? 'true' : undefined
+			favorites: favorites ? 'true' : undefined,
+			...advanced
 		};
 		try {
 			if (kind === 'albums') {
@@ -143,6 +189,7 @@
 		void kind;
 		void preview;
 		void recent;
+		void advanced;
 		const version = ++generation;
 		albums = [];
 		artists = [];
@@ -180,6 +227,64 @@
 			><Heart size={18} fill={favorites ? 'currentColor' : 'none'} /></button
 		>
 	</div>
+	{#if kind !== 'artists'}
+		<details
+			class="advanced"
+			ontoggle={(event) => {
+				if (event.currentTarget.open && !formatRequest) formatRequest = 1;
+			}}
+		>
+			<summary
+				>Rating and format{#if rating || formats.length}<span>
+						· Filters applied</span
+					>{/if}</summary
+			>
+			<div class="advanced-body">
+				<div class="rating">
+					<label
+						>Your rating<select bind:value={rating}>
+							<option value={0}>Any rating</option>{#each [1, 2, 3, 4, 5] as stars (stars)}<option
+									value={stars}>{stars} {stars === 1 ? 'star' : 'stars'}</option
+								>{/each}
+						</select></label
+					>
+					{#if rating}<label
+							>Rating range<select bind:value={ratingMode}
+								><option value="at_least">At least</option><option value="at_most">At most</option
+								></select
+							></label
+						>{/if}
+				</div>
+				<fieldset>
+					<legend>{kind === 'albums' ? 'Primary audio format' : 'Audio format'}</legend>
+					{#if formatError}<p role="alert">{formatError}</p>
+						<button class="text-button" onclick={() => formatRequest++}>Retry formats</button>
+					{:else if !availableFormats}<p role="status">Loading formats…</p>
+					{:else if !availableFormats.length}<p>No audio formats found.</p>
+					{:else}
+						<div class="formats">
+							{#each availableFormats as format (format)}<label
+									><input
+										type="checkbox"
+										value={format}
+										bind:group={formats}
+									/>{format.toUpperCase()}</label
+								>{/each}
+						</div>
+						{#if formats.length}<label
+								>Selected formats<select bind:value={formatMode}
+									><option value="with">Include</option><option value="without">Exclude</option
+									></select
+								></label
+							>{/if}
+					{/if}
+				</fieldset>
+				{#if rating || formats.length}<button class="text-button" onclick={clearAdvanced}
+						>Clear rating and format</button
+					>{/if}
+			</div>
+		</details>
+	{/if}
 {/if}
 {#if albums.length}<Albums {session} {albums} {onopen} strip={preview} />{/if}
 {#if artists.length}<div class="artists">
@@ -198,7 +303,11 @@
 	>
 {:else if !albums.length && !songs.length && !artists.length}<p>
 		No {kind}
-		{favorites ? 'in your favorites' : query ? 'match your filter' : 'in this collection'}.
+		{rating || formats.length || query
+			? 'match your filters'
+			: favorites
+				? 'in your favorites'
+				: 'in this collection'}.
 	</p>{/if}
 
 <style>
@@ -216,6 +325,73 @@
 	.filters select {
 		flex: 1 1 8rem;
 		min-width: 0;
+	}
+	.advanced {
+		margin: 0 0 var(--gap);
+	}
+	.advanced summary {
+		width: fit-content;
+		min-height: 44px;
+		align-content: center;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.advanced summary span {
+		font-weight: 400;
+	}
+	.advanced-body {
+		display: grid;
+		gap: 0.7rem;
+		padding: var(--gap);
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: var(--radius);
+	}
+	.rating,
+	.formats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+	}
+	.rating label,
+	.advanced fieldset > label {
+		display: grid;
+		gap: 0.2rem;
+		font-size: 0.9rem;
+	}
+	.rating label {
+		flex: 1;
+		min-width: 7rem;
+	}
+	.advanced select {
+		width: 100%;
+		min-height: 44px;
+	}
+	.advanced fieldset {
+		min-width: 0;
+		padding: 0;
+		border: 0;
+		margin: 0;
+	}
+	.advanced legend {
+		padding: 0;
+		font-size: 0.9rem;
+	}
+	.formats label {
+		min-height: 44px;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0 0.5rem;
+		border: 1px solid var(--line);
+		border-radius: var(--radius);
+	}
+	.formats input {
+		accent-color: var(--text);
+	}
+	.advanced fieldset > label {
+		width: fit-content;
+		margin-top: 0.4rem;
 	}
 	.artists button {
 		display: flex;
