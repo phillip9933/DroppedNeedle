@@ -7,6 +7,7 @@
 		queueOpen,
 		track,
 		playing,
+		readOnly = false,
 		onclose,
 		onqueue,
 		onsettings,
@@ -17,6 +18,7 @@
 		queueOpen: boolean;
 		track: boolean;
 		playing: boolean;
+		readOnly?: boolean;
 		onclose: () => void;
 		onqueue?: () => void;
 		onsettings?: () => void;
@@ -49,7 +51,7 @@
 </script>
 
 {#if missingClose || queueExit || missingPlay}
-	<div class="fallback">
+	<div class="fallback" inert={readOnly}>
 		{#if missingClose}<button
 				class="icon-button"
 				bind:this={trigger}

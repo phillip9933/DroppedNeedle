@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
-	import { ArrowLeft, ArrowRight, Plus, GripVertical, Scaling } from '@lucide/svelte';
+	import { ArrowLeft, ArrowRight, Eye, Plus, GripVertical, Scaling } from '@lucide/svelte';
 	import { defaults, sectionTitle, type Section } from '../boards/layout';
 	import { playerWidgets, isNavigation } from './layout';
 	import PlayerView from '../PlayerView.svelte';
@@ -278,6 +278,25 @@
 	}
 	let prior = $state<{ scroll: number; row?: string }>();
 	const mainScroll = () => list.closest('main');
+	let previewOpen = $state(false),
+		previewScroll = 0;
+	let previewButton = $state<HTMLButtonElement>(),
+		returnButton = $state<HTMLButtonElement>();
+	async function showPreview() {
+		cancelGesture?.();
+		const main = mainScroll();
+		previewScroll = main?.scrollTop ?? 0;
+		previewOpen = true;
+		await tick();
+		main?.scrollTo(0, 0);
+		returnButton?.focus({ preventScroll: true });
+	}
+	async function closePreview() {
+		previewOpen = false;
+		await tick();
+		mainScroll()?.scrollTo(0, previewScroll);
+		previewButton?.focus({ preventScroll: true });
+	}
 	async function focusField(id: string, scroll?: number) {
 		await tick();
 		const el = list?.querySelector<HTMLButtonElement>(
@@ -343,7 +362,11 @@
 	}
 	onMount(() => {
 		function back(event: Event) {
-			if ((selected || editingRow >= 0) && !document.querySelector('dialog[open]')) {
+			if (document.querySelector('dialog[open]')) return;
+			if (previewOpen) {
+				event.preventDefault();
+				void closePreview();
+			} else if (selected || editingRow >= 0) {
 				event.preventDefault();
 				finishInspector();
 			}
@@ -549,7 +572,7 @@
 	}
 </script>
 
-<div class="composer" data-part="layout-editor">
+<div class="composer" data-part="layout-editor" hidden={previewOpen}>
 	<div class="bar">
 		<button class="text-button" onclick={onback}>Cancel</button>
 		{#if selected || editingRow >= 0}<button
@@ -558,7 +581,15 @@
 				><ArrowLeft size={16} /> {prior?.row ? 'Back to row' : 'Back to layout'}</button
 			>{/if}
 		<button class="add-row secondary" onclick={addRow}><Plus size={17} />Add row</button>
-		<button class="primary" onclick={save}>Save layout</button>
+		<button
+			class="secondary preview-action"
+			aria-label="Preview layout"
+			onclick={showPreview}
+			bind:this={previewButton}><Eye size={17} aria-hidden="true" /> Preview</button
+		>
+		<button class="primary" aria-label="Save layout" onclick={save}
+			>Save<span class="save-suffix"> layout</span></button
+		>
 	</div>
 	<h1>Edit Now Playing</h1>
 	{#if error}<p role="alert">{error}</p>{/if}
@@ -870,8 +901,36 @@
 		onload={(items) => loadDraft(items, 'Imported draft is ready to edit.')}
 	/>
 </div>
+{#if previewOpen}
+	<div class="composer" data-part="layout-preview">
+		<div class="bar">
+			<button class="text-button" onclick={closePreview} bind:this={returnButton}
+				><ArrowLeft size={18} aria-hidden="true" /> Back to editing</button
+			>
+		</div>
+		<div class="preview-body">
+			<PlayerView
+				session={sampleSession}
+				expanded={true}
+				onexpand={() => {}}
+				oncollapse={() => {}}
+				onerror={() => {}}
+				editor={{ sections: draft }}
+			/>
+		</div>
+	</div>
+{/if}
 
 <style>
+	.preview-body {
+		margin-inline: calc(-1 * var(--gap));
+	}
+	.preview-body :global(.compact-header) {
+		top: calc(44px + 0.5rem);
+	}
+	.preview-action {
+		gap: 0.25rem;
+	}
 	.row-marker {
 		touch-action: none;
 		cursor: grab;
@@ -970,6 +1029,18 @@
 			margin-inline: calc(-1 * var(--gap));
 			padding-inline: var(--gap);
 		}
+		[data-part='layout-editor'] .bar {
+			display: grid;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+		}
+		.bar button {
+			padding-inline: 0.15rem;
+		}
+		.bar .add-row :global(svg),
+		.bar .preview-action :global(svg),
+		.save-suffix {
+			display: none;
+		}
 		.canvas {
 			margin-inline: calc(2px - var(--gap));
 			padding-inline: 0.25rem;
@@ -1060,12 +1131,12 @@
 	}
 	.bar:has(.inspector-done) {
 		display: grid;
-		grid-template-columns: auto 1fr auto;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		row-gap: 0;
 	}
 	.bar .inspector-done {
 		grid-row: 2;
-		min-height: 36px;
+		min-height: 44px;
 	}
 	.bar > .add-row {
 		justify-self: center;

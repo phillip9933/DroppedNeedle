@@ -64,8 +64,8 @@
 		oncredit?: (kind: Credit, track: PlayerTrack, control: HTMLElement) => void;
 		editor?: {
 			sections: Section[];
-			selected: string;
-			overlay: Snippet<[Section, number, number]>;
+			selected?: string;
+			overlay?: Snippet<[Section, number, number]>;
 			inspector?: Snippet<[number]>;
 			rowControls?: Snippet<[number]>;
 		};
@@ -73,6 +73,17 @@
 	let editing = $state(false),
 		saveQueue = $state<PlayerTrack[] | null>(null);
 	let loaded = $state(defaults('player'));
+	// A draft without editing overlays uses the same sample music in a read-only player.
+	const composing = $derived(!!editor?.overlay);
+	const previewOnly = $derived(!!editor && !composing);
+	const sampleDetails = new Set([
+		'player-artwork',
+		'player-track',
+		'player-elapsed',
+		'player-duration',
+		'player-remaining',
+		'player-quality'
+	]);
 	const sections = $derived(editor?.sections ?? loaded);
 	const store = $derived(editor ? samplePlayer : player);
 	$effect(() => {
@@ -232,9 +243,9 @@
 {#if expanded}
 	<section
 		class="now"
-		class:sample={!!editor}
-		data-part={editor ? 'sample-player' : 'now-playing'}
-		aria-label="Now playing"
+		class:sample={composing}
+		data-part={previewOnly ? 'draft-player' : composing ? 'sample-player' : 'now-playing'}
+		aria-label={previewOnly ? 'Now Playing layout preview' : 'Now playing'}
 	>
 		{#each rows as row, r (r === 0 ? 'header' : row[0].id)}
 			{#if r === 0 || (track && !queueOpen)}
@@ -266,8 +277,8 @@
 							class="player-row"
 							class:composed={row.length > 1}
 							data-part={r === 0 ? 'player-header-row' : 'player-row'}
-							data-layout-row={editor ? r : undefined}
-							data-player-row={editor && r > 0 ? r - 1 : undefined}
+							data-layout-row={composing ? r : undefined}
+							data-player-row={composing && r > 0 ? r - 1 : undefined}
 							style:min-height={Math.max(0, ...row.map((s) => s.minHeight ?? 0)) + 'px'}
 							style:--row-gap={playerRowGap(row, r === 0)}
 							style:grid-template-columns={row
@@ -278,9 +289,15 @@
 								.join(' ')}
 						>
 							{#each row as section, c (section.id)}
+								{@const staticControl =
+									previewOnly && !isPlayerMetadata(section.id) && !sampleDetails.has(section.id)}
 								<div
 									class="player-section"
-									class:editing-field={!!editor}
+									class:editing-field={composing}
+									role={staticControl && !isPlayerSlot(section.id) ? 'img' : undefined}
+									aria-label={staticControl && !isPlayerSlot(section.id)
+										? sectionTitle(section)
+										: undefined}
 									class:active-field={editor?.selected === section.id}
 									data-section-id={section.id}
 									data-align={section.align}
@@ -303,8 +320,8 @@
 										style:width={section.contentWidth
 											? 'min(100%, max(44px, ' + section.contentWidth + '%))'
 											: undefined}
-										inert={!!editor}
-										aria-hidden={editor ? true : undefined}
+										inert={composing || staticControl}
+										aria-hidden={composing || staticControl ? true : undefined}
 									>
 										{#if section.title && !isPlayerSlot(section.id) && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
 											>
@@ -506,12 +523,13 @@
 											</div>
 										{/if}
 									</div>
-									{#if editor}{@render editor.overlay(section, r, c)}{/if}
+									{@render editor?.overlay?.(section, r, c)}
 								</div>
 							{/each}
 						</div>
 					</div>
-					{#if r === 0 && !editor}<PlayerHeader
+					{#if r === 0 && !composing}<PlayerHeader
+							readOnly={previewOnly}
 							{row}
 							{sections}
 							{queueOpen}
