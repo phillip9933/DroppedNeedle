@@ -1,17 +1,20 @@
 <script lang="ts">
+	import Account from './Account.svelte';
+	import type { Session } from '../connection';
 	import { Check, ChevronLeft } from '@lucide/svelte';
 	import { presets, restoreTheme, saveTheme, readTheme, type Theme } from './theme';
 	let {
-		server,
+		session,
 		onback,
 		onsignout
-	}: { server: string; onback: () => void; onsignout: () => Promise<void> } = $props();
+	}: { session: Session | null; onback: () => void; onsignout: () => Promise<void> } = $props();
 	const initial = restoreTheme();
 	let selected = $state(initial);
 	let draft = $state(JSON.stringify(initial, null, 2));
 	let feedback = $state('');
 	let error = $state('');
 	let busy = $state(false);
+	let accountOpen = $state(false);
 	function choose(theme: Theme) {
 		try {
 			saveTheme(theme);
@@ -72,9 +75,12 @@
 	</details>
 	{#if feedback}<p role="status">{feedback}</p>{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
-	{#if server}
+	{#if session}
+		<details bind:open={accountOpen}>
+			<summary>Account on DroppedNeedle</summary>{#if accountOpen}<Account {session} />{/if}
+		</details>
 		<h2>Connected server</h2>
-		<p class="address">{server}</p>
+		<p class="address">{session.serverUrl}</p>
 		<button class="secondary" onclick={signOut} disabled={busy}>Sign out</button>
 	{/if}
 </section>
