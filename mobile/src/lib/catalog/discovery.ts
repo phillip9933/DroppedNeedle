@@ -1,6 +1,6 @@
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
-import { getJson, putJson, type Session } from '../connection';
-import { cover, path, type Album } from './catalog';
+import { getJson, putJson, postJson, type Session } from '../connection';
+import { cover, path, playerTrack, type Album } from './catalog';
 
 type Schema = components['schemas'];
 export type DiscoverArtistRef = { id: string; name: string; localOnly?: boolean };
@@ -231,5 +231,141 @@ export function follow(session: Session, artist: string, followed: boolean) {
 		session,
 		path('/api/v3/artists/{artist_mbid}/follow', { artist_mbid: artist }),
 		{ followed } satisfies Schema['FollowBody']
+	);
+}
+
+export async function genreNames(session: Session) {
+	const result = await getJson<Schema['HomeResponse']>(session, path('/api/v3/home'));
+	const content = result.sections.find((s) => s.key === 'genre_list')?.content;
+	return content?.shape === 'shelf'
+		? [...new Set(content.shelf.items.flatMap((i) => (i.kind === 'genre' ? [i.name] : [])))]
+		: [];
+}
+
+export async function browseGenre(session: Session, name: string, offset: number) {
+	const limit = 24;
+	const result = await getJson<Schema['GenreDetailResponse']>(
+		session,
+		path(
+			'/api/v3/home/genre/{genre_name}',
+			{ genre_name: name },
+			{ limit, artist_offset: offset, album_offset: offset }
+		)
+	);
+	const lists: Shelf[] = [];
+	function albumsAndArtists(
+		rows: Schema['GenrePopularSection'] | Schema['GenreLibrarySection'],
+		title: string
+	) {
+		const list = shelf(title);
+		rows.albums.forEach((a) => addAlbum(list, a));
+		rows.artists.forEach((a) => addArtist(list, a));
+		if (rows.albums.length || rows.artists.length) lists.push(list);
+	}
+	if (result.library && !offset) albumsAndArtists(result.library, 'In your library');
+	if (result.popular) albumsAndArtists(result.popular, 'Popular');
+	return {
+		lists,
+		limit,
+		more: result.popular?.has_more_artists || result.popular?.has_more_albums
+	};
+}
+
+function chartNotice(page: Schema['TopAlbumsResponse'] | Schema['TopSongsResponse']) {
+	if (page.needs_account.length)
+		return 'Link a listening account in DroppedNeedle to see this chart.';
+	if (!page.configured) return 'Your server has no listening service configured for this chart.';
+	if (page.unavailable_sources.length) return 'The listening service is currently unavailable.';
+	return '';
+}
+export async function artistChart(
+	session: Session,
+	artist: DiscoverArtistRef,
+	view: 'albums' | 'songs'
+) {
+	const params = { artist_mbid: artist.id };
+	const query = { count: 20 };
+	if (view === 'albums') {
+		const page = await getJson<Schema['TopAlbumsResponse']>(
+			session,
+			path('/api/v3/artists/{artist_mbid}/top-albums', params, query)
+		);
+		const list = shelf('');
+		page.albums.forEach((a) => addAlbum(list, a));
+		return { list, notice: chartNotice(page) };
+	}
+	const page = await getJson<Schema['TopSongsResponse']>(
+		session,
+		path('/api/v3/artists/{artist_mbid}/top-songs', params, query)
+	);
+	const positions = page.songs.flatMap((s) =>
+		s.release_group_mbid && s.track_number != null
+			? [
+					{
+						release_group_mbid: s.release_group_mbid,
+						disc_number: s.disc_number ?? 1,
+						track_number: s.track_number
+					}
+				]
+			: []
+	);
+	const resolved = positions.length
+		? await postJson<Schema['ResolveTracksResponse']>(
+				session,
+				path('/api/v3/library/resolve-tracks'),
+				{ items: positions } satisfies Schema['ResolveTracksRequest']
+			)
+		: { items: [] };
+	const queue: ReturnType<typeof playerTrack>[] = [];
+	const songs = page.songs.map((song) => {
+		const file = resolved.items.find(
+			(i) =>
+				i.source === 'local' &&
+				i.release_group_mbid === song.release_group_mbid &&
+				i.track_number === song.track_number &&
+				(i.disc_number ?? 1) === (song.disc_number ?? 1)
+		);
+		const index = file?.track_source_id ? queue.length : null;
+		if (file?.track_source_id)
+			queue.push(
+				playerTrack(
+					file.track_source_id,
+					song.title,
+					song.artist_name,
+					song.release_name ?? '',
+					cover(song.release_group_mbid),
+					file.duration
+				)
+			);
+		return { song, index };
+	});
+	return { songs, queue, notice: chartNotice(page) };
+}
+
+export type RadioSeed = Extract<Schema['RadioSeedKind'], 'artist' | 'genre' | 'album'>;
+export async function libraryRadio(session: Session, seedType: RadioSeed, seedId: string) {
+	const plan = await postJson<Schema['RadioPlanResponse']>(
+		session,
+		path('/api/v3/discover/radio/plan'),
+		{
+			seed_type: seedType,
+			seed_id: seedId,
+			mode: 'library',
+			count: 25
+		} satisfies Schema['RadioPlanRequest']
+	);
+	return plan.tracks.flatMap((track) =>
+		track.in_library && track.local_file_id?.trim()
+			? [
+					playerTrack(
+						track.local_file_id,
+						track.track_name,
+						track.artist_name,
+						track.album_name ?? '',
+						cover(track.album_mbid),
+						track.duration_s
+					)
+				]
+			: []
 	);
 }

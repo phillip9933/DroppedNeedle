@@ -8,7 +8,9 @@
 		followStatus,
 		type DiscoverArtistRef
 	} from './discovery';
-	import { errorMessage, type Album } from './catalog';
+	import { errorMessage, type Album, type OnPlay } from './catalog';
+	import LibraryRadio from './LibraryRadio.svelte';
+	import ArtistChart from './ArtistChart.svelte';
 	import Cover from './Cover.svelte';
 	import Albums from './Albums.svelte';
 
@@ -16,13 +18,16 @@
 		session,
 		artist,
 		onopen,
+		onplay,
 		onback
 	}: {
 		session: Session;
 		artist: DiscoverArtistRef;
 		onopen: (a: Album) => void;
+		onplay: OnPlay;
 		onback: () => void;
 	} = $props();
+	let view = $state<'releases' | 'albums' | 'songs'>('releases');
 	let refresh = $state(0),
 		followRefresh = $state(0),
 		albums = $state<Album[]>([]),
@@ -132,6 +137,12 @@
 		<div class="photo"><Cover {session} path={artistCover(artist)} seed={artist.id} /></div>
 		<div>
 			<h1>{artist.name}</h1>
+			{#if !artist.localOnly}<LibraryRadio
+					{session}
+					seedType="artist"
+					seedId={artist.id}
+					{onplay}
+				/>{/if}
 			{#if status}<button
 					class="secondary"
 					disabled={saving}
@@ -144,8 +155,18 @@
 		{#if !status}<button class="secondary" onclick={() => followRefresh++}
 				>Reload follow status</button
 			>{/if}{/if}
-	<h2>Releases</h2>
-	{#if busy}<p role="status">Loading releases…</p>
+	{#if !artist.localOnly}<select aria-label="Artist view" bind:value={view}
+			><option value="releases">Releases</option><option value="albums">Top albums</option><option
+				value="songs">Top songs</option
+			></select
+		>{/if}
+	{#if view !== 'releases' && !artist.localOnly}<ArtistChart
+			{session}
+			{artist}
+			{view}
+			{onopen}
+			{onplay}
+		/>{:else if busy}<p role="status">Loading releases…</p>
 	{:else}
 		{#if albums.length}<Albums {session} {albums} {onopen} />{:else if !releaseError && !warming}<p>
 				No releases found.
