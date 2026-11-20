@@ -27,6 +27,7 @@ const originOf = (item: Entry): OfflineOrigin =>
 function complete(item: Entry | undefined): item is Entry {
 	return !!item && item.bytes > 0 && item.bytes === item.audio?.size;
 }
+export const audioNotFound = 'DN_AUDIO_NOT_FOUND';
 export interface OfflineBridge {
 	snapshot(a: Account): Promise<OfflineSnapshot>;
 	options(a: Account): Promise<OfflineOptions>;
@@ -370,6 +371,8 @@ export const webOffline: OfflineBridge = {
 				? AbortSignal.any([a.signal, AbortSignal.timeout(180000)])
 				: AbortSignal.timeout(180000)
 		});
+		if (a.source?.startsWith('playlist:') && (response.status === 404 || response.status === 410))
+			throw Object.assign(Error('DN could not find this audio file.'), { code: audioNotFound });
 		if (response.status !== 200 || !isAudio(response.headers.get('content-type')))
 			throw Error('DN could not serve this audio file.');
 		const blob = await response.blob();

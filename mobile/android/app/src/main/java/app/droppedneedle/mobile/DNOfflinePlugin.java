@@ -70,6 +70,8 @@ public final class DNOfflinePlugin extends Plugin {
                     call.resolve();
                 else
                     call.resolve(new JSObject(value.toString()));
+            } catch (MissingOriginal e) {
+                call.reject(e.getMessage(), MissingOriginal.CODE);
             } catch (Exception e) {
                 String message =
                         e instanceof IOException || e instanceof IllegalArgumentException ? e.getMessage() : null;
@@ -184,6 +186,20 @@ public final class DNOfflinePlugin extends Plugin {
     public void clearAutomaticPlaylist(PluginCall call) {
         execute(call, storage, s -> s.clearAutomaticPlaylist(call.getString("source")));
     }
+    static final class MissingOriginal extends IOException {
+        static final String CODE = "DN_AUDIO_NOT_FOUND";
+        MissingOriginal() { super("DN could not find this audio file."); }
+    }
+
+    static ResponseBody originalAudio(Response response, String source) throws IOException {
+        int status = response.code();
+        if (source != null && source.startsWith("playlist:") && (status == 404 || status == 410)) throw new MissingOriginal();
+        ResponseBody body = response.body();
+        if (status != 200 || body == null || !OfflineStore.isAudio(response.header("Content-Type")))
+            throw new IOException("DN could not serve this audio file (HTTP " + status + ").");
+        return body;
+    }
+
     @PluginMethod
     public void save(PluginCall call) {
         execute(call, transfers, s -> {
@@ -207,10 +223,7 @@ public final class DNOfflinePlugin extends Plugin {
                                   .header("Accept-Encoding", "identity")
                                   .build();
             try (Response response = http.newCall(req).execute()) {
-                ResponseBody body = response.body();
-                if (response.code() != 200 || body == null
-                        || !OfflineStore.isAudio(response.header("Content-Type")))
-                    throw new IOException("DN could not serve this audio file (HTTP " + response.code() + ").");
+                ResponseBody body = originalAudio(response, source);
                 try (OfflineStore.Capture capture = s.begin(track, source == null ? OfflineStore.DOWNLOAD : OfflineStore.AUTOMATIC, source, body.contentLength());
                         InputStream input = body.byteStream()) {
                     if (revision != s.itemRevision(id) || (source != null && generation != s.autoGeneration()))
