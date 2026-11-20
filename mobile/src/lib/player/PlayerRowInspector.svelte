@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Pencil, Plus, X } from '@lucide/svelte';
+	import { Pencil, Plus } from '@lucide/svelte';
 	import { sectionTitle, type Section } from '../boards/layout';
-	import { isPlayerSlot, maxPlayerColumns } from './composition';
+	import { isPlayerSlot, maxPlayerColumns, rowName } from './composition';
 	let {
 		rows,
 		measured,
@@ -13,6 +13,8 @@
 		move,
 		height,
 		setHeight,
+		gap,
+		setGap,
 		remove
 	}: {
 		rows: Section[][];
@@ -24,6 +26,8 @@
 		select: (id: string) => void;
 		move: (to: number) => void;
 		height: number;
+		gap?: number;
+		setGap: (n: number | undefined) => void;
 		setHeight: (n: number) => void;
 		remove: () => void;
 	} = $props();
@@ -31,10 +35,16 @@
 	const total = $derived(row.reduce((n, c) => n + (c.width ?? 1), 0));
 </script>
 
-<div class="row-tools" role="group" aria-label={'Edit row ' + (r + 1)}>
+<div
+	class="row-tools"
+	data-inspector
+	tabindex="-1"
+	role="group"
+	aria-label={'Edit ' + rowName(r).toLowerCase()}
+>
 	<div class="head">
-		<strong>Row {r + 1}</strong><button aria-label="Finish editing row" onclick={close}
-			><X size={18} /></button
+		<strong>{rowName(r)}</strong><button aria-label="Finish editing row" onclick={close}
+			>Done</button
 		>
 	</div>
 	<div class="basics">
@@ -50,9 +60,24 @@
 		>
 		<label
 			>Row position<select value={r} onchange={(e) => move(Number(e.currentTarget.value))}>
-				{#each rows.keys() as i (i)}<option value={i}>{i + 1}</option>{/each}</select
+				{#each rows.keys() as i (i)}<option value={i}>{rowName(i)}</option>{/each}</select
 			></label
 		>
+		{#if row.length > 1}<label
+				>Column spacing (px)<input
+					type="number"
+					min="0"
+					max="32"
+					placeholder="Default"
+					value={gap ?? ''}
+					onchange={(e) =>
+						setGap(
+							Number.isFinite(e.currentTarget.valueAsNumber)
+								? Math.min(32, Math.max(0, Math.round(e.currentTarget.valueAsNumber)))
+								: undefined
+						)}
+				/></label
+			>{/if}
 		<label
 			>Minimum row height (px)<input
 				aria-label="Minimum row height"
@@ -84,6 +109,7 @@
 	{#each row as s, c (s.id)}
 		<div class="cell">
 			<button
+				data-edit-column={s.id}
 				aria-label={'Open column ' + (c + 1) + ', ' + sectionTitle(s)}
 				onclick={() => select(s.id)}
 				><small>{c + 1}</small><span>{sectionTitle(s)}</span>{#if isPlayerSlot(s.id)}<Plus
@@ -104,7 +130,9 @@
 				</div>{/if}
 		</div>
 	{/each}
-	<button class="text-button remove" onclick={remove}>Remove row</button>
+	<button class="text-button remove" onclick={remove}
+		>{r === 0 ? 'Clear header' : 'Remove row'}</button
+	>
 </div>
 
 <style>

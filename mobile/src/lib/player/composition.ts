@@ -1,4 +1,4 @@
-import { trackToolFields } from './layout';
+import { navigationFields, trackToolFields } from './layout';
 export { isPlayerText } from './layout';
 import type { Section } from '../boards/layout';
 
@@ -31,6 +31,86 @@ export function flattenPlayerRows(rows: Section[][]): Section[] {
 	);
 }
 
+function canvasCell(section: Section): Section {
+	const cell = { ...section };
+	delete cell.sameRow;
+	delete cell.placement;
+	return cell;
+}
+/** Old layouts omitted default navigation or recorded a side for each control separately. */
+function legacyHeader(sections: Section[]): Section[] {
+	const sides: Record<'header-start' | 'header-end', Section[]> = {
+		'header-start': [],
+		'header-end': []
+	};
+	for (const { id } of navigationFields) {
+		const saved = sections.find((s) => s.id === id);
+		const side = saved ? saved.placement : id === 'player-close' ? 'header-start' : 'header-end';
+		if (side === 'header-start' || side === 'header-end') {
+			sides[side].push(canvasCell(saved ?? { id, title: '', preview: true }));
+		}
+	}
+	return [
+		...sides['header-start'],
+		...(sections.some((s) => s.id === 'player-heading')
+			? []
+			: [
+					{
+						id: 'player-heading',
+						title: '',
+						preview: true,
+						width: 2,
+						align: 'center' as const,
+						maxLines: 1
+					}
+				]),
+		...sides['header-end']
+	];
+}
+
+// Row zero is the header. Keep body positions and old exports intact until a listener changes it.
+export function playerCanvas(sections: Section[]): Section[][] {
+	const header = sections.filter((s) => s.placement === 'header').map(canvasCell);
+	const first = header.length ? header.slice(0, maxPlayerColumns) : legacyHeader(sections);
+	return [
+		first.length ? first : [{ id: nextSlotId(sections), title: '', preview: true }],
+		...playerRows(flattenPlayerRows([header.slice(maxPlayerColumns)])),
+		...playerRows(sections)
+	];
+}
+export function packPlayerCanvas(rows: Section[][], hidden: Section[]): Section[] {
+	const body = flattenPlayerRows(rows.slice(1));
+	const placed = new Set(rows.flat().map((s) => s.id));
+	const extras = hidden.filter((s) => !placed.has(s.id));
+	const header = rows[0].map(canvasCell);
+	const old = legacyHeader([...body, ...extras]);
+	const same =
+		header.length === old.length &&
+		header.every((cell, i) => {
+			const keys = new Set([...Object.keys(cell), ...Object.keys(old[i])] as (keyof Section)[]);
+			return [...keys].every((key) => cell[key] === old[i][key]);
+		});
+	return [
+		...body,
+		...(same ? [] : header.map((s) => ({ ...s, placement: 'header' as const }))),
+		...extras
+	];
+}
+// Leave enough space for tap targets before adding the requested gap on a narrow phone.
+export function playerRowGap(row: Section[], header: boolean): string {
+	if (row.length < 2) return '0px';
+	const gaps = row.flatMap((s) => (s.gap === undefined ? [] : [s.gap]));
+	const desired = gaps.length
+		? Math.max(...gaps) + 'px'
+		: header || row.every((s) => s.padding === 0)
+			? '0px'
+			: 'min(var(--gap),3vw)';
+	return `max(0px,min(${desired},calc((100% - ${row.length * 44}px) / ${row.length - 1})))`;
+}
+export function rowName(r: number) {
+	return r === 0 ? 'Header' : 'Row ' + r;
+}
+
 const parts: Record<string, string[]> = {
 	'player-track': ['player-title', 'player-artist', 'player-album'],
 	'player-transport': ['player-previous', 'player-toggle', 'player-next'],
@@ -57,6 +137,7 @@ export function splitPlayerSection(section: Section): Section[] {
 			align: section.align,
 			textSize: section.textSize,
 			minHeight: section.minHeight,
+			gap: section.gap,
 			contentWidth: section.contentWidth,
 			padding: section.padding ?? (section.id === 'player-track' ? 0 : undefined),
 			vAlign: section.vAlign,

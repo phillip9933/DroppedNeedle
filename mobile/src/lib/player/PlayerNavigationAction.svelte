@@ -9,25 +9,19 @@
 		section,
 		queueOpen = false,
 		editing = false,
-		header = false,
+		disabled = false,
 		onactivate
 	}: {
 		id: NavigationId;
 		section?: Section;
 		queueOpen?: boolean;
 		editing?: boolean;
-		header?: boolean;
+		disabled?: boolean;
 		onactivate: (id: NavigationId) => void;
 	} = $props();
 	const label = $derived(navigationFields.find((field) => field.id === id)!.label);
 	const accessible = $derived(
-		editing
-			? 'Customize ' + label
-			: id === 'player-queue'
-				? queueOpen
-					? 'Hide play queue'
-					: 'Show play queue'
-				: label
+		id === 'player-queue' ? (queueOpen ? 'Hide play queue' : 'Show play queue') : label
 	);
 	const glyphs = {
 		'player-close': ChevronDown,
@@ -39,13 +33,15 @@
 
 <span
 	class="navigation-action"
-	style:padding={header && section?.padding !== undefined ? section.padding + 'px' : undefined}
-	style:align-self={header ? section?.vAlign : undefined}
+	class:captioned={section?.showLabel === true ||
+		(section?.icon === 'none' && section?.showLabel !== false)}
+	style:--action-size={Math.max(44, (section?.iconSize ?? 24) + 8) + 'px'}
 >
 	{#if id === 'player-output' && !editing}<Outputs compact {section} />
 	{:else}<button
 			class="icon-button"
 			data-screen-link={!editing ? true : undefined}
+			{disabled}
 			aria-label={accessible}
 			onclick={() => onactivate(id)}
 		>
@@ -60,17 +56,30 @@
 
 <style>
 	.navigation-action {
-		display: inline-flex;
-		min-width: 0;
-		max-width: 100%;
+		display: grid;
 		align-items: center;
-		justify-content: center;
+		justify-items: var(--cell-align, center);
+		width: 100%;
+		min-width: 0;
 	}
-	button {
-		width: auto;
-		max-width: 100%;
-		min-width: min(44px, 100%);
+	.navigation-action :global(button.icon-button) {
+		display: grid;
+		place-items: center;
+		box-sizing: border-box;
+		inline-size: min(100%, var(--action-size));
+		block-size: auto;
+		min-inline-size: 0;
+		min-block-size: 0;
+		aspect-ratio: 1;
+		padding: 0;
+		border-radius: 50%;
+	}
+	.navigation-action.captioned :global(button.icon-button) {
+		inline-size: fit-content;
+		max-inline-size: 100%;
 		min-height: 44px;
-		height: auto;
+		aspect-ratio: auto;
+		border-radius: var(--radius);
+		padding: 0.15rem 0.3rem;
 	}
 </style>

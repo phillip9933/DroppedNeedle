@@ -287,8 +287,8 @@
 				</div>
 			{/if}
 			{#if inPlayer && session}
-				<div class="player-menu-slot">{@render menuToggle()}</div>
 				<PlayerView
+					{menuToggle}
 					{session}
 					expanded={true}
 					queueOpen={panel === 'queue'}
@@ -348,24 +348,6 @@
 	}
 	.menu-toggle {
 		flex: none;
-	}
-	.player-menu-slot {
-		position: sticky;
-		top: 0;
-		height: 0;
-		width: min(100%, 32rem);
-		margin-inline: auto;
-		z-index: 2;
-		pointer-events: none;
-	}
-	.player-menu-slot .menu-toggle {
-		position: absolute;
-		inset-inline-start: min(var(--gap), 5vw);
-		top: calc((3.8rem - 44px) / 2);
-		pointer-events: auto;
-	}
-	main :global([data-part='now-playing'] > .player-header) {
-		padding-inline-start: 49px;
 	}
 	main {
 		flex: 1;

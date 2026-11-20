@@ -18,8 +18,16 @@ export function emptyColumn(used: Section[], like?: Section): Section {
 		title: '',
 		preview: true,
 		width: like?.width,
-		minHeight: like?.minHeight
+		minHeight: like?.minHeight,
+		gap: like?.gap
 	};
+}
+
+export function retainHeader(rows: Section[][]): Section[][] {
+	return [
+		rows[0]?.length ? rows[0] : [emptyColumn(rows.flat())],
+		...rows.slice(1).filter((r) => r.length)
+	];
 }
 
 export function resizeColumns(rows: Section[][], index: number, count: number): Section[][] {
@@ -50,7 +58,7 @@ export function newField(id: string, sections: Section[]): Section {
 function ungroup(rows: Section[][], wanted: string): { rows: Section[][]; part?: Section } {
 	const existing = new Set(rows.flat().map((s) => s.id));
 	let part: Section | undefined;
-	const expanded = rows.flatMap((row) => {
+	const expanded = rows.flatMap((row, r) => {
 		const result = flattenPlayerRows([row]).flatMap((cell) => {
 			if (!splitAvailable(cell.id)) return [cell];
 			const parts = splitPlayerSection(cell);
@@ -61,7 +69,7 @@ function ungroup(rows: Section[][], wanted: string): { rows: Section[][]; part?:
 			if (keep.length) keep[0].sameRow = cell.sameRow;
 			return keep;
 		});
-		return playerRows(result);
+		return !result.length && r === 0 ? [[]] : playerRows(result);
 	});
 	return { rows: expanded, part };
 }
@@ -82,22 +90,21 @@ export function fillColumn(
 		...origin,
 		placement: undefined,
 		width: slot.width,
-		minHeight: slot.minHeight
+		minHeight: slot.minHeight,
+		gap: slot.gap
 	};
-	const next = extracted.rows
-		.map((row) => {
-			const same = row.some((s) => s.id === slotId);
-			return row.flatMap((cell) => {
-				if (cell.id === slotId) return [placed];
-				if (previous && cell.id === previous.id) {
-					// Repositioning within one row exchanges its feature and empty cell.
-					return same ? [{ ...slot, width: cell.width, minHeight: cell.minHeight }] : [];
-				}
-				return [cell];
-			});
-		})
-		.filter((row) => row.length);
-	return { rows: next, id: placed.id };
+	const next = extracted.rows.map((row) => {
+		const same = row.some((s) => s.id === slotId);
+		return row.flatMap((cell) => {
+			if (cell.id === slotId) return [placed];
+			if (previous && cell.id === previous.id) {
+				// Repositioning within one row exchanges its feature and empty cell.
+				return same ? [{ ...slot, width: cell.width, minHeight: cell.minHeight }] : [];
+			}
+			return [cell];
+		});
+	});
+	return { rows: retainHeader(next), id: placed.id };
 }
 
 export const transportFields = [
@@ -109,11 +116,13 @@ export const transportFields = [
 ];
 
 export function fiveControlRow(rows: Section[][]): Section[][] {
-	const at = rows.findIndex((row) =>
-		row.some(
-			(s) =>
-				s.id === 'player-transport' || s.id === 'player-modes' || transportFields.includes(s.id)
-		)
+	const at = rows.findIndex(
+		(row, i) =>
+			i > 0 &&
+			row.some(
+				(s) =>
+					s.id === 'player-transport' || s.id === 'player-modes' || transportFields.includes(s.id)
+			)
 	);
 	const slot = emptyColumn(rows.flat());
 	const next = [...rows];

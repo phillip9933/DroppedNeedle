@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sectionTitle, type Section } from '../boards/layout';
-	import { playerRows } from './composition';
+	import { playerCanvas } from './composition';
 	import { exportPlayerStyle, importPlayerStyle } from './playerStyle';
 	let { sections, onload }: { sections: Section[]; onload: (sections: Section[]) => void } =
 		$props();
@@ -109,15 +109,20 @@
 			><button type="button" class="secondary" disabled={!input.trim()} onclick={preview}
 				>Preview layout</button
 			>
-			{#if review !== null}{@const rows = playerRows(review)}
+			{#if review !== null}{@const hasHeader = review.some((s) => s.placement)}{@const canvas =
+					playerCanvas(review)}{@const rows = hasHeader ? canvas : canvas.slice(1)}{@const count =
+					rows.flat().length}
 				<div class="review">
 					<p>
 						{rows.length}
-						{rows.length === 1 ? 'row' : 'rows'} · {review.length}
-						{review.length === 1 ? 'element' : 'elements'}
+						{rows.length === 1 ? 'row' : 'rows'} · {count}
+						{count === 1 ? 'element' : 'elements'}
 					</p>
 					{#if rows.length}<ol>
-							{#each rows as row (row[0].id)}<li>{row.map(sectionTitle).join(' · ')}</li>{/each}
+							{#each rows as row, i (row[0].id)}<li>
+									{#if i === 0 && hasHeader}<strong>Header</strong> ·
+									{/if}{row.map(sectionTitle).join(' · ')}
+								</li>{/each}
 						</ol>{:else}<p>This layout has no player elements.</p>{/if}<button
 						type="button"
 						class="secondary"

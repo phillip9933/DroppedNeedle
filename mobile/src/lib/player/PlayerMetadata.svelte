@@ -11,6 +11,7 @@
 	this={title ? 'h1' : iconOnly ? 'span' : 'p'}
 	class="metadata"
 	class:field-title={title}
+	class:field-heading={section.id === 'player-heading'}
 	class:field-artist={section.id === 'player-artist'}
 	class:field-album={section.id === 'player-album'}
 	class:field-text={section.id.startsWith('player-text')}
@@ -72,6 +73,11 @@
 		-webkit-line-clamp: var(--field-lines);
 		line-clamp: var(--field-lines);
 		overflow: hidden;
+	}
+	.field-heading {
+		font-size: 0.87em;
+		font-weight: 700;
+		letter-spacing: 0.03em;
 	}
 	.field-title {
 		font-size: calc(clamp(1.75rem, 7vw, 2.45rem) * var(--cell-scale));

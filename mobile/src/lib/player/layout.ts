@@ -30,18 +30,6 @@ export type NavigationId = (typeof navigationFields)[number]['id'];
 export function isNavigation(id: string): id is NavigationId {
 	return navigationFields.some((action) => action.id === id);
 }
-export function navigationPlacement(
-	id: NavigationId,
-	sections: readonly { id: string; placement?: 'header-start' | 'header-end' | 'hidden' }[]
-) {
-	const action = sections.find((s) => s.id === id);
-	return action
-		? (action.placement ?? 'canvas')
-		: id === 'player-close'
-			? 'header-start'
-			: 'header-end';
-}
-
 export const trackToolFields = [
 	{ id: 'player-favorite', label: 'Favorite' },
 	{ id: 'player-playlist', label: 'Add to playlist' },
@@ -50,6 +38,7 @@ export const trackToolFields = [
 ] as const;
 export const playerFields = [
 	...navigationFields,
+	{ id: 'player-heading', label: 'Player heading' },
 	...trackToolFields,
 	{ id: 'player-seek', label: 'Seek bar' },
 	{ id: 'player-title', label: 'Track title' },
@@ -70,6 +59,7 @@ const bounds = {
 	width: [1, 12],
 	contentWidth: [20, 100],
 	minHeight: [0, 640],
+	gap: [0, 32],
 	padding: [0, 32],
 	iconSize: [12, 64],
 	maxLines: [0, 8]
@@ -115,7 +105,10 @@ export function isPlayerText(id: string) {
 	return /^player-text(?:-(?:[2-9]|[1-9]\d+))?$/.test(id);
 }
 export function isPlayerMetadata(id: string) {
-	return ['player-title', 'player-artist', 'player-album'].includes(id) || isPlayerText(id);
+	return (
+		['player-title', 'player-artist', 'player-album', 'player-heading'].includes(id) ||
+		isPlayerText(id)
+	);
 }
 export function supportsPlayerIcon(id: string) {
 	return (

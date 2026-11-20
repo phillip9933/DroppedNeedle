@@ -1,15 +1,20 @@
+import type { Section } from '../src/lib/boards/layout';
 import { openPlayerPlacement } from './fixtures/playerEditor';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
-async function startComposer(page: Page, seed: [string, boolean][]) {
+async function startComposer(page: Page, seed: ([string, boolean] | Section)[]) {
 	const server = 'https://composer.example';
 	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'listener', 'player']);
 	await page.addInitScript(
 		({ key, seed }) =>
 			localStorage.setItem(
 				key,
-				JSON.stringify(seed.map(([id, sameRow]) => ({ id, sameRow, preview: true, title: '' })))
+				JSON.stringify(
+					seed.map((item) =>
+						Array.isArray(item) ? { id: item[0], sameRow: item[1], preview: true, title: '' } : item
+					)
+				)
 			),
 		{ key, seed }
 	);
@@ -161,8 +166,12 @@ test('touch editing moves and resizes real sample fields, changes header actions
 			});
 		await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 	}
-	await button('Customize Artist').click();
-	const grip = await button('Drag Artist').boundingBox(),
+	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	await row(0).evaluate((node) => {
+		const main = node.closest('main')!;
+		main.scrollTop += node.getBoundingClientRect().top - 250;
+	});
+	const grip = await button('Customize Artist').locator('[data-layout-drag]').boundingBox(),
 		title = await row(0).boundingBox();
 	expect(grip && title).toBeTruthy();
 	await drag(
@@ -170,6 +179,8 @@ test('touch editing moves and resizes real sample fields, changes header actions
 		{ x: title!.x + title!.width - 14, y: title!.y + title!.height / 2 }
 	);
 	await expect(row(0).locator('[data-section-id]')).toHaveCount(2);
+	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	await button('Customize Artist').click();
 	await openPlayerPlacement(page);
 	await page.getByLabel('Minimum row height', { exact: true }).fill('88');
 	await expect(row(0)).toHaveCSS('min-height', '88px');
@@ -182,7 +193,13 @@ test('touch editing moves and resizes real sample fields, changes header actions
 	await button('Finish editing field').click();
 	await button('Customize Artwork').click();
 	const resize = button('Resize Artwork');
-	await resize.scrollIntoViewIfNeeded();
+	await resize.evaluate((b) => b.scrollIntoView({ block: 'center' }));
+	expect(
+		await resize.evaluate((b) => {
+			const r = b.getBoundingClientRect();
+			return b.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+		})
+	).toBe(true);
 	const box = await resize.boundingBox();
 	await drag({ x: box!.x + 22, y: box!.y + 22 }, { x: box!.x - 30, y: box!.y + 24 });
 	expect(Number(await page.getByLabel('Element width', { exact: true }).inputValue())).toBeLessThan(
@@ -190,15 +207,24 @@ test('touch editing moves and resizes real sample fields, changes header actions
 	);
 	await button('Finish editing field').click();
 	await button('Customize Player settings').click();
-	await page.getByLabel('Player settings placement').selectOption('canvas');
-	await page.getByLabel('Play queue placement').selectOption('header-start');
-	await page.getByLabel('Close player placement').selectOption('hidden');
-	await expect(sample.locator('[data-section-id="player-settings"]')).toHaveCount(1);
-	await expect(sample.locator('header').getByRole('button', { name: 'Player menu' })).toBeVisible();
 	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('star');
-	await page.getByLabel('Player settings placement').selectOption('header-end');
-	await page.getByLabel('Player settings placement').selectOption('canvas');
+	await openPlayerPlacement(page);
+	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
+	await expect(sample.locator('header [data-section-id="player-settings"]')).toHaveCount(0);
 	await expect(page.getByRole('combobox', { name: 'Icon', exact: true })).toHaveValue('star');
+	await button('Customize Play queue').click();
+	await openPlayerPlacement(page);
+	for (let i = 0; i < 3; i++) {
+		const left = button('Move Play queue left');
+		if (await left.isDisabled()) break;
+		await left.click();
+	}
+	await button('Customize Close player').click();
+	await button('Remove Close player').click();
+	await expect(sample.locator('header [data-section-id]').first()).toHaveAttribute(
+		'data-section-id',
+		'player-queue'
+	);
 
 	await button('Save layout').click();
 	const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
@@ -206,7 +232,7 @@ test('touch editing moves and resizes real sample fields, changes header actions
 		expect.arrayContaining([
 			expect.objectContaining({ id: 'player-artist', sameRow: true, minHeight: 88 }),
 			expect.objectContaining({ id: 'player-close', placement: 'hidden' }),
-			expect.objectContaining({ id: 'player-queue', placement: 'header-start' })
+			expect.objectContaining({ id: 'player-queue', placement: 'header' })
 		])
 	);
 });
@@ -247,4 +273,45 @@ test('a listener builds five controls directly from legacy groups and keeps a si
 	await button('Player settings').click();
 	await expect(page.getByRole('button', { name: 'Add feature to row 1, column 6' })).toBeVisible();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('a row handle can put the whole row in the header before opening an inspector', async ({
+	page
+}) => {
+	const { button, key } = await startComposer(page, [
+		['player-title', false],
+		['player-artist', false],
+		['player-album', true]
+	]);
+	const sample = page.locator('[data-part=sample-player]');
+	await button('Edit header').evaluate((el) => {
+		const main = el.closest('main')!;
+		main.scrollTop += el.getBoundingClientRect().top - 170;
+	});
+	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	await button('Edit row 2').dragTo(button('Edit header'));
+	expect(
+		await sample
+			.locator('header [data-section-id]')
+			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')))
+	).toEqual(['player-artist', 'player-album']);
+	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	await button('Save layout').click();
+	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
+	await expect(
+		page.locator('[data-part=now-playing] header [data-section-id=player-album]')
+	).toBeVisible();
+	await button('Player menu').click();
+	await button('Player settings').click();
+	await button('Edit header').click();
+	await expect(page.getByLabel('Number of columns')).toHaveValue('2');
+	await button('Finish editing row').click();
+	await expect(button('Edit header')).toBeFocused();
+	await button('Cancel').click();
+	const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
+	expect(
+		saved
+			.filter((s: { placement?: string }) => s.placement === 'header')
+			.map((s: { id: string }) => s.id)
+	).toEqual(['player-artist', 'player-album']);
 });

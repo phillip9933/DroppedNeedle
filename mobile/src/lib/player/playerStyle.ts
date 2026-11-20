@@ -20,6 +20,7 @@ const keys = [
 	'textSize',
 	'template',
 	'minHeight',
+	'gap',
 	'placement',
 	'contentWidth',
 	'padding',
@@ -109,6 +110,7 @@ function readSection(item: unknown, index: number): Section {
 		throw Error(`${label} has an invalid custom text template.`);
 	if (
 		placement !== undefined &&
+		placement !== 'header' &&
 		(!isNavigation(id) ||
 			(placement !== 'header-start' && placement !== 'header-end' && placement !== 'hidden'))
 	)
