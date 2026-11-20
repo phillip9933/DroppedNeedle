@@ -4,11 +4,21 @@
 	import PlayerActionFace from './PlayerActionFace.svelte';
 	import { Star, Heart, ListPlus, Wrench } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
-	import { getJson, putJson, postJson, type Session } from '../connection';
+	import { getJson, postJson, type Session } from '../connection';
 	import { trackToolFields } from './layout';
 	import type { PlayerTrack } from '../player';
 	import { errorMessage, path } from '../catalog/catalog';
 	import Favorite from '../catalog/Favorite.svelte';
+	import { offlineInventory, offlineSupported } from '../offline/media';
+	import { changeTrackFeedback } from '../offline/feedback';
+	import {
+		feedbackScope,
+		feedbackChanged,
+		trackFeedback,
+		confirmedFeedback,
+		type FeedbackRecord
+	} from '../offline/feedbackStore';
+	import FeedbackStatus from '../offline/FeedbackStatus.svelte';
 	import AddToPlaylist from '../catalog/AddToPlaylist.svelte';
 
 	type Model = components['schemas'];
@@ -33,7 +43,9 @@
 	} = $props();
 	let open = $state(untrack(() => startOpen)),
 		playlist = $state(false);
-	let library = $state<Model['TrackView'] | null>(null),
+	let local = $state<PlayerTrack>(),
+		favoriteValue = $state<boolean>(),
+		library = $state<Model['TrackView'] | null>(null),
 		rating = $state<number | null>(null);
 	let libraryError = $state(''),
 		ratingError = $state(''),
@@ -51,7 +63,7 @@
 				]
 					.filter(Boolean)
 					.join(' · ')
-			: ''
+			: (local?.format?.toUpperCase() ?? '')
 	);
 
 	$effect(() => {
@@ -64,6 +76,26 @@
 		libraryError = ratingError = '';
 		rating = null;
 		library = null;
+		local = undefined;
+		favoriteValue = undefined;
+		const scope = feedbackScope(current);
+		let observed: FeedbackRecord[] = [];
+		async function preferred(field: 'rating' | 'favorite', value: number | boolean) {
+			return confirmedFeedback(
+				scope,
+				id,
+				field,
+				value,
+				observed.find((r) => r.field === field)
+			).catch(() => value);
+		}
+		const update = (event: Event) => {
+			const record = (event as CustomEvent<FeedbackRecord>).detail;
+			if (record.scope !== scope || record.id !== id) return;
+			if (record.field === 'rating') rating = Number(record.value);
+			else favoriteValue = record.value === true;
+		};
+		window.addEventListener(feedbackChanged, update);
 		async function findTrack() {
 			// The library exposes a paged search. Use the UUID to distinguish live versions and duplicate titles.
 			let after: string | undefined;
@@ -76,7 +108,11 @@
 				if (!live) return;
 				const found = result.items.find((t) => t.id === id);
 				if (found) {
-					library = found;
+					const favorite = await preferred('favorite', found.favorite);
+					if (live) {
+						library = found;
+						favoriteValue = Boolean(favorite);
+					}
 					return;
 				}
 				after = result.next ?? undefined;
@@ -85,22 +121,48 @@
 			} while (live);
 			if (live) libraryError = 'Library details are unavailable for this track.';
 		}
-		if (fields.includes('player-favorite') || fields.includes('player-quality'))
-			void findTrack().catch((e) => {
-				if (live) libraryError = errorMessage(e);
-			});
-		if (fields.includes('player-rating'))
-			void postJson<Model['RatingLookupResponse']>(current, path('/api/v3/ratings/lookup'), {
-				track_ids: [id]
-			})
-				.then((v) => {
-					if (live) rating = v.tracks[id] ?? 0;
-				})
-				.catch((e) => {
-					if (live) ratingError = errorMessage(e);
+		const wantFavorite = fields.includes('player-favorite'),
+			wantQuality = fields.includes('player-quality'),
+			wantRating = fields.includes('player-rating');
+		async function load() {
+			const data =
+				scope && offlineSupported
+					? await offlineInventory(current).catch(() => undefined)
+					: undefined;
+			if (!live) return;
+			const stored = data?.byId.get(id)?.track;
+			if (stored) {
+				local = stored;
+				favoriteValue = stored.favorite ?? false;
+				rating = stored.rating ?? 0;
+			}
+			const offline = !navigator.onLine || data?.offlineOnly === true;
+			if (offline) {
+				if (!stored) libraryError = 'This track has no offline details.';
+				return;
+			}
+			if (stored) observed = await trackFeedback(scope, id).catch(() => []);
+			if (!live) return;
+			if (wantFavorite || wantQuality)
+				void findTrack().catch((e) => {
+					if (live && !stored) libraryError = errorMessage(e);
 				});
+			if (wantRating)
+				void postJson<Model['RatingLookupResponse']>(current, path('/api/v3/ratings/lookup'), {
+					track_ids: [id]
+				})
+					.then(async (v) => {
+						const confirmed = await preferred('rating', v.tracks[id] ?? 0);
+						if (live) rating = Number(confirmed);
+					})
+					.catch((e) => {
+						if (live && !stored) ratingError = errorMessage(e);
+					});
+		}
+		void load();
 		return () => {
 			live = false;
+			window.removeEventListener(feedbackChanged, update);
 		};
 	});
 	async function rate(value: number) {
@@ -108,12 +170,7 @@
 		saving = true;
 		ratingError = '';
 		try {
-			await putJson<Model['RatingStatusResponse']>(
-				session,
-				path('/api/v3/ratings/{kind}/{item_id}', { kind: 'track', item_id: track.id }),
-				{ rating: value }
-			);
-			rating = value;
+			rating = Number(await changeTrackFeedback(session, track.id, 'rating', value));
 		} catch (e) {
 			ratingError = errorMessage(e);
 		} finally {
@@ -133,11 +190,11 @@
 			class="icon-button custom-action"
 			aria-label="Favorite track">{@render heart(false)}</button
 		>
-	{:else if library}<Favorite
+	{:else if favoriteValue !== undefined}<Favorite
 			{session}
 			kind="track"
 			id={track.id}
-			value={library.favorite}
+			value={favoriteValue}
 			face={heart}
 		/>
 	{:else if !libraryError}<button
@@ -191,6 +248,17 @@
 	{#if fields.includes('player-quality') && (quality || sample)}<p>
 			{sample ? 'FLAC · 24-bit · 48 kHz' : quality}
 		</p>{/if}
+	{#if !sample && local && (fields.includes('player-favorite') || fields.includes('player-rating'))}
+		<FeedbackStatus
+			{session}
+			id={track.id}
+			field={fields.length === 1
+				? fields[0] === 'player-rating'
+					? 'rating'
+					: 'favorite'
+				: undefined}
+		/>
+	{/if}
 	{#if libraryError || ratingError}<p role="alert">
 			{[libraryError, ratingError].filter(Boolean).join(' ')}
 		</p>

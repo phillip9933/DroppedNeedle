@@ -3,6 +3,8 @@
 	import { Heart } from '@lucide/svelte';
 	import { putJson, type Session } from '../connection';
 	import { path, errorMessage } from './catalog';
+	import { changeTrackFeedback } from '../offline/feedback';
+	import { feedbackScope, feedbackChanged, type FeedbackRecord } from '../offline/feedbackStore';
 	let {
 		session,
 		kind,
@@ -22,20 +24,38 @@
 		busy = $state(false),
 		error = $state('');
 	let active = $derived(saved ?? value);
+	$effect(() => {
+		const item = id,
+			type = kind,
+			scope = feedbackScope(session);
+		saved = undefined;
+		if (type !== 'track' || !scope) return;
+		const update = (e: Event) => {
+			const r = (e as CustomEvent<FeedbackRecord>).detail;
+			if (r.scope === scope && r.id === item && r.field === 'favorite') saved = r.value === true;
+		};
+		window.addEventListener(feedbackChanged, update);
+		return () => window.removeEventListener(feedbackChanged, update);
+	});
 	async function toggle() {
 		if (busy) return;
 		busy = true;
 		error = '';
 		try {
-			const r = await putJson<{ favorited: boolean }>(
-				session,
-				path('/api/v3/favorites/{kind}/{item_id}', { kind, item_id: id }),
-				{ favorited: !active }
-			);
-			saved = r.favorited;
-			onchange?.(r.favorited);
+			const next =
+				kind === 'track'
+					? (await changeTrackFeedback(session, id, 'favorite', !active)) === true
+					: (
+							await putJson<{ favorited: boolean }>(
+								session,
+								path('/api/v3/favorites/{kind}/{item_id}', { kind, item_id: id }),
+								{ favorited: !active }
+							)
+						).favorited;
+			saved = next;
+			onchange?.(next);
 			window.dispatchEvent(
-				new CustomEvent('dnfavoritechange', { detail: { kind, id, value: r.favorited } })
+				new CustomEvent('dnfavoritechange', { detail: { kind, id, value: next } })
 			);
 		} catch (e) {
 			error = errorMessage(e);

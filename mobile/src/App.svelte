@@ -18,6 +18,7 @@
 		stopAutoDownloads
 	} from './lib/offline/media';
 	import OfflineLibrary from './lib/offline/OfflineLibrary.svelte';
+	import { connectTrackFeedback } from './lib/offline/feedback';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
 	import type { LibraryContinuation } from './lib/player/libraryWindow';
@@ -138,6 +139,7 @@
 		const owner = session;
 		if (!owner || !offlineSupported) return;
 		const controller = new AbortController();
+		const stopFeedback = connectTrackFeedback(owner);
 		const sync = () => {
 			if (!document.hidden && navigator.onLine)
 				void runAutoDownloads(owner, controller.signal).catch(() => {});
@@ -147,6 +149,7 @@
 		document.addEventListener('visibilitychange', sync);
 		return () => {
 			controller.abort();
+			stopFeedback();
 			void stopAutoDownloads(owner).catch(() => {});
 			window.removeEventListener('online', sync);
 			document.removeEventListener('visibilitychange', sync);
