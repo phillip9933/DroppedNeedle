@@ -13,6 +13,18 @@ export interface PlayerTrack {
 	streamUrl: string;
 	artworkUrl?: string;
 	duration?: number;
+	albumId?: string;
+	artistId?: string;
+	albumArtist?: string;
+	albumArtistId?: string;
+	genre?: string;
+	year?: number;
+	trackNumber?: number;
+	discNumber?: number;
+	dateAdded?: number;
+	favorite?: boolean;
+	format?: string;
+	rating?: number;
 }
 
 export interface PlayerAccess {

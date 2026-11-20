@@ -4,7 +4,7 @@
 	import type { Session } from '../connection';
 	import { player, type PlayerTrack } from '../player';
 	import {
-		mediaChanged,
+		watchOfflineMedia,
 		offlineSnapshot,
 		removeOffline,
 		saveOfflineTracks,
@@ -17,7 +17,7 @@
 	}: { session: Session; onplay: (tracks: PlayerTrack[], index: number) => void | Promise<void> } =
 		$props();
 	let items = $state<OfflineItem[]>([]),
-		view = $state<'saved' | 'cached'>('saved'),
+		view = $state<'downloaded' | 'automatic' | 'cached'>('downloaded'),
 		filter = $state(''),
 		selected = $state<string[] | null>(null),
 		remove = $state<string[] | null>(null),
@@ -29,7 +29,7 @@
 	const matching = $derived(
 		items.filter(
 			(i) =>
-				(view === 'saved' ? i.pinned : !i.pinned) &&
+				view === i.origin &&
 				[i.track.title, i.track.artist, i.track.album]
 					.join(' ')
 					.toLocaleLowerCase()
@@ -50,7 +50,7 @@
 	}
 	onMount(() => {
 		void read();
-		window.addEventListener(mediaChanged, read);
+		const stop = watchOfflineMedia(read);
 		function back(event: Event) {
 			if (!section?.getClientRects().length || (!remove && !selected)) return;
 			if (remove) remove = null;
@@ -60,7 +60,7 @@
 		}
 		window.addEventListener('dn-back', back, true);
 		return () => {
-			window.removeEventListener(mediaChanged, read);
+			stop();
 			window.removeEventListener('dn-back', back, true);
 		};
 	});
@@ -97,7 +97,10 @@
 <section bind:this={section} aria-label="Offline music" data-part="offline-music">
 	<h1>Offline music</h1>
 	<div class="bar" role="group" aria-label="Offline collection">
-		<button aria-pressed={view === 'saved'} onclick={() => choose('saved')}>Saved downloads</button
+		<button aria-pressed={view === 'downloaded'} onclick={() => choose('downloaded')}
+			>Saved downloads</button
+		><button aria-pressed={view === 'automatic'} onclick={() => choose('automatic')}
+			>Automatic downloads</button
 		><button aria-pressed={view === 'cached'} onclick={() => choose('cached')}
 			>Playback cache</button
 		>
@@ -143,7 +146,7 @@
 					onclick={() => run(() => player.enqueue(picked, session, 'next'), 'Added to play next.')}
 					>Play next</button
 				>
-				{#if view === 'cached'}<button
+				{#if view !== 'downloaded'}<button
 						class="secondary"
 						disabled={!picked.length || busy}
 						onclick={() =>
@@ -226,9 +229,11 @@
 			{:else}<li class="empty">
 					{filter
 						? 'No matching songs.'
-						: view === 'saved'
+						: view === 'downloaded'
 							? 'Choose Save offline on a library song or selection to keep it here.'
-							: 'Enable caching in Offline settings to keep completed streams here.'}
+							: view === 'automatic'
+								? 'Choose a download source in Offline settings to keep songs here automatically.'
+								: 'Enable caching in Offline settings to keep completed streams here.'}
 				</li>{/each}
 		</ul>
 	{/if}

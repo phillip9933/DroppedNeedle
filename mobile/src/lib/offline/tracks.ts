@@ -2,15 +2,27 @@ import type { Session } from '../connection';
 import type { PlayerTrack } from '../player';
 
 export type OfflineAccount = Pick<Session, 'serverUrl' | 'userId'>;
+export type OfflineOrigin = 'cached' | 'automatic' | 'downloaded';
+export type DownloadSource = 'off' | 'recent' | 'favorites';
 export type OfflineOptions = {
+	autoDownload: DownloadSource;
+	downloadMiB: number;
 	autoCache: boolean;
 	unmeteredOnly: boolean;
 	cacheMiB: number;
 	offlineOnly: boolean;
 };
-export type OfflineItem = { track: PlayerTrack; pinned: boolean; bytes: number; used: number };
+export type OfflineItem = {
+	track: PlayerTrack;
+	origin: OfflineOrigin;
+	pinned: boolean;
+	bytes: number;
+	used: number;
+};
 export type OfflineSnapshot = { items: OfflineItem[]; options: OfflineOptions };
 export const offlineDefaults: OfflineOptions = {
+	autoDownload: 'off',
+	downloadMiB: 512,
 	autoCache: false,
 	unmeteredOnly: true,
 	cacheMiB: 512,
@@ -46,7 +58,21 @@ export function retainedTrack(track: PlayerTrack, serverUrl: string): PlayerTrac
 			if (size && /^[0-9]{1,4}$/.test(size)) artworkUrl += '?size=' + size;
 		}
 	}
+	const details: Partial<PlayerTrack> = {};
+	for (const key of [
+		'albumId',
+		'artistId',
+		'albumArtist',
+		'albumArtistId',
+		'genre',
+		'format'
+	] as const)
+		if (typeof track[key] === 'string' && track[key]) details[key] = track[key];
+	for (const key of ['year', 'trackNumber', 'discNumber', 'dateAdded', 'rating'] as const)
+		if (typeof track[key] === 'number' && Number.isFinite(track[key])) details[key] = track[key];
+	if (typeof track.favorite === 'boolean') details.favorite = track.favorite;
 	return {
+		...details,
 		id: track.id,
 		title: track.title,
 		album: track.album,
