@@ -16,10 +16,13 @@
 	let tab = $state<CatalogTab>('home');
 	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
 	let catalogScroll = 0;
+	let fromPlayer = $state(false);
+	let playerScroll = 0;
 	let catalogVisit = $state(0);
 	const inPlayer = $derived(panel === 'player' || panel === 'queue');
 	let issue = $state('');
 	let main: HTMLElement;
+	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<{ backToBoard: () => boolean }>();
 	const tabs = [
 		{ id: 'home', label: 'Home', icon: House },
@@ -45,11 +48,24 @@
 		});
 	}
 	function openPanel(next: 'player' | 'settings') {
+		fromPlayer = false;
 		catalogScroll = main?.scrollTop ?? 0;
 		panel = next;
 		focusMain();
 	}
+	function playerSettings() {
+		playerScroll = main?.scrollTop ?? 0;
+		fromPlayer = true;
+		panel = 'settings';
+		focusMain();
+	}
 	function closePanel() {
+		if (panel === 'settings' && fromPlayer) {
+			fromPlayer = false;
+			panel = 'player';
+			focusMain(playerScroll);
+			return;
+		}
 		panel = 'catalog';
 		focusMain(catalogScroll);
 	}
@@ -58,6 +74,8 @@
 		focusMain();
 	}
 	function back() {
+		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
+		if (panel === 'settings' && settings?.goBack()) return true;
 		if (panel === 'queue') {
 			toggleQueue();
 			return true;
@@ -66,7 +84,6 @@
 			closePanel();
 			return true;
 		}
-		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
 		if (catalog?.backToBoard()) return true;
 		if (tab !== 'home') {
 			navigate('home');
@@ -179,7 +196,13 @@
 			{/if}
 			{#if panel === 'settings'}
 				<div class="pad">
-					<Appearance {session} onback={() => back()} onsignout={() => disconnect()} />
+					<Appearance
+						bind:this={settings}
+						initial={fromPlayer ? 'player' : 'menu'}
+						{session}
+						onback={closePanel}
+						onsignout={() => disconnect()}
+					/>
 				</div>
 			{/if}
 			{#if inPlayer && session}
@@ -188,6 +211,7 @@
 					expanded={true}
 					queueOpen={panel === 'queue'}
 					ontogglequeue={toggleQueue}
+					onsettings={playerSettings}
 					onexpand={() => {}}
 					oncollapse={closePanel}
 					onerror={report}

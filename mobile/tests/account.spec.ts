@@ -113,7 +113,8 @@ test('an administrator can inspect library health and confirm an incremental sca
 		throw Error('Unexpected admin operation ' + p);
 	});
 	await openAccount(page, server);
-	await page.getByText('Library health and scans', { exact: true }).click();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await page.getByRole('button', { name: 'Library health and scans', exact: true }).click();
 	await expect(page.getByText('10 artists · 20 albums · 100 songs')).toBeVisible();
 	await page.getByRole('button', { name: 'Scan for changes' }).click();
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -122,4 +123,86 @@ test('an administrator can inspect library health and confirm an incremental sca
 	await page.getByRole('button', { name: 'Start scan' }).click();
 	await expect(page.getByRole('status')).toHaveText('Scan queued.');
 	await expect(page.getByText('No scan running. A scan is queued.')).toBeVisible();
+});
+
+test('account identity, linked services and personal mix use the signed-in listener', async ({
+	page
+}) => {
+	const server = 'https://library.example/dn';
+	const user = {
+		id: 'me',
+		role: 'user',
+		display_name: 'Test',
+		username: 'test',
+		email: '',
+		username_display: 'test'
+	};
+	let refreshed = false;
+	let prefs = {
+		primary_music_source: 'listenbrainz',
+		auto_request_personal_mix: false,
+		navidrome_handles_external_scrobbles: false,
+		now_playing_visibility: 'offline'
+	};
+	await page.route(server + '/api/v3/**', async (route) => {
+		const r = route.request(),
+			p = new URL(r.url()).pathname.slice('/dn/api/v3'.length),
+			json = (v: unknown) => route.fulfill({ json: v });
+		if (p === '/auth/providers') return json({ local: true, oidc: false });
+		if (p === '/auth/login') return json({ token: 'account-fixture' });
+		expect(r.headers().authorization).toBe('Bearer account-fixture');
+		if (p === '/me') return json(user);
+		if (p === '/me/username' && r.method() === 'PUT') {
+			user.username_display = user.username = r.postDataJSON().username;
+			return json(user);
+		}
+		if (p === '/me/email' && r.method() === 'PUT') {
+			user.email = r.postDataJSON().email;
+			return json(user);
+		}
+		if (p === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
+		if (p === '/library/albums') return json({ items: [], next: null });
+		if (p === '/home') return json({ sections: [] });
+		if (p === '/me/connections')
+			return json({
+				connections: [{ service: 'lastfm', username: 'fixture-handle', enabled: true }]
+			});
+		if (p === '/requests/personal-mix/refresh' && r.method() === 'POST') {
+			refreshed = true;
+			return json({ status: 'already_running' });
+		}
+		if (p === '/me/scrobble-preferences') {
+			if (r.method() === 'PUT') {
+				expect(r.postDataJSON()).toEqual({
+					primary_music_source: 'lastfm',
+					auto_request_personal_mix: true,
+					navidrome_handles_external_scrobbles: true
+				});
+				prefs = { ...prefs, ...r.postDataJSON() };
+			}
+			return json(prefs);
+		}
+		throw Error('Unexpected account operation ' + p);
+	});
+	await openAccount(page, server);
+	await page.getByText('Username and email', { exact: true }).click();
+	await page.getByRole('textbox', { name: 'Username', exact: true }).fill('listener');
+	await page.getByRole('button', { name: 'Save username' }).click();
+	await expect(page.getByRole('status')).toHaveText('Username saved.');
+	await page.getByLabel('Email', { exact: true }).fill('listener@example.test');
+	await page.getByRole('button', { name: 'Save email' }).click();
+	await expect(page.getByRole('status')).toHaveText('Email saved.');
+	expect(user.username).toBe('listener');
+	expect(user.email).toBe('listener@example.test');
+	await page.getByRole('button', { name: 'Services', exact: true }).click();
+	await expect(page.getByText('fixture-handle · Enabled')).toBeVisible();
+	await page.getByRole('button', { name: 'Listening', exact: true }).click();
+	await page.getByLabel('Discovery listening source').selectOption('lastfm');
+	await page.getByLabel('Automatically request my personal mix').check();
+	await page.getByLabel('Let Navidrome forward its own scrobbles').check();
+	await page.getByRole('button', { name: 'Save preferences' }).click();
+	await expect(page.getByRole('status')).toHaveText('Listening preferences saved.');
+	await page.getByRole('button', { name: 'Refresh personal mix' }).click();
+	await expect(page.getByRole('status')).toHaveText('A mix refresh is already running.');
+	expect(refreshed).toBe(true);
 });

@@ -114,8 +114,7 @@
 {:else if loading || refreshing}
 	<p role="status">Loading recent plays…</p>
 {:else if disabled}<p>
-		To see your recent plays, enable Recently Played in the DroppedNeedle web app under Settings →
-		Home.
+		To see your recent plays, enable Recently Played under Settings → Content preferences → Home.
 	</p>
 {:else}<p>No recent plays available from DroppedNeedle.</p>{/if}
 {#if resolving !== null}<p role="status">Finding the local track…</p>{:else if notice}<p

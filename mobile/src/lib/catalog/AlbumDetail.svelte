@@ -1,4 +1,5 @@
 <script lang="ts">
+	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
 	import { ArrowLeft, Play } from '@lucide/svelte';
 	import type { Session } from '../connection';
@@ -211,6 +212,16 @@
 		seedType="album"
 		seedId={album.group}
 		{onplay}
+	/>{/if}
+
+{#if album.localId}<WebDetail
+		{session}
+		route={'/library/albums/' + encodeURIComponent(album.localId)}
+		label="Open album in web app"
+	/>{:else if album.group}<WebDetail
+		{session}
+		route={'/album/' + encodeURIComponent(album.group)}
+		label="Open album in web app"
 	/>{/if}
 
 <style>
