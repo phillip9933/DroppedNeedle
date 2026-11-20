@@ -14,7 +14,9 @@
 	let session = $state<Session | null>(null);
 	let loading = $state(true);
 	let tab = $state<CatalogTab>('library');
-	let panel = $state<'catalog' | 'player' | 'settings'>('catalog');
+	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
+	let catalogScroll = 0;
+	const inPlayer = $derived(panel === 'player' || panel === 'queue');
 	let issue = $state('');
 	let main: HTMLElement;
 	const tabs = [
@@ -31,16 +33,32 @@
 		issue = '';
 		focusMain();
 	}
-	function focusMain() {
+	function focusMain(offset = 0) {
 		void tick().then(() => {
-			main?.scrollTo(0, 0);
+			main?.scrollTo(0, offset);
 			main?.focus({ preventScroll: true });
 		});
 	}
+	function openPanel(next: 'player' | 'settings') {
+		catalogScroll = main?.scrollTop ?? 0;
+		panel = next;
+		focusMain();
+	}
+	function closePanel() {
+		panel = 'catalog';
+		focusMain(catalogScroll);
+	}
+	function toggleQueue() {
+		panel = panel === 'queue' ? 'player' : 'queue';
+		focusMain();
+	}
 	function back() {
+		if (panel === 'queue') {
+			toggleQueue();
+			return true;
+		}
 		if (panel !== 'catalog') {
-			panel = 'catalog';
-			focusMain();
+			closePanel();
 			return true;
 		}
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
@@ -60,9 +78,8 @@
 		try {
 			await player.setQueue(tracks, index, account);
 			if (session === account) {
-				panel = 'player';
 				issue = '';
-				focusMain();
+				openPanel('player');
 			}
 		} catch (error) {
 			report(error);
@@ -113,17 +130,12 @@
 </script>
 
 <div class="shell" data-part="app">
-	{#if panel !== 'player'}
+	{#if !inPlayer}
 		<header class="mast">
 			<span class="wordmark"><img src={brand} alt="" /> DroppedNeedle</span>
 			{#if panel !== 'settings'}
-				<button
-					class="icon-button"
-					aria-label="Settings"
-					onclick={() => {
-						panel = 'settings';
-						focusMain();
-					}}><Settings2 size={19} /></button
+				<button class="icon-button" aria-label="Settings" onclick={() => openPanel('settings')}
+					><Settings2 size={19} /></button
 				>
 			{/if}
 		</header>
@@ -151,12 +163,14 @@
 					/>
 				</div>
 			{/if}
-			{#if panel === 'player' && session}
+			{#if inPlayer && session}
 				<PlayerView
 					{session}
 					expanded={true}
+					queueOpen={panel === 'queue'}
+					ontogglequeue={toggleQueue}
 					onexpand={() => {}}
-					oncollapse={() => back()}
+					oncollapse={closePanel}
 					onerror={report}
 				/>
 			{/if}
@@ -167,10 +181,7 @@
 			<PlayerView
 				{session}
 				expanded={false}
-				onexpand={() => {
-					panel = 'player';
-					focusMain();
-				}}
+				onexpand={() => openPanel('player')}
 				oncollapse={() => {}}
 				onerror={report}
 			/>
