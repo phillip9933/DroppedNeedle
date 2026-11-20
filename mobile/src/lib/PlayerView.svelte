@@ -17,6 +17,7 @@
 	} from '@lucide/svelte';
 	import { player, type PlayerTrack } from './player';
 	import { accountId, defaults, loadLayout, sectionTitle } from './boards/layout';
+	import { formatPlayerText, isPlayerText, playerRows } from './player/composition';
 	import TrackTools from './player/TrackTools.svelte';
 	import AddToPlaylist from './catalog/AddToPlaylist.svelte';
 	import type { Session } from './connection';
@@ -82,6 +83,18 @@
 	);
 	const stamp = (s: number) =>
 		Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+	const rows = $derived(playerRows(sections));
+	const clock = $derived(preview ?? $player.position);
+	const fields = $derived({
+		title: track?.title ?? '',
+		artist: track?.artist ?? '',
+		album: track?.album ?? '',
+		elapsed: stamp(clock),
+		duration: stamp(duration),
+		remaining: stamp(Math.max(0, duration - clock)),
+		position: String($player.index + 1),
+		count: String($player.tracks.length)
+	});
 	async function edit(call: () => Promise<void>) {
 		if (pending) return;
 		pending = true;
@@ -99,6 +112,50 @@
 	}
 </script>
 
+{#snippet previous()}
+	<button class="skip" aria-label="Previous track" onclick={() => action(player.previous)}
+		><SkipBack size={28} /></button
+	>
+{/snippet}
+{#snippet toggle()}
+	<button
+		class="play"
+		aria-label={$player.playing ? 'Pause' : 'Play'}
+		onclick={() => action(player.toggle)}
+	>
+		{#if $player.playing}<Pause fill="currentColor" />{:else}<Play fill="currentColor" />{/if}
+	</button>
+{/snippet}
+{#snippet nextTrack()}
+	<button
+		class="skip"
+		aria-label="Next track"
+		disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
+		onclick={() => action(player.next)}><SkipForward size={28} /></button
+	>
+{/snippet}
+{#snippet repeat(label: boolean)}
+	<button
+		class="repeat"
+		aria-label={'Repeat ' + $player.repeat + '. Change repeat mode'}
+		aria-pressed={$player.repeat !== 'off'}
+		onclick={() => action(player.cycleRepeat)}
+	>
+		{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
+		{#if label}<span>Repeat {$player.repeat}</span>{/if}
+	</button>
+{/snippet}
+{#snippet shuffle(label: boolean)}
+	<button
+		class="repeat"
+		aria-label="Shuffle upcoming"
+		disabled={$player.tracks.length - $player.index <= 2 || pending}
+		onclick={() => edit(player.shuffleUpcoming)}
+	>
+		<Shuffle size={18} />{#if label}<span>Shuffle upcoming</span>{/if}
+	</button>
+{/snippet}
+
 {#if track && expanded}
 	<section class="now" data-part="now-playing" aria-label="Now playing">
 		<header class="player-header">
@@ -108,11 +165,11 @@
 			<strong
 				>{queueOpen
 					? 'Now playing'
-					: !sections.some((s) => s.id === 'player-track')
+					: !sections.some((s) => s.id === 'player-track' || s.id === 'player-title')
 						? track.title
 						: 'Now playing'}</strong
 			>
-			{#if !queueOpen && !sections.some((s) => s.id === 'player-transport')}
+			{#if !queueOpen && !sections.some((s) => s.id === 'player-transport' || s.id === 'player-toggle')}
 				<button
 					class="icon-button"
 					aria-label={$player.playing ? 'Pause' : 'Play'}
@@ -195,123 +252,134 @@
 				</ol>
 			</div>
 		{:else}
-			{#each sections as section (section.id)}
-				<div class="player-section" data-section-id={section.id}>
-					{#if section.title && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
+			{#each rows as row (row[0].id)}
+				<div
+					class="player-row"
+					class:composed={row.length > 1}
+					data-part="player-row"
+					style:grid-template-columns={row
+						.map((cell) => 'minmax(44px, ' + (cell.width ?? 1) + 'fr)')
+						.join(' ')}
+				>
+					{#each row as section (section.id)}
+						<div
+							class="player-section"
+							data-section-id={section.id}
+							data-align={section.align}
+							data-text-size={section.textSize}
 						>
-							{section.title}
-						</h2>{/if}
-					{#if section.id === 'player-artwork'}
-						<div class="hero" class:compact={!section.preview}>
-							<Cover {session} path={art} seed={track.album || track.id} />
-						</div>
-					{:else if section.id === 'player-track'}
-						<div class="track-meta">
-							<h1>{track.title}</h1>
-							<p>{track.artist}</p>
-							{#if section.preview && track.album}<small>{track.album}</small>{/if}
-						</div>
-					{:else if section.id === 'player-timeline'}
-						<div class="timeline">
-							<input
-								type="range"
-								aria-label="Playback position"
-								aria-valuetext={stamp(preview ?? $player.position)}
-								min="0"
-								max={duration || 1}
-								step="1"
-								value={preview ?? $player.position}
-								disabled={!duration}
-								oninput={(e) => (preview = Number(e.currentTarget.value))}
-								onpointercancel={() => (preview = null)}
-								onchange={(e) => {
-									const position = Number(e.currentTarget.value);
-									preview = null;
-									action(() => player.seek(position));
-								}}
-							/>
-							{#if section.preview}<div>
-									<span>{stamp(preview ?? $player.position)}</span><span>{stamp(duration)}</span>
-								</div>{/if}
-						</div>
-					{:else if section.id === 'player-transport'}
-						<div class="transport" data-part="transport" class:compact={!section.preview}>
-							<button
-								class="skip"
-								aria-label="Previous track"
-								onclick={() => action(player.previous)}><SkipBack size={28} /></button
-							>
-							<button
-								class="play"
-								aria-label={$player.playing ? 'Pause' : 'Play'}
-								onclick={() => action(player.toggle)}
-								>{#if $player.playing}<Pause fill="currentColor" />{:else}<Play
-										fill="currentColor"
-									/>{/if}</button
-							>
-							<button
-								class="skip"
-								aria-label="Next track"
-								disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
-								onclick={() => action(player.next)}><SkipForward size={28} /></button
-							>
-						</div>
-					{:else if section.id === 'player-modes'}
-						<div class="modes">
-							<button
-								class="repeat"
-								aria-label={'Repeat ' + $player.repeat + '. Change repeat mode'}
-								aria-pressed={$player.repeat !== 'off'}
-								onclick={() => action(player.cycleRepeat)}
-							>
-								{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
-								{#if section.preview}Repeat {$player.repeat}{/if}
-							</button>
-							<button
-								class="repeat"
-								aria-label="Shuffle upcoming"
-								disabled={$player.tracks.length - $player.index <= 2 || pending}
-								onclick={() => edit(player.shuffleUpcoming)}
-								><Shuffle size={18} />{#if section.preview}Shuffle upcoming{/if}</button
-							>
-						</div>
-					{:else if section.id === 'player-lyrics'}
-						{#key section.preview}<PlayerLyrics
-								{session}
-								trackId={track.id}
-								position={$player.position}
-								title={sectionTitle(section)}
-								startOpen={section.preview}
-								onseek={(p) => action(() => player.seek(p))}
-							/>{/key}
-					{:else if section.id === 'player-tools'}
-						{#key JSON.stringify([track.id, section.preview])}<TrackTools
-								{session}
-								{track}
-								title={sectionTitle(section)}
-								startOpen={section.preview}
-							/>{/key}
-					{:else if section.id === 'player-up-next'}
-						<div class="up-next">
-							<button
-								class="text-button"
-								onclick={ontogglequeue}
-								aria-label={'Open play queue from ' + sectionTitle(section)}
-							>
-								{sectionTitle(section)} <ListMusic size={18} /></button
-							>
-							{#if section.preview}
-								{#each $player.tracks.slice($player.index + 1, $player.index + 4) as next, offset (next.id + ':' + offset)}
+							{#if section.title && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
+								>
+									{section.title}
+								</h2>{/if}
+							{#if section.id === 'player-artwork'}
+								<div class="hero" class:compact={!section.preview}>
+									<Cover {session} path={art} seed={track.album || track.id} />
+								</div>
+							{:else if section.id === 'player-track'}
+								<div class="track-meta">
+									<h1>{track.title}</h1>
+									<p>{track.artist}</p>
+									{#if section.preview && track.album}<small>{track.album}</small>{/if}
+								</div>
+							{:else if section.id === 'player-timeline'}
+								<div class="timeline">
+									<input
+										type="range"
+										aria-label="Playback position"
+										aria-valuetext={stamp(preview ?? $player.position)}
+										min="0"
+										max={duration || 1}
+										step="1"
+										value={preview ?? $player.position}
+										disabled={!duration}
+										oninput={(e) => (preview = Number(e.currentTarget.value))}
+										onpointercancel={() => (preview = null)}
+										onchange={(e) => {
+											const position = Number(e.currentTarget.value);
+											preview = null;
+											action(() => player.seek(position));
+										}}
+									/>
+									{#if section.preview}<div>
+											<span>{stamp(preview ?? $player.position)}</span><span>{stamp(duration)}</span
+											>
+										</div>{/if}
+								</div>
+							{:else if section.id === 'player-transport'}
+								<div class="transport" data-part="transport" class:compact={!section.preview}>
+									{@render previous()}
+									{@render toggle()}
+									{@render nextTrack()}
+								</div>
+							{:else if section.id === 'player-modes'}
+								<div class="modes">
+									{@render repeat(section.preview)}
+									{@render shuffle(section.preview)}
+								</div>
+							{:else if section.id === 'player-title'}
+								<h1 class="field-title">{fields.title}</h1>
+							{:else if section.id === 'player-artist'}
+								<p class="field-artist">{fields.artist}</p>
+							{:else if section.id === 'player-album'}
+								<p class="field-album">{fields.album}</p>
+							{:else if isPlayerText(section.id)}
+								<p class="field-text">{formatPlayerText(section.template, fields)}</p>
+							{:else if section.id === 'player-elapsed' || section.id === 'player-duration' || section.id === 'player-remaining'}
+								<p class="field-time">
+									{section.id === 'player-elapsed'
+										? fields.elapsed
+										: section.id === 'player-duration'
+											? fields.duration
+											: fields.remaining}
+								</p>
+							{:else if section.id === 'player-previous' || section.id === 'player-next' || section.id === 'player-toggle' || section.id === 'player-repeat' || section.id === 'player-shuffle'}
+								<div class="field-controls" class:compact={!section.preview}>
+									{#if section.id === 'player-previous'}{@render previous()}
+									{:else if section.id === 'player-next'}{@render nextTrack()}
+									{:else if section.id === 'player-toggle'}{@render toggle()}
+									{:else if section.id === 'player-repeat'}{@render repeat(false)}
+									{:else}{@render shuffle(false)}{/if}
+								</div>
+							{:else if section.id === 'player-lyrics'}
+								{#key section.preview}<PlayerLyrics
+										{session}
+										trackId={track.id}
+										position={$player.position}
+										title={sectionTitle(section)}
+										startOpen={section.preview}
+										onseek={(p) => action(() => player.seek(p))}
+									/>{/key}
+							{:else if section.id === 'player-tools'}
+								{#key JSON.stringify([track.id, section.preview])}<TrackTools
+										{session}
+										{track}
+										title={sectionTitle(section)}
+										startOpen={section.preview}
+									/>{/key}
+							{:else if section.id === 'player-up-next'}
+								<div class="up-next">
 									<button
-										class="up-track"
-										onclick={() => action(() => player.skipTo($player.index + offset + 1))}
+										class="text-button"
+										onclick={ontogglequeue}
+										aria-label={'Open play queue from ' + sectionTitle(section)}
 									>
-										<strong>{next.title}</strong><small>{next.artist}</small>
-									</button>
-								{:else}<p>End of the queue.</p>{/each}
+										{sectionTitle(section)} <ListMusic size={18} /></button
+									>
+									{#if section.preview}
+										{#each $player.tracks.slice($player.index + 1, $player.index + 4) as next, offset (next.id + ':' + offset)}
+											<button
+												class="up-track"
+												onclick={() => action(() => player.skipTo($player.index + offset + 1))}
+											>
+												<strong>{next.title}</strong><small>{next.artist}</small>
+											</button>
+										{:else}<p>End of the queue.</p>{/each}
+									{/if}
+								</div>
 							{/if}
 						</div>
-					{/if}
+					{/each}
 				</div>
 			{/each}
 		{/if}
@@ -374,25 +442,116 @@
 		z-index: 1;
 		background: var(--bg);
 	}
+	.player-row {
+		display: grid;
+		min-width: 0;
+		align-items: center;
+		gap: min(var(--gap), 3vw);
+	}
 	.player-section {
 		min-width: 0;
+		overflow-wrap: anywhere;
+		--cell-scale: 1;
+		font-size: calc(1rem * var(--cell-scale));
+		text-align: var(--cell-align, start);
 	}
+	.player-section[data-align='start'] {
+		--cell-justify: flex-start;
+		--cell-align: start;
+		--art-start: 0;
+		--art-end: auto;
+	}
+	.player-section[data-align='center'] {
+		--cell-justify: center;
+		--cell-align: center;
+		--art-start: auto;
+		--art-end: auto;
+	}
+	.player-section[data-align='end'] {
+		--cell-justify: flex-end;
+		--cell-align: end;
+		--art-start: auto;
+		--art-end: 0;
+	}
+	.player-section[data-text-size='small'] {
+		--cell-scale: 0.82;
+	}
+	.player-section[data-text-size='large'] {
+		--cell-scale: 1.35;
+	}
+	.field-title,
+	.field-artist,
+	.field-album,
+	.field-time,
+	.field-text {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	.field-text {
+		white-space: pre-wrap;
+	}
+	.field-time,
+	.field-album {
+		color: var(--muted);
+	}
+	.field-time {
+		font-variant-numeric: tabular-nums;
+	}
+	.field-controls {
+		display: flex;
+		align-items: center;
+		justify-content: var(--cell-justify, center);
+	}
+	.field-controls button {
+		min-width: 44px;
+		min-height: 44px;
+		max-width: 100%;
+	}
+	.composed .transport {
+		gap: min(0.35rem, 1vw);
+	}
+	.composed .modes {
+		column-gap: min(0.4rem, 1vw);
+	}
+	.composed .repeat span {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.composed .repeat {
+		flex-wrap: wrap;
+		justify-content: center;
+		max-width: 100%;
+	}
+	.composed .up-next .text-button {
+		flex-wrap: wrap;
+	}
+	.player-section :global(details) {
+		min-width: 0;
+		max-width: 100%;
+	}
+	.composed .player-section :global(.secondary) {
+		max-width: 100%;
+		overflow-wrap: anywhere;
+		padding-inline: min(0.8em, 8%);
+	}
+
 	.player-section h2 {
-		font-size: 1rem;
+		font-size: 1em;
 		margin: 0 0 0.4rem;
 	}
 	.hero.compact {
 		width: min(45%, 13rem);
 		min-width: 0;
 	}
-	.transport.compact .play {
+	.transport.compact .play,
+	.field-controls.compact .play {
 		width: 48px;
 		height: 48px;
 	}
 	.modes {
 		display: flex;
 		align-items: center;
-		justify-content: center;
+		justify-content: var(--cell-justify, center);
 		gap: var(--gap);
 		flex-wrap: wrap;
 	}
@@ -404,11 +563,11 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		justify-content: space-between;
+		justify-content: var(--cell-justify, space-between);
 		font-weight: 600;
 	}
 	.up-track {
-		text-align: start;
+		text-align: var(--cell-align, start);
 		min-height: 44px;
 		align-content: center;
 	}
@@ -425,7 +584,8 @@
 		max-width: 32rem;
 		width: 100%;
 		margin: auto;
-		padding: 0 var(--gap) max(1.5rem, env(safe-area-inset-bottom));
+		padding: 0 min(var(--gap), 5vw) max(1.5rem, env(safe-area-inset-bottom));
+		grid-template-columns: minmax(0, 1fr);
 		display: grid;
 		gap: var(--gap);
 		align-content: start;
@@ -443,24 +603,28 @@
 	.hero {
 		width: min(100%, 52dvh);
 		min-width: min(100%, 10rem);
-		margin: clamp(0.2rem, 2vh, 2rem) auto;
+		margin-block: clamp(0.2rem, 2vh, 2rem);
+		margin-inline: var(--art-start, auto) var(--art-end, auto);
 	}
 	.track-meta h1,
 	.track-meta p {
 		margin: 0;
 		overflow-wrap: anywhere;
 	}
-	.track-meta h1 {
-		font-size: clamp(1.75rem, 7vw, 2.45rem);
+	.track-meta h1,
+	.field-title {
+		font-size: calc(clamp(1.75rem, 7vw, 2.45rem) * var(--cell-scale));
 	}
-	.track-meta p {
-		font-size: 1.15rem;
+	.track-meta p,
+	.field-artist {
+		font-size: 1.15em;
 	}
 	small,
 	.timeline div {
 		color: var(--muted);
 	}
 	.timeline input {
+		min-width: 0;
 		width: 100%;
 		padding: 0;
 		min-height: 44px;
@@ -469,12 +633,13 @@
 	.timeline div {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.8rem;
+		font-size: 0.8em;
 		font-variant-numeric: tabular-nums;
 	}
 	.transport {
 		display: flex;
-		justify-content: center;
+		justify-content: var(--cell-justify, center);
+		flex-wrap: wrap;
 		align-items: center;
 		gap: clamp(0.8rem, 6vw, 3rem);
 	}
@@ -488,8 +653,11 @@
 	}
 	.play {
 		border-radius: 50%;
-		width: 4.5rem;
-		height: 4.5rem;
+		width: min(100%, 4.5rem);
+		height: auto;
+		aspect-ratio: 1;
+		min-width: 44px;
+		min-height: 44px;
 		color: var(--dn-action-content, var(--on-accent));
 		background: var(--dn-action, var(--accent));
 		border: 1px solid var(--dn-action-edge, transparent);
@@ -516,6 +684,7 @@
 	}
 	.repeat {
 		justify-self: center;
+		min-width: 44px;
 		color: var(--muted);
 		min-height: 44px;
 	}
