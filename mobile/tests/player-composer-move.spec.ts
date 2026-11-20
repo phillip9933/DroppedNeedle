@@ -3,6 +3,24 @@ import { openPlayerPlacement } from './fixtures/playerEditor';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
+type Point = { x: number; y: number };
+async function touchDrag(page: Page, from: Point, to: Point) {
+	const cdp = await page.context().newCDPSession(page);
+	try {
+		await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+		for (let i = 1; i <= 6; i++)
+			await cdp.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [
+					{ x: from.x + ((to.x - from.x) * i) / 6, y: from.y + ((to.y - from.y) * i) / 6 }
+				]
+			});
+		await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+	} finally {
+		await cdp.detach();
+	}
+}
+
 async function startComposer(page: Page, seed: ([string, boolean] | Section)[]) {
 	const server = 'https://composer.example';
 	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'listener', 'player']);
@@ -154,18 +172,7 @@ test('touch editing moves and resizes real sample fields, changes header actions
 	expect(
 		await sample.locator('img').evaluate((i) => (i as HTMLImageElement).naturalWidth)
 	).toBeGreaterThan(100);
-	const cdp = await page.context().newCDPSession(page);
-	async function drag(from: { x: number; y: number }, to: { x: number; y: number }) {
-		await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
-		for (let i = 1; i <= 5; i++)
-			await cdp.send('Input.dispatchTouchEvent', {
-				type: 'touchMove',
-				touchPoints: [
-					{ x: from.x + ((to.x - from.x) * i) / 5, y: from.y + ((to.y - from.y) * i) / 5 }
-				]
-			});
-		await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-	}
+	const drag = (from: Point, to: Point) => touchDrag(page, from, to);
 	await expect(page.locator('[data-inspector]')).toHaveCount(0);
 	await row(0).evaluate((node) => {
 		const main = node.closest('main')!;
@@ -314,4 +321,75 @@ test('a row handle can put the whole row in the header before opening an inspect
 			.filter((s: { placement?: string }) => s.placement === 'header')
 			.map((s: { id: string }) => s.id)
 	).toEqual(['player-artist', 'player-album']);
+});
+
+test('the left edge belongs to row and field drags while an ordinary page swipe opens navigation', async ({
+	page
+}) => {
+	const { button } = await startComposer(page, [
+		['player-elapsed', false],
+		['player-duration', false],
+		['player-title', false],
+		['player-artist', true],
+		['player-album', true]
+	]);
+	const sample = page.locator('[data-part=sample-player]');
+	const row = (n: number) => sample.locator('[data-player-row="' + n + '"]');
+	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
+	async function center(loc: ReturnType<typeof row>) {
+		await loc.evaluate((el) => {
+			el.closest('main')!.scrollTop += el.getBoundingClientRect().top - 245;
+		});
+	}
+
+	const handle = button('Edit row 1');
+	await center(handle);
+	const marker = await handle.boundingBox(),
+		second = await button('Edit row 2').boundingBox();
+	const from = { x: 22, y: marker!.y + marker!.height / 2 };
+	expect(
+		await handle.evaluate((el, p) => el.contains(document.elementFromPoint(p.x, p.y)), from)
+	).toBe(true);
+	await touchDrag(page, from, {
+		x: second!.x + second!.width - 18,
+		y: second!.y + second!.height / 2
+	});
+	await expect(menu).toHaveCount(0);
+	await expect(row(0).locator('[data-section-id]')).toHaveAttribute(
+		'data-section-id',
+		'player-duration'
+	);
+	await expect(row(1).locator('[data-section-id]')).toHaveAttribute(
+		'data-section-id',
+		'player-elapsed'
+	);
+
+	const field = button('Customize Track title'),
+		album = button('Customize Album');
+	await center(field);
+	const f = await field.boundingBox(),
+		destination = await album.boundingBox();
+	const touch = { x: 22, y: f!.y + f!.height / 2 };
+	expect(await field.evaluate((el, p) => el === document.elementFromPoint(p.x, p.y), touch)).toBe(
+		true
+	);
+	await touchDrag(page, touch, {
+		x: destination!.x + destination!.width - 8,
+		y: destination!.y + destination!.height / 2
+	});
+	await expect(menu).toHaveCount(0);
+	await expect(row(2).locator('[data-section-id]').last()).toHaveAttribute(
+		'data-section-id',
+		'player-title'
+	);
+	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+
+	await page.locator('main').evaluate((el) => (el.scrollTop = 0));
+	const heading = await page.getByRole('heading', { name: 'Edit Now Playing' }).boundingBox();
+	await touchDrag(
+		page,
+		{ x: 22, y: heading!.y + heading!.height / 2 },
+		{ x: 156, y: heading!.y + heading!.height / 2 }
+	);
+	await expect(menu).toBeVisible();
 });

@@ -572,6 +572,7 @@
 		{#snippet rowControls(r: number)}
 			<button
 				class="row-marker"
+				data-layout-drag
 				data-edit-row={r}
 				aria-label={'Edit ' + rowName(r).toLowerCase()}
 				aria-expanded={editingRow === r}
@@ -601,6 +602,7 @@
 			{:else}
 				<button
 					class="field filled"
+					data-layout-drag
 					aria-label={'Customize ' + sectionTitle(item)}
 					aria-expanded={selected === item.id}
 					onclick={() => openField(item.id)}
