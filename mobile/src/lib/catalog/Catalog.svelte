@@ -4,9 +4,8 @@
 	import type { Album, CatalogTab, OnPlay } from './catalog';
 	import BoardView from '../boards/BoardView.svelte';
 	import DiscoverArtist from './DiscoverArtist.svelte';
-	import Favorite from './Favorite.svelte';
+	import LocalArtistDetail, { type LocalArtist } from './LocalArtistDetail.svelte';
 	import type { DiscoverArtistRef } from './discovery';
-	import Library from './Library.svelte';
 	import PlaylistDetail from './PlaylistDetail.svelte';
 	import type { Playlist } from './playlists';
 	import Search from './Search.svelte';
@@ -32,12 +31,7 @@
 	}
 	let playlist = $state<Playlist | null>(null),
 		album = $state<Album | null>(null);
-	let localArtist = $state<{
-		id: string;
-		name: string;
-		favorite?: boolean;
-		artist_mbid?: string | null;
-	} | null>(null);
+	let localArtist = $state<LocalArtist | null>(null);
 	let artist = $state<DiscoverArtistRef | null>(null);
 	let term = $state('');
 	let root: HTMLElement;
@@ -74,7 +68,7 @@
 		move(offsets.pop() ?? 0);
 	}
 	function systemBack(event: Event) {
-		if (inside && !event.defaultPrevented) {
+		if (active && inside && !event.defaultPrevented) {
 			event.preventDefault();
 			back();
 		}
@@ -120,28 +114,15 @@
 		{:else}<Requests {session} onopen={open} />{/if}
 	</div>
 	{#if localArtist}<div hidden={!!album || !!artist}>
-			<button class="text-button" onclick={back}>Back to artists</button>
-			<h1>{localArtist.name}</h1>
-			{#if localArtist.favorite !== undefined}<Favorite
-					{session}
-					kind="artist"
-					id={localArtist.id}
-					value={localArtist.favorite}
-				/>{/if}
-			{#if localArtist.artist_mbid}<button
-					class="secondary"
-					onclick={() =>
-						localArtist?.artist_mbid &&
-						openArtist({ id: localArtist.artist_mbid, name: localArtist.name })}
-					>Artist profile</button
-				>{/if}
-			<Library
-				kind="albums"
+			<LocalArtistDetail
 				{session}
 				artist={localArtist}
+				active={active && !album && !artist}
 				onopen={open}
 				onartist={openLocal}
+				ondiscover={openArtist}
 				{onplay}
+				onback={back}
 			/>
 		</div>{/if}
 	{#if artist}<div hidden={!!album}>
