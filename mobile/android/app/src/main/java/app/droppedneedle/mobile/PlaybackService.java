@@ -4,6 +4,9 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -22,12 +25,15 @@ import com.getcapacitor.JSObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.UUID;
+import javax.crypto.SecretKey;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlaybackService extends MediaSessionService {
     static final String LOCAL_BIND = "app.droppedneedle.mobile.LOCAL_PLAYER";
     final class LocalBinder extends Binder {
@@ -61,6 +67,31 @@ public final class PlaybackService extends MediaSessionService {
     private ExoPlayer player;
     private MediaSession session;
     private PlaybackReporter reporter;
+    private SavedQueue saved;
+    private SecretKey queueKey;
+    private String revision;
+    private long generation;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable checkpoint = this::checkpoint;
+
+    private void checkpoint() {
+        save(false);
+        main.removeCallbacks(checkpoint);
+        if (player.isPlaying()) main.postDelayed(checkpoint, 5000);
+    }
+
+    private void save(boolean includeTracks) {
+        if (queueKey == null || player.getMediaItemCount() == 0) return;
+        if (includeTracks) revision = UUID.randomUUID().toString();
+        if (revision == null) return;
+        JSObject state = new JSObject();
+        state.put("revision", revision);
+        state.put("index", player.getCurrentMediaItemIndex());
+        state.put("position", Math.max(0, player.getCurrentPosition()));
+        state.put("repeat", player.getRepeatMode());
+        if (includeTracks) state.put("tracks", queueTracks());
+        saved.write(queueKey, state, includeTracks);
+    }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -82,7 +113,14 @@ public final class PlaybackService extends MediaSessionService {
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build();
+        saved = new SavedQueue(this);
         reporter = new PlaybackReporter(this, player);
+        player.addListener(new Player.Listener() {
+            @Override public void onEvents(Player source, Player.Events events) {
+                if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
+                        Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) checkpoint();
+            }
+        });
         MediaSession.Callback callback = new MediaSession.Callback() {
             @Override public MediaSession.ConnectionResult onConnect(
                     MediaSession mediaSession, MediaSession.ControllerInfo controller) {
@@ -110,46 +148,105 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return session; }
 
-    void setQueue(String address, String token, JSArray queue, int index, @Nullable String placement) throws JSONException {
-        if (queue == null || index < 0 || index >= queue.length()) {
-            throw new IllegalArgumentException("Choose a track to play.");
-        }
-        Access next = new Access(address, token);
+    private static ArrayList<MediaItem> items(Access access, JSArray queue) throws JSONException {
         ArrayList<MediaItem> items = new ArrayList<>();
         for (int i = 0; i < queue.length(); i++) {
             JSONObject track = queue.getJSONObject(i);
             String stream = track.getString("streamUrl");
-            if (!next.permits(HttpUrl.parse(stream), "stream/local/")) {
+            if (!access.permits(HttpUrl.parse(stream), "stream/local/")) {
                 throw new IllegalArgumentException("Invalid DroppedNeedle stream.");
             }
             MediaMetadata.Builder metadata = new MediaMetadata.Builder()
                     .setTitle(track.getString("title")).setArtist(track.getString("artist"))
                     .setAlbumTitle(track.getString("album"));
             String art = track.optString("artworkUrl", "");
-            if (!art.isEmpty() && next.permits(HttpUrl.parse(art), "")) metadata.setArtworkUri(Uri.parse(art));
+            if (!art.isEmpty() && access.permits(HttpUrl.parse(art), "")) metadata.setArtworkUri(Uri.parse(art));
             items.add(new MediaItem.Builder().setMediaId(track.getString("id"))
                     .setUri(stream).setTag(track).setMediaMetadata(metadata.build()).build());
         }
+        return items;
+    }
+
+    void setQueue(String address, String token, JSArray queue, int index, @Nullable String placement) throws JSONException {
+        if (queue == null || index < 0 || index >= queue.length()) {
+            throw new IllegalArgumentException("Choose a track to play.");
+        }
+        generation++;
+        Access next = new Access(address, token);
+        ArrayList<MediaItem> items = items(next, queue);
         if (placement != null && player.getMediaItemCount() > 0) {
             if (access == null || !access.base.equals(next.base) || !access.token.equals(token)) {
                 throw new IllegalArgumentException("This queue belongs to a different session.");
             }
             int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
             player.addMediaItems(at, items);
+            save(true);
             return;
         }
-        reporter.connect(next.base.newBuilder().encodedPath(next.apiPath + "playback").build(), next.token);
+        attach(next);
         player.stop();
-        access = next;
         player.setMediaItems(items, index, 0);
         player.prepare();
         player.play();
+        save(true);
     }
+
+    private void attach(Access next) {
+        revision = null;
+        queueKey = SavedQueue.key(next.base.toString(), next.token);
+        reporter.connect(next.base.newBuilder().encodedPath(next.apiPath + "playback").build(), next.token);
+        access = next;
+    }
+
+    void restore(String address, String token, Runnable complete, Runnable superseded) {
+        Access next = new Access(address, token);
+        long version = ++generation;
+        if (access != null) {
+            if (!access.base.equals(next.base) || !access.token.equals(next.token)) {
+                command("clear", -1, -1);
+                long cleared = generation;
+                saved.afterWrite(() -> {
+                    if (generation == cleared) complete.run(); else superseded.run();
+                });
+            } else complete.run();
+            return;
+        }
+        saved.load(SavedQueue.key(next.base.toString(), next.token), record -> {
+            if (version != generation) { superseded.run(); return; }
+            if (record != null) {
+                try {
+                    JSArray queue = new JSArray(record.getJSONArray("tracks").toString());
+                    int index = record.getInt("index");
+                    int repeat = record.getInt("repeat");
+                    String savedRevision = record.getString("revision");
+                    if (index < 0 || index >= queue.length() || repeat < Player.REPEAT_MODE_OFF
+                            || repeat > Player.REPEAT_MODE_ALL) throw new JSONException("Invalid saved cursor");
+                    ArrayList<MediaItem> checked = items(next, queue);
+                    attach(next);
+                    player.pause();
+                    player.setRepeatMode(repeat);
+                    player.setMediaItems(checked, index, Math.max(0, record.getLong("position")));
+                    revision = savedRevision;
+                    // Preparing a paused restoration would fetch audio before the listener presses play.
+                } catch (JSONException | IllegalArgumentException e) {
+                    command("clear", -1, -1);
+                    Log.w("DNPlayback", "The saved queue could not be restored.");
+                }
+            }
+            complete.run();
+        });
+    }
+
+    void afterWrite(Runnable complete) { saved.afterWrite(complete); }
 
     void command(String action, double value, int to) {
         int count = player.getMediaItemCount();
         int item = (int) value;
         if ("clear".equals(action) || ("remove".equals(action) && count == 1 && item == 0)) {
+            generation++;
+            revision = null;
+            queueKey = null;
+            saved.clear();
             reporter.disconnect();
             player.pause();
             player.stop();
@@ -160,6 +257,7 @@ public final class PlaybackService extends MediaSessionService {
             return;
         }
         if (count == 0) return;
+        generation++;
         switch (action) {
             case "cycleRepeat":
                 int repeat = player.getRepeatMode();
@@ -212,6 +310,7 @@ public final class PlaybackService extends MediaSessionService {
             default:
                 throw new IllegalArgumentException("Unknown playback command.");
         }
+        save("move".equals(action) || "remove".equals(action) || "shuffleUpcoming".equals(action));
     }
 
     private boolean showsPauseControl() {
@@ -221,12 +320,17 @@ public final class PlaybackService extends MediaSessionService {
                 && player.getPlayerError() == null && player.getPlaybackState() != Player.STATE_ENDED;
     }
 
-    JSObject snapshot() {
+    private JSArray queueTracks() {
         JSArray tracks = new JSArray();
         for (int i = 0; i < player.getMediaItemCount(); i++) {
             MediaItem item = player.getMediaItemAt(i);
             tracks.put(item.localConfiguration.tag);
         }
+        return tracks;
+    }
+
+    JSObject snapshot() {
+        JSArray tracks = queueTracks();
         int index = tracks.length() == 0 ? -1 : player.getCurrentMediaItemIndex();
         JSONObject track = tracks.optJSONObject(index);
         double duration = player.getDuration() == C.TIME_UNSET
@@ -244,6 +348,10 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        generation++;
+        save(false);
+        queueKey = null;
+        main.removeCallbacks(checkpoint);
         reporter.close();
         access = null;
         session.release();

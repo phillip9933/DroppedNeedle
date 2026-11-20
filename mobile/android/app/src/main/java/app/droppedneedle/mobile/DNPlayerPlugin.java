@@ -7,6 +7,7 @@ import android.content.ServiceConnection;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -53,7 +54,6 @@ public final class DNPlayerPlugin extends Plugin {
                 }
                 try {
                     action.run(service);
-                    call.resolve(service.snapshot());
                 } catch (Exception e) {
                     call.reject("DroppedNeedle could not complete this playback command.");
                 }
@@ -69,15 +69,28 @@ public final class DNPlayerPlugin extends Plugin {
     }
 
     @PluginMethod public void setQueue(PluginCall call) {
-        execute(call, p -> p.setQueue(call.getString("serverUrl"), call.getString("token"),
-                call.getArray("tracks"), call.getInt("index", -1), call.getString("placement")));
+        execute(call, p -> {
+            p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getArray("tracks"),
+                    call.getInt("index", -1), call.getString("placement"));
+            JSObject result = p.snapshot();
+            p.afterWrite(() -> call.resolve(result));
+        });
     }
 
     @PluginMethod public void command(PluginCall call) {
-        execute(call, p -> p.command(call.getString("action", ""), call.getDouble("value", -1d), call.getInt("to", -1)));
+        execute(call, p -> {
+            p.command(call.getString("action", ""), call.getDouble("value", -1d), call.getInt("to", -1));
+            JSObject result = p.snapshot();
+            p.afterWrite(() -> call.resolve(result));
+        });
     }
 
-    @PluginMethod public void getState(PluginCall call) { execute(call, p -> {}); }
+    @PluginMethod public void restore(PluginCall call) {
+        execute(call, p -> p.restore(call.getString("serverUrl"), call.getString("token"),
+                () -> call.resolve(p.snapshot()), () -> call.reject("The playback session changed.")));
+    }
+
+    @PluginMethod public void getState(PluginCall call) { execute(call, p -> call.resolve(p.snapshot())); }
 
     @Override protected void handleOnDestroy() {
         main.post(this::disconnect);
