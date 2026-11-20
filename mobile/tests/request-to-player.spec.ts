@@ -43,6 +43,7 @@ test('the requested edition arrives and both local tracks play in disc order', a
 		}
 		expect(req.headers().authorization).toBe('Bearer ' + session);
 		if (operation === '/me') return json({ display_name: 'Listener', id: 'user', role: 'user' });
+		if (operation === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (operation === '/home') return json({ sections: [] });
 		if (operation === '/library/albums') return json({ items: [], total: 0, next: null });
 		if (operation === '/search')

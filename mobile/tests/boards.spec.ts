@@ -25,7 +25,7 @@ async function fixture(page: Page) {
 		if (path === '/library/artists')
 			return json({ items: [{ id: 'artist', name: 'Southerly', album_count: 1 }], next: null });
 		if (path === '/home' || path === '/discover') return json({ sections: [], refreshing: false });
-		if (path === '/me/section-prefs') return json({ sections: [], pages: [] });
+		if (path === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (path === '/auth/logout') return route.fulfill({ status: 204 });
 		if (path === '/library/genres' || path === '/genres') return json({ items: [], genres: [] });
 		return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });

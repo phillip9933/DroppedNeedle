@@ -24,6 +24,7 @@ test('editing the queue keeps the current entry and repeat all wraps to the visi
 	await page.route(server + '/api/v3/**', async (route) => {
 		const path = new URL(route.request().url()).pathname.slice('/dn/api/v3'.length);
 		const json = (data: unknown) => route.fulfill({ json: data });
+		if (path === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (path === '/home') return json({ sections: [] });
 		if (path === '/auth/providers') return json({ local: true, oidc: false });
 		if (path === '/auth/login') return json({ token: 'queue-fixture' });

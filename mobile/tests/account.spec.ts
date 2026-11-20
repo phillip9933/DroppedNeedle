@@ -11,6 +11,7 @@ test('a listener can edit their DN profile, save visibility and revoke a differe
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/dn/api/v3'.length);
 		const json = (obj: unknown) => route.fulfill({ json: obj });
+		if (p === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (p === '/home') return json({ sections: [] });
 		if (p === '/auth/providers') return json({ local: true, oidc: false });
 		if (p === '/auth/login') return json({ token: 'fixture' });
@@ -87,6 +88,7 @@ test('an administrator can inspect library health and confirm an incremental sca
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/dn/api/v3'.length);
 		const json = (obj: unknown) => route.fulfill({ json: obj });
+		if (p === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (p === '/home') return json({ sections: [] });
 		if (p === '/auth/providers') return json({ local: true, oidc: false });
 		if (p === '/auth/login') return json({ token: 'fixture' });

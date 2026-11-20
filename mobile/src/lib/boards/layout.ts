@@ -5,10 +5,7 @@ import { libraryWidgets } from '../catalog/libraryWidgets';
 export type Board = 'home' | 'library' | 'discover';
 export type Section = { id: string; title: string; preview: boolean };
 export const boardNames = { home: 'Home', library: 'Library', discover: 'Discover' } as const;
-const widgets: readonly { id: string; label: string }[] = [
-	...libraryWidgets,
-	...discoveryWidgets
-];
+const widgets: readonly { id: string; label: string }[] = [...libraryWidgets, ...discoveryWidgets];
 
 export function available(board: Board) {
 	return widgets.filter((w) => board === 'home' || w.id.startsWith(board + '-'));
