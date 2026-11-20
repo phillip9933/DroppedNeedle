@@ -4,8 +4,7 @@ import { cover, path, playerTrack, type Album } from './catalog';
 
 type Schema = components['schemas'];
 export type DiscoverArtistRef = { id: string; name: string; localOnly?: boolean };
-export type DiscoverView =
-	'recommendations' | 'popular' | 'trending' | 'top' | 'following' | 'releases' | 'concerts';
+export type DiscoverView = 'popular' | 'trending' | 'top' | 'following' | 'releases' | 'concerts';
 export type ChartRange = Schema['StatsRange'];
 type Artist = { name: string; target?: DiscoverArtistRef; art?: string };
 export type Shelf = { title: string; albums: Album[]; artists: Artist[]; unlinked: string[] };
@@ -17,7 +16,7 @@ export type DiscoveryPage = {
 	refreshing?: boolean;
 };
 
-function shelf(title: string): Shelf {
+export function createShelf(title: string): Shelf {
 	return { title, albums: [], artists: [], unlinked: [] };
 }
 
@@ -27,14 +26,14 @@ export function artistCover(artist: DiscoverArtistRef) {
 		: path('/api/v3/covers/artist/{artist_id}', { artist_id: artist.id }, { size: 250 });
 }
 
-function addArtist(list: Shelf, row: Schema['ArtistRef']) {
+export function addArtist(list: Shelf, row: Schema['ArtistRef']) {
 	const id = row.musicbrainz_id || row.local_id;
 	const target = id ? { id, name: row.name, localOnly: !row.musicbrainz_id } : undefined;
 	if (list.artists.some((a) => (id ? a.target?.id === id : a.name === row.name))) return;
 	list.artists.push({ name: row.name, target, art: target && artistCover(target) });
 }
 
-function addAlbum(list: Shelf, row: Schema['AlbumRef']) {
+export function addAlbum(list: Shelf, row: Schema['AlbumRef']) {
 	const group = row.musicbrainz_id,
 		localId = row.local_id;
 	if (!group && !localId) {
@@ -53,37 +52,6 @@ function addAlbum(list: Shelf, row: Schema['AlbumRef']) {
 	});
 }
 
-function recommendations(sections: Schema['PageSection'][]) {
-	const shelves: Shelf[] = [];
-	function fromChart(chart: Schema['ChartSection']) {
-		const list = shelf(chart.title);
-		for (const item of chart.items) {
-			if (item.kind === 'album') addAlbum(list, item);
-			if (item.kind === 'artist') addArtist(list, item);
-		}
-		if (list.albums.length || list.artists.length || list.unlinked.length) shelves.push(list);
-	}
-	for (const { content, zone } of sections) {
-		if (content.shape === 'picks') {
-			const list = shelf(content.picks.title);
-			for (const item of content.picks.items) addAlbum(list, item.album);
-			if (list.albums.length || list.unlinked.length) shelves.push(list);
-		} else if (content.shape === 'because') {
-			for (const item of content.entries) fromChart(item.section);
-		} else if (
-			zone === 'made_for_you' ||
-			zone === 'essentials' ||
-			zone === 'because_you_listened' ||
-			zone === 'for_you' ||
-			zone === 'from_your_library'
-		) {
-			if (content.shape === 'shelf') fromChart(content.shelf);
-			if (content.shape === 'shelves') content.shelves.forEach(fromChart);
-		}
-	}
-	return shelves;
-}
-
 export async function discover(
 	session: Session,
 	view: DiscoverView,
@@ -92,15 +60,11 @@ export async function discover(
 ): Promise<DiscoveryPage> {
 	const query = { range, offset, limit: 24 };
 	switch (view) {
-		case 'recommendations': {
-			const result = await getJson<Schema['DiscoverResponse']>(session, path('/api/v3/discover'));
-			return { shelves: recommendations(result.sections), refreshing: result.refreshing };
-		}
 		case 'top':
 		case 'popular': {
 			const url = view === 'top' ? '/api/v3/home/your-top/albums' : '/api/v3/home/popular/albums';
 			const result = await getJson<Schema['ChartPage_AlbumRef']>(session, path(url, {}, query));
-			const list = shelf('');
+			const list = createShelf('');
 			result.items.forEach((row) => addAlbum(list, row));
 			return {
 				shelves: [list],
@@ -112,7 +76,7 @@ export async function discover(
 				session,
 				path('/api/v3/home/trending/artists', {}, query)
 			);
-			const list = shelf('');
+			const list = createShelf('');
 			result.items.forEach((row) => addArtist(list, row));
 			return {
 				shelves: [list],
@@ -124,7 +88,7 @@ export async function discover(
 				session,
 				path('/api/v3/following/artists')
 			);
-			const list = shelf('');
+			const list = createShelf('');
 			result.artists.forEach((a) =>
 				addArtist(list, { name: a.name, musicbrainz_id: a.artist_mbid, in_library: false })
 			);
@@ -139,7 +103,7 @@ export async function discover(
 					{ days: 90, include_owned: 'true', limit: 100 }
 				)
 			);
-			const list = shelf('');
+			const list = createShelf('');
 			result.items.forEach((r) =>
 				addAlbum(list, {
 					musicbrainz_id: r.release_group_mbid,
@@ -200,7 +164,7 @@ export async function artistReleases(
 			{ offset, limit: 24 }
 		)
 	);
-	const list = shelf('');
+	const list = createShelf('');
 	for (const r of [...result.albums, ...result.eps, ...result.singles]) {
 		if (r.title)
 			addAlbum(list, {
@@ -234,14 +198,6 @@ export function follow(session: Session, artist: string, followed: boolean) {
 	);
 }
 
-export async function genreNames(session: Session) {
-	const result = await getJson<Schema['HomeResponse']>(session, path('/api/v3/home'));
-	const content = result.sections.find((s) => s.key === 'genre_list')?.content;
-	return content?.shape === 'shelf'
-		? [...new Set(content.shelf.items.flatMap((i) => (i.kind === 'genre' ? [i.name] : [])))]
-		: [];
-}
-
 export async function browseGenre(session: Session, name: string, offset: number) {
 	const limit = 24;
 	const result = await getJson<Schema['GenreDetailResponse']>(
@@ -257,7 +213,7 @@ export async function browseGenre(session: Session, name: string, offset: number
 		rows: Schema['GenrePopularSection'] | Schema['GenreLibrarySection'],
 		title: string
 	) {
-		const list = shelf(title);
+		const list = createShelf(title);
 		rows.albums.forEach((a) => addAlbum(list, a));
 		rows.artists.forEach((a) => addArtist(list, a));
 		if (rows.albums.length || rows.artists.length) lists.push(list);
@@ -290,7 +246,7 @@ export async function artistChart(
 			session,
 			path('/api/v3/artists/{artist_mbid}/top-albums', params, query)
 		);
-		const list = shelf('');
+		const list = createShelf('');
 		page.albums.forEach((a) => addAlbum(list, a));
 		return { list, notice: chartNotice(page) };
 	}

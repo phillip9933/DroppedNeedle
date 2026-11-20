@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import { errorMessage, type Album, type OnPlay } from './catalog';
-	import { genreNames, browseGenre, type DiscoverArtistRef } from './discovery';
+	import { browseGenre, type DiscoverArtistRef } from './discovery';
 	import LibraryRadio from './LibraryRadio.svelte';
 	import DiscoverShelf from './DiscoverShelf.svelte';
 	let {
@@ -10,20 +10,21 @@
 		onopen,
 		onartist,
 		onplay,
+		names,
 		active
 	}: {
 		session: Session;
 		onopen: (a: Album) => void;
 		onartist: (a: DiscoverArtistRef) => void;
 		onplay: OnPlay;
+		names: string[];
 		active: boolean;
 	} = $props();
 	let name = $state(''),
 		term = $state(''),
 		offset = $state(0),
 		retry = $state(0);
-	let genreList = $state<string[]>([]),
-		result = $state<Awaited<ReturnType<typeof browseGenre>> | null>(null),
+	let result = $state<Awaited<ReturnType<typeof browseGenre>> | null>(null),
 		error = $state(''),
 		busy = $state(true);
 	function choose(genre: string) {
@@ -46,14 +47,14 @@
 		busy = true;
 		error = '';
 		result = null;
-		const load = genre
-			? browseGenre(account, genre, start).then((data) => {
-					if (current) result = data;
-				})
-			: genreNames(account).then((data) => {
-					if (current) genreList = data;
-				});
-		load
+		if (!genre) {
+			busy = false;
+			return;
+		}
+		browseGenre(account, genre, start)
+			.then((data) => {
+				if (current) result = data;
+			})
 			.catch((cause) => {
 				if (current) error = errorMessage(cause);
 			})
@@ -65,8 +66,8 @@
 		};
 	});
 	onMount(() => {
-		window.addEventListener('dn-back', back);
-		return () => window.removeEventListener('dn-back', back);
+		window.addEventListener('dn-back', back, true);
+		return () => window.removeEventListener('dn-back', back, true);
 	});
 </script>
 
@@ -91,7 +92,7 @@
 			/><button class="secondary" disabled={!term.trim()}>Browse genre</button>
 		</form>
 		<div class="genres">
-			{#each genreList.filter((g) => g
+			{#each names.filter((g) => g
 					.toLowerCase()
 					.includes(term.trim().toLowerCase())) as g (g)}<button
 					class="secondary"
