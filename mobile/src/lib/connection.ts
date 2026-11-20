@@ -79,9 +79,11 @@ async function request<T>(
 		method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 		body?: unknown;
 		artwork?: boolean;
+		signal?: AbortSignal;
 	} = {}
 ): Promise<T> {
-	const { session, method = 'GET', body, artwork } = options;
+	const { session, method = 'GET', body, artwork, signal } = options;
+	signal?.throwIfAborted();
 	const url = apiAddress(server, path);
 	const headers: Record<string, string> = { Accept: artwork ? 'image/*' : 'application/json' };
 	if (session) headers.Authorization = 'Bearer ' + session.token;
@@ -100,6 +102,7 @@ async function request<T>(
 			connectTimeout: 10_000,
 			readTimeout: 30_000
 		});
+		signal?.throwIfAborted();
 		status = result.status;
 		data = result.data;
 		contentType =
@@ -112,7 +115,9 @@ async function request<T>(
 			credentials: 'omit',
 			redirect: 'error',
 			cache: 'no-store',
-			signal: AbortSignal.timeout(30_000)
+			signal: signal
+				? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+				: AbortSignal.timeout(30_000)
 		});
 		status = response.status;
 		contentType = response.headers.get('content-type') ?? '';
@@ -155,8 +160,8 @@ async function request<T>(
 	return data as T;
 }
 
-export function getJson<T>(session: Session, path: string): Promise<T> {
-	return request(session.serverUrl, path, { session });
+export function getJson<T>(session: Session, path: string, signal?: AbortSignal): Promise<T> {
+	return request(session.serverUrl, path, { session, signal });
 }
 export function postJson<T>(session: Session, path: string, body?: unknown): Promise<T> {
 	return request(session.serverUrl, path, { session, method: 'POST', body });

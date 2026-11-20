@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { untrack, onMount } from 'svelte';
-	import { Heart } from '@lucide/svelte';
+	import { Heart, Play, Shuffle } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
 	import { path, localAlbum, localSong, errorMessage, type Album, type OnPlay } from './catalog';
 	import Albums from './Albums.svelte';
+	import { prepareLibraryQueue } from './libraryQueue';
 	import TrackList from './TrackList.svelte';
 	type Schema = components['schemas'];
 	type Artist = Pick<Schema['ArtistView'], 'id' | 'name'>;
@@ -12,6 +13,8 @@
 		session,
 		kind,
 		artist,
+		active = true,
+		artistAppearances = false,
 		preview = false,
 		recent = false,
 		onopen,
@@ -21,6 +24,8 @@
 		session: Session;
 		kind: 'albums' | 'artists' | 'songs';
 		artist?: Artist;
+		artistAppearances?: boolean;
+		active?: boolean;
 		preview?: boolean;
 		recent?: boolean;
 		onopen: (a: Album) => void;
@@ -103,7 +108,12 @@
 					.filter((a) => !favorites || a.favorite);
 		};
 		window.addEventListener('dnfavoritechange', changed);
-		return () => window.removeEventListener('dnfavoritechange', changed);
+		window.addEventListener('dn-playback-intent', cancelPreparation);
+		return () => {
+			window.removeEventListener('dnfavoritechange', changed);
+			window.removeEventListener('dn-playback-intent', cancelPreparation);
+			cancelPreparation();
+		};
 	});
 	const sorts = {
 		albums: [
@@ -124,25 +134,68 @@
 			['date_added', 'Recently added']
 		]
 	};
-	async function load(cursor: string | null, version: number) {
-		busy = true;
-		error = '';
+	const listFilters = $derived.by(() => {
 		const by = recent ? 'date_added' : sort || sorts[kind][0][0];
-		const limit = preview ? (kind === 'albums' ? 6 : 3) : 30;
-		const params = {
-			limit,
-			after: cursor ?? undefined,
+		return {
 			sort: by,
 			order: ['album_count', 'date_added', 'year'].includes(by) ? 'desc' : 'asc',
 			q: query.trim() || undefined,
 			favorites: favorites ? 'true' : undefined,
+			artist_id: kind === 'songs' ? artist?.id : undefined,
 			...advanced
 		};
+	});
+	const noun = $derived(artistAppearances ? 'appearances' : kind);
+	let preparation: AbortController | null = null;
+	let progress = $state(''),
+		queueError = $state('');
+	function cancelPreparation() {
+		preparation?.abort();
+		preparation = null;
+		progress = '';
+	}
+	$effect(() => {
+		void active;
+		void session;
+		void listFilters;
+		queueError = '';
+		return cancelPreparation;
+	});
+	async function playAll(shuffle: boolean) {
+		cancelPreparation();
+		queueError = '';
+		if (!active) return;
+		const controller = new AbortController();
+		preparation = controller;
+		progress = 'Preparing queue…';
+		try {
+			const filters = shuffle ? { ...listFilters, sort: 'random', order: 'asc' } : listFilters;
+			const tracks = await prepareLibraryQueue(session, filters, controller.signal, (n, total) => {
+				progress = 'Preparing ' + n.toLocaleString() + ' of ' + total.toLocaleString() + ' tracks…';
+			});
+			if (controller.signal.aborted || !active) return;
+			preparation = null;
+			progress = '';
+			await onplay(tracks, 0);
+		} catch (e) {
+			if (!controller.signal.aborted) queueError = errorMessage(e);
+		} finally {
+			if (preparation === controller) cancelPreparation();
+		}
+	}
+	async function load(cursor: string | null, version: number) {
+		busy = true;
+		error = '';
+		const limit = preview ? (kind === 'albums' ? 6 : 3) : 30;
+		const params = { ...listFilters, limit, after: cursor ?? undefined };
+
 		try {
 			if (kind === 'albums') {
 				const url = artist
 					? path(
-							'/api/v3/library/artists/{id}/albums',
+							artistAppearances
+								? '/api/v3/library/artists/{id}/appearances'
+								: '/api/v3/library/artists/{id}/albums',
 							{ id: artist.id },
 							{ limit, after: cursor ?? undefined }
 						)
@@ -189,6 +242,7 @@
 		void kind;
 		void preview;
 		void recent;
+		void artistAppearances;
 		void advanced;
 		const version = ++generation;
 		albums = [];
@@ -205,7 +259,7 @@
 	});
 </script>
 
-{#if !artist && !preview}
+{#if (!artist || kind === 'songs') && !preview}
 	<div class="filters">
 		<input
 			type="search"
@@ -286,6 +340,21 @@
 		</details>
 	{/if}
 {/if}
+{#if kind === 'songs' && !preview}
+	<div class="collection-actions">
+		{#if progress}<p role="status">{progress}</p>
+			<button class="secondary" onclick={cancelPreparation}>Cancel preparation</button>
+		{:else}
+			<button class="secondary" disabled={!songs.length || busy} onclick={() => playAll(false)}
+				><Play size={16} aria-hidden="true" />Play all</button
+			>
+			<button class="secondary" disabled={!songs.length || busy} onclick={() => playAll(true)}
+				><Shuffle size={16} aria-hidden="true" />Shuffle all</button
+			>
+		{/if}
+	</div>
+	{#if queueError}<p role="alert">{queueError}</p>{/if}
+{/if}
 {#if albums.length}<Albums {session} {albums} {onopen} strip={preview} />{/if}
 {#if artists.length}<div class="artists">
 		{#each artists as a (a.id)}<button onclick={() => onartist(a)}
@@ -297,12 +366,12 @@
 {#if songs.length}<TrackList {session} tracks={songs} {onplay} />{/if}
 {#if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => load(next, generation)}>Try again</button>
-{:else if busy}<p role="status">Loading {kind}…</p>
+{:else if busy}<p role="status">Loading {noun}…</p>
 {:else if next && !preview}<button class="secondary more" onclick={() => load(next, generation)}
-		>More {kind}</button
+		>More {noun}</button
 	>
 {:else if !albums.length && !songs.length && !artists.length}<p>
-		No {kind}
+		No {noun}
 		{rating || formats.length || query
 			? 'match your filters'
 			: favorites
@@ -311,6 +380,16 @@
 	</p>{/if}
 
 <style>
+	.collection-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: var(--gap);
+	}
+	.collection-actions p {
+		margin: 0;
+	}
 	.filters {
 		display: flex;
 		align-items: center;

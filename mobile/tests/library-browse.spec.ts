@@ -30,7 +30,9 @@ test('browse a library artist, open their album and keep a favorite across views
 			});
 		if (path === '/library/artists')
 			return json({
-				items: [{ id: 'artist-one', name: 'Night Train', album_count: 1, track_count: 1 }],
+				items: [
+					{ id: 'artist-one', name: 'Night Train', album_count: 1, track_count: 1, favorite: false }
+				],
 				next: null
 			});
 		if (path === '/library/artists/artist-one/albums') return json({ items: [album], next: null });
