@@ -17,7 +17,11 @@ export interface PlayerAccess {
 	token: string;
 }
 
+export type QueuePlacement = 'next' | 'end';
+export type RepeatMode = 'off' | 'all' | 'one';
+
 export interface PlayerState {
+	repeat: RepeatMode;
 	tracks: PlayerTrack[];
 	index: number;
 	playing: boolean;
@@ -26,14 +30,27 @@ export interface PlayerState {
 	error: string | null;
 }
 
-export type PlayerAction = 'toggle' | 'seek' | 'skipTo' | 'next' | 'previous' | 'clear';
+export type PlayerAction =
+	| 'toggle'
+	| 'seek'
+	| 'skipTo'
+	| 'next'
+	| 'previous'
+	| 'clear'
+	| 'move'
+	| 'remove'
+	| 'shuffleUpcoming'
+	| 'cycleRepeat';
 export interface PlaybackBridge {
-	setQueue(options: PlayerAccess & { tracks: PlayerTrack[]; index: number }): Promise<PlayerState>;
-	command(options: { action: PlayerAction; value?: number }): Promise<PlayerState>;
+	setQueue(
+		options: PlayerAccess & { tracks: PlayerTrack[]; index: number; placement?: QueuePlacement }
+	): Promise<PlayerState>;
+	command(options: { action: PlayerAction; value?: number; to?: number }): Promise<PlayerState>;
 	getState(): Promise<PlayerState>;
 }
 
 const empty: PlayerState = {
+	repeat: 'off',
 	tracks: [],
 	index: -1,
 	playing: false,
@@ -82,8 +99,8 @@ async function refresh() {
 	}
 }
 
-function command(action: PlayerAction, value?: number) {
-	return update(() => backend.command({ action, value }));
+function command(action: PlayerAction, value?: number, to?: number) {
+	return update(() => backend.command({ action, value, to }));
 }
 
 function mediaUrl(base: URL, address: string, prefix: string) {
@@ -99,30 +116,44 @@ function mediaUrl(base: URL, address: string, prefix: string) {
 	return url.href;
 }
 
+async function submitTracks(
+	tracks: PlayerTrack[],
+	index: number,
+	access: PlayerAccess,
+	placement?: QueuePlacement
+) {
+	if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
+		throw new Error('Choose a track to play.');
+	const base = new URL(access.serverUrl);
+	if (
+		base.protocol !== 'https:' ||
+		!access.token ||
+		base.username ||
+		base.password ||
+		base.search ||
+		base.hash
+	) {
+		throw new Error('Playback requires a secure DroppedNeedle connection.');
+	}
+	base.pathname = base.pathname.replace(/\/?$/, '/');
+	const queue = tracks.map((track) => ({
+		...track,
+		streamUrl: mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'),
+		artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
+	}));
+	return update(() => backend.setQueue({ ...access, tracks: queue, index, placement }));
+}
+
 export const player = {
 	subscribe: state.subscribe,
-	async setQueue(tracks: PlayerTrack[], index: number, access: PlayerAccess) {
-		if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
-			throw new Error('Choose a track to play.');
-		const base = new URL(access.serverUrl);
-		if (
-			base.protocol !== 'https:' ||
-			!access.token ||
-			base.username ||
-			base.password ||
-			base.search ||
-			base.hash
-		) {
-			throw new Error('Playback requires a secure DroppedNeedle connection.');
-		}
-		base.pathname = base.pathname.replace(/\/?$/, '/');
-		const queue = tracks.map((track) => ({
-			...track,
-			streamUrl: mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'),
-			artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
-		}));
-		return update(() => backend.setQueue({ ...access, tracks: queue, index }));
-	},
+	setQueue: (tracks: PlayerTrack[], index: number, access: PlayerAccess) =>
+		submitTracks(tracks, index, access),
+	enqueue: (tracks: PlayerTrack[], access: PlayerAccess, placement: QueuePlacement = 'end') =>
+		submitTracks(tracks, 0, access, placement),
+	move: (from: number, to: number) => command('move', from, to),
+	remove: (index: number) => command('remove', index),
+	shuffleUpcoming: () => command('shuffleUpcoming'),
+	cycleRepeat: () => command('cycleRepeat'),
 	toggle: () => command('toggle'),
 	seek: (seconds: number) => command('seek', seconds),
 	skipTo: (index: number) => command('skipTo', index),

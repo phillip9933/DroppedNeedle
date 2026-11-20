@@ -19,11 +19,19 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private let player = AVQueuePlayer()
-    private var queue: [[String: Any]] = []
-    private var urls: [URL] = []
+    private struct Track {
+        let key = UUID()
+        let data: [String: Any]
+        let url: URL
+    }
+    private enum RepeatMode: String { case off, all, one }
+    private var repeatMode: RepeatMode = .off
+    private var queue: [Track] = []
+    private var serverAddress = ""
+    private weak var observedItem: AVPlayerItem?
     private var token = ""
     private var index = -1
-    private var streams: [ObjectIdentifier: (index: Int, stream: LibraryStream)] = [:]
+    private var streams: [ObjectIdentifier: (key: UUID, stream: LibraryStream)] = [:]
     private var observations: [NSKeyValueObservation] = []
     private var itemStatus: NSKeyValueObservation?
     private var listeners: [NSObjectProtocol] = []
@@ -83,7 +91,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         bind(remote.playCommand) { p, _ in try p.resume() }
         bind(remote.pauseCommand) { p, _ in p.pause() }
         bind(remote.togglePlayPauseCommand) { p, _ in try p.toggle() }
-        bind(remote.nextTrackCommand) { p, _ in try p.move(to: p.index + 1) }
+        bind(remote.nextTrackCommand) { p, _ in try p.next() }
         bind(remote.previousTrackCommand) { p, _ in try p.previous() }
         bind(remote.changePlaybackPositionCommand) { p, event in
             if let position = event as? MPChangePlaybackPositionCommandEvent { p.seek(position.positionTime) }
@@ -119,22 +127,21 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         error = nil
     }
 
-    private func move(to position: Int) throws {
+    private func move(to position: Int, play: Bool = true) throws {
         guard queue.indices.contains(position) else { return }
-        try activateAudio()
+        if play { try activateAudio() }
         clearItems()
         index = position
         append(position)
-        if queue.indices.contains(position + 1) { append(position + 1) }
         updateCurrentItem()
-        wantsPlayback = true
-        player.play()
+        wantsPlayback = play
+        if play { player.play() }
     }
 
     private func append(_ index: Int) {
-        let stream = LibraryStream(url: urls[index], token: token)
+        let stream = LibraryStream(url: queue[index].url, token: token)
         let item = AVPlayerItem(asset: stream.asset)
-        streams[ObjectIdentifier(item)] = (index, stream)
+        streams[ObjectIdentifier(item)] = (queue[index].key, stream)
         player.insert(item, after: player.items().last)
     }
 
@@ -143,15 +150,16 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         for key in Array(streams.keys) where !retained.contains(key) {
             streams.removeValue(forKey: key)?.stream.close()
         }
-        guard let item = player.currentItem, let entry = streams[ObjectIdentifier(item)] else {
+        guard let item = player.currentItem, let entry = streams[ObjectIdentifier(item)],
+              let activeIndex = queue.firstIndex(where: { $0.key == entry.key }) else {
             wantsPlayback = false
             interrupted = false
             publishNowPlaying()
             return
         }
-        let changed = index != entry.index || itemStatus == nil
-        index = entry.index
-        if changed {
+        index = activeIndex
+        if observedItem !== item {
+            observedItem = item
             error = nil
             itemStatus = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
                 DispatchQueue.main.async {
@@ -165,21 +173,27 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             loadArtwork()
         }
-        if player.items().count == 1, queue.indices.contains(index + 1) { append(index + 1) }
+        let following = nextIndex(automatic: true)
+        if let prepared = player.items().dropFirst().first,
+           following.map({ queue[$0].key }) != streams[ObjectIdentifier(prepared)]?.key {
+            player.remove(prepared)
+            streams.removeValue(forKey: ObjectIdentifier(prepared))?.stream.close()
+        }
+        if player.items().count == 1, let following { append(following) }
         publishNowPlaying()
     }
 
     private func loadArtwork() {
         artworkTask?.cancel()
         artwork = nil
-        guard let path = queue[index]["artworkUrl"] as? String, let url = URL(string: path) else { return }
-        let track = index
+        guard let path = queue[index].data["artworkUrl"] as? String, let url = URL(string: path) else { return }
+        let key = queue[index].key
         let credential = token
         var request = URLRequest(url: url)
         request.setValue("Bearer " + credential, forHTTPHeaderField: "Authorization")
         artworkTask = artworkSession.dataTask(with: request) { [weak self] data, response, _ in
-            guard let self, self.index == track, self.token == credential, self.queue.indices.contains(track),
-                  self.queue[track]["artworkUrl"] as? String == path,
+            guard let self, self.token == credential, self.queue.indices.contains(self.index),
+                  self.queue[self.index].key == key,
                   let http = response as? HTTPURLResponse, http.statusCode == 200,
                   let data, let image = UIImage(data: data) else { return }
             self.artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
@@ -195,15 +209,15 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var duration: Double {
         if let seconds = player.currentItem?.duration.seconds, seconds.isFinite { return seconds }
-        return queue.indices.contains(index) ? queue[index]["duration"] as? Double ?? 0 : 0
+        return queue.indices.contains(index) ? queue[index].data["duration"] as? Double ?? 0 : 0
     }
 
     private func publishNowPlaying() {
         let remote = MPRemoteCommandCenter.shared()
-        remote.nextTrackCommand.isEnabled = queue.indices.contains(index + 1)
+        remote.nextTrackCommand.isEnabled = nextIndex(automatic: false) != nil
         remote.previousTrackCommand.isEnabled = queue.indices.contains(index)
         guard queue.indices.contains(index) else { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; return }
-        let track = queue[index]
+        let track = queue[index].data
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track["title"] as? String ?? "",
             MPMediaItemPropertyArtist: track["artist"] as? String ?? "",
@@ -237,8 +251,58 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         if player.timeControlStatus == .paused { try resume() } else { pause() }
     }
 
+    private func nextIndex(automatic: Bool) -> Int? {
+        guard queue.indices.contains(index) else { return nil }
+        if automatic && repeatMode == .one { return index }
+        if queue.indices.contains(index + 1) { return index + 1 }
+        return repeatMode == .all ? 0 : nil
+    }
+
+    private func next() throws {
+        if let target = nextIndex(automatic: false) { try move(to: target) }
+    }
+
     private func previous() throws {
-        if position > 3 || index <= 0 { seek(0) } else { try move(to: index - 1) }
+        if position > 3 { seek(0) }
+        else if index > 0 { try move(to: index - 1) }
+        else if repeatMode == .all { try move(to: queue.count - 1) }
+        else { seek(0) }
+    }
+
+    private func clearQueue() {
+        clearItems()
+        queue = []
+        token = ""
+        serverAddress = ""
+        repeatMode = .off
+        index = -1
+        publishNowPlaying()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func edit(_ action: String, from: Int, to: Int) throws {
+        guard queue.indices.contains(index) else { return }
+        let current = queue[index].key
+        switch action {
+        case "cycleRepeat": repeatMode = repeatMode == .off ? .all : repeatMode == .all ? .one : .off
+        case "shuffleUpcoming":
+            queue[(index + 1)...].shuffle()
+        case "move":
+            guard queue.indices.contains(from), queue.indices.contains(to) else { return }
+            let track = queue.remove(at: from)
+            queue.insert(track, at: to)
+        case "remove":
+            guard queue.indices.contains(from) else { return }
+            queue.remove(at: from)
+            if queue.isEmpty { clearQueue(); return }
+            if from == index {
+                try move(to: min(from, queue.count - 1), play: wantsPlayback)
+                return
+            }
+        default: return
+        }
+        if let kept = queue.firstIndex(where: { $0.key == current }) { index = kept }
+        updateCurrentItem()
     }
 
     private func seek(_ value: Double) {
@@ -253,7 +317,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func snapshot() -> [String: Any] {
-        return ["tracks": queue, "index": index, "playing": player.timeControlStatus != .paused,
+        return ["tracks": queue.map(\.data), "repeat": repeatMode.rawValue, "index": index, "playing": player.timeControlStatus != .paused,
                 "position": position, "duration": duration, "error": error as Any? ?? NSNull()]
     }
 
@@ -274,7 +338,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
                       url.user == nil, url.password == nil, url.standardized.path.hasPrefix(api + prefix) else { return nil }
                 return url
             }
-            var checked: [URL] = []
+            var checked: [Track] = []
             for track in tracks {
                 guard let stream = allowed(track["streamUrl"] as? String, prefix: "stream/local/") else {
                     call.reject("Invalid DroppedNeedle stream.")
@@ -284,14 +348,25 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
                     call.reject("Invalid DroppedNeedle artwork.")
                     return
                 }
-                checked.append(stream)
+                checked.append(Track(data: track, url: stream))
             }
             do {
-                try self.activateAudio()
-                self.queue = tracks
-                self.urls = checked
-                self.token = token
-                try self.move(to: index)
+                if let placement = call.getString("placement"), !self.queue.isEmpty {
+                    guard self.token == token, self.serverAddress == address else {
+                        call.reject("This queue belongs to a different session.")
+                        return
+                    }
+                    self.updateCurrentItem()
+                    let target = placement == "next" ? self.index + 1 : self.queue.count
+                    self.queue.insert(contentsOf: checked, at: target)
+                    self.updateCurrentItem()
+                } else {
+                    try self.activateAudio()
+                    self.queue = checked
+                    self.token = token
+                    self.serverAddress = address
+                    try self.move(to: index)
+                }
                 call.resolve(self.snapshot())
             } catch { call.reject("Audio playback is unavailable.") }
         }
@@ -300,18 +375,15 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func command(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             do {
-                switch call.getString("action") {
-                case "clear":
-                    self.clearItems()
-                    self.queue = []
-                    self.urls = []
-                    self.token = ""
-                    self.index = -1
-                    self.publishNowPlaying()
-                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                let action = call.getString("action") ?? ""
+                self.updateCurrentItem()
+                switch action {
+                case "clear": self.clearQueue()
+                case "cycleRepeat", "shuffleUpcoming", "move", "remove":
+                    try self.edit(action, from: call.getInt("value") ?? -1, to: call.getInt("to") ?? -1)
                 case "toggle": try self.toggle()
                 case "previous": try self.previous()
-                case "next": try self.move(to: self.index + 1)
+                case "next": try self.next()
                 case "skipTo": try self.move(to: call.getInt("value") ?? -1)
                 case "seek": self.seek(call.getDouble("value") ?? 0)
                 default: call.reject("Unknown playback command."); return
