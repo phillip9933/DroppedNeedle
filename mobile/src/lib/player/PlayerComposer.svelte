@@ -15,6 +15,7 @@
 	import PlayerView from '../PlayerView.svelte';
 	import { sampleSession } from './samplePlayer';
 	import PlayerStyleTransfer from './PlayerStyleTransfer.svelte';
+	import type { PlayerDraft } from './playerDraft';
 	import PlayerSlotPicker from './PlayerSlotPicker.svelte';
 	import PlayerCellAppearance from './PlayerCellAppearance.svelte';
 	import PlayerRowInspector from './PlayerRowInspector.svelte';
@@ -42,17 +43,20 @@
 	} from './composition';
 
 	let {
-		sections,
+		recovery,
 		menuToggle,
 		onback,
 		onsave
 	}: {
-		sections: Section[];
+		recovery: PlayerDraft;
 		menuToggle: Snippet;
 		onback: () => void;
 		onsave: (sections: Section[]) => void;
 	} = $props();
-	let rows = $state<Section[][]>(untrack(() => playerCanvas(sections.map((s) => ({ ...s })))));
+	const initial = untrack(() => recovery.initial);
+	let rows = $state<Section[][]>(playerCanvas(initial.map((section) => ({ ...section }))));
+	let recoveryIssue = $state('');
+	let leaving = $state(false);
 	let selected = $state(''),
 		rowAnchor = $state(''),
 		error = $state(''),
@@ -61,7 +65,7 @@
 		placementOpen = $state(false);
 	let list: HTMLDivElement;
 	let hidden = $state<Section[]>(
-		untrack(() => sections.filter((s) => s.placement === 'hidden').map((s) => ({ ...s })))
+		initial.filter((s) => s.placement === 'hidden').map((s) => ({ ...s }))
 	);
 	let draft = $derived(packPlayerCanvas(rows, hidden));
 	const historyLimit = 31;
@@ -69,6 +73,16 @@
 	let cursor = $state(-1),
 		resizing = $state(false);
 	let typingIn: Element | null = null;
+	$effect(() => {
+		if (resizing || leaving) return;
+		let active = true;
+		void recovery.remember(draft).then((issue) => {
+			if (active) recoveryIssue = issue;
+		});
+		return () => {
+			active = false;
+		};
+	});
 	function resetEditGroup() {
 		typingIn = null;
 	}
@@ -426,6 +440,9 @@
 			} else if (selected || editingRow >= 0) {
 				event.preventDefault();
 				finishInspector();
+			} else {
+				event.preventDefault();
+				void cancel();
 			}
 		}
 		window.addEventListener('dn-back', back);
@@ -638,10 +655,28 @@
 		input.setSelectionRange(start + text.length, start + text.length);
 	}
 	function save() {
+		if (leaving) return;
+		leaving = true;
 		try {
 			onsave(draft);
 		} catch {
+			leaving = false;
 			error = 'Could not save this layout on the device. Your edits are still here.';
+			return;
+		}
+		// A later open validates its draft against the layout that was just saved.
+		void recovery.clear().catch(() => {});
+		onback();
+	}
+	async function cancel() {
+		if (leaving) return;
+		leaving = true;
+		try {
+			await recovery.clear();
+			onback();
+		} catch {
+			leaving = false;
+			error = 'Could not discard the recovery copy. Try Cancel again.';
 		}
 	}
 	function loadDraft(items: Section[], message: string) {
@@ -656,11 +691,12 @@
 	class="composer"
 	data-part="layout-editor"
 	hidden={previewOpen}
+	inert={leaving}
 	onfocusout={resetEditGroup}
 	onpointerdowncapture={resetEditGroup}
 >
 	<div class="bar">
-		<button class="text-button" onclick={onback}>Cancel</button>
+		<button class="text-button" onclick={cancel}>Cancel</button>
 		{#if selected || editingRow >= 0}<button
 				class="text-button inspector-done"
 				onclick={finishInspector}
@@ -699,6 +735,8 @@
 		{/if}
 	</div>
 	{#if error}<p role="alert">{error}</p>{/if}
+	{#if recoveryIssue}<p role="status">{recoveryIssue}</p>
+	{:else if recovery.recovered}<p class="hint" role="status">Recovered your unsaved layout.</p>{/if}
 	<p class="sr-only" role="status">{status}</p>
 	<p class="hint">
 		Drag the handles to move rows or features. Tap a feature to edit it, or an empty column to add

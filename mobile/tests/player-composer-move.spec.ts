@@ -57,6 +57,7 @@ async function startComposer(page: Page, seed: ([string, boolean] | Section)[]) 
 	await button('Sign in').click();
 	await button('Settings').click();
 	await button('Edit Now Playing layout').click();
+	await expect(button('Edit header')).toBeVisible();
 	return { key, button };
 }
 
