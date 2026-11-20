@@ -61,13 +61,15 @@
 	.item {
 		min-width: 0;
 		display: flex;
+		flex-wrap: wrap;
+		container: preview-item / inline-size;
 		align-items: center;
 		gap: 0.25rem;
 		border-bottom: 1px solid var(--line);
 	}
 	.body {
 		min-width: 0;
-		width: 100%;
+		flex: 1 1 7rem;
 		min-height: var(--preview-height);
 		padding: var(--preview-padding) 0;
 		display: flex;
@@ -78,7 +80,7 @@
 	}
 	.art {
 		display: block;
-		width: calc(var(--preview-art) * var(--preview-art-scale));
+		width: var(--preview-art);
 		flex-shrink: 0;
 	}
 	.text {
@@ -105,6 +107,7 @@
 		border: 0;
 		align-items: stretch;
 		flex-direction: column;
+		flex-wrap: nowrap;
 		justify-content: flex-start;
 	}
 	:global([data-preview='grid']) .body {
@@ -123,5 +126,13 @@
 	}
 	:global([data-preview='grid']) .actions > :global(.icon-button) {
 		align-self: flex-end;
+	}
+	@container preview-item (max-width: 6.5rem) {
+		:global([data-preview='list']) .art {
+			display: none;
+		}
+		:global([data-preview='list']) .body {
+			flex-basis: 100%;
+		}
 	}
 </style>

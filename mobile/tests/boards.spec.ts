@@ -148,7 +148,7 @@ test('an empty layout remains editable and Discover selections can be shared wit
 	await expect(button(page, 'Browse Recently added')).toBeVisible();
 });
 
-test('Top picks and library entries render inline with per-screen rows, sizing and density', async ({
+test('Top picks and library entries honor the chosen columns and density on a 320px phone', async ({
 	page
 }) => {
 	await page.setViewportSize({ width: 1100, height: 800 });
@@ -217,16 +217,15 @@ test('Top picks and library entries render inline with per-screen rows, sizing a
 	await edit(page, 'Home');
 	await button(page, 'Customize Top picks for you').click();
 	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
-	await page.getByRole('combobox', { name: 'Maximum columns', exact: true }).selectOption('3');
+	await page.getByRole('combobox', { name: 'Columns', exact: true }).selectOption('6');
 	await page.getByRole('combobox', { name: 'Preview rows', exact: true }).selectOption('2');
-	await page.getByRole('combobox', { name: 'Column size', exact: true }).selectOption('small');
+	await expect(page.getByRole('combobox', { name: 'Column size', exact: true })).toHaveCount(0);
 	await page.getByRole('combobox', { name: 'Row density', exact: true }).selectOption('compact');
 	await save(page);
 	await homePicks.scrollIntoViewIfNeeded();
 	const tiles = homePicks.locator('[data-preview-item]');
-	await expect(tiles).toHaveCount(6);
+	await expect(tiles).toHaveCount(12);
 	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-density', 'compact');
-	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-column-size', 'small');
 	await button(page, 'Browse Top picks for you').click();
 	const expanded = page.locator('[data-collection="expanded"]:visible');
 	await expect(expanded).toHaveAttribute('data-preview', 'grid');
@@ -237,24 +236,31 @@ test('Top picks and library entries render inline with per-screen rows, sizing a
 	await expect(page.getByRole('heading', { name: 'Album 1', exact: true })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await page.setViewportSize({ width: 320, height: 640 });
-	await expect.poll(async () => await tiles.count()).toBeLessThanOrEqual(6);
+	await expect(tiles).toHaveCount(12);
 	const layout = await homePicks.locator('.preview-items').evaluate((el) => {
 		const cols = getComputedStyle(el).gridTemplateColumns.split(' ').length;
 		return {
 			cols,
-			rows: Math.ceil(el.children.length / cols),
+			rows: new Set([...el.children].map((cell) => cell.getBoundingClientRect().top)).size,
+			minWidth: Math.min(...[...el.children].map((cell) => cell.getBoundingClientRect().width)),
+			gap: getComputedStyle(el).rowGap,
 			fits: el.scrollWidth <= el.clientWidth + 1
 		};
 	});
+	expect(layout.cols).toBe(6);
 	expect(layout.rows).toBe(2);
+	expect(layout.minWidth).toBeGreaterThanOrEqual(44);
+	expect(layout.gap).toBe('6px');
 	expect(layout.fits).toBe(true);
 	await edit(page, 'Home');
 	await button(page, 'Customize Top picks for you').click();
 	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('list');
-	await page.getByRole('combobox', { name: 'Maximum columns' }).selectOption('2');
+	await page.getByRole('combobox', { name: 'Columns', exact: true }).selectOption('2');
+	await page.getByRole('combobox', { name: 'Row density' }).selectOption('spacious');
 	await save(page);
 	await homePicks.scrollIntoViewIfNeeded();
-	await expect(tiles).toHaveCount(2);
+	await expect(tiles).toHaveCount(4);
+	await expect(homePicks.locator('.preview-items')).toHaveCSS('row-gap', '16px');
 	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-preview', 'list');
 	await button(page, 'Discover').click();
 	const discoverPicks = shelf('discover-top_picks');
@@ -263,8 +269,7 @@ test('Top picks and library entries render inline with per-screen rows, sizing a
 	await edit(page, 'Library');
 	await button(page, 'Customize Tracks').click();
 	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
-	await page.getByRole('combobox', { name: 'Column size', exact: true }).selectOption('small');
-	await page.getByRole('combobox', { name: 'Maximum columns', exact: true }).selectOption('2');
+	await page.getByRole('combobox', { name: 'Columns', exact: true }).selectOption('2');
 	await save(page);
 	const artists = shelf('library-artists');
 	await artists.scrollIntoViewIfNeeded();
@@ -288,10 +293,75 @@ test('Top picks and library entries render inline with per-screen rows, sizing a
 	await page.reload();
 	await login(page);
 	await homePicks.scrollIntoViewIfNeeded();
-	await expect(tiles).toHaveCount(2);
+	await expect(tiles).toHaveCount(4);
 	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-preview', 'list');
 	await page.setViewportSize({ width: 1100, height: 800 });
 	await expect(tiles).toHaveCount(4);
+});
+
+test('a legacy six-column list keeps its count and each track action fits on a narrow shelf', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 700 });
+	await fixture(page);
+	await page.addInitScript((server) => {
+		const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'id-alex', 'home']);
+		localStorage.setItem(
+			key,
+			JSON.stringify([
+				{
+					id: 'library-tracks',
+					title: '',
+					preview: true,
+					display: {
+						layout: 'list',
+						columns: 2,
+						listColumns: 6,
+						columnSize: 'large',
+						rows: 2,
+						density: 'spacious'
+					}
+				}
+			])
+		);
+	}, server);
+	await page.route(server + '/api/v3/library/tracks?**', (r) =>
+		r.fulfill({
+			json: {
+				items: Array.from({ length: 12 }, (_, i) => ({
+					id: String(i),
+					title: 'Long song title ' + i,
+					artist_name: 'Long artist name',
+					art_missing: true
+				})),
+				next: null,
+				total: 12
+			}
+		})
+	);
+	await page.goto('/');
+	await login(page);
+	const shelf = page.locator('[data-widget="library-tracks"] .preview-items');
+	await expect(shelf.locator('[data-preview-item]')).toHaveCount(12);
+	const bounds = await shelf.evaluate((el) => {
+		const items = [...el.querySelectorAll('[data-preview-item]')];
+		return {
+			rows: new Set(items.map((x) => x.getBoundingClientRect().top)).size,
+			inside: items.every((item) => {
+				const cell = item.getBoundingClientRect();
+				return [...item.querySelectorAll('button')].every((b) => {
+					const r = b.getBoundingClientRect();
+					return r.width >= 44 && r.x >= cell.left - 1 && r.right <= cell.right + 1;
+				});
+			}),
+			width: el.scrollWidth - el.clientWidth
+		};
+	});
+	expect(bounds).toEqual({ rows: 2, inside: true, width: 0 });
+	await shelf
+		.getByRole('button', { name: 'More options for Long song title 5', exact: true })
+		.click();
+	await expect(page.getByRole('dialog', { name: 'Long song title 5' })).toBeVisible();
 });
 
 test('visible shelves share the Discover response and limit overlapping cover requests', async ({

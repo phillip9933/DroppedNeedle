@@ -137,15 +137,9 @@
 									></label
 								>
 								<label
-									>Maximum columns<select bind:value={item.display[columnField]}
+									>Columns<select bind:value={item.display[columnField]}
 										>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
 											>{/each}</select
-									></label
-								>
-								<label
-									>Column size<select bind:value={item.display.columnSize}
-										><option value="small">Small</option><option value="medium">Medium</option
-										><option value="large">Large</option></select
 									></label
 								>
 								<label
