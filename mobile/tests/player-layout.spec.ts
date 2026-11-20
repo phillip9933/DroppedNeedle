@@ -664,3 +664,55 @@ test('an older header becomes an editable grid with square controls on the heade
 	});
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('sleep timers pause the browser queue at a wall-clock deadline and before an automatic repeat or next track', async ({
+	page
+}) => {
+	await fixture(page);
+	await play(page);
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	const live = page.locator('[data-part=now-playing]');
+	await button('Sleep timer').click();
+	await page.getByLabel('Minutes', { exact: true }).fill('1');
+	await page.clock.install();
+	await button('Start timer').click();
+	await live.getByRole('button', { name: 'Play', exact: true }).click();
+	await button('Close player').click();
+	await page.clock.fastForward(60_001);
+	await expect(
+		page.locator('[data-part=mini-player]').getByRole('button', { name: 'Play', exact: true })
+	).toBeVisible();
+	await button('Open player for Night Train').click();
+	await button('Sleep timer').click();
+	await expect(
+		page.getByRole('status').filter({ hasText: 'The sleep timer is off.' })
+	).toBeVisible();
+	await button('End of this track').click();
+	await expect(button('Sleep timer')).toContainText('End of track');
+	await live.getByRole('button', { name: 'Play', exact: true }).click();
+	await page.getByRole('slider', { name: 'Playback position' }).fill('59');
+	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible({
+		timeout: 10000
+	});
+	await expect(live.getByRole('heading', { name: 'Night Train' })).toBeVisible();
+	await button('Sleep timer').click();
+	await button('End of this track').click();
+	await button('Next track').click();
+	await expect(live.getByRole('heading', { name: 'Day Train' })).toBeVisible();
+	await button('Sleep timer').click();
+	await expect(page.getByText('The sleep timer is off.')).toBeVisible();
+	await button('5 min').click();
+	await button('Sleep timer').click();
+	await button('Cancel timer').click();
+	await button('Repeat off. Change repeat mode').click();
+	await button('Repeat all. Change repeat mode').click();
+	await button('Sleep timer').click();
+	await button('End of this track').click();
+	await page.getByRole('slider', { name: 'Playback position' }).fill('59');
+	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible({
+		timeout: 10000
+	});
+	await expect(live.getByRole('heading', { name: 'Day Train' })).toBeVisible();
+	await button('Sleep timer').click();
+	await expect(page.getByText('The sleep timer is off.')).toBeVisible();
+});

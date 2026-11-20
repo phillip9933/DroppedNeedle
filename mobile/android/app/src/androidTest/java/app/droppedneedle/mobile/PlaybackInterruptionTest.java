@@ -32,10 +32,8 @@ public final class PlaybackInterruptionTest {
     private PlaybackService playback;
     private ExoPlayer player;
 
-    @Test public void aTransientInterruptionPausesThePhonePlayerAndResumesTheSameTrack() throws Exception {
-        Context app = instrumentation.getTargetContext();
-        CountDownLatch connected = new CountDownLatch(1);
-        ServiceConnection binding = new ServiceConnection() {
+    private ServiceConnection connection(CountDownLatch connected) {
+        return new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName name, IBinder binder) {
                 playback = ((PlaybackService.LocalBinder) binder).service();
                 player = (ExoPlayer) playback.output().local;
@@ -43,6 +41,12 @@ public final class PlaybackInterruptionTest {
             }
             @Override public void onServiceDisconnected(ComponentName name) {}
         };
+    }
+
+    @Test public void aTransientInterruptionPausesThePhonePlayerAndResumesTheSameTrack() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
         AudioManager audio = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
         AudioManager.OnAudioFocusChangeListener interruption = focus -> {};
         try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
@@ -94,6 +98,48 @@ public final class PlaybackInterruptionTest {
                 });
             } finally {
                 audio.abandonAudioFocus(interruption);
+                if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", 0, -1));
+                app.unbindService(binding);
+            }
+        }
+    }
+
+    @Test public void sleepingAtTheTrackBoundaryPausesTheServiceBeforePlayingTheNextItem() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
+        try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
+            Intent intent = new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND);
+            assertTrue(app.bindService(intent, binding, Context.BIND_AUTO_CREATE));
+            try {
+                assertTrue(connected.await(10, TimeUnit.SECONDS));
+                AtomicBoolean startedNext = new AtomicBoolean();
+                instrumentation.runOnMainSync(() -> {
+                    JSObject first = new JSObject(), second = new JSObject();
+                    first.put("id", "first"); second.put("id", "second");
+                    SilenceMediaSource.Factory source = new SilenceMediaSource.Factory().setDurationUs(900_000);
+                    player.setMediaSources(java.util.Arrays.asList(source.setTag(first).createMediaSource(),
+                            source.setTag(second).createMediaSource()));
+                    player.setRepeatMode(Player.REPEAT_MODE_ALL);
+                    player.addListener(new Player.Listener() {
+                        @Override public void onEvents(Player current, Player.Events events) {
+                            if (current.isPlaying() && current.getCurrentMediaItemIndex() == 1) startedNext.set(true);
+                        }
+                    });
+                    playback.command("sleepAfterTrack", -1, -1);
+                    assertTrue(player.getPauseAtEndOfMediaItems());
+                    assertEquals("track", playback.snapshot().optJSONObject("sleepTimer").optString("mode"));
+                    player.prepare(); player.play();
+                });
+                await("The silent track started", () -> player.isPlaying());
+                await("The sleep timer paused the service", () -> !player.getPlayWhenReady() && playback.snapshot().isNull("sleepTimer"));
+                instrumentation.runOnMainSync(() -> {
+                    assertFalse(startedNext.get());
+                    assertFalse(player.getPauseAtEndOfMediaItems());
+                    assertEquals(2, player.getMediaItemCount());
+                });
+            } finally {
                 if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", 0, -1));
                 app.unbindService(binding);
             }

@@ -1,5 +1,5 @@
 import { browserFade, browserNetwork, streamProfiles, streamAddress } from './streaming';
-import type { PlaybackBridge, PlayerState } from '../player';
+import type { PlaybackBridge, PlayerState, PlayerTrack } from '../player';
 import { cacheWebPlayback, isAudio, webLocalAudio, webPlaybackPolicy } from '../offline/web';
 
 export function browserPlayer(): PlaybackBridge {
@@ -18,6 +18,29 @@ export function browserPlayer(): PlaybackBridge {
 	let userId: string | undefined;
 	let active: AbortController | undefined;
 	let objectUrl: string | undefined;
+
+	let sleepAlarm: ReturnType<typeof setTimeout> | undefined;
+	let sleepingTrack: PlayerTrack | undefined;
+	let pauseRevision = 0,
+		blockAdvance = false;
+	function cancelSleep() {
+		clearTimeout(sleepAlarm);
+		sleepAlarm = undefined;
+		sleepingTrack = undefined;
+		state.sleepTimer = null;
+	}
+	function checkSleep() {
+		if (state.sleepTimer?.mode === 'minutes' && Date.now() >= state.sleepTimer.endsAt) {
+			cancelSleep();
+			pauseRevision++;
+			blockAdvance = true;
+			audio.pause();
+		}
+	}
+	// A background tab may throttle timers. Media events and foregrounding also check the deadline.
+	audio.addEventListener('timeupdate', checkSleep);
+	document.addEventListener('visibilitychange', checkSleep);
+	window.addEventListener('pageshow', checkSleep);
 
 	let fadeMs = browserFade();
 	let fadeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,6 +89,7 @@ export function browserPlayer(): PlaybackBridge {
 	}
 
 	function snapshot(): PlayerState {
+		checkSleep();
 		return {
 			...state,
 			playing: !audio.paused,
@@ -79,6 +103,9 @@ export function browserPlayer(): PlaybackBridge {
 	async function playAt(index: number, play = true) {
 		const track = state.tracks[index];
 		if (!track) throw new Error('This track is outside the play queue.');
+		if (sleepingTrack && sleepingTrack !== track) cancelSleep();
+		blockAdvance = false;
+		const playRevision = pauseRevision;
 		unload();
 		state = { ...state, index, error: null };
 		const request = new AbortController();
@@ -130,7 +157,8 @@ export function browserPlayer(): PlaybackBridge {
 			objectUrl = URL.createObjectURL(blob);
 			audio.src = objectUrl;
 			fadeVolume();
-			if (play) await audio.play();
+			checkSleep();
+			if (play && playRevision === pauseRevision) await audio.play();
 		} catch (error) {
 			if (request.signal.aborted) return;
 			state.error = 'This track could not be played.';
@@ -139,6 +167,16 @@ export function browserPlayer(): PlaybackBridge {
 	}
 
 	audio.onended = () => {
+		if (sleepingTrack) {
+			cancelSleep();
+			blockAdvance = true;
+			audio.pause();
+			return;
+		}
+		if (blockAdvance) return;
+		const playRevision = pauseRevision;
+		checkSleep();
+		if (pauseRevision !== playRevision) return;
 		if (state.repeat === 'one') {
 			audio.currentTime = 0;
 			void audio.play().catch(() => {
@@ -163,6 +201,8 @@ export function browserPlayer(): PlaybackBridge {
 				state.tracks = [...state.tracks.slice(0, at), ...options.tracks, ...state.tracks.slice(at)];
 				return snapshot();
 			}
+			if (serverUrl !== options.serverUrl || userId !== options.userId || token !== options.token)
+				cancelSleep();
 			serverUrl = options.serverUrl;
 			userId = options.userId;
 			token = options.token;
@@ -171,7 +211,31 @@ export function browserPlayer(): PlaybackBridge {
 			return snapshot();
 		},
 		async command({ action, value, to }) {
+			if (action === 'cancelSleepTimer') {
+				cancelSleep();
+				return snapshot();
+			}
+			if (action === 'setSleepMinutes' || action === 'sleepAfterTrack') {
+				const current = state.tracks[state.index];
+				if (!current) throw Error('Choose a track first.');
+				if (
+					action === 'setSleepMinutes' &&
+					(!Number.isInteger(value) || value! < 1 || value! > 240)
+				)
+					throw Error('Choose a whole number from 1 to 240 minutes.');
+				cancelSleep();
+				if (action === 'sleepAfterTrack') {
+					sleepingTrack = current;
+					state.sleepTimer = { mode: 'track' };
+				} else {
+					const ms = value! * 60_000;
+					state.sleepTimer = { mode: 'minutes', endsAt: Date.now() + ms };
+					sleepAlarm = setTimeout(checkSleep, ms);
+				}
+				return snapshot();
+			}
 			if (action === 'clear' || (action === 'remove' && value === 0 && state.tracks.length === 1)) {
+				cancelSleep();
 				unload();
 				token = serverUrl = '';
 				userId = undefined;
@@ -213,6 +277,7 @@ export function browserPlayer(): PlaybackBridge {
 					}
 				}
 				if (action === 'toggle') {
+					blockAdvance = !audio.paused;
 					if (audio.paused && (!objectUrl || state.error)) await playAt(state.index);
 					else if (audio.paused) await audio.play();
 					else audio.pause();

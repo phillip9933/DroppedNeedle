@@ -21,6 +21,7 @@
 	import PlayerNavigationAction from './player/PlayerNavigationAction.svelte';
 	import PlayerMetadata from './player/PlayerMetadata.svelte';
 	import PlayerHeader from './player/PlayerHeader.svelte';
+	import SleepTimer from './player/SleepTimer.svelte';
 	import { isPlayerMetadata, isNavigation, trackToolFields } from './player/layout';
 	import { player, type PlayerTrack } from './player';
 	import { accountId, defaults, loadLayout, sectionTitle, type Section } from './boards/layout';
@@ -310,6 +311,9 @@
 												class="unavailable-field"
 												aria-label={sectionTitle(section)}>—</span
 											>
+										{:else if section.id === 'player-sleep'}<div class="field-controls">
+												<SleepTimer {section} timer={$store.sleepTimer} sample={!!editor} />
+											</div>
 										{:else if section.id === 'player-artwork'}
 											<div class="hero" class:compact={!section.preview}>
 												{#if editor}<img
@@ -476,6 +480,9 @@
 		{/each}
 		{#if queueOpen && track}
 			<div class="queue-tools">
+				{#if !rows[0].some((s) => s.id === 'player-sleep')}<SleepTimer
+						timer={$store.sleepTimer}
+					/>{/if}
 				<button
 					class="secondary"
 					disabled={$store.tracks.length - $store.index <= 2 || pending}
@@ -904,6 +911,7 @@
 		align-items: center;
 	}
 	.queue-tools {
+		flex-wrap: wrap;
 		justify-content: space-between;
 		gap: 0.5rem;
 	}
