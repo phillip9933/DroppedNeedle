@@ -50,13 +50,15 @@
 	};
 	let browser = $state<LibraryBrowser>();
 	export function getPlaybackAvailability() {
-		return browser?.getPlaybackAvailability();
+		return current === 'sections'
+			? board?.getPlaybackAvailability()
+			: browser?.getPlaybackAvailability();
 	}
 	export function getHeader() {
 		return detail ? undefined : browser?.getHeader();
 	}
 	let current = $state<Category | 'sections' | ''>(''),
-		board = $state<{ goBack: () => boolean }>(),
+		board = $state<BoardView>(),
 		root: HTMLElement;
 	let detail = $state<{ item: BrowseItem; tracks: PlayerTrack[]; offline: boolean } | null>(null);
 	let savedScroll = 0,

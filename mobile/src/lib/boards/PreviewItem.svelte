@@ -13,6 +13,7 @@
 		time,
 		artwork,
 		coverSeed,
+		cacheOnly = false,
 		onclick,
 		label,
 		part,
@@ -27,6 +28,7 @@
 		time?: { value: string; label: string };
 		artwork?: string;
 		coverSeed?: string;
+		cacheOnly?: boolean;
 		onclick?: () => void;
 		label?: string;
 		part?: string;
@@ -37,7 +39,9 @@
 </script>
 
 {#snippet content()}
-	{#if coverSeed}<span class="art"><Cover {session} path={artwork} seed={coverSeed} /></span>{/if}
+	{#if coverSeed}<span class="art"
+			><Cover {session} {cacheOnly} path={artwork} seed={coverSeed} /></span
+		>{/if}
 	<span class="text"
 		><strong>{title}</strong>{#if subtitle}<small>{subtitle}</small>{/if}{#if time}<small
 				><time datetime={time.value}>{time.label}</time></small

@@ -1,13 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { localSignIn } from './fixtures/localSignIn';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 const server = 'https://device-search.example';
 const otherServer = 'https://another-search.example';
-const audioPath = fileURLToPath(
-	new URL('../../server/tests/fixtures/library/management_full.wav', import.meta.url)
-);
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const scope = (page: Page, name: string) =>
 	page.getByRole('group', { name: 'Search category' }).getByRole('button', { name, exact: true });
@@ -112,82 +108,34 @@ async function seed(
 	address = server,
 	varied = false
 ) {
-	const wav = (await readFile(audioPath)).toString('base64');
-	await page.evaluate(
-		async ({ who, force, count, address, wav, varied }) => {
-			const db = await new Promise<IDBDatabase>((resolve, reject) => {
-				const req = indexedDB.open('dn.mobile.offline.v1', 1);
-				req.onupgradeneeded = () => {
-					req.result
-						.createObjectStore('tracks', { keyPath: ['scope', 'id'] })
-						.createIndex('scope', 'scope');
-					req.result.createObjectStore('options');
-				};
-				req.onsuccess = () => resolve(req.result);
-				req.onerror = () => reject(req.error);
-			});
-			const tx = db.transaction(['tracks', 'options'], 'readwrite'),
-				scope = JSON.stringify([address, who]),
-				audio = new Blob([Uint8Array.from(atob(wav), (c) => c.charCodeAt(0))], {
-					type: 'audio/wav'
-				});
-			const title =
-				who === 'listener' && address.includes('device-search') ? 'Ámber' : 'Hidden amber';
-			tx.objectStore('options').put(
-				{
-					offlineOnly: force,
-					autoDownload: 'off',
-					autoCache: false,
-					cacheMiB: 64,
-					downloadMiB: 256,
-					unmeteredOnly: false
-				},
-				scope
-			);
-			for (let i = 0; i < count; i++) {
-				const id = 'amber' + i,
-					origin = ['downloaded', 'automatic', 'cached'][i % 3],
-					album = title + ' coast' + (varied ? ' ' + String(i).padStart(2, '0') : ''),
-					artist = title + ' Sound';
-				const track = {
-					id,
-					title: title + ' song ' + String(i).padStart(2, '0'),
-					album,
-					artist,
-					albumArtist: artist,
-					albumId: varied ? 'coast' + i : 'coast',
-					artistId: 'sound',
-					genre: title + ' Jazz',
-					streamUrl: '/api/v3/stream/local/' + id,
-					artworkUrl: '/api/v3/library/albums/coast/artwork?size=500',
-					year: 2021,
-					discNumber: 1,
-					trackNumber: i + 1,
-					format: 'flac',
-					favorite: i === 0,
-					rating: 0
-				};
-				tx.objectStore('tracks').put({
-					scope,
-					id,
-					track,
-					origin,
-					pinned: origin === 'downloaded',
-					used: i,
-					bytes: audio.size,
-					audio
-				});
-			}
-			await new Promise<void>((resolve, reject) => {
-				tx.oncomplete = () => resolve();
-				tx.onerror = () => reject(tx.error);
-			});
-			db.close();
-			window.dispatchEvent(new Event('dn-offline-policy'));
-			window.dispatchEvent(new Event('dn-offline-media'));
-		},
-		{ who, force, count, address, wav, varied }
-	);
+	const title = who === 'listener' && address.includes('device-search') ? 'Ámber' : 'Hidden amber';
+	const tracks = Array.from({ length: count }, (_, i) => {
+		const id = 'amber' + i,
+			origin = (['downloaded', 'automatic', 'cached'] as const)[i % 3],
+			album = title + ' coast' + (varied ? ' ' + String(i).padStart(2, '0') : ''),
+			artist = title + ' Sound';
+		const track = {
+			id,
+			title: title + ' song ' + String(i).padStart(2, '0'),
+			album,
+			artist,
+			albumArtist: artist,
+			albumId: varied ? 'coast' + i : 'coast',
+			artistId: 'sound',
+			genre: title + ' Jazz',
+			streamUrl: '/api/v3/stream/local/' + id,
+			artworkUrl: '/api/v3/library/albums/coast/artwork?size=500',
+			year: 2021,
+			discNumber: 1,
+			trackNumber: i + 1,
+			format: 'flac',
+			favorite: i === 0,
+			rating: 0
+		};
+
+		return { track, origin };
+	});
+	await seedOfflineMusic(page, address, who, force, tracks);
 }
 async function openSearch(page: Page, who = 'listener') {
 	await localSignIn(page, server, who);

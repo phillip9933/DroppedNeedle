@@ -10,6 +10,7 @@ export const libraryWidgets = [
 	{ id: 'library-artists', label: 'Artists' },
 	{ id: 'library-tracks', label: 'Tracks' },
 	{ id: 'library-playlists', label: 'Playlists' },
+	{ id: 'library-genres', label: 'Library genres' },
 	{ id: 'library-recently-added', label: 'Recently added' },
 	{ id: 'library-recently-played', label: 'Recently played' }
 ] as const;
