@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import { accountId, loadLayout, saveLayout, type LayoutTarget, type Section } from './layout';
+	import PlayerComposer from '../player/PlayerComposer.svelte';
 	import LayoutEditor from './LayoutEditor.svelte';
 	let { board, session, onback }: { board: LayoutTarget; session: Session; onback: () => void } =
 		$props();
@@ -17,6 +18,10 @@
 			error = 'Could not load this layout.';
 		}
 	}
+	function save(items: Section[]) {
+		saveLayout(session.serverUrl, owner, board, items);
+		onback();
+	}
 	onMount(() => {
 		void read();
 	});
@@ -27,13 +32,6 @@
 		class="text-button"
 		onclick={onback}>Back</button
 	>
-{:else if owner}<LayoutEditor
-		{board}
-		{sections}
-		{onback}
-		onsave={(items) => {
-			saveLayout(session.serverUrl, owner, board, items);
-			onback();
-		}}
-	/>
+{:else if owner}{#if board === 'player'}<PlayerComposer {sections} {onback} onsave={save} />
+	{:else}<LayoutEditor {board} {sections} {onback} onsave={save} />{/if}
 {:else}<p role="status">Loading layout…</p>{/if}
