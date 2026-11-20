@@ -11,7 +11,9 @@ import {
 	readSecret,
 	removeSecret,
 	serverAddress,
-	useToken,
+	verifyToken,
+	saveSession,
+	DnError,
 	writeSecret,
 	type Session
 } from '../connection';
@@ -23,10 +25,32 @@ interface Pending {
 	state: string;
 	key: JsonWebKey;
 	started: number;
+	reply?: string;
+}
+
+// Order changes to the same secure-storage entry. A server change or a new
+// sign-in can happen while the profile request for a previous phone session runs.
+let changes = Promise.resolve();
+function change<T>(edit: () => Promise<T>): Promise<T> {
+	const next = changes.then(edit);
+	changes = next.then(
+		() => {},
+		() => {}
+	);
+	return next;
 }
 
 export function cancelPairing() {
-	return removeSecret(PENDING);
+	return change(() => removeSecret(PENDING));
+}
+
+async function ifCurrent(state: string, edit: (pending: Pending) => Promise<void>) {
+	return change(async () => {
+		const current = await readSecret<Pending>(PENDING);
+		if (current?.state !== state) return false;
+		await edit(current);
+		return true;
+	});
 }
 
 export async function openSignIn(address: string) {
@@ -37,59 +61,110 @@ export async function openSignIn(address: string) {
 		await writeSecret(DEVICE, device);
 	}
 	const { request, privateKey } = await startHandoff(device);
-	await writeSecret(PENDING, {
-		server,
-		state: request.state,
-		key: privateKey,
-		started: Number(request.started)
-	} satisfies Pending);
+	await change(() =>
+		writeSecret(PENDING, {
+			server,
+			state: request.state,
+			key: privateKey,
+			started: Number(request.started)
+		} satisfies Pending)
+	);
 	const url = new URL(server + '/connect/mobile');
 	url.search = new URLSearchParams({ ...request }).toString();
 	try {
 		await Browser.open({ url: url.href });
 	} catch (error) {
-		await cancelPairing();
+		await ifCurrent(request.state, () => removeSecret(PENDING));
 		throw error;
 	}
 }
 
-export async function watchSignIn(
+export function watchSignIn(
 	connected: (session: Session) => void,
-	failed: (cause: unknown) => void
+	failed: (cause: unknown, retryable: boolean) => void,
+	checking: (server: string) => void
 ) {
-	if (!Capacitor.isNativePlatform()) return () => {};
-	const saved = await readSecret<Pending>(PENDING);
-	if (saved && !freshPairing(saved.started)) await cancelPairing();
-	let working = false;
 	let closed = false;
-	async function receive({ url }: { url: string }) {
-		if (!url.startsWith(CALLBACK + '#') || working || closed) return;
-		working = true;
+	let verifying: string | undefined;
+	async function finish(url?: string) {
+		const pending = await readSecret<Pending>(PENDING);
+		if (closed || !pending || verifying === pending.state) return;
+		if (!freshPairing(pending.started)) {
+			if (
+				(await ifCurrent(pending.state, () => removeSecret(PENDING))) &&
+				!closed &&
+				(url || pending.reply)
+			)
+				failed(new Error('This sign-in has expired. Start again.'), false);
+			return;
+		}
+		const reply = url ?? pending.reply;
+		if (!reply?.startsWith(CALLBACK + '#')) return;
+		const token = await openReply(reply, pending.state, pending.key);
+		if (!token || closed || verifying === pending.state) return;
+		verifying = pending.state;
 		try {
-			const pending = await readSecret<Pending>(PENDING);
-			if (!pending) return;
-			if (!freshPairing(pending.started)) {
-				await cancelPairing();
-				throw new Error('This sign-in has expired. Start again.');
-			}
-			const token = await openReply(url, pending.state, pending.key);
-			if (!token) return;
-			// Keep the key until verification succeeds in case the phone is briefly offline.
-			const session = await useToken(pending.server, token);
-			await cancelPairing();
-			if (Capacitor.getPlatform() === 'ios') await Browser.close().catch(() => {});
-			if (!closed) connected(session);
-		} catch (cause) {
-			if (!closed) failed(cause);
+			if (
+				!(await ifCurrent(pending.state, async (current) => {
+					// Android delivers a warm intent only once. Keep its encrypted
+					// reply until this installation verifies the session with DN.
+					if (!current.reply) await writeSecret(PENDING, { ...current, reply });
+				})) ||
+				closed
+			)
+				return;
+			checking(pending.server);
+			const session = await verifyToken(pending.server, token);
+			await ifCurrent(pending.state, async () => {
+				if (closed) return;
+				if (!freshPairing(pending.started)) {
+					await removeSecret(PENDING);
+					failed(new Error('This sign-in has expired. Start again.'), false);
+					return;
+				}
+				await saveSession(session);
+				await removeSecret(PENDING);
+				if (!closed) connected(session);
+				if (Capacitor.getPlatform() === 'ios') await Browser.close().catch(() => {});
+			});
+		} catch (error) {
+			const revoked = error instanceof DnError && error.status === 401;
+			await ifCurrent(pending.state, async () => {
+				if (revoked) await removeSecret(PENDING);
+				if (!closed) failed(error, !revoked);
+			});
 		} finally {
-			working = false;
+			if (verifying === pending.state) verifying = undefined;
 		}
 	}
-	const listener = await App.addListener('appUrlOpen', receive);
-	const launch = await App.getLaunchUrl();
-	if (launch) await receive(launch);
-	return () => {
-		closed = true;
-		void listener.remove();
+	async function retry(url?: string) {
+		try {
+			await finish(url);
+		} catch (error) {
+			if (!closed) failed(error, false);
+		}
+	}
+	const listener = Capacitor.isNativePlatform()
+		? App.addListener('appUrlOpen', ({ url }) => {
+				void retry(url);
+			})
+		: null;
+	if (listener) {
+		void listener
+			.then(async () => {
+				const launch = await App.getLaunchUrl();
+				if (launch) await retry(launch.url);
+				if (!closed && !launch) await retry();
+			})
+			.catch((error) => {
+				if (!closed) failed(error, false);
+			});
+	}
+	return {
+		retry: () => retry(),
+		stop() {
+			closed = true;
+			void listener?.then((handle) => handle.remove()).catch(() => {});
+		}
 	};
 }
