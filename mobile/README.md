@@ -20,6 +20,8 @@ Home opens after sign-in. When an Android phone is disconnected or set to offlin
 
 Each section can show its contents directly on the screen. Choose **List** or **Grid** and set **Columns** from one to six. Items divide the available width evenly, including on phones. **Row density** sets the spacing and **Preview rows** sets how many rows appear inline. For example, Top picks can show two rows of six covers while Recently played uses one song per row. Tap an item to open it, or tap the section heading to browse the full collection with its filters and actions.
 
+Library shelves also work with music saved on this device. Add **Library genres** to Home or Library for a genre shelf. Saved song filters use local track details, and album or artist rules use matches DN has already confirmed. Recently added uses DN’s addition dates when available. Recently played and Discover recommendations need a connection.
+
 Open **Library** for Playlists, Artists, Albums, Tracks and Genres. Albums and playlists start as two-column grids, artists as three-column portraits, and tracks and genres as lists. Use the toolbar to sort, filter, search, select items, or switch views. The gear adjusts the display for that category. More items load as you scroll. Opening a detail and going back keeps your place. **Library sections** opens your custom shelves.
 
 Use **Library → Library sections → New filtered section**, or set filters while browsing and choose **Save filters as section**. For a five-star songs shelf, choose Songs, set the minimum rating to five and give it a name. Add the saved section to Home or Library in either screen’s layout editor. The two placements share the saved criteria and can use different row counts and display styles.
@@ -43,7 +45,7 @@ Layouts are stored on the phone for each DN server and account. **Settings → C
 | Area | On the phone |
 | --- | --- |
 | Library | Browse playlists, artists, albums, tracks and genres. Filter by device availability, rating, favorites or format where applicable. Open an artist for albums, guest appearances and credited songs. |
-| Now Playing | Tap the mini-player for artwork, playback, seeking, lyrics and the queue. Tap a timed lyric to seek. Track tools show audio information and let you favorite, rate or add a track to a playlist. Android media controls work with the screen locked. Set a sleep timer for 1–240 minutes or the end of the current song from Now Playing or Queue. |
+| Now Playing | Tap the mini-player for artwork, playback, seeking, lyrics and the queue. Tap a timed lyric to seek, or tap the album or artist to browse that part of your library. Back returns to the player. Track tools show audio information and let you favorite, rate, download or add a track to a playlist. Android media controls work with the screen locked. Set a sleep timer for 1–240 minutes or the end of the current song from Now Playing or Queue. |
 | Queue | Play next, append, move or remove individual entries, shuffle or clear upcoming tracks without interrupting the current song, and repeat a song or the queue. Android restores the last queue paused at its saved position for the signed-in account. |
 | Playlists | Create, rename and delete playlists, or import an M3U, M3U8 or CSV file and review which tracks DN matched. Add a song or album, reorder tracks, remove one occurrence of a repeated song, and share with viewers or editors. Create a device smart playlist using text, favorites, ratings, formats, sort and a track limit. Its contents update whenever you open or play it. |
 | Search and requests | Choose Top results, Artists, Albums, Songs, Genres or Playlists below the search box. Switching category keeps the query. Choose an album edition or request an individual recording. View active requests and history, withdraw eligible requests, and manage server downloads. The download queue groups activity by stage and shows status text, icons, progress and file counts when DN supplies them. Administrators can approve or reject requests. |
@@ -62,6 +64,10 @@ The phone uses the device volume controls. On Android, **Settings → Playback �
 
 On the Tracks page, **Play all** and **Shuffle all** can continue through the entire filtered collection. For a large library, the player loads the next 100 tracks as you listen and keeps up to 50 earlier tracks at each refill. Queue shows where you are in the whole collection. Saving the loaded queue to a playlist or editing its order uses the tracks currently on the phone. Android restores its place in the collection after you reopen the app.
 
+In **Edit queue** or **Edit playlist**, drag a track by its grip, or tap the grip to enter an exact position. With a keyboard, use the arrow keys on the grip. Moving an entry keeps the current song playing, even when a playlist contains two copies.
+
+On Android, pressing Play on a headset can resume your saved queue after the playback service has stopped. This works with the screen locked after the first device unlock. Open the signed-in app once after upgrading to make an older queue available to your headset.
+
 ## Playback and storage
 
 **Settings → Streaming and fades** has separate Wi-Fi and cellular profiles on this device for the signed-in DN account. Each can use the original file or request MP3 or Opus from 64 to 320 kbps. New accounts start with original audio on both connections. An earlier single quality setting becomes the starting point for both profiles. Each new track download checks the connection, including tracks already in the queue. A track that is buffering or playing keeps the representation it started with for seeking and retries. Ethernet uses the Wi-Fi profile. An unknown transport uses the cellular profile.
@@ -70,13 +76,21 @@ DN’s web player has its own preference in **Settings → Personalize → Playb
 
 The server’s **Settings → Connect Apps → On-the-fly transcoding** switch, ffmpeg and bitrate ceiling govern conversion for all clients. If DN falls back to an original, that file plays at its source bitrate. Track fades run locally at track boundaries. Choose 0.5, 2, 4 or 8 seconds. They are off by default.
 
-On Android, choose **Save offline** on an album, track or selection to keep the music on the phone. In each Library category, open **Collection filters → Availability** to choose all offline music, your downloads, automatic saves or playback cache. Badges identify each source. Albums and other groups can contain more than one source. A regular playlist is available offline after its membership has been opened and at least one track saved. Use **Menu → Offline music** to manage the files for your DN account.
+On Android, choose **Save offline** on an album, track or selection to keep the music on the phone. **Library → Availability** lets you browse all offline music, your downloads, automatic saves or playback cache. You can also change it inside any category under **Collection filters**. The choice follows you across all five categories and is saved for this DN account on this device. Badges identify each source. Albums and other groups can contain more than one source. A regular playlist is available offline after its membership has been opened and at least one track saved. Use **Menu → Offline music** to manage the files.
 
 Under **Settings → Offline and cache**, automatic downloads can keep up to 25 recent additions or favorites. They start switched off. Manual downloads stay until you remove them. Playback cache keeps completed files under its own size limit. Set transfer limits, choose unmetered connections or enable offline-only playback here. Keep the app open while saving explicit downloads. The player prefers a complete copy on the device.
 
 Cover artwork and lyrics you have opened have separate device caches. Their settings show usage and let you change the limits or clear each cache for this account. Timed lyrics keep their seek controls offline. The browser preview uses IndexedDB for media and keeps sign-in in memory.
 
+Timed lyrics follow the playing line inside the lyrics panel. Scroll to read ahead, then tap **Follow current line** to catch up. Tapping a timed line seeks to it and follows the song from there.
+
 You can favorite or rate a saved song while offline. Library and device smart playlists use the change immediately. The app sends it back to the same DN account after it reconnects and you turn off offline-only playback. Offline music shows pending changes and lets you retry a failed sync.
+
+On Android, **Settings → Offline and cache → Offline listening history** shows how many listens are waiting for DN. Turn off **Record offline listens** to pause recording and submission, or discard the pending listens. DN accepts offline listens for up to 14 days. If the phone sends a listen and loses the reply, it skips resending that listen to avoid counting it twice. That listen may be missing from your history.
+
+Search also works without a connection. Its Songs, Artists, Albums, Genres and Playlists selectors use the completed music on this device. Opening a result keeps your search and place in the list. If DN stops responding while you’re on Wi-Fi, Search offers device results and a way to retry the server.
+
+Use **Track tools → Save offline** to keep the playing song. If it is already cached or automatically saved, keeping it makes it a manual download using the file on the phone. Tap **Downloaded** to manage that copy. To put the same button elsewhere, add the **Offline download** field in the Now Playing editor.
 
 Use the cast icon in Now Playing or **Menu → Cast and audio output**. On Android, choose a Google Cast device, or use **Find network speakers** for a DLNA/UPnP receiver on the same local network. Google Cast uses Google Play services on the phone. Sonos and other compatible DLNA/UPnP speakers can use **Find network speakers** directly. Keep the phone connected during playback. The receiver reads the current song from the phone, and the phone authenticates to DN. Stopping the cast returns the queue to the phone paused. Android also offers display mirroring. On iOS, the output button opens the system AirPlay picker.
 
