@@ -211,7 +211,6 @@ test('Android prepares via authenticated transport, passes only its handle and n
 			Browser: ['open'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
-			DNDrawer: ['setMenuEdge'],
 			DNOffline: [
 				'options',
 				'snapshot',

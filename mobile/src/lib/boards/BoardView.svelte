@@ -292,7 +292,7 @@
 					{onplay}
 					active={active && !group}
 					localOnly={deviceShelves}
-					enabled={board !== 'discover'}
+					enabled={board === 'library' || (board === 'home' && expanded.id.startsWith('library-'))}
 					scope={expanded.id + (deviceShelves ? '/device' : '/dn')}
 					heading={sectionTitle(expanded)}
 				>
@@ -311,7 +311,7 @@
 					{onplay}
 					active={active && !expanded && !group}
 					localOnly={deviceShelves}
-					enabled={board !== 'discover'}
+					enabled={board === 'library'}
 					scope={board + (deviceShelves ? '/device' : '/dn')}
 					heading={boardNames[board]}
 				>

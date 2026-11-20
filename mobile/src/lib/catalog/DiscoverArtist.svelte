@@ -12,6 +12,8 @@
 	import LibraryRadio from './LibraryRadio.svelte';
 	import ArtistChart from './ArtistChart.svelte';
 	import Cover from './Cover.svelte';
+	import { loadNearEnd } from './browseViewport';
+	import SelectionHost from './SelectionHost.svelte';
 	import Albums from './Albums.svelte';
 
 	let {
@@ -19,13 +21,17 @@
 		artist,
 		onopen,
 		onplay,
-		onback
+		onback,
+		library = false,
+		active = true
 	}: {
 		session: Session;
 		artist: DiscoverArtistRef;
 		onopen: (a: Album) => void;
 		onplay: OnPlay;
 		onback: () => void;
+		library?: boolean;
+		active?: boolean;
 	} = $props();
 	let view = $state<'releases' | 'albums' | 'songs'>('releases');
 	let refresh = $state(0),
@@ -160,26 +166,34 @@
 				value="songs">Top songs</option
 			></select
 		>{/if}
-	{#if view !== 'releases' && !artist.localOnly}<ArtistChart
-			{session}
-			{artist}
-			{view}
-			{onopen}
-			{onplay}
-		/>{:else if busy}<p role="status">Loading releases…</p>
-	{:else}
-		{#if albums.length}<Albums {session} {albums} {onopen} />{:else if !releaseError && !warming}<p>
-				No releases found.
-			</p>{/if}
-		{#if releaseError}<p role="alert">{releaseError}</p>
-			{#if !albums.length}<button class="secondary" onclick={() => refresh++}>Try again</button
-				>{/if}{/if}
-		{#if next != null || cursor}<button class="secondary" disabled={adding} onclick={more}
-				>{adding ? 'Loading…' : 'More releases'}</button
-			>{/if}
-		{#if warming}<p role="status">DroppedNeedle is loading the artist’s catalog.</p>
-			<button class="secondary" onclick={() => refresh++}>Refresh releases</button>{/if}
-	{/if}
+	<SelectionHost {session} {onplay} {active} enabled={library} scope={artist.id + view}>
+		{#if view !== 'releases' && !artist.localOnly}<ArtistChart
+				{session}
+				{artist}
+				{view}
+				{onopen}
+				{onplay}
+			/>{:else if busy}<p role="status">Loading releases…</p>
+		{:else}
+			{#if albums.length}<Albums
+					{session}
+					{albums}
+					{onopen}
+				/>{:else if !releaseError && !warming}<p>No releases found.</p>{/if}
+			{#if releaseError}<p role="alert">{releaseError}</p>
+				{#if !albums.length}<button class="secondary" onclick={() => refresh++}>Try again</button
+					>{/if}{/if}
+			{#if next != null || cursor}<button
+					class="secondary"
+					data-selection-more={(library && !releaseError) || undefined}
+					use:loadNearEnd={{ active, enabled: library && !adding && !releaseError, load: more }}
+					disabled={adding}
+					onclick={more}>{adding ? 'Loading…' : 'More releases'}</button
+				>{/if}
+			{#if warming}<p role="status">DroppedNeedle is loading the artist’s catalog.</p>
+				<button class="secondary" onclick={() => refresh++}>Refresh releases</button>{/if}
+		{/if}
+	</SelectionHost>
 </section>
 
 <style>

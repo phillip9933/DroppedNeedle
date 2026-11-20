@@ -330,10 +330,12 @@
 		{#if remoteGenre && cursor}<button
 				class="secondary"
 				disabled={reading}
+				data-selection-more={!pageError || undefined}
 				use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
 				onclick={() => readPage(true)}>More songs</button
 			>{:else if !remoteGenre && limit < filteredTracks.length}<button
 				class="secondary"
+				data-selection-more
 				use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
 				onclick={() => (limit += 48)}>More songs</button
 			>{/if}

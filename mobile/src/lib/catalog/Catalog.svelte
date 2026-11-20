@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
+	import type { Category } from './libraryBrowse';
 	import type { OnlineCredit } from '../player/related';
 	import { librarySelectionBack } from './librarySelection.svelte';
 	import type { Session } from '../connection';
@@ -23,6 +24,7 @@
 		onplay,
 		onnavigate,
 		onoffline,
+		initialCategory,
 		initialCredit,
 		onreturn
 	}: {
@@ -31,6 +33,7 @@
 		tab: CatalogTab;
 		onplay: OnPlay;
 		onoffline?: () => void;
+		initialCategory?: Category;
 		initialCredit?: OnlineCredit;
 		onreturn?: () => void;
 		onnavigate: (tab: CatalogTab) => void;
@@ -49,6 +52,9 @@
 			: tab === 'search'
 				? searchView?.getPlaybackAvailability()
 				: boardView?.getPlaybackAvailability();
+	}
+	export function getActiveCategory() {
+		return tab === 'library' ? hub?.getActiveCategory() : undefined;
 	}
 	export function getHeader() {
 		return tab === 'library' && !inside ? hub?.getHeader() : undefined;
@@ -137,6 +143,7 @@
 		{#if tab === 'library'}
 			<LibraryHub
 				bind:this={hub}
+				{initialCategory}
 				{session}
 				active={active && !inside}
 				{onoffline}
@@ -206,7 +213,15 @@
 			/>
 		</div>{/if}
 	{#if artist}<div hidden={!!album}>
-			<DiscoverArtist {session} {onplay} {artist} onopen={open} onback={back} />
+			<DiscoverArtist
+				{session}
+				{onplay}
+				{artist}
+				active={active && !album}
+				library={tab === 'library'}
+				onopen={open}
+				onback={back}
+			/>
 		</div>{/if}
 	{#if album}{#key album}<AlbumDetail
 				bind:this={albumView}

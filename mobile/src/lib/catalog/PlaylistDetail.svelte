@@ -12,6 +12,7 @@
 		deletePlaylist,
 		type Playlist
 	} from './playlists';
+	import { loadNearEnd } from './browseViewport';
 	import SelectionHost from './SelectionHost.svelte';
 	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
@@ -259,8 +260,11 @@
 				{/if}
 			{/snippet}
 		</ReorderList>
-		{#if count < visible.length}<button class="secondary more" onclick={() => (count += 50)}
-				>More tracks</button
+		{#if count < visible.length}<button
+				class="secondary more"
+				data-selection-more={!editing || undefined}
+				use:loadNearEnd={{ active, enabled: !editing, load: () => (count += 50) }}
+				onclick={() => (count += 50)}>More tracks</button
 			>{/if}</SelectionHost
 	>
 {/if}

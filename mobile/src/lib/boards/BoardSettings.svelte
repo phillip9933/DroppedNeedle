@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { DrawerControl } from '../NavigationDrawer.svelte';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import {
@@ -14,12 +13,7 @@
 	import PlayerComposer from '../player/PlayerComposer.svelte';
 	import { openPlayerDraft, type PlayerDraft } from '../player/playerDraft';
 	import LayoutEditor from './LayoutEditor.svelte';
-	let {
-		board,
-		session,
-		navigation,
-		onback
-	}: { board: LayoutTarget; session: Session; navigation: DrawerControl; onback: () => void } =
+	let { board, session, onback }: { board: LayoutTarget; session: Session; onback: () => void } =
 		$props();
 	let filters = $state<FilterSection[]>([]);
 	let recovery = $state.raw<PlayerDraft>();
@@ -61,7 +55,7 @@
 		onclick={onback}>Back</button
 	>
 {:else if board === 'player' && recovery}
-	<PlayerComposer {recovery} {navigation} {onback} onsave={persist} />
+	<PlayerComposer {recovery} {onback} onsave={persist} />
 {:else if board !== 'player' && owner}
 	<LayoutEditor {board} {sections} {filters} {onback} onsave={save} />
 {:else}<p role="status">Loading layout…</p>{/if}

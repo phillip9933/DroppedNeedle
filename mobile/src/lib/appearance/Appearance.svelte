@@ -1,11 +1,11 @@
 <script lang="ts">
-	import type { DrawerControl } from '../NavigationDrawer.svelte';
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import InterfaceSettings from './InterfaceSettings.svelte';
-	import { changeScreen } from './interface';
+	import { shortcuts, changeScreen, type Destination } from './interface';
+	import Outputs from '../player/Outputs.svelte';
 	import OfflineSettings from '../offline/OfflineSettings.svelte';
-	import { offlineSupported } from '../offline/media';
+	import { offlineSupported, preferredOffline } from '../offline/media';
 	import PlaybackSettings from '../player/PlaybackSettings.svelte';
 	import EqualizerSettings from '../player/EqualizerSettings.svelte';
 	import {
@@ -57,14 +57,14 @@
 		| 'menu';
 	let {
 		session,
-		navigation,
+		onnavigate,
 		onback,
 		onplayerlayoutclose,
 		onsignout,
 		initial = 'menu'
 	}: {
 		session: Session | null;
-		navigation: DrawerControl;
+		onnavigate: (destination: Destination) => void;
 		onback: () => void;
 		onplayerlayoutclose: () => void;
 		onsignout: () => Promise<void>;
@@ -109,7 +109,12 @@
 		].find((i) => i.id === page)?.label ?? 'Settings'
 	);
 	async function readRole() {
-		if (!session) return;
+		if (
+			!session ||
+			!navigator.onLine ||
+			(offlineSupported && (await preferredOffline(session).catch(() => false)))
+		)
+			return;
 		roleError = '';
 		try {
 			admin =
@@ -176,14 +181,23 @@
 
 <section class="settings" bind:this={root}>
 	{#if session && (page === 'home' || page === 'discover' || page === 'library' || page === 'player')}
-		{#key page}<BoardSettings {session} {navigation} board={page} onback={back} />{/key}
+		{#key page}<BoardSettings {session} board={page} onback={back} />{/key}
 	{:else}
 		<button aria-label="Back" class="text-button back" data-screen-link onclick={back}
 			><ChevronLeft size={18} />{page === 'menu' ? 'Back' : 'Settings'}</button
 		>
 		<h1>{page === 'menu' ? 'Settings' : title}</h1>
 		{#if page === 'menu'}
-			{#if session}<h2>Screen layouts</h2>
+			{#if session}<h2>Navigation</h2>
+				<nav class="menu shortcuts" aria-label="Navigation shortcuts">
+					{#each shortcuts as item (item.id)}<button
+							class="entry"
+							data-screen-link
+							onclick={() => onnavigate(item.id)}
+							><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
+						>{/each}
+				</nav>
+				<h2>Screen layouts</h2>
 				<div class="menu">
 					{#each layouts as item (item.id)}<button
 							class="entry"
@@ -207,6 +221,7 @@
 			{#if session}
 				<h2>Playback</h2>
 				<div class="menu">
+					<Outputs settingsEntry />
 					<button class="entry" data-screen-link onclick={() => open('playback')}
 						><Music2 size={19} /><span>Streaming and fades</span><ChevronRight size={16} /></button
 					>

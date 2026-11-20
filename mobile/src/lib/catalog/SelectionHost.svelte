@@ -58,7 +58,14 @@
 		if (contains)
 			for (const id of group.selected.keys()) if (!contains(id)) group.selected.delete(id);
 	});
-	export function beginSelection() {
+	export function isSelecting() {
+		return group.selecting;
+	}
+	export function toggleSelection() {
+		if (group.selecting) {
+			cancel();
+			return;
+		}
 		if (!group.buttons.size) return;
 		group.selecting = true;
 		group.message = '';
@@ -85,7 +92,10 @@
 	$effect(() => {
 		if (!active) request?.abort();
 	});
-	onDestroy(() => request?.abort());
+	onDestroy(() => {
+		request?.abort();
+		group.drag.stop();
+	});
 	onLibrarySelectionBack(() => {
 		if (!active || !group.selecting || !root?.getClientRects().length) return false;
 		cancel();
@@ -159,22 +169,30 @@
 	}
 </script>
 
-<div bind:this={root} class="collection" class:choosing={group.selecting}>
+<div bind:this={root} class="collection" data-selection-group class:choosing={group.selecting}>
 	<div class="heading">
 		{#if heading}<h1>{heading}</h1>{/if}
-		{#if available && !group.selecting && !externalToggle}<button
+		{#if available && !externalToggle}<button
 				class="select secondary"
-				onclick={() => {
-					group.selecting = true;
-					group.message = '';
-					error = '';
-				}}
+				aria-pressed={group.selecting}
+				onclick={toggleSelection}
 				aria-label="Select items"><ListChecks size={18} /> Select</button
 			>{/if}
 	</div>
-	{#if tools && !group.selecting}<div class="tools">{@render tools()}</div>{/if}
+	{#if tools && (!group.selecting || externalToggle)}<div
+			class="tools"
+			class:category-controls={externalToggle}
+		>
+			{@render tools()}
+		</div>{/if}
 	{#if group.selecting}
-		<div class="toolbar" data-surface="panel" role="group" aria-label="Selection actions">
+		<div
+			class="toolbar"
+			data-selection-toolbar
+			data-surface="panel"
+			role="group"
+			aria-label="Selection actions"
+		>
 			<div class="summary">
 				<button aria-label="Cancel selection" onclick={cancel}><X size={20} /></button><strong
 					aria-live="polite">{group.selected.size} selected</strong
@@ -253,10 +271,14 @@
 	/>{/if}
 
 <style>
+	.collection :global([data-selectable]) {
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
 	.tools:empty {
 		display: none;
 	}
-	.tools:not(:empty) {
+	.tools:not(:empty):not(.category-controls) {
 		margin-block: 0 0.7rem;
 	}
 	.tools,

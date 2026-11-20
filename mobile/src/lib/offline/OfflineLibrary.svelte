@@ -1,9 +1,14 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { CheckSquare, Download, Music2, Play, Trash2 } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { player, type PlayerTrack } from '../player';
+	import {
+		LibrarySelection,
+		trackChoice,
+		useLibrarySelection
+	} from '../catalog/librarySelection.svelte';
 	import TrackActions from '../catalog/TrackActions.svelte';
 	import FeedbackStatus from './FeedbackStatus.svelte';
 	import ManualDownloads from './ManualDownloads.svelte';
@@ -23,7 +28,6 @@
 	let items = $state<OfflineItem[]>([]),
 		view = $state<'downloaded' | 'automatic' | 'cached'>('downloaded'),
 		filter = $state(''),
-		selected = $state<string[] | null>(null),
 		remove = $state<string[] | null>(null),
 		busy = $state(false),
 		loading = $state(true),
@@ -43,11 +47,22 @@
 					.includes(filter.trim().toLocaleLowerCase())
 		)
 	);
+	const selection = new LibrarySelection(
+		() => !busy && !remove,
+		() => matching.map((i) => trackChoice(i.track, i.track.id)),
+		() => true
+	);
+	const selectable = useLibrarySelection();
+	const selected = $derived(selection.selecting ? [...selection.selected.keys()] : null);
+	$effect(() => {
+		const visible = new Set(matching.map((i) => i.track.id));
+		for (const id of selection.selected.keys()) if (!visible.has(id)) selection.selected.delete(id);
+	});
+	onDestroy(() => selection.drag.stop());
 	const picked = $derived(items.filter((i) => selected?.includes(i.track.id)).map((i) => i.track));
 	async function read() {
 		try {
 			items = (await offlineSnapshot(session)).items;
-			if (selected) selected = selected.filter((id) => items.some((i) => i.track.id === id));
 			error = '';
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not read offline music.';
@@ -61,7 +76,7 @@
 		function back(event: Event) {
 			if (!section?.getClientRects().length || (!remove && !selected)) return;
 			if (remove) remove = null;
-			else selected = null;
+			else selection.close();
 			event.preventDefault();
 			event.stopImmediatePropagation();
 		}
@@ -75,13 +90,9 @@
 		if (busy) return;
 		view = next;
 		filter = '';
-		selected = null;
+		selection.close();
 		remove = null;
 		notice = '';
-	}
-	function toggle(id: string) {
-		if (selected)
-			selected = selected.includes(id) ? selected.filter((v) => v !== id) : [...selected, id];
 	}
 	async function run(action: () => Promise<unknown> | void, receipt = '') {
 		if (busy) return;
@@ -90,7 +101,7 @@
 		notice = '';
 		try {
 			const result = await action();
-			selected = null;
+			selection.close();
 			remove = null;
 			notice = typeof result === 'string' ? result : receipt;
 		} catch (e) {
@@ -101,7 +112,12 @@
 	}
 </script>
 
-<section bind:this={section} aria-label="Offline music" data-part="offline-music">
+<section
+	bind:this={section}
+	aria-label="Offline music"
+	data-selection-group
+	data-part="offline-music"
+>
 	<h1>Offline music</h1>
 	{#if Capacitor.getPlatform() === 'android' && session.userId}
 		{#key JSON.stringify([session.serverUrl, session.userId])}<ManualDownloads
@@ -126,12 +142,16 @@
 				<button
 					class="secondary"
 					onclick={() => {
-						selected = null;
+						selection.close();
 						remove = null;
 					}}>Cancel selection</button
 				>
-				<button class="secondary" onclick={() => (selected = matching.map((i) => i.track.id))}
-					>Select all</button
+				<button
+					class="secondary"
+					onclick={() => {
+						for (const i of matching)
+							selection.selected.set(i.track.id, trackChoice(i.track, i.track.id));
+					}}>Select all</button
 				>
 			{:else if matching.length}
 				<button
@@ -142,10 +162,16 @@
 							0
 						)}><Play size={16} />Play all</button
 				>
-				<button class="secondary" onclick={() => (selected = [])}
-					><CheckSquare size={16} />Select songs</button
-				>
 			{/if}
+			{#if matching.length}<button
+					class="secondary"
+					aria-pressed={selection.selecting}
+					onclick={() => {
+						remove = null;
+						if (selection.selecting) selection.close();
+						else selection.selecting = true;
+					}}><CheckSquare size={16} />Select songs</button
+				>{/if}
 		</div>
 		{#if selected}<div class="actions" role="group" aria-label="Selected offline songs">
 				<strong>{selected.length} selected</strong>
@@ -204,14 +230,12 @@
 				<li>
 					<button
 						class="song"
-						aria-pressed={selected !== null ? selected.includes(entry.track.id) : undefined}
+						use:selectable={trackChoice(entry.track, entry.track.id)}
 						onclick={() =>
-							selected
-								? toggle(entry.track.id)
-								: onplay(
-										matching.map((i) => i.track),
-										matching.indexOf(entry)
-									)}
+							onplay(
+								matching.map((i) => i.track),
+								matching.indexOf(entry)
+							)}
 					>
 						{#if selected !== null}<span class="check"
 								>{selected.includes(entry.track.id) ? '✓' : '○'}</span
@@ -265,6 +289,14 @@
 </section>
 
 <style>
+	.song {
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+	.song:global([aria-pressed='true']) {
+		background: var(--raised);
+		color: var(--accent);
+	}
 	.bar,
 	.actions,
 	.confirm {

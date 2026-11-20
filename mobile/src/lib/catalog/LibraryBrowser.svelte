@@ -3,6 +3,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		ArrowDown,
+		EllipsisVertical,
 		ArrowDownUp,
 		ArrowUp,
 		ChevronLeft,
@@ -18,7 +19,6 @@
 		Play,
 		Plus,
 		Search,
-		Settings,
 		Shuffle,
 		Tags,
 		UsersRound,
@@ -157,7 +157,7 @@
 	let panel = $state<'' | 'sort' | 'search' | 'filters' | 'display'>(''),
 		searchBox = $state<HTMLInputElement>(),
 		typed = $state('');
-	let host: SelectionHost,
+	let host = $state<SelectionHost>(),
 		items = $state.raw<BrowseItem[]>([]),
 		total = $state<number>(),
 		cursor = $state<string | null>(null),
@@ -538,11 +538,6 @@
 		<button aria-label="Back to Library" onclick={onback}><ChevronLeft size={23} /></button>
 		<Icon size={25} />
 		<h1>{category}</h1>
-		<button
-			aria-label="Category settings"
-			aria-expanded={panel === 'display'}
-			onclick={() => toggle('display')}><Settings size={23} /></button
-		>
 	</div>
 {/snippet}
 
@@ -557,88 +552,97 @@
 	localOnly={disconnected}
 	scope={JSON.stringify([category, filters, availability])}
 >
-	{#if category === 'Playlists'}
-		<div class="playlist-actions">
-			{#if !disconnected}<PlaylistImport {session} compact onimport={() => retry++} />{/if}
-			<button class="pill" onclick={() => (smart = 'new')}
-				><Plus size={20} />Create smart playlist</button
-			>
-		</div>
-	{:else}
-		<div class="action-row" aria-label="Collection actions" role="group">
-			<button
-				aria-label="Play all"
-				title="Play all"
-				disabled={busy || !items.length}
-				onclick={() => run('play')}><Play fill="currentColor" /></button
-			>
-			<button
-				aria-label="Shuffle all"
-				title="Shuffle all"
-				disabled={busy || !items.length}
-				onclick={() => run('shuffle')}><Shuffle /></button
-			>
-			<button
-				aria-label="Play next"
-				title="Play next"
-				disabled={busy || !items.length}
-				onclick={() => run('next')}><ListStart /></button
-			>
-			<button
-				aria-label="Add to queue"
-				title="Add to queue"
-				disabled={busy || !items.length}
-				onclick={() => run('end')}><ListEnd /></button
-			>
-			<button
-				aria-label="Collection filters"
-				title="Collection filters"
-				aria-expanded={panel === 'filters'}
-				onclick={() => toggle('filters')}><Filter /></button
-			>
-		</div>
-	{/if}
-	<div class="browse-tools" aria-label="Browse controls" role="group">
-		<button
-			class="sort-summary"
-			aria-label="Reverse sort order"
-			title="Reverse sort order"
-			onclick={reverse}
-			><span>{sortLabel}</span>{#if filters.order === 'asc'}<ArrowUp size={15} />{:else}<ArrowDown
-					size={15}
-				/>{/if}</button
-		>
-		{#if category === 'Playlists'}<button
-				aria-label="Collection filters"
-				title="Collection filters"
-				aria-expanded={panel === 'filters'}
-				onclick={() => toggle('filters')}><Filter /></button
-			>{/if}
-		<button
-			aria-label="Choose sort order"
-			title="Sort"
-			aria-expanded={panel === 'sort'}
-			onclick={() => toggle('sort')}><ArrowDownUp /></button
-		>
-		<button
-			aria-label={'Switch to ' + (settings.layout === 'grid' ? 'list' : 'grid') + ' view'}
-			title="Switch layout"
-			onclick={layout}
-			>{#if settings.layout === 'grid'}<List />{:else}<Grid2X2 />{/if}</button
-		>
-		<button
-			aria-label="Select items"
-			title="Select items"
-			disabled={!items.length}
-			onclick={() => host?.beginSelection()}><ListChecks /></button
-		>
-		<button
-			aria-label={'Search ' + category.toLowerCase()}
-			title={'Search ' + category.toLowerCase()}
-			aria-expanded={panel === 'search'}
-			onclick={() => toggle('search')}><Search /></button
-		>
-	</div>
+	{#snippet tools()}<div class="collection-controls">
+			{#if category === 'Playlists'}
+				<div class="playlist-actions">
+					{#if !disconnected}<PlaylistImport {session} compact onimport={() => retry++} />{/if}
+					<button class="pill" onclick={() => (smart = 'new')}
+						><Plus size={20} />Create smart playlist</button
+					>
+				</div>
+			{:else}
+				<div class="action-row" aria-label="Collection actions" role="group">
+					<button
+						aria-label="Play all"
+						title="Play all"
+						disabled={busy || !items.length}
+						onclick={() => run('play')}><Play fill="currentColor" /></button
+					>
+					<button
+						aria-label="Shuffle all"
+						title="Shuffle all"
+						disabled={busy || !items.length}
+						onclick={() => run('shuffle')}><Shuffle /></button
+					>
+					<button
+						aria-label="Play next"
+						title="Play next"
+						disabled={busy || !items.length}
+						onclick={() => run('next')}><ListStart /></button
+					>
+					<button
+						aria-label="Add to queue"
+						title="Add to queue"
+						disabled={busy || !items.length}
+						onclick={() => run('end')}><ListEnd /></button
+					>
+					<button
+						aria-label="Collection filters"
+						title="Collection filters"
+						aria-expanded={panel === 'filters'}
+						onclick={() => toggle('filters')}><Filter /></button
+					>
+				</div>
+			{/if}
+			<div class="browse-tools" aria-label="Browse controls" role="group">
+				<button
+					class="sort-summary"
+					aria-label="Reverse sort order"
+					title="Reverse sort order"
+					onclick={reverse}
+					><span>{sortLabel}</span>{#if filters.order === 'asc'}<ArrowUp
+							size={15}
+						/>{:else}<ArrowDown size={15} />{/if}</button
+				>
+				{#if category === 'Playlists'}<button
+						aria-label="Collection filters"
+						title="Collection filters"
+						aria-expanded={panel === 'filters'}
+						onclick={() => toggle('filters')}><Filter /></button
+					>{/if}
+				<button
+					aria-label="Choose sort order"
+					title="Sort"
+					aria-expanded={panel === 'sort'}
+					onclick={() => toggle('sort')}><ArrowDownUp /></button
+				>
+				<button
+					aria-label={'Switch to ' + (settings.layout === 'grid' ? 'list' : 'grid') + ' view'}
+					title="Switch layout"
+					onclick={layout}
+					>{#if settings.layout === 'grid'}<List />{:else}<Grid2X2 />{/if}</button
+				>
+				<button
+					aria-label="Select items"
+					title="Select items"
+					disabled={!items.length}
+					aria-pressed={host?.isSelecting() ?? false}
+					onclick={() => host?.toggleSelection()}><ListChecks /></button
+				>
+				<button
+					aria-label={'Search ' + category.toLowerCase()}
+					title={'Search ' + category.toLowerCase()}
+					aria-expanded={panel === 'search'}
+					onclick={() => toggle('search')}><Search /></button
+				>
+				<button
+					aria-label="Collection options"
+					title="Collection options"
+					aria-expanded={panel === 'display'}
+					onclick={() => toggle('display')}><EllipsisVertical /></button
+				>
+			</div>
+		</div>{/snippet}
 	{#if panel === 'search'}
 		<div class="search">
 			<input
@@ -762,6 +766,7 @@
 		</p>{/if}
 	{#if cursor}<button
 			class="secondary more-page"
+			data-selection-more={error ? undefined : true}
 			use:loadNearEnd={{ active, enabled: !error && !waitingMore && !loading, load: more }}
 			disabled={waitingMore}
 			onclick={more}>{waitingMore ? 'Loading…' : 'More ' + unit}</button
@@ -811,6 +816,9 @@
 	/>{/if}
 
 <style>
+	.collection-controls {
+		width: 100%;
+	}
 	.category-heading,
 	.browse-tools,
 	.playlist-actions,
@@ -837,10 +845,6 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-	}
-	.category-heading button:last-child {
-		border: 1px solid var(--line);
-		border-radius: 999px;
 	}
 	.action-row {
 		display: grid;
