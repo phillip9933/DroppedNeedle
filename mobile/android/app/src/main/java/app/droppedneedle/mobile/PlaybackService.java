@@ -148,7 +148,7 @@ public final class PlaybackService extends MediaSessionService {
         if (tracks.length() == 0) return;
         switch (action) {
             case "toggle":
-                if (player.getPlayWhenReady() && player.getPlayerError() == null && player.getPlaybackState() != Player.STATE_ENDED) {
+                if (showsPauseControl()) {
                     player.pause();
                 } else {
                     if (player.getPlaybackState() == Player.STATE_ENDED) player.seekTo(0);
@@ -178,6 +178,13 @@ public final class PlaybackService extends MediaSessionService {
         }
     }
 
+    private boolean showsPauseControl() {
+        // Buffering can still be paused. An audio-focus interruption has stopped output.
+        return player.getPlayWhenReady()
+                && player.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_NONE
+                && player.getPlayerError() == null && player.getPlaybackState() != Player.STATE_ENDED;
+    }
+
     JSObject snapshot() {
         int index = tracks.length() == 0 ? -1 : player.getCurrentMediaItemIndex();
         JSONObject track = tracks.optJSONObject(index);
@@ -186,7 +193,7 @@ public final class PlaybackService extends MediaSessionService {
         JSObject result = new JSObject();
         result.put("tracks", tracks);
         result.put("index", index);
-        result.put("playing", index >= 0 && player.getPlayWhenReady() && player.getPlaybackState() != Player.STATE_ENDED && player.getPlayerError() == null);
+        result.put("playing", index >= 0 && showsPauseControl());
         result.put("position", player.getCurrentPosition() / 1000.0);
         result.put("duration", duration);
         result.put("error", player.getPlayerError() == null ? JSONObject.NULL : "This track could not be played.");
