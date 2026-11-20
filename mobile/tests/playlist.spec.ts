@@ -64,6 +64,7 @@ test('a mixed playlist plays all local entries in saved order, including repeats
 		if (path === '/auth/login') return route.fulfill({ json: { token: 'fixture-session' } });
 		expect(request.headers().authorization).toBe('Bearer fixture-session');
 		if (path === '/me') return route.fulfill({ json: { display_name: 'Listener', id: 'user' } });
+		if (path === '/me/section-prefs') return route.fulfill({ json: { pages: { home: [] } } });
 		if (path === '/home') return route.fulfill({ json: { sections: [], refreshing: false } });
 		if (path === '/library/albums')
 			return route.fulfill({ json: { items: [], next: null, total: 0 } });

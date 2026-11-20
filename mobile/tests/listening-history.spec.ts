@@ -119,3 +119,39 @@ test('personal history keeps repeated listens and only replays unique local reco
 	await expect.poll(() => played).toEqual(['/stream/local/local-copy']);
 	expect(lookups).toEqual(['Two copies', 'Gone', 'Main line', 'Main line']);
 });
+
+for (const scenario of ['disabled', 'enabled', 'unsupported'] as const) {
+	test('an omitted history shelf with ' + scenario + ' web settings', async ({ page }) => {
+		const server = 'https://music.example/dn';
+		await page.route(server + '/api/v3/**', async (route) => {
+			const req = route.request();
+			const path = new URL(req.url()).pathname.replace('/dn/api/v3', '');
+			const json = (data: unknown) => route.fulfill({ json: data });
+			if (path === '/auth/providers') return json({ local: true, oidc: false });
+			if (path === '/auth/login') return json({ token: 'fixture' });
+			expect(req.method()).toBe('GET');
+			expect(req.headers().authorization).toBe('Bearer fixture');
+			if (path === '/me') return json({ id: 'owner', display_name: 'Owner' });
+			if (path === '/library/albums') return json({ items: [], next: null, total: 0 });
+			if (path === '/home') return json({ refreshing: scenario === 'disabled', sections: [] });
+			if (path === '/me/section-prefs') {
+				if (scenario === 'unsupported') return route.fulfill({ status: 404, json: {} });
+				return json({
+					pages: { home: [{ key: 'recently_played', enabled: scenario === 'enabled' }] }
+				});
+			}
+			throw Error('Unexpected fixture request ' + path);
+		});
+		await page.goto('/');
+		await page.getByLabel('Server address').fill(server);
+		await page.getByRole('button', { name: 'Continue', exact: true }).click();
+		await page.getByLabel('Username').fill('owner');
+		await page.getByLabel('Password', { exact: true }).fill('fixture');
+		await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+		const message =
+			scenario === 'disabled'
+				? 'To see your recent plays, enable Recently Played in the DroppedNeedle web app under Settings → Home.'
+				: 'No recent plays available from DroppedNeedle.';
+		await expect(page.getByText(message, { exact: true })).toBeVisible();
+	});
+}
