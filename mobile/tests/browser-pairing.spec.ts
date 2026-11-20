@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 			Browser: ['open'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
-			DNPlayer: ['getState']
+			DNPlayer: ['getState', 'command', 'restore']
 		};
 		Object.assign(window, {
 			androidBridge: {},
@@ -54,7 +54,15 @@ test.beforeEach(async ({ page }) => {
 						return;
 					}
 					if (plugin === 'DNPlayer')
-						return { tracks: [], index: -1, playing: false, position: 0, duration: 0, error: null };
+						return {
+							repeat: 'off',
+							tracks: [],
+							index: -1,
+							playing: false,
+							position: 0,
+							duration: 0,
+							error: null
+						};
 					if (plugin === 'CapacitorHttp') {
 						let data;
 						const stock = new URL(opts.url).hostname === 'stock.example';

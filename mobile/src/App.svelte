@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
-	import { LibraryBig, Search, ListChecks, Settings2 } from '@lucide/svelte';
+	import { LibraryBig, Compass, Search, ListChecks, Settings2 } from '@lucide/svelte';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
 	import { player, type PlayerTrack } from './lib/player';
@@ -22,6 +22,7 @@
 	const tabs = [
 		{ id: 'library', label: 'Library', icon: LibraryBig },
 		{ id: 'search', label: 'Search', icon: Search },
+		{ id: 'discover', label: 'Discover', icon: Compass },
 		{ id: 'requests', label: 'Requests', icon: ListChecks }
 	] as const;
 	function report(error: unknown) {
@@ -68,9 +69,16 @@
 		}
 		return false;
 	}
-	function connected(next: Session) {
+	async function connected(next: Session) {
+		let restoreError: unknown;
+		try {
+			await player.restore(next);
+		} catch (error) {
+			restoreError = error;
+		}
 		session = next;
 		navigate('library');
+		if (restoreError) report(restoreError);
 	}
 	async function start(tracks: PlayerTrack[], index: number) {
 		const account = session;
@@ -102,7 +110,10 @@
 	}
 	onMount(() => {
 		void restoreSession()
-			.then((result) => (session = result))
+			.then(async (result) => {
+				if (result) await connected(result);
+				else if (Capacitor.getPlatform() === 'android') await player.clear();
+			})
 			.catch(report)
 			.finally(() => (loading = false));
 		function expired(event: Event) {
@@ -156,11 +167,7 @@
 			{/if}
 			{#if panel === 'settings'}
 				<div class="pad">
-					<Appearance
-						server={session?.serverUrl ?? ''}
-						onback={() => back()}
-						onsignout={() => disconnect()}
-					/>
+					<Appearance {session} onback={() => back()} onsignout={() => disconnect()} />
 				</div>
 			{/if}
 			{#if inPlayer && session}
