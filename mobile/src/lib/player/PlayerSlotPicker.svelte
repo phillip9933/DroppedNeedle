@@ -30,7 +30,7 @@
 		'player-text'
 	];
 	const options = available('player')
-		.filter((w) => w.id !== 'player-track')
+		.filter((w) => !['player-track', 'player-menu', 'player-tools'].includes(w.id))
 		.sort((a, b) => {
 			const rank = (id: string) => (ordered.includes(id) ? ordered.indexOf(id) : ordered.length);
 			return rank(a.id) - rank(b.id);

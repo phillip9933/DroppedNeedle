@@ -1,4 +1,4 @@
-import { isNavigation, navigationFields, trackToolFields } from './layout';
+import { navigationFields } from './layout';
 export { isPlayerText } from './layout';
 import type { Section } from '../boards/layout';
 
@@ -13,22 +13,68 @@ export function nextSlotId(sections: readonly Section[]) {
 	return 'player-slot-' + index;
 }
 
-// A missing sameRow starts a fresh row, including every section from the original phone layout.
+export function playerColumns(row: Section[]): Section[][] {
+	const columns: Section[][] = [];
+	for (const section of row) {
+		const last = columns.at(-1);
+		if (section.stack && last) last.push(section);
+		else columns.push([section]);
+	}
+	return columns;
+}
+export function flattenColumns(columns: Section[][]): Section[] {
+	return columns.flatMap((column) =>
+		column.map((cell, i) => ({ ...cell, stack: i > 0 || undefined }))
+	);
+}
 export function playerRows(sections: Section[]): Section[][] {
 	const rows: Section[][] = [];
+	let columns = 0;
 	for (const section of sections) {
 		if (section.placement) continue;
-		const previous = rows.at(-1);
-		if (section.sameRow && previous && previous.length < maxPlayerColumns) previous.push(section);
-		else rows.push([section]);
+		const row = rows.at(-1);
+		if (row && section.sameRow && (section.stack || columns < maxPlayerColumns)) {
+			row.push(section);
+			if (!section.stack) columns++;
+		} else {
+			rows.push([section]);
+			columns = 1;
+		}
 	}
 	return rows;
 }
-
 export function flattenPlayerRows(rows: Section[][]): Section[] {
-	return rows.flatMap((row) =>
-		row.map((section, index) => ({ ...section, sameRow: index % maxPlayerColumns !== 0 }))
-	);
+	return rows.flatMap((row) => row.map((cell, i) => ({ ...cell, sameRow: i !== 0 })));
+}
+export function migratePlayerFields(sections: Section[]): Section[] {
+	if (!sections.some((s) => s.id === 'player-menu' || s.id === 'player-tools')) return sections;
+	const hasMore = sections.some((s) => s.id === 'player-more');
+	const removed = (s: Section) => s.id === 'player-menu' || (hasMore && s.id === 'player-tools');
+	const changes = new Map<Section, Partial<Section>>();
+	const header = sections.filter((s) => s.placement === 'header');
+	for (const row of [...playerRows(sections), header]) {
+		let first = true;
+		for (const column of playerColumns(row)) {
+			const remaining = column.filter((s) => !removed(s));
+			if (!remaining.length) continue;
+			const lead = remaining[0],
+				patch: Partial<Section> = {};
+			if (lead !== column[0]) {
+				patch.stack = false;
+				patch.width = column[0].width;
+			}
+			if (first && row[0] !== lead && lead.sameRow) patch.sameRow = false;
+			changes.set(lead, patch);
+			first = false;
+		}
+	}
+	const emptyHeader = header.length > 0 && header.every(removed);
+	return sections.flatMap((s) => {
+		if (emptyHeader && s === header[0])
+			return [{ id: nextSlotId(sections), title: '', preview: true, placement: 'header' as const }];
+		if (removed(s)) return [];
+		return [{ ...s, ...changes.get(s), id: s.id === 'player-tools' ? 'player-more' : s.id }];
+	});
 }
 
 function canvasCell(section: Section): Section {
@@ -38,7 +84,7 @@ function canvasCell(section: Section): Section {
 	return cell;
 }
 /** Old layouts omitted default navigation or recorded a side for each control separately. */
-function legacyHeader(sections: Section[], includeMenu: boolean): Section[] {
+function legacyHeader(sections: Section[]): Section[] {
 	const sides: Record<'header-start' | 'header-end', Section[]> = {
 		'header-start': [],
 		'header-end': []
@@ -46,16 +92,8 @@ function legacyHeader(sections: Section[], includeMenu: boolean): Section[] {
 	for (const { id } of navigationFields) {
 		const saved = sections.find((s) => s.id === id);
 		// Older compositions that placed navigation explicitly keep their original columns.
-		if (
-			id === 'player-menu' &&
-			(!includeMenu || (!saved && sections.some((s) => isNavigation(s.id))))
-		)
-			continue;
-		const side = saved
-			? saved.placement
-			: id === 'player-close' || id === 'player-menu'
-				? 'header-start'
-				: 'header-end';
+		if (id === 'player-menu') continue;
+		const side = saved ? saved.placement : id === 'player-close' ? 'header-start' : 'header-end';
 		if (side === 'header-start' || side === 'header-end') {
 			sides[side].push(canvasCell(saved ?? { id, title: '', preview: true }));
 		}
@@ -79,27 +117,26 @@ function legacyHeader(sections: Section[], includeMenu: boolean): Section[] {
 }
 
 // Row zero is the header. Keep body positions and old exports intact until a listener changes it.
-export function playerCanvas(sections: Section[], includeMenu = true): Section[][] {
+export function playerCanvas(sections: Section[]): Section[][] {
+	sections = migratePlayerFields(sections);
 	const header = sections.filter((s) => s.placement === 'header').map(canvasCell);
 	const first = header.length
-		? header.slice(0, maxPlayerColumns)
-		: legacyHeader(sections, includeMenu);
+		? flattenColumns(playerColumns(header).slice(0, maxPlayerColumns))
+		: legacyHeader(sections);
 	return [
 		first.length ? first : [{ id: nextSlotId(sections), title: '', preview: true }],
-		...playerRows(flattenPlayerRows([header.slice(maxPlayerColumns)])),
+		...playerRows(
+			flattenPlayerRows([flattenColumns(playerColumns(header).slice(maxPlayerColumns))])
+		),
 		...playerRows(sections)
 	];
 }
-export function packPlayerCanvas(
-	rows: Section[][],
-	hidden: Section[],
-	includeMenu = true
-): Section[] {
+export function packPlayerCanvas(rows: Section[][], hidden: Section[]): Section[] {
 	const body = flattenPlayerRows(rows.slice(1));
 	const placed = new Set(rows.flat().map((s) => s.id));
 	const extras = hidden.filter((s) => !placed.has(s.id));
 	const header = rows[0].map(canvasCell);
-	const old = legacyHeader([...body, ...extras], includeMenu);
+	const old = legacyHeader([...body, ...extras]);
 	const same =
 		header.length === old.length &&
 		header.every((cell, i) => {
@@ -114,14 +151,15 @@ export function packPlayerCanvas(
 }
 // Leave enough space for tap targets before adding the requested gap on a narrow phone.
 export function playerRowGap(row: Section[], header: boolean): string {
-	if (row.length < 2) return '0px';
+	const count = playerColumns(row).length;
+	if (count < 2) return '0px';
 	const gaps = row.flatMap((s) => (s.gap === undefined ? [] : [s.gap]));
 	const desired = gaps.length
 		? Math.max(...gaps) + 'px'
 		: header || row.every((s) => s.padding === 0)
 			? '0px'
 			: 'min(var(--gap),3vw)';
-	return `max(0px,min(${desired},calc((100% - ${row.length * 44}px) / ${row.length - 1})))`;
+	return `max(0px,min(${desired},calc((100% - ${count * 44}px) / ${count - 1})))`;
 }
 export function rowName(r: number) {
 	return r === 0 ? 'Header' : 'Row ' + r;
@@ -131,8 +169,7 @@ const parts: Record<string, string[]> = {
 	'player-track': ['player-title', 'player-artist', 'player-album'],
 	'player-transport': ['player-previous', 'player-toggle', 'player-next'],
 	'player-modes': ['player-repeat', 'player-shuffle'],
-	'player-tools': trackToolFields.map((w) => w.id),
-	'player-timeline': ['player-seek', 'player-elapsed', 'player-duration']
+	'player-timeline': ['player-seek', 'player-elapsed', 'player-duration', 'player-remaining']
 };
 
 export function splitAvailable(id: string) {
@@ -142,12 +179,30 @@ export function splitPlayerSection(section: Section): Section[] {
 	const ids = parts[section.id];
 	if (!ids) return [section];
 	return ids
-		.filter(
-			(id) => !['player-album', 'player-elapsed', 'player-duration'].includes(id) || section.preview
-		)
+		.filter((id) => {
+			if (id === 'player-elapsed') return section.showElapsed ?? section.preview;
+			if (id === 'player-duration') return section.showDuration ?? section.preview;
+			if (id === 'player-remaining') return section.showRemaining ?? false;
+			return id !== 'player-album' || section.preview;
+		})
 		.map((id, i) => ({
 			id,
 			title: i === 0 ? section.title : '',
+			...(id === 'player-seek'
+				? {
+						seekStyle: section.seekStyle,
+						showElapsed: false,
+						showDuration: false,
+						showRemaining: false
+					}
+				: {}),
+			...(i === 0
+				? {
+						stack: section.stack,
+						labelName: section.labelName,
+						labelPosition: section.labelPosition
+					}
+				: {}),
 			preview: section.preview,
 			width: section.width,
 			align: section.align,
@@ -165,16 +220,23 @@ export function splitPlayerSection(section: Section): Section[] {
 				i === 0
 					? section.sameRow
 					: section.id === 'player-timeline'
-						? id === 'player-duration'
-						: section.id === 'player-tools'
-							? id === 'player-playlist'
-							: section.id !== 'player-track'
+						? id === 'player-duration' || id === 'player-remaining'
+						: section.id !== 'player-track'
 		}));
 }
 
 /** Keep explicitly grouped, titled or already composed layouts intact. Plain legacy metadata
  * can become independent rows without losing adjacent columns, duplicate fields or a custom heading. */
 export function expandLegacyTrack(sections: Section[]): Section[] {
+	sections = migratePlayerFields(sections).map((field) =>
+		field.id === 'player-timeline' && !field.preview
+			? {
+					...field,
+					showElapsed: field.showElapsed ?? false,
+					showDuration: field.showDuration ?? false
+				}
+			: field
+	);
 	const group = sections.find((s) => s.id === 'player-track');
 	if (
 		!group ||
@@ -182,6 +244,10 @@ export function expandLegacyTrack(sections: Section[]): Section[] {
 		group.placement ||
 		group.minHeight ||
 		group.padding ||
+		group.showLabel ||
+		group.labelName ||
+		group.icon ||
+		group.seekStyle ||
 		sections.some((s) => ['player-title', 'player-artist', 'player-album'].includes(s.id))
 	)
 		return sections;
@@ -213,29 +279,4 @@ export function formatPlayerText(template: string | undefined, values: Record<st
 	return (template ?? defaultPlayerText).replace(/\{(\w+)\}/g, (token, key: string) =>
 		playerTokens.some((t) => t === key) && Object.hasOwn(values, key) ? values[key] : token
 	);
-}
-
-export function sideBySidePlayer(): Section[] {
-	const cell = (id: string, options: Partial<Section> = {}): Section => ({
-		id,
-		title: '',
-		preview: true,
-		...options
-	});
-	return flattenPlayerRows([
-		[cell('player-artwork')],
-		[
-			cell('player-title', { width: 2 }),
-			cell('player-duration', { align: 'end', textSize: 'small' })
-		],
-		[cell('player-artist'), cell('player-album', { align: 'end' })],
-		[cell('player-timeline', { preview: false })],
-		[
-			cell('player-previous', { align: 'center' }),
-			cell('player-toggle', { align: 'center' }),
-			cell('player-next', { align: 'center' })
-		],
-		[cell('player-lyrics', { preview: false })],
-		[cell('player-tools', { preview: false })]
-	]);
 }

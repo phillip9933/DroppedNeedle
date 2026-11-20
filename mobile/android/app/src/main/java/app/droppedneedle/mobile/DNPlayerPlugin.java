@@ -145,6 +145,14 @@ public final class DNPlayerPlugin extends Plugin {
 
     @PluginMethod public void getState(PluginCall call) { execute(call, p -> call.resolve(p.snapshot())); }
 
+    @PluginMethod public void waveform(PluginCall call) {
+        execute(call, p -> p.readWaveform(call.getString("trackId", ""), call.getString("request", ""), call::resolve));
+    }
+
+    @PluginMethod public void cancelWaveform(PluginCall call) {
+        execute(call, p -> { p.cancelWaveform(call.getString("request", "")); call.resolve(); });
+    }
+
     private static JSObject outputState(RoutedPlayer player) {
         JSObject result = new JSObject();
         result.put("destination", player.destination());

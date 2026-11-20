@@ -9,6 +9,8 @@ public final class PlaybackSleepTimerTest {
         Runnable alarm;
         int pauses;
         boolean boundary;
+        Object current;
+        @Override public Object playingTrack() { return current; }
         @Override public long elapsed() { return clock; }
         @Override public void schedule(Runnable task, long ms) { alarm = task; delay = ms; }
         @Override public void unschedule(Runnable task) { if (task == alarm) alarm = null; }
@@ -53,5 +55,27 @@ public final class PlaybackSleepTimerTest {
         timer.cancel();
         assertFalse(host.boundary);
         assertEquals(0, host.pauses);
+    }
+    @Test public void countedNaturalTransitionsAndFinishLastArmOnlyTheFinalBoundary() {
+        Host host = new Host();
+        PlaybackSleepTimer timer = new PlaybackSleepTimer(host);
+        Object repeated = new Object(), next = new Object();
+        timer.afterTracks(repeated, 3);
+        assertFalse(host.boundary);
+        timer.changedTrack(repeated, true);
+        assertEquals(2, timer.tracks());
+        timer.changedTrack(next, true);
+        assertTrue(host.boundary);
+        timer.finishedTrack();
+        assertEquals(0, timer.tracks());
+        timer.minutes(1, true);
+        host.current = next;
+        host.clock = 60_001;
+        host.alarm.run();
+        assertTrue(host.boundary);
+        assertEquals(1, timer.tracks());
+        assertEquals(0, host.pauses);
+        timer.changedTrack(repeated);
+        assertFalse(host.boundary);
     }
 }

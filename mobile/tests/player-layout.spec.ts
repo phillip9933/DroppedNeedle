@@ -1,5 +1,8 @@
+import { verticalSwipe } from './fixtures/verticalSwipe';
+import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { silentWav } from './fixtures/silentWav';
 import { openPlayerPlacement } from './fixtures/playerEditor';
+import { localSignIn } from './fixtures/localSignIn';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 const server = 'https://layout.example/dn';
@@ -45,6 +48,11 @@ async function fixture(page: Page) {
 			art_missing: true,
 			favorite: !!favorites['t' + i],
 			format: 'flac',
+			bit_rate: 1021,
+			file_size_bytes: 3145728,
+			channels: 2,
+			genre: 'Jazz',
+			year: 1987,
 			sample_rate: 44100,
 			bit_depth: 16
 		}));
@@ -141,7 +149,7 @@ test('timed lyrics follow playback inside their panel and let listeners read ahe
 	);
 	await play(page);
 	const lyrics = page.locator('[data-part=lyrics]');
-	await lyrics.locator('summary').click();
+	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();
 	const lines = lyrics.getByRole('region', { name: 'Timed lyrics' });
 	await expect(lines).toBeVisible();
 	const seek = page.getByRole('slider', { name: 'Playback position' });
@@ -240,8 +248,15 @@ test('current track tools rate, favorite and inspect DN audio and save songs whi
 	const calls = await fixture(page);
 	await play(page);
 	expect(calls.lookups).toEqual([]);
-	await page.getByText('Track tools', { exact: true }).click();
-	await expect(page.getByText('FLAC · 16-bit · 44.1 kHz')).toBeVisible();
+	await page.getByRole('button', { name: 'Track details for Night Train' }).click();
+	const format = page
+		.getByRole('dialog', { name: 'Track details' })
+		.getByRole('region', { name: 'Format' });
+	await expect(format.getByText('FLAC', { exact: true })).toBeVisible();
+	await expect(format.getByText('16-bit', { exact: true })).toBeVisible();
+	await expect(format.getByText('44.1 kHz', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Close Track details' }).click();
+	await page.getByRole('button', { name: 'More actions', exact: true }).click();
 	await page.getByRole('button', { name: 'Favorite track', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Remove track from favorites' })).toBeVisible();
 	await page.getByRole('button', { name: 'Rate 4 stars' }).click();
@@ -253,15 +268,18 @@ test('current track tools rate, favorite and inspect DN audio and save songs whi
 	expect(calls.favorites).toEqual({ t0: true });
 	await page.getByRole('button', { name: 'Clear rating' }).click();
 	await expect.poll(() => calls.ratings.t0).toBe(0);
-	await page.getByText('Lyrics', { exact: true }).click();
+	await page.getByRole('button', { name: 'Close More actions' }).click();
+	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();
 	await page.getByRole('button', { name: 'Seek to lyric At the station' }).click();
 	await expect(page.getByRole('slider', { name: 'Playback position' })).toHaveValue('32');
-	expect(calls.lookups).toEqual(['Night Train']);
+	expect(calls.lookups).toEqual(['Night Train', 'Night Train']);
+	await page.getByRole('button', { name: 'More actions', exact: true }).click();
 	await page.getByRole('button', { name: 'Add to playlist', exact: true }).click();
-	let dialog = page.getByRole('dialog');
+	let dialog = page.getByRole('dialog').last();
 	await dialog.getByRole('button', { name: 'Add track', exact: true }).click();
 	await expect(dialog.getByText('Added 1 track to Road.')).toBeVisible();
 	await dialog.getByRole('button', { name: 'Done' }).click();
+	await page.getByRole('button', { name: 'Close More actions' }).click();
 	await page.getByRole('button', { name: 'Show play queue' }).click();
 	await page.getByRole('button', { name: 'Edit queue' }).click();
 	await page.getByRole('button', { name: 'Save queue to playlist' }).click();
@@ -312,11 +330,14 @@ test('a listener arranges independent player fields in columns and saves a live 
 	await openPlayerPlacement(page);
 	await button('Move Artist left').click();
 	await edit('Track title');
-	await page.getByRole('combobox', { name: 'Column width', exact: true }).selectOption('2');
+	await expect(page.getByRole('combobox', { name: 'Column width', exact: true })).toHaveCount(0);
 	await page
 		.getByRole('combobox', { name: 'Horizontal alignment', exact: true })
 		.selectOption('end');
 	await page.getByRole('combobox', { name: 'Text size', exact: true }).selectOption('large');
+	await button('Edit row ' + ((await rowIndex('player-title')) + 1)).click();
+	await page.getByRole('slider', { name: 'Column 2 width' }).fill('2');
+	await button('Finish editing row').click();
 	await addFeature(page, 'Custom text');
 	await edit('Custom text');
 	await page
@@ -406,8 +427,8 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	const region = page.locator('[data-part=now-playing]'),
 		button = (name: string) => page.getByRole('button', { name, exact: true });
 	await region.getByRole('button', { name: 'Player settings' }).click();
-	await addFeature(page, 'Favorite');
-	await addFeature(page, 'Add to playlist');
+	for (const name of ['Favorite', 'Add to playlist', 'Offline download', 'Track rating'])
+		await addFeature(page, name);
 	await button('Customize Playback position').click();
 	await button('Split Playback position').click();
 	await button('Customize Play queue').click();
@@ -417,7 +438,7 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	await button('Remove Close player').click();
 	await button('Save layout').click();
 	await expect(region.locator('[data-section-id=player-quality]')).toHaveText(
-		'FLAC · 16-bit · 44.1 kHz'
+		'Lossless · PCM · 16-bit · 8 kHz · 128 kbps'
 	);
 	const download = region.locator('[data-section-id=player-download]');
 	await download.getByRole('button', { name: 'Save offline', exact: true }).click();
@@ -452,10 +473,7 @@ test('independent queue, favorite and playlist fields control the current DN tra
 		.click();
 	await expect(region.getByRole('heading', { name: 'Play queue' })).toBeVisible();
 	await region.getByRole('button', { name: 'Hide play queue' }).click();
-	await expect(region.locator('header').getByRole('button', { name: 'Close player' })).toHaveCount(
-		0
-	);
-	await region.getByRole('button', { name: 'Player menu' }).click();
+	await expect(region.getByRole('button', { name: 'Player menu' })).toHaveCount(0);
 	await region.getByRole('button', { name: 'Close player' }).click();
 	await expect(page.locator('[data-part=mini-player]')).toBeVisible();
 });
@@ -486,119 +504,52 @@ test('Android Back discards a sample layout and returns to the empty player from
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 });
 
-test('a listener sees the five-button row proportions, appearance and reserved text lines in the preview and live player', async ({
+test('a resized control grows its face and keeps its custom label above or below in preview and playback', async ({
 	page
 }) => {
-	await page.setViewportSize({ width: 320, height: 720 });
 	await fixture(page);
 	await play(page);
-	const live = page.locator('[data-part=now-playing]'),
-		sample = page.locator('[data-part=sample-player]');
-	const button = (name: string) => page.getByRole('button', { name, exact: true });
-	await live.getByRole('button', { name: 'Player settings' }).click();
-	await button('Arrange five playback controls').click();
-	await button('Customize Play or pause').click();
-	await expect(page.getByRole('spinbutton', { name: 'Padding' })).toBeVisible();
-	await expect(page.locator('.canvas details.advanced')).not.toHaveAttribute('open', '');
-	await page.getByLabel('Padding', { exact: true }).fill('0');
-	await page.getByLabel('Horizontal alignment').selectOption('center');
-	await page.getByLabel('Vertical alignment').selectOption('end');
-	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('circle-play');
-	await page.getByLabel('Icon size', { exact: true }).fill('30');
-	await page.getByLabel('Action label').selectOption('hide');
-	const checkRow = async (region: typeof live) => {
-		const toggle = region.locator('[data-section-id=player-toggle]');
-		const row = region
-			.locator('[data-part=player-row]')
-			.filter({ has: page.locator('[data-section-id=player-toggle]') });
-		expect(
-			await row
-				.locator('[data-section-id]')
-				.evaluateAll((cells) => cells.map((c) => c.getAttribute('data-section-id')))
-		).toEqual([
-			'player-shuffle',
-			'player-previous',
-			'player-toggle',
-			'player-next',
-			'player-repeat'
-		]);
-		await expect(toggle).toHaveCSS('align-content', 'end');
-		await expect(toggle).toHaveCSS('text-align', 'center');
-		await expect(toggle.locator('[data-player-icon=circle-play] .glyph')).toHaveCSS(
-			'width',
-			'30px'
-		);
-		expect(
-			await toggle.evaluate((el) => getComputedStyle(el).getPropertyValue('--field-padding').trim())
-		).toBe('0px');
-		const sizes = await row
-			.locator('[data-section-id]')
-			.evaluateAll((cells) => cells.map((c) => c.getBoundingClientRect().width));
-		expect(sizes[2]).toBeGreaterThan(sizes[1] + 5);
-		expect(Math.min(...sizes)).toBeGreaterThanOrEqual(44);
-		return sizes;
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	const originalViewport = (await page.locator('[data-part=now-playing]').boundingBox())!;
+	await b('Player settings').click();
+	await b('Customize Playback controls').click();
+	await b('Split Playback controls').click();
+	await b('Customize Play or pause').click();
+	const sample = page.locator('[data-part=sample-player]'),
+		cell = sample.locator('[data-section-id=player-toggle]');
+	const viewport = (await sample.boundingBox())!;
+	expect(Math.abs(viewport.height - originalViewport.height)).toBeLessThan(1);
+	expect(Math.abs(viewport.width - originalViewport.width)).toBeLessThan(1);
+	const before = (await cell.locator('.glyph').boundingBox())!.height;
+	await page.getByLabel('Label', { exact: true }).selectOption('show');
+	await page.getByLabel('Label name').fill('Listen');
+	await page.getByLabel('Label position').selectOption('above');
+	await openPlayerPlacement(page);
+	await page.getByLabel('Minimum row height', { exact: true }).fill('96');
+	await expect(cell.locator('.caption')).toHaveText('Listen');
+	expect((await cell.locator('.glyph').boundingBox())!.height).toBeGreaterThan(before);
+	const fillsRow = async (element: typeof cell) => {
+		const size = await element.locator('button.play').evaluate((el) => {
+			const box = el.getBoundingClientRect(),
+				cell = el.closest('[data-section-id]')!.getBoundingClientRect();
+			const fit = Number(getComputedStyle(el).getPropertyValue('--player-fit')) || 1;
+			return {
+				width: box.width / fit,
+				height: box.height / fit,
+				max: Math.min(96, cell.width / fit)
+			};
+		});
+		expect(Math.abs(size.max - size.width)).toBeLessThan(1);
+		expect(Math.abs(size.max - size.height)).toBeLessThan(1);
 	};
-	const myRow = await page
-		.locator('[data-player-row]')
-		.filter({ has: button('Customize Play or pause') })
-		.getAttribute('data-player-row');
-	await button('Edit row ' + (Number(myRow) + 1)).click();
-	const slider = page.getByRole('slider', { name: 'Column 3 width' });
-	await slider.focus();
-	await slider.press('End');
-	const sizes = await checkRow(sample);
-	const measured = Math.round((100 * sizes[2]) / sizes.reduce((a, b) => a + b, 0));
-	await expect(slider.locator('..').locator('output')).toHaveText(measured + '%');
-	await button('Customize Track title').click();
-	await expect(page.getByLabel('Column width', { exact: true })).toHaveCount(0);
-	await expect(page.getByLabel('Show text', { exact: true })).toHaveCount(0);
-	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('music');
-	await expect(page.getByLabel('Show text', { exact: true })).toBeChecked();
-	await page.getByLabel('Show text', { exact: true }).uncheck();
-	await expect(sample.locator('[data-section-id=player-title]')).not.toContainText('Soft Current');
-	await page.getByLabel('Show text', { exact: true }).check();
-
-	await page.getByLabel('Maximum lines').selectOption('3');
-	await page.getByLabel('Reserve all lines').check();
-	const lines = (region: typeof live) =>
-		region.locator('[data-section-id=player-title] .lines').first();
-	await expect(lines(sample)).toHaveCSS('-webkit-line-clamp', '3');
-	const hasLines = (region: typeof live) =>
-		lines(region).evaluate(
-			(el) =>
-				el.getBoundingClientRect().height >= 3 * parseFloat(getComputedStyle(el).lineHeight) - 1
-		);
-	expect(await hasLines(sample)).toBe(true);
-	const save = button('Save layout');
-	await save.scrollIntoViewIfNeeded();
-	expect(
-		await save.evaluate((b) => {
-			const r = b.getBoundingClientRect(),
-				s = getComputedStyle(b),
-				at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-			return (b === at || b.contains(at)) && s.whiteSpace === 'nowrap';
-		})
-	).toBe(true);
-	const toolbar = page.locator('.composer .bar');
-	await expect(toolbar).toBeVisible();
-	expect(
-		await toolbar.evaluate((bar) => {
-			const canvas = bar.parentElement!.querySelector('.canvas')!.getBoundingClientRect();
-			const rect = bar.getBoundingClientRect(),
-				y = rect.y + rect.height / 2;
-			return [canvas.left + 1, canvas.right - 1].every((x) =>
-				bar.contains(document.elementFromPoint(x, y))
-			);
-		})
-	).toBe(true);
-
-	await save.click();
-	await checkRow(live);
-	await expect(lines(live)).toHaveCSS('-webkit-line-clamp', '3');
-	expect(await hasLines(live)).toBe(true);
-	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+	await fillsRow(cell);
+	await b('Save layout').click();
+	const live = page.locator('[data-part=now-playing] [data-section-id=player-toggle]');
+	await expect(live.locator('.caption')).toHaveText('Listen');
+	await expect(live.locator('.face')).toHaveAttribute('data-label-position', 'above');
+	await fillsRow(live);
+	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
 });
-
 test('an older header becomes an editable grid with square controls on the header, in a body row and in the queue', async ({
 	page
 }) => {
@@ -643,7 +594,8 @@ test('an older header becomes an editable grid with square controls on the heade
 		expect(boxes).toHaveLength(2);
 		for (const box of boxes) expect(Math.abs(box.w - box.h)).toBeLessThan(1);
 		expect(boxes[0].w).toBeGreaterThanOrEqual(44);
-		expect(boxes[1].w).toBeCloseTo(size, 0);
+		expect(boxes[1].w).toBeGreaterThanOrEqual(size - 0.5);
+		expect(boxes[1].w).toBeLessThanOrEqual(boxes[0].w + 0.5);
 	};
 	const order = ['player-queue', 'player-heading', 'player-close', 'player-settings'];
 	expect(await ids(live)).toEqual(order);
@@ -684,7 +636,7 @@ test('an older header becomes an editable grid with square controls on the heade
 	const grid = live.locator('[data-part=player-header-row]');
 	expect(
 		await grid
-			.locator(':scope > [data-section-id]')
+			.locator(':scope [data-section-id]')
 			.evaluateAll(
 				(nodes) => nodes[1].getBoundingClientRect().left - nodes[0].getBoundingClientRect().right
 			)
@@ -705,6 +657,102 @@ test('an older header becomes an editable grid with square controls on the heade
 		iconSize: 32
 	});
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('the waveform measures the playing file and its time labels can be chosen independently', async ({
+	page
+}) => {
+	await fixture(page);
+	await page.addInitScript((address) => {
+		const sections = [
+			{ id: 'player-track' },
+			{ id: 'player-transport' },
+			{
+				id: 'player-timeline',
+				seekStyle: 'waveform',
+				showElapsed: false,
+				showRemaining: true,
+				showDuration: true
+			},
+			{ id: 'player-quality' }
+		].map((s) => ({ title: '', preview: true, ...s }));
+		localStorage.setItem(
+			'dn.mobile.layout.v1.' + JSON.stringify([address, 'alex', 'player']),
+			JSON.stringify(sections)
+		);
+	}, server);
+	const audio = silentWav(8);
+	// Four seconds of digital silence followed by four seconds of a 400 Hz tone.
+	for (let i = 32000; i < 64000; i++)
+		audio.writeInt16LE(Math.round(16000 * Math.sin((i * Math.PI) / 10)), 44 + i * 2);
+	let reads = 0;
+	await page.route('**/api/v3/stream/local/**', (route) => {
+		reads++;
+		return route.fulfill({ body: audio, contentType: 'audio/wav' });
+	});
+	await play(page);
+	const region = page.locator('[data-part=now-playing]'),
+		bar = region.locator('[data-part=playback-bar]');
+	await expect(bar).toHaveAttribute('data-seek-style', 'waveform');
+	const path = bar.locator('defs path');
+	await expect(path).toHaveCount(1);
+	const heights = Array.from((await path.getAttribute('d'))!.matchAll(/v([\d.]+)/g), (match) =>
+		Number(match[1])
+	);
+	expect(heights).toHaveLength(112);
+	expect(Math.max(...heights.slice(0, 50))).toBeLessThan(2);
+	expect(Math.min(...heights.slice(60, 105))).toBeGreaterThan(18);
+	expect(reads).toBe(1);
+	await expect(region.locator('[data-part=audio-quality]')).toContainText('PCM · 16-bit · 8 kHz');
+	await expect(bar.getByLabel('Elapsed time')).toHaveCount(0);
+	await expect(bar.getByLabel('Track length')).toHaveText('0:08');
+	await bar.getByRole('slider').fill('3');
+	await expect(bar.getByLabel('Time remaining')).toHaveText('−0:05');
+});
+
+test('a counted sleep timer advances once per natural ending and finish-last lets the current song play out', async ({
+	page
+}) => {
+	await fixture(page);
+	await play(page);
+	const live = page.locator('[data-part=now-playing]');
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	await button('Sleep timer').click();
+	const ruler = page.getByRole('slider', { name: 'Timer duration' });
+	await ruler.focus();
+	await ruler.press('ArrowRight');
+	await expect(page.getByLabel('Minutes', { exact: true })).toHaveValue('16');
+	await ruler.hover();
+	const scale = (await ruler.boundingBox())!;
+	await page.mouse.move(scale.x + scale.width / 2, scale.y + scale.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(scale.x + scale.width / 2 - 42, scale.y + scale.height / 2, { steps: 6 });
+	await page.mouse.up();
+	await expect(page.getByLabel('Minutes', { exact: true })).toHaveValue('19');
+	await button('Tracks').click();
+	await page.getByLabel('Number of tracks', { exact: true }).fill('2');
+	await button('Start timer').click();
+	await button('Play').click();
+	await live.getByRole('slider', { name: 'Playback position' }).fill('59.5');
+	await expect(live.getByRole('heading', { name: 'Day Train' })).toBeVisible();
+	await expect(button('Sleep timer')).toContainText('End of track');
+	await live.getByRole('slider', { name: 'Playback position' }).fill('59.5');
+	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+	await button('Sleep timer').click();
+	await expect(page.getByText('The sleep timer is off.')).toBeVisible();
+	await button('Duration').click();
+	await page.getByLabel('Minutes', { exact: true }).fill('1');
+	await page.getByRole('switch', { name: 'Finish last track' }).check();
+	await page.clock.install();
+	await button('Start timer').click();
+	await button('Play').click();
+	await expect(live.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+	await page.clock.fastForward(60_001);
+	await expect(button('Sleep timer')).toContainText('End of track');
+	await expect(live.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+	await live.getByRole('slider', { name: 'Playback position' }).fill('59.5');
+	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+	await expect(live.getByRole('heading', { name: 'Day Train' })).toBeVisible();
 });
 
 test('sleep timers pause the browser queue at a wall-clock deadline and before an automatic repeat or next track', async ({
@@ -729,7 +777,8 @@ test('sleep timers pause the browser queue at a wall-clock deadline and before a
 	await expect(
 		page.getByRole('status').filter({ hasText: 'The sleep timer is off.' })
 	).toBeVisible();
-	await button('End of this track').click();
+	await button('Tracks').click();
+	await button('Start timer').click();
 	await expect(button('Sleep timer')).toContainText('End of track');
 	await live.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.getByRole('slider', { name: 'Playback position' }).fill('59');
@@ -738,18 +787,22 @@ test('sleep timers pause the browser queue at a wall-clock deadline and before a
 	});
 	await expect(live.getByRole('heading', { name: 'Night Train' })).toBeVisible();
 	await button('Sleep timer').click();
-	await button('End of this track').click();
+	await button('Tracks').click();
+	await button('Start timer').click();
 	await button('Next track').click();
 	await expect(live.getByRole('heading', { name: 'Day Train' })).toBeVisible();
 	await button('Sleep timer').click();
 	await expect(page.getByText('The sleep timer is off.')).toBeVisible();
-	await button('5 min').click();
+	await button('Duration').click();
+	await page.getByLabel('Minutes', { exact: true }).fill('5');
+	await button('Start timer').click();
 	await button('Sleep timer').click();
 	await button('Cancel timer').click();
 	await button('Repeat off. Change repeat mode').click();
 	await button('Repeat all. Change repeat mode').click();
 	await button('Sleep timer').click();
-	await button('End of this track').click();
+	await button('Tracks').click();
+	await button('Start timer').click();
 	await page.getByRole('slider', { name: 'Playback position' }).fill('59');
 	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible({
 		timeout: 10000
@@ -816,14 +869,14 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	await expect(back).toBeFocused();
 	await expect(editor).toBeHidden();
 	await expect(sample.getByRole('heading', { name: 'Draft sleeve' })).toBeVisible();
-	await expect(sample.getByRole('heading', { name: 'Soft Current' })).toBeVisible();
-	await expect(sample.getByRole('img', { name: 'Tidal Memory album cover' })).toBeVisible();
+	await expect(sample.getByRole('heading', { name: 'Track Title' })).toBeVisible();
+	await expect(sample.getByRole('img', { name: 'Album artwork' })).toBeVisible();
 	await expect(
 		sample.locator('[data-layout-drag], .editing-field, .active-field, [data-inspector], .field')
 	).toHaveCount(0);
 	await expect(sample.locator('[data-slot=true]')).toHaveCount(1);
-	await expect(sample.getByRole('button')).toHaveCount(1);
-	await expect(sample.getByRole('button', { name: 'Open navigation menu' })).toBeVisible();
+	await expect(sample.getByRole('button')).toHaveCount(0);
+	await expect(sample.getByRole('button', { name: 'Open navigation menu' })).toHaveCount(0);
 	await expect(page.locator('.mast')).toBeHidden();
 	const title = sample.locator('[data-section-id=player-heading] .lines');
 	expect(await title.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
@@ -833,8 +886,7 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	const box = (await next.boundingBox())!;
 	await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 	await expect(back).toBeInViewport();
-	await b('Open navigation menu').tap();
-	await b('Close navigation menu').tap();
+
 	await page.keyboard.press('Escape');
 	await expect(preview).toBeFocused();
 	await expect(page.getByLabel('Section title')).toHaveValue('Draft sleeve');
@@ -865,84 +917,92 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	expect(await saved()).toBe(original);
 });
 
-test('the navigation field can be dragged, styled and saved, with one drawer trigger on the player and queue at 320px', async ({
+test('the clean preview keeps every player row and Back inside the screen in both orientations', async ({
 	page
 }) => {
-	await page.setViewportSize({ width: 320, height: 760 });
 	await fixture(page);
 	await play(page);
-	const b = (name: string) => page.getByRole('button', { name, exact: true });
-	const live = page.locator('[data-part=now-playing]');
-	const sample = page.locator('[data-part=sample-player]');
-	const cells = (within: typeof live) =>
-		within.locator('[data-part=player-header-row] > [data-section-id]');
-	const trigger = b('Open navigation menu');
-	const checkDrawer = async (returned: typeof trigger) => {
-		await trigger.click();
-		await expect(page.getByRole('dialog', { name: 'Navigation menu' })).toBeVisible();
-		await b('Close navigation menu').click();
-		await expect(returned).toBeFocused();
-	};
-	await expect(cells(live)).toHaveCount(6);
-	await expect(cells(live).first()).toHaveAttribute('data-section-id', 'player-menu');
-	await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
-	await checkDrawer(trigger);
-	const boxes = await cells(live).evaluateAll((nodes) =>
-		nodes.map((n) => {
-			const b = n.getBoundingClientRect();
-			return [b.x, b.right, b.width];
-		})
-	);
-	for (const [left, right, width] of boxes) {
-		expect(left).toBeGreaterThanOrEqual(0);
-		expect(right).toBeLessThanOrEqual(320);
-		expect(width).toBeGreaterThanOrEqual(44);
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	await button('Player settings').click();
+	await button('Edit header').click();
+	await button('Add subrow to column 1').click();
+	await button('Use Artist').click();
+	await button('Customize Playback position').click();
+	await page.getByLabel('Seek bar style').selectOption('waveform');
+	await button('Preview current draft').click();
+	const dialog = page.getByRole('dialog', { name: 'Player layout preview' }),
+		preview = dialog.locator('[data-part=draft-player]'),
+		rows = preview.locator('[data-part=player-header-row], [data-part=player-row]'),
+		back = dialog.getByRole('button', { name: 'Back to editing' });
+	await expect(preview.locator('[data-seek-style=waveform] svg')).toBeVisible();
+	for (const size of [
+		{ width: 390, height: 844 },
+		{ width: 320, height: 568 },
+		{ width: 667, height: 375 }
+	]) {
+		await page.setViewportSize(size);
+		await expect(back).toBeInViewport({ ratio: 1 });
+		await expect
+			.poll(() =>
+				rows.evaluateAll((els) => {
+					const frame = els[0].closest('dialog')!;
+					const button = frame.querySelector('button')!.getBoundingClientRect();
+					return els.every((el) => {
+						const r = el.getBoundingClientRect();
+						return (
+							r.width > 0 &&
+							r.height > 0 &&
+							r.top >= button.bottom - 1 &&
+							r.bottom <= innerHeight + 1 &&
+							r.left >= -1 &&
+							r.right <= innerWidth + 1
+						);
+					});
+				})
+			)
+			.toBe(true);
+		await expect(preview.locator('[data-section-id=player-more]')).toBeInViewport({ ratio: 0.999 });
 	}
-	await b('Player settings').click();
-	await expect(sample.locator('[data-section-id=player-menu]')).toHaveCount(1);
-	const handle = b('Customize Navigation menu').locator('[data-layout-drag]');
-	const heading = sample.locator('[data-section-id=player-heading]');
-	const box = (await heading.boundingBox())!;
-	await handle.dragTo(heading, { targetPosition: { x: box.width - 5, y: box.height / 2 } });
-	await expect(cells(sample).nth(2)).toHaveAttribute('data-section-id', 'player-menu');
-	await b('Cancel').click();
-	await expect(cells(live).first()).toHaveAttribute('data-section-id', 'player-menu');
-	await b('Player settings').click();
-	await b('Customize Navigation menu').click();
-	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('heart');
-	await openPlayerPlacement(page);
-	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
-	await b('Finish editing field').click();
-	await page.getByText('Share player layout', { exact: true }).click();
-	const exported = JSON.parse(await page.getByLabel('Current layout JSON').inputValue());
-	expect(exported.sections.filter((s: { id: string }) => s.id === 'player-menu')).toEqual([
-		expect.objectContaining({ id: 'player-menu', icon: 'heart' })
-	]);
-	await b('Save layout').click();
-	await expect(live.locator('header [data-section-id=player-menu]')).toHaveCount(0);
-	await expect(
-		live.locator('[data-section-id=player-menu] [data-player-icon=heart]')
-	).toBeVisible();
-	await checkDrawer(trigger);
-	await expect(b('Player menu')).toHaveCount(0);
-	await b('Show play queue').click();
-	await expect(trigger).toHaveCount(0);
-	await b('Player menu').click();
-	await checkDrawer(b('Player menu'));
-	await b('Hide play queue').click();
-	await expect(trigger).toBeVisible();
-	await b('Player settings').click();
-	await b('Customize Navigation menu').click();
-	await b('Remove Navigation menu').click();
-	await b('Save layout').click();
-	await expect(live.locator('[data-section-id=player-menu]')).toHaveCount(0);
-	await b('Player menu').click();
-	await checkDrawer(b('Player menu'));
+	await back.click();
+	await expect(button('Preview current draft')).toBeFocused();
 });
 
-test('an explicit six-column header keeps all columns and the empty player offers drawer access', async ({
+test('old menu and Track tools layouts migrate to More actions without adding either retired field to the picker', async ({
 	page
 }) => {
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	await page.addInitScript(
+		(k) =>
+			localStorage.setItem(
+				k,
+				JSON.stringify([
+					{ id: 'player-tools', preview: false, title: '' },
+					{ id: 'player-menu', preview: true, title: '', placement: 'header' }
+				])
+			),
+		key
+	);
+	await fixture(page);
+	await localSignIn(page, server, 'alex');
+	const b = (name: string) => page.getByRole('button', { name, exact: true });
+	await b('Settings').click();
+	await b('Edit Now Playing layout').click();
+	await expect(b('Customize More actions')).toBeVisible();
+	await b('Add row').click();
+	await page
+		.getByRole('button', { name: /^Add feature to row/ })
+		.last()
+		.click();
+	await expect(b('Use Track tools')).toHaveCount(0);
+	await expect(b('Use Navigation menu')).toHaveCount(0);
+	await b('Save layout').click();
+	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	expect(saved.some((s: { id: string }) => s.id === 'player-more')).toBe(true);
+	expect(saved.some((s: { id: string }) => s.id === 'player-menu' || s.id === 'player-tools')).toBe(
+		false
+	);
+});
+test('an explicit six-column header keeps all columns after menu migration', async ({ page }) => {
 	const ids = [
 		'player-close',
 		'player-heading',
@@ -973,26 +1033,280 @@ test('an explicit six-column header keeps all columns and the empty player offer
 	await b('Edit Now Playing layout').click();
 	const fields = () =>
 		page
-			.locator('[data-part=player-header-row]:visible > [data-section-id]')
+			.locator('[data-part=player-header-row]:visible [data-section-id]')
 			.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-section-id')));
 	await expect.poll(fields).toEqual(ids);
 	await b('Cancel').click();
 	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
 	await expect.poll(fields).toEqual(ids);
 	await expect(b('Open navigation menu')).toHaveCount(0);
-	await b('Player menu').click();
-	await expect(b('Close player')).toHaveCount(1);
-	await b('Open navigation menu').click();
-	await b('Close navigation menu').click();
-	await expect(b('Player menu')).toBeFocused();
-	await b('Player settings').click();
-	await addFeature(page, 'Navigation menu');
-	await b('Save layout').click();
-	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
-	await expect.poll(fields).toEqual(ids);
-	await expect(b('Open navigation menu')).toHaveCount(0);
-	await b('Player menu').click();
-	await b('Open navigation menu').click();
-	await b('Close navigation menu').click();
-	await expect(b('Player menu')).toBeFocused();
+	await expect(b('Player menu')).toHaveCount(0);
+	await b('Close player').click();
+	await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+});
+
+test('touch users can fit the player, pull the queue down from a track and dismiss song details', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 568 });
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	await fixture(page);
+	await play(page);
+	const view = page.locator('[data-part=now-playing]');
+	async function allRowsFit() {
+		return view.evaluate((root) => {
+			const frame = root.getBoundingClientRect();
+			return [
+				...root.querySelectorAll('[data-part=player-row],[data-part=player-header-row]')
+			].every((row) => {
+				const r = row.getBoundingClientRect();
+				return (
+					r.height > 0 &&
+					r.top >= frame.top - 1 &&
+					r.bottom <= Math.min(innerHeight, frame.bottom) + 1
+				);
+			});
+		});
+	}
+	await expect.poll(allRowsFit).toBe(true);
+	await view.screenshot({ path: test.info().outputPath('portrait-player.png') });
+	await expect(view.getByRole('button', { name: 'Open navigation menu' })).toHaveCount(0);
+	const title = view.locator('[data-section-id=player-title] button');
+	await title.click();
+	const details = page.getByRole('dialog', { name: 'Track details' });
+	await expect(details.getByText('Night Train', { exact: true })).toBeVisible();
+	const grip = (await details.locator('[data-sheet-grip]').boundingBox())!;
+	await verticalSwipe(page, grip.x + grip.width / 2, grip.y + grip.height / 2, 70);
+	await expect(details).toBeHidden();
+	await expect(title).toBeFocused();
+	const art = view.locator('.hero'),
+		rect = (await art.boundingBox())!;
+	expect(rect.height).toBeGreaterThan(70);
+	await verticalSwipe(page, rect.x + rect.width / 2, rect.y + rect.height * 0.85, -70);
+	const queue = view.locator('[data-part=play-queue]');
+	await expect(queue).toBeVisible();
+	const row = (await queue.getByRole('button', { name: /Day Train/ }).boundingBox())!;
+	await verticalSwipe(page, row.x + row.width / 2, row.y + row.height / 2, 76);
+	await expect(queue).toBeHidden();
+	await expect(view.getByRole('heading', { name: 'Night Train' })).toBeVisible();
+	await page.setViewportSize({ width: 667, height: 375 });
+	await expect.poll(allRowsFit).toBe(true);
+	const landscape = (await art.boundingBox())!;
+	await verticalSwipe(
+		page,
+		landscape.x + landscape.width / 2,
+		landscape.y + landscape.height / 2,
+		72
+	);
+	await expect(page.locator('[data-part=mini-player]')).toBeVisible();
+});
+
+test('a saved full-screen lyrics field opens an accessible sheet and preserves the artwork', async ({
+	page
+}) => {
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	await page.addInitScript(
+		(key) =>
+			localStorage.setItem(
+				key,
+				JSON.stringify([
+					...'artwork title transport'
+						.split(' ')
+						.map((id) => ({ id: 'player-' + id, title: '', preview: true })),
+					{ id: 'player-lyrics', title: '', preview: true, lyricsMode: 'sheet' }
+				])
+			),
+		key
+	);
+	await fixture(page);
+	await play(page);
+	const trigger = page.getByRole('button', { name: 'Lyrics', exact: true });
+	await trigger.click();
+	const dialog = page.getByRole('dialog', { name: 'Lyrics' });
+	await expect(dialog.getByRole('button', { name: 'Seek to lyric At the station' })).toBeVisible();
+	expect((await dialog.boundingBox())!.height).toBeGreaterThan(
+		(page.viewportSize()?.height ?? 0) * 0.9
+	);
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeHidden();
+	await expect(trigger).toBeFocused();
+	await expect(page.locator('[data-section-id=player-artwork] [data-part=lyrics]')).toHaveCount(0);
+});
+
+test('an oversized saved composition fits all live controls after a viewport resize', async ({
+	page
+}) => {
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	const ids = [
+		'player-artwork',
+		'player-title',
+		'player-transport',
+		'player-more',
+		'player-timeline',
+		'player-lyrics'
+	];
+	await page.addInitScript(
+		({ key, ids }) =>
+			localStorage.setItem(
+				key,
+				JSON.stringify(ids.map((id) => ({ id, preview: true, title: '', minHeight: 132 })))
+			),
+		{ key, ids }
+	);
+	await fixture(page);
+	await play(page);
+	const view = page.locator('[data-part=now-playing]');
+	for (const size of [
+		{ width: 320, height: 568 },
+		{ width: 667, height: 375 },
+		{ width: 390, height: 844 }
+	]) {
+		await page.setViewportSize(size);
+		await expect
+			.poll(() =>
+				view.evaluate(
+					(root, ids) =>
+						ids.every((id) => {
+							const target = root
+								.querySelector('[data-section-id="' + id + '"]')
+								?.getBoundingClientRect();
+							return (
+								!!target &&
+								target.height > 0 &&
+								target.top >= -1 &&
+								target.bottom <= innerHeight + 1
+							);
+						}),
+					ids
+				)
+			)
+			.toBe(true);
+	}
+	// The app's error banner or an inset may reduce the available main area without a window resize.
+	await page.locator('main').evaluate((main) => {
+		main.style.maxHeight = '420px';
+	});
+	await expect
+		.poll(() =>
+			view.evaluate((root) => {
+				const pane = root.closest('main')!.getBoundingClientRect();
+				return Math.abs(root.getBoundingClientRect().height - pane.height);
+			})
+		)
+		.toBeLessThan(1);
+	await view.getByRole('button', { name: 'More actions' }).click();
+	await expect(page.getByRole('dialog', { name: 'More actions' })).toBeVisible();
+});
+
+test('hiding artwork uses the full lyrics sheet and honors a listener’s More actions caption', async ({
+	page
+}) => {
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	await page.addInitScript(
+		(key) =>
+			localStorage.setItem(
+				key,
+				JSON.stringify([
+					{ id: 'player-title', title: '', preview: true },
+					{ id: 'player-transport', title: '', preview: true },
+					{
+						id: 'player-more',
+						title: '',
+						preview: true,
+						showLabel: true,
+						labelPosition: 'above',
+						labelName: 'My track actions'
+					},
+					{ id: 'player-lyrics', title: '', preview: true }
+				])
+			),
+		key
+	);
+	await fixture(page);
+	await play(page);
+	const more = page.getByRole('button', { name: 'More actions', exact: true });
+	await expect(more).toHaveText('My track actions');
+	// More is a vertical ellipsis, independent of the listener's caption.
+	const dots = await more
+		.locator('svg circle')
+		.evaluateAll((nodes) => nodes.map((n) => [n.getAttribute('cx'), n.getAttribute('cy')]));
+	expect(dots).toHaveLength(3);
+	expect(new Set(dots.map(([x]) => x)).size).toBe(1);
+	expect(new Set(dots.map(([, y]) => y)).size).toBe(3);
+	await expect(more.locator('[data-label-position=above]')).toBeVisible();
+	await expect(page.locator('[data-section-id=player-artwork]')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();
+	const lyrics = page.getByRole('dialog', { name: 'Lyrics' });
+	await expect(lyrics.getByRole('button', { name: 'Seek to lyric First line' })).toBeVisible();
+	const body = (await lyrics.locator('.sheet-content').boundingBox())!;
+	await verticalSwipe(page, body.x + body.width / 2, body.y + 26, 85);
+	await expect(lyrics).toBeHidden();
+	await expect(page.getByRole('button', { name: 'Lyrics', exact: true })).toBeFocused();
+});
+
+test('track details distinguish DN source format, actual playback and each device copy without reading unrelated metadata', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 690 });
+	const calls = await fixture(page);
+	await play(page);
+	const reads: string[] = [];
+	page.on('request', (r) => {
+		const url = new URL(r.url());
+		if (url.pathname.includes('/api/v3/')) reads.push(url.pathname.split('/api/v3')[1]);
+	});
+	const title = page.getByRole('button', { name: 'Track details for Night Train' });
+	const sheet = page.getByRole('dialog', { name: 'Track details' });
+	await title.click();
+	await expect(sheet.getByRole('heading', { name: 'Night Train' })).toBeVisible();
+	await expect(sheet.locator('[data-part=cover]')).toBeVisible();
+	const source = sheet.getByRole('region', { name: 'Source' }),
+		format = sheet.getByRole('region', { name: 'Format' }),
+		music = sheet.getByRole('region', { name: 'Music metadata' });
+	await expect(source.getByText('DroppedNeedle', { exact: true })).toBeVisible();
+	await expect(source.getByText('Not saved on this device')).toBeVisible();
+	await expect(source.getByText('3.0 MiB')).toBeVisible();
+	await expect(format.getByText('44.1 kHz', { exact: true })).toBeVisible();
+	await expect(format.getByText('1021 kbps', { exact: true })).toBeVisible();
+	await expect(music.getByText('Jazz', { exact: true })).toBeVisible();
+	await expect(sheet.getByRole('region', { name: 'Current playback' })).toContainText(
+		'PCM · 16-bit · 8 kHz · 128 kbps'
+	);
+	await expect(sheet.getByText('File path', { exact: true })).toHaveCount(0);
+	await expect(sheet.getByText('Play count', { exact: true })).toHaveCount(0);
+	expect(calls.lookups).toEqual(['Night Train']);
+	const copy = {
+		id: 't0',
+		title: 'Night Train',
+		artist: 'The Lines',
+		album: 'Railway',
+		streamUrl: '/api/v3/stream/local/t0',
+		format: 'flac',
+		genre: 'Jazz'
+	};
+	for (const [origin, label] of [
+		['cached', 'Playback cache'],
+		['automatic', 'Automatically saved'],
+		['downloaded', 'Saved manually']
+	] as const) {
+		await seedOfflineMusic(page, server, 'alex', false, [{ track: copy, origin }]);
+		await expect(source.getByText(label, { exact: true })).toBeVisible();
+	}
+	await expect(source.getByText('Size on device', { exact: true })).toBeVisible();
+	expect(
+		reads.filter(
+			(p) => p.startsWith('/ratings') || p.startsWith('/favorites') || p.startsWith('/playlists')
+		)
+	).toEqual([]);
+	await sheet.getByRole('button', { name: 'Close Track details' }).click();
+	await page.context().setOffline(true);
+	reads.length = 0;
+	await title.click();
+	await expect(source.getByText('Saved manually')).toBeVisible();
+	await expect(format.getByText('FLAC', { exact: true })).toBeVisible();
+	await expect(format.getByText('Sample rate', { exact: true })).toHaveCount(0);
+	await expect(source.getByText('File size', { exact: true })).toHaveCount(0);
+	expect(reads).toEqual([]);
+	await page.keyboard.press('Escape');
+	await expect(title).toBeFocused();
 });

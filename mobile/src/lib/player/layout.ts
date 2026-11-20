@@ -15,8 +15,8 @@ export const playerWidgets = [
 		enabled: true
 	},
 	{ id: 'player-modes', label: 'Playback modes', option: 'Show button labels', enabled: true },
-	{ id: 'player-lyrics', label: 'Lyrics', option: 'Start expanded', enabled: false },
-	{ id: 'player-tools', label: 'Track tools', option: 'Start expanded', enabled: false },
+	{ id: 'player-lyrics', label: 'Lyrics', option: '', enabled: false },
+	{ id: 'player-more', label: 'More actions', option: '', enabled: false },
 	{ id: 'player-up-next', label: 'Up next', option: 'Show upcoming tracks', enabled: true }
 ] as const;
 
@@ -30,9 +30,6 @@ export const navigationFields = [
 export type NavigationId = (typeof navigationFields)[number]['id'];
 export function isNavigation(id: string): id is NavigationId {
 	return navigationFields.some((action) => action.id === id);
-}
-export function showsNavigationMenu(section: Section) {
-	return section.id === 'player-menu' && !(section.icon === 'none' && section.showLabel === false);
 }
 export const trackToolFields = [
 	{ id: 'player-favorite', label: 'Favorite' },
@@ -74,39 +71,45 @@ type Measurement = keyof typeof bounds;
 export const playerMeasurements = Object.keys(bounds) as Measurement[];
 export function validMeasurement(name: Measurement, value: unknown): value is number {
 	const [min, max] = bounds[name];
-	return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+	return (
+		typeof value === 'number' &&
+		(name === 'padding' ? Number.isFinite(value) : Number.isInteger(value)) &&
+		value >= min &&
+		value <= max
+	);
 }
 
-export const playerIconOptions = [
-	{ id: 'default', label: 'Default' },
-	{ id: 'none', label: 'No icon' },
-	{ id: 'play', label: 'Play' },
-	{ id: 'circle-play', label: 'Circle play' },
-	{ id: 'square-play', label: 'Square play' },
-	{ id: 'skip-back', label: 'Previous' },
-	{ id: 'skip-forward', label: 'Next' },
-	{ id: 'rewind', label: 'Rewind' },
-	{ id: 'fast-forward', label: 'Fast forward' },
-	{ id: 'shuffle', label: 'Shuffle' },
-	{ id: 'repeat', label: 'Repeat' },
-	{ id: 'heart', label: 'Heart' },
-	{ id: 'star', label: 'Star' },
-	{ id: 'disc', label: 'Record' },
-	{ id: 'music', label: 'Music note' },
-	{ id: 'user-round', label: 'Artist' },
-	{ id: 'album', label: 'Album' },
-	{ id: 'type', label: 'Text' },
-	{ id: 'list', label: 'Queue' },
-	{ id: 'plus', label: 'Add' },
-	{ id: 'download', label: 'Download' },
-	{ id: 'settings', label: 'Sliders' },
-	{ id: 'cast', label: 'Cast' },
-	{ id: 'chevron-down', label: 'Chevron' },
-	{ id: 'volume', label: 'Speaker' }
+// Old portable layouts may include an explicit glyph.
+const legacyIcons = [
+	'default',
+	'none',
+	'play',
+	'circle-play',
+	'square-play',
+	'skip-back',
+	'skip-forward',
+	'rewind',
+	'fast-forward',
+	'shuffle',
+	'repeat',
+	'heart',
+	'star',
+	'disc',
+	'music',
+	'user-round',
+	'album',
+	'type',
+	'list',
+	'plus',
+	'download',
+	'settings',
+	'cast',
+	'chevron-down',
+	'volume'
 ] as const;
-export type PlayerIcon = (typeof playerIconOptions)[number]['id'];
+export type PlayerIcon = (typeof legacyIcons)[number];
 export function isPlayerIcon(value: unknown): value is PlayerIcon {
-	return playerIconOptions.some((i) => i.id === value);
+	return legacyIcons.some((icon) => icon === value);
 }
 export function isPlayerText(id: string) {
 	return /^player-text(?:-(?:[2-9]|[1-9]\d+))?$/.test(id);
@@ -117,31 +120,31 @@ export function isPlayerMetadata(id: string) {
 		isPlayerText(id)
 	);
 }
-export function supportsPlayerIcon(id: string) {
+export function usesFieldCaption(id: string) {
+	return [
+		'player-artwork',
+		'player-track',
+		'player-timeline',
+		'player-seek',
+		'player-transport',
+		'player-modes',
+		'player-quality',
+		'player-rating',
+		'player-elapsed',
+		'player-duration',
+		'player-remaining'
+	].includes(id);
+}
+export function defaultFieldLabel(section: Section) {
 	return (
-		isPlayerMetadata(id) ||
-		isNavigation(id) ||
-		[
-			'player-previous',
-			'player-toggle',
-			'player-next',
-			'player-repeat',
-			'player-shuffle',
-			'player-favorite',
-			'player-playlist',
-			'player-download',
-			'player-sleep',
-			'player-rating',
-			'player-up-next',
-			'player-lyrics',
-			'player-tools'
-		].includes(id)
+		section.icon === 'none' ||
+		['player-playlist', 'player-download', 'player-up-next'].includes(section.id)
 	);
 }
 export function supportsPlayerLines(id: string) {
 	return id === 'player-track' || isPlayerMetadata(id);
 }
-export function playerDefaults(): Section[] {
+export function previousPlayerDefaults(): Section[] {
 	return playerWidgets
 		.filter((w) => w.id !== 'player-up-next')
 		.flatMap<Section>((w) =>
@@ -159,4 +162,62 @@ export function playerDefaults(): Section[] {
 						]
 					: [{ id: w.id, title: '', preview: w.enabled }]
 		);
+}
+
+export function playerDefaults(): Section[] {
+	const body = previousPlayerDefaults().filter(
+		(s) => !['player-sleep', 'player-lyrics', 'player-more'].includes(s.id)
+	);
+	return [
+		...body,
+		{ id: 'player-quality', title: '', preview: true },
+		{ id: 'player-lyrics', title: '', preview: false },
+		{ id: 'player-sleep', title: '', preview: true, sameRow: true },
+		{ id: 'player-more', title: '', preview: false, sameRow: true }
+	];
+}
+
+export const playerOptionKeys = [
+	'stack',
+	'labelName',
+	'labelPosition',
+	'seekStyle',
+	'showElapsed',
+	'showDuration',
+	'showRemaining',
+	'lyricsMode'
+] as const;
+export function playerOptions(item: Record<string, unknown>, strict = false): Partial<Section> {
+	const options: Partial<Section> = {};
+	for (const key of playerOptionKeys) {
+		const value = item[key];
+		if (value === undefined) continue;
+		if (key === 'labelName' && typeof value === 'string' && value.length <= 64)
+			options.labelName = value;
+		else if (key === 'labelPosition' && (value === 'above' || value === 'below'))
+			options.labelPosition = value;
+		else if (
+			key === 'seekStyle' &&
+			(value === 'standard' || value === 'animated' || value === 'waveform')
+		)
+			options.seekStyle = value;
+		else if (key === 'lyricsMode' && (value === 'artwork' || value === 'sheet'))
+			options.lyricsMode = value;
+		else if (
+			(key === 'stack' ||
+				key === 'showElapsed' ||
+				key === 'showDuration' ||
+				key === 'showRemaining') &&
+			typeof value === 'boolean'
+		)
+			options[key] = value;
+		else if (strict) throw Error(`Invalid player option ${key}.`);
+	}
+	return options;
+}
+export function fieldSizing(row: Section[], column: Section[]) {
+	const height =
+		Math.max(0, ...row.map((cell) => cell.minHeight ?? 0)) / Math.max(1, column.length);
+	const button = Math.max(44, Math.round(height));
+	return { button, face: Math.max(22, Math.round(button * 0.52)) };
 }

@@ -9,9 +9,9 @@
 
 	let {
 		compact = false,
-		drawer = false,
+		settingsEntry = false,
 		section
-	}: { compact?: boolean; drawer?: boolean; section?: Section } = $props();
+	}: { compact?: boolean; settingsEntry?: boolean; section?: Section } = $props();
 	const android = Capacitor.getPlatform() === 'android';
 	const ios = Capacitor.getPlatform() === 'ios';
 	let open = $state(false),
@@ -84,12 +84,12 @@
 
 {#if android || ios}
 	<button
-		class={drawer ? 'drawer-entry' : compact ? 'icon-button' : 'secondary'}
+		class={settingsEntry ? 'output-entry' : compact ? 'icon-button' : 'secondary'}
 		aria-label="Cast and audio output"
 		bind:this={opener}
 		onclick={show}
 	>
-		{#if drawer}<Cast size={20} /><span>Cast and audio output</span>
+		{#if settingsEntry}<Cast size={20} /><span>Cast and audio output</span>
 		{:else}<PlayerActionFace
 				{section}
 				glyph={Cast}
@@ -144,6 +144,17 @@
 {/if}
 
 <style>
+	.output-entry {
+		display: flex;
+		gap: 0.85rem;
+		align-items: center;
+		width: 100%;
+		min-height: 48px;
+		padding: 0.6rem var(--gap);
+		border-bottom: 1px solid var(--line);
+		font-weight: 600;
+		text-align: start;
+	}
 	.outputs {
 		display: grid;
 		gap: 0.75rem;

@@ -2,6 +2,7 @@
 	import { onMount, tick, type Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { ArrowLeft } from '@lucide/svelte';
+	import { pullSheet } from '../controls/pullSheet';
 	const offsets = new SvelteMap<string, number>();
 	let {
 		title,
@@ -51,13 +52,14 @@
 
 <dialog
 	bind:this={dialog}
+	use:pullSheet={{ dismiss: onback, disabled: busy }}
 	aria-label={title}
 	oncancel={(e) => {
 		e.preventDefault();
 		if (!busy) onback();
 	}}
 >
-	<header>
+	<header data-sheet-handle>
 		<button class="icon-button" aria-label={backLabel} disabled={busy} onclick={onback}
 			><ArrowLeft size={21} /></button
 		>
@@ -71,6 +73,7 @@
 
 <style>
 	dialog {
+		translate: 0 var(--sheet-pull, 0px);
 		width: min(100%, 36rem);
 		height: min(100%, 52rem);
 		max-width: 100%;
@@ -89,6 +92,7 @@
 		background: color-mix(in srgb, var(--bg) 78%, transparent);
 	}
 	header {
+		touch-action: none;
 		flex: none;
 		display: flex;
 		align-items: center;

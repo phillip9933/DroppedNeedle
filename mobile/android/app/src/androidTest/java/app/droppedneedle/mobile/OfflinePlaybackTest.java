@@ -76,6 +76,19 @@ public final class OfflinePlaybackTest {
         file.put("data".getBytes(StandardCharsets.US_ASCII)).putInt(count * 2);
         return file.array();
     }
+    @Test public void waveformMeasuresTheFileInsteadOfInventingPeaks() throws Exception {
+        byte[] song = wav();
+        ByteBuffer pcm = ByteBuffer.wrap(song).order(ByteOrder.LITTLE_ENDIAN);
+        for (int i = 2000; i < 4000; i++) pcm.putShort(44 + i * 2, (short) (i % 2 == 0 ? 16000 : -16000));
+        File audio = File.createTempFile("waveform-", ".wav", InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir());
+        try {
+            try (java.io.FileOutputStream output = new java.io.FileOutputStream(audio)) { output.write(song); }
+            float[] peaks = TrackWaveform.decode(audio, .5);
+            assertEquals(TrackWaveform.BINS, peaks.length);
+            assertEquals(0f, peaks[12], .001f);
+            assertEquals(16000f / 32768f, peaks[84], .005f);
+        } finally { audio.delete(); }
+    }
     @Test
     public void savedAudioPlaysToEndAfterReopeningWithNoNetworkSource() throws Exception {
         byte[] audio = wav();

@@ -7,7 +7,39 @@ type Point = { x: number; y: number };
 async function touchDrag(page: Page, from: Point, to: Point) {
 	const cdp = await page.context().newCDPSession(page);
 	try {
+		const press = page.evaluate(
+			() =>
+				new Promise<number>((resolve) => {
+					document.addEventListener('pointerdown', (event) => resolve(event.pointerId), {
+						once: true,
+						capture: true
+					});
+				})
+		);
 		await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+		const pointerId = await press;
+		await page.waitForTimeout(450);
+		// Android's long-click recognizer cancels the pointer stream while touch contact continues.
+		expect(
+			await page.evaluate(
+				({ point, pointerId }) => {
+					const target = document.elementFromPoint(point.x, point.y)!;
+					const options = {
+						pointerId,
+						pointerType: 'touch',
+						clientX: point.x,
+						clientY: point.y,
+						bubbles: true,
+						cancelable: true
+					};
+					const suppressed = !target.dispatchEvent(new PointerEvent('contextmenu', options));
+					target.dispatchEvent(new PointerEvent('pointercancel', options));
+					target.dispatchEvent(new PointerEvent('lostpointercapture', options));
+					return suppressed;
+				},
+				{ point: from, pointerId }
+			)
+		).toBe(true);
 		for (let i = 1; i <= 6; i++)
 			await cdp.send('Input.dispatchTouchEvent', {
 				type: 'touchMove',
@@ -148,105 +180,69 @@ test('full rows swap a chosen field and preserve independently arranged fields w
 		false
 	]);
 	await button('Player settings').click();
-	await button('Try side-by-side layout').click();
+	await button('Restore default layout').click();
 	await expect(rows).not.toHaveCount(2);
 	await button('Cancel').click();
 	expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key)).toEqual(saved);
 });
 
-test('touch editing moves and resizes real sample fields, changes header actions, and saves the draft', async ({
+test('a column holds two independently editable stacked fields with numeric padding, accessible reordering and saved labels', async ({
 	page
 }) => {
 	const { button, key } = await startComposer(page, [
-		['player-title', false],
-		['player-artist', false],
-		['player-album', false],
 		['player-artwork', false],
-		['player-favorite', false],
-		['player-up-next', false]
+		['player-title', true],
+		['player-artist', false],
+		['player-toggle', false]
 	]);
-	const sample = page.locator('[data-part=sample-player]'),
-		row = (i: number) => sample.locator('[data-player-row]').nth(i);
-	await expect(sample.getByText('Soft Current', { exact: true })).toBeVisible();
-	await expect(sample.getByText('Northline', { exact: true }).first()).toBeVisible();
-	await expect(sample.locator('img')).toHaveJSProperty('complete', true);
-	expect(
-		await sample.locator('img').evaluate((i) => (i as HTMLImageElement).naturalWidth)
-	).toBeGreaterThan(100);
-	const drag = (from: Point, to: Point) => touchDrag(page, from, to);
-	await expect(page.locator('[data-inspector]')).toHaveCount(0);
-	await row(0).evaluate((node) => {
-		const main = node.closest('main')!;
-		main.scrollTop += node.getBoundingClientRect().top - 250;
-	});
-	const grip = await button('Customize Artist').locator('[data-layout-drag]').boundingBox(),
-		title = await row(0).boundingBox();
-	expect(grip && title).toBeTruthy();
-	await drag(
-		{ x: grip!.x + 22, y: grip!.y + 22 },
-		{ x: title!.x + title!.width - 14, y: title!.y + title!.height / 2 }
-	);
-	await expect(row(0).locator('[data-section-id]')).toHaveCount(2);
-	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	const sample = page.locator('[data-part=sample-player]');
+	await button('Edit row 1').click();
+	await button('Add subrow to column 2').click();
+	await button('Use Artist').click();
+	const stacked = sample
+		.locator('[data-player-column]')
+		.filter({ has: button('Customize Track title') });
+	await expect(stacked.locator('[data-section-id]')).toHaveCount(2);
+	const title = await stacked.locator('[data-section-id=player-title]').boundingBox(),
+		artist = await stacked.locator('[data-section-id=player-artist]').boundingBox();
+	expect(Math.abs(title!.x - artist!.x)).toBeLessThan(2);
+	expect(artist!.y).toBeGreaterThanOrEqual(title!.y + title!.height - 1);
 	await button('Customize Artist').click();
 	await openPlayerPlacement(page);
-	await page.getByLabel('Minimum row height', { exact: true }).fill('88');
-	await expect(row(0)).toHaveCSS('min-height', '88px');
-	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-	await button('Finish editing field').click();
-	await button('Customize Artwork').click();
-	await openPlayerPlacement(page);
-	await page.getByLabel('Element width', { exact: true }).fill('80');
-	await page.getByLabel('Element width', { exact: true }).press('Tab');
-	await button('Finish editing field').click();
-	await button('Customize Artwork').click();
-	const resize = button('Resize Artwork');
-	await resize.evaluate((b) => b.scrollIntoView({ block: 'center' }));
-	expect(
-		await resize.evaluate((b) => {
-			const r = b.getBoundingClientRect();
-			return b.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
-		})
-	).toBe(true);
-	const box = await resize.boundingBox();
-	await drag({ x: box!.x + 22, y: box!.y + 22 }, { x: box!.x - 30, y: box!.y + 24 });
-	const width = page.getByLabel('Element width', { exact: true });
-	const draggedWidth = await width.inputValue();
-	expect(Number(draggedWidth)).toBeLessThan(80);
-	await button('Undo layout edit').click();
-	await expect(width).toHaveValue('80');
-	await button('Redo layout edit').click();
-	await expect(width).toHaveValue(draggedWidth);
-	await button('Finish editing field').click();
-	await button('Customize Player settings').click();
-	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('star');
-	await openPlayerPlacement(page);
-	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
-	await expect(sample.locator('header [data-section-id="player-settings"]')).toHaveCount(0);
-	await expect(page.getByRole('combobox', { name: 'Icon', exact: true })).toHaveValue('star');
-	await button('Customize Play queue').click();
-	await openPlayerPlacement(page);
-	for (let i = 0; i < 3; i++) {
-		const left = button('Move Play queue left');
-		if (await left.isDisabled()) break;
-		await left.click();
-	}
-	await button('Customize Close player').click();
-	await button('Remove Close player').click();
-	await expect(sample.locator('header [data-section-id]').first()).toHaveAttribute(
+	await button('Move Artist up').click();
+	await expect(stacked.locator('[data-section-id]').first()).toHaveAttribute(
 		'data-section-id',
-		'player-queue'
+		'player-artist'
 	);
-
+	await button('Move Artist down').click();
+	await expect(stacked.locator('[data-section-id]').last()).toHaveAttribute(
+		'data-section-id',
+		'player-artist'
+	);
+	await button('Customize Play or pause').click();
+	await expect(page.getByLabel('Padding', { exact: true })).toHaveValue('0');
+	await page.getByLabel('Padding', { exact: true }).fill('3.5');
+	await page.getByLabel('Padding', { exact: true }).blur();
+	await expect(sample.locator('[data-section-id=player-toggle] .content')).toHaveCSS(
+		'padding-top',
+		'3.5px'
+	);
+	await expect(page.getByRole('combobox', { name: 'Icon', exact: true })).toHaveCount(0);
+	await page.getByLabel('Label', { exact: true }).selectOption('show');
+	await page.getByLabel('Label name').fill('Listen');
+	await page.getByLabel('Label position').selectOption('above');
+	await expect(sample.locator('[data-section-id=player-toggle] .caption')).toHaveText('Listen');
 	await button('Save layout').click();
-	const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
-	expect(saved).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({ id: 'player-artist', sameRow: true, minHeight: 88 }),
-			expect.objectContaining({ id: 'player-close', placement: 'hidden' }),
-			expect.objectContaining({ id: 'player-queue', placement: 'header' })
-		])
-	);
+	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	expect(saved.find((s: { id: string }) => s.id === 'player-artist')).toMatchObject({
+		stack: true,
+		sameRow: true
+	});
+	expect(saved.find((s: { id: string }) => s.id === 'player-toggle')).toMatchObject({
+		padding: 3.5,
+		labelName: 'Listen',
+		labelPosition: 'above'
+	});
 });
 
 test('a listener builds five controls directly from legacy groups and keeps a sixth empty column', async ({
@@ -287,55 +283,89 @@ test('a listener builds five controls directly from legacy groups and keeps a si
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('a row handle can put the whole row in the header before opening an inspector', async ({
-	page
-}) => {
-	const { button, key } = await startComposer(page, [
-		['player-title', false],
-		['player-artist', false],
-		['player-album', true]
-	]);
-	const sample = page.locator('[data-part=sample-player]');
-	const headerIds = () =>
-		sample
-			.locator('header [data-section-id]')
-			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')));
-	const originalHeader = await headerIds();
-	await button('Edit header').evaluate((el) => {
-		const main = el.closest('main')!;
-		main.scrollTop += el.getBoundingClientRect().top - 170;
+for (const pointerType of ['mouse', 'pen'] as const)
+	test('a held ' + pointerType + ' moves the entire row into the header', async ({ page }) => {
+		const { button, key } = await startComposer(page, [
+			['player-title', false],
+			['player-artist', false],
+			['player-album', true]
+		]);
+		const sample = page.locator('[data-part=sample-player]');
+		const headerIds = () =>
+			sample
+				.locator('header [data-section-id]')
+				.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')));
+		const originalHeader = await headerIds();
+		await button('Edit header').evaluate((el) => {
+			const main = el.closest('main')!;
+			main.scrollTop += el.getBoundingClientRect().top - 170;
+		});
+		await expect(page.locator('[data-inspector]')).toHaveCount(0);
+		const from = (await button('Edit row 2').boundingBox())!,
+			to = (await button('Edit header').boundingBox())!;
+		const cdp = await page.context().newCDPSession(page);
+		async function moveRow(hold: boolean) {
+			const start = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+			const end = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+			await cdp.send('Input.dispatchMouseEvent', {
+				type: 'mousePressed',
+				button: 'left',
+				buttons: 1,
+				clickCount: 1,
+				pointerType,
+				...start
+			});
+			if (hold) await expect(page.locator('.ghost')).toBeVisible();
+			await cdp.send('Input.dispatchMouseEvent', {
+				type: 'mouseMoved',
+				button: 'left',
+				buttons: 1,
+				pointerType,
+				...end
+			});
+			await cdp.send('Input.dispatchMouseEvent', {
+				type: 'mouseReleased',
+				button: 'left',
+				buttons: 0,
+				clickCount: 1,
+				pointerType,
+				...end
+			});
+		}
+		await moveRow(false);
+		expect(await headerIds()).toEqual(originalHeader);
+		await moveRow(true);
+		await cdp.detach();
+		expect(
+			await sample
+				.locator('header [data-section-id]')
+				.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')))
+		).toEqual(['player-artist', 'player-album']);
+		await expect(page.locator('[data-inspector]')).toHaveCount(0);
+		await button('Undo layout edit').click();
+		expect(await headerIds()).toEqual(originalHeader);
+		await page.keyboard.press('Control+Shift+z');
+		expect(await headerIds()).toEqual(['player-artist', 'player-album']);
+		await button('Save layout').click();
+		await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
+		await expect(
+			page.locator('[data-part=now-playing] header [data-section-id=player-album]')
+		).toBeVisible();
+		await page.keyboard.press('Escape');
+		await button('Settings').click();
+		await button('Edit Now Playing layout').click();
+		await button('Edit header').click();
+		await expect(page.getByLabel('Number of columns')).toHaveValue('2');
+		await button('Finish editing row').click();
+		await expect(button('Edit header')).toBeFocused();
+		await button('Cancel').click();
+		const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
+		expect(
+			saved
+				.filter((s: { placement?: string }) => s.placement === 'header')
+				.map((s: { id: string }) => s.id)
+		).toEqual(['player-artist', 'player-album']);
 	});
-	await expect(page.locator('[data-inspector]')).toHaveCount(0);
-	await button('Edit row 2').dragTo(button('Edit header'));
-	expect(
-		await sample
-			.locator('header [data-section-id]')
-			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')))
-	).toEqual(['player-artist', 'player-album']);
-	await expect(page.locator('[data-inspector]')).toHaveCount(0);
-	await button('Undo layout edit').click();
-	expect(await headerIds()).toEqual(originalHeader);
-	await page.keyboard.press('Control+Shift+z');
-	expect(await headerIds()).toEqual(['player-artist', 'player-album']);
-	await button('Save layout').click();
-	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
-	await expect(
-		page.locator('[data-part=now-playing] header [data-section-id=player-album]')
-	).toBeVisible();
-	await button('Player menu').click();
-	await button('Player settings').click();
-	await button('Edit header').click();
-	await expect(page.getByLabel('Number of columns')).toHaveValue('2');
-	await button('Finish editing row').click();
-	await expect(button('Edit header')).toBeFocused();
-	await button('Cancel').click();
-	const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
-	expect(
-		saved
-			.filter((s: { placement?: string }) => s.placement === 'header')
-			.map((s: { id: string }) => s.id)
-	).toEqual(['player-artist', 'player-album']);
-});
 
 test('undo groups typing, drops a superseded redo and keeps the saved layout until Save', async ({
 	page
@@ -373,7 +403,7 @@ test('undo groups typing, drops a superseded redo and keeps the saved layout unt
 	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBe(original);
 });
 
-test('the left edge belongs to row and field drags while an ordinary page swipe opens navigation', async ({
+test('press and hold moves fields while a quick vertical touch scrolls the editor', async ({
 	page
 }) => {
 	const { button } = await startComposer(page, [
@@ -385,61 +415,72 @@ test('the left edge belongs to row and field drags while an ordinary page swipe 
 	]);
 	const sample = page.locator('[data-part=sample-player]');
 	const row = (n: number) => sample.locator('[data-player-row="' + n + '"]');
-	const menu = page.getByRole('dialog', { name: 'Navigation menu' });
-	async function center(loc: ReturnType<typeof row>) {
-		await loc.evaluate((el) => {
-			el.closest('main')!.scrollTop += el.getBoundingClientRect().top - 245;
-		});
-	}
-
-	const handle = button('Edit row 1');
-	await center(handle);
-	const marker = await handle.boundingBox(),
-		second = await button('Edit row 2').boundingBox();
-	const from = { x: 22, y: marker!.y + marker!.height / 2 };
-	expect(
-		await handle.evaluate((el, p) => el.contains(document.elementFromPoint(p.x, p.y)), from)
-	).toBe(true);
-	await touchDrag(page, from, {
-		x: second!.x + second!.width - 18,
-		y: second!.y + second!.height / 2
-	});
-	await expect(menu).toHaveCount(0);
-	await expect(row(0).locator('[data-section-id]')).toHaveAttribute(
-		'data-section-id',
-		'player-duration'
-	);
-	await expect(row(1).locator('[data-section-id]')).toHaveAttribute(
-		'data-section-id',
-		'player-elapsed'
-	);
-
-	const field = button('Customize Track title'),
-		album = button('Customize Album');
-	await center(field);
-	const f = await field.boundingBox(),
-		destination = await album.boundingBox();
-	const touch = { x: 22, y: f!.y + f!.height / 2 };
-	expect(await field.evaluate((el, p) => el === document.elementFromPoint(p.x, p.y), touch)).toBe(
-		true
-	);
-	await touchDrag(page, touch, {
-		x: destination!.x + destination!.width - 8,
-		y: destination!.y + destination!.height / 2
-	});
-	await expect(menu).toHaveCount(0);
-	await expect(row(2).locator('[data-section-id]').last()).toHaveAttribute(
-		'data-section-id',
-		'player-title'
-	);
-	await expect(page.locator('[data-inspector]')).toHaveCount(0);
-
-	await page.locator('main').evaluate((el) => (el.scrollTop = 0));
-	const heading = await page.getByRole('heading', { name: 'Edit Now Playing' }).boundingBox();
+	const first = row(0).locator('[data-section-id]'),
+		second = row(1).locator('[data-section-id]');
+	await first.scrollIntoViewIfNeeded();
+	const a = (await first.boundingBox())!,
+		b = (await second.boundingBox())!;
 	await touchDrag(
 		page,
-		{ x: 22, y: heading!.y + heading!.height / 2 },
-		{ x: 156, y: heading!.y + heading!.height / 2 }
+		{ x: a.x + a.width / 2, y: a.y + a.height / 2 },
+		{ x: b.x + b.width * 0.6, y: b.y + b.height * 0.5 }
 	);
-	await expect(menu).toBeVisible();
+	await expect(row(0).locator('[data-section-id]')).toHaveCount(2);
+	const field = button('Customize Elapsed time');
+	await field.scrollIntoViewIfNeeded();
+	const box = (await field.boundingBox())!,
+		start = await page.locator('main').evaluate((el) => el.scrollTop),
+		cdp = await page.context().newCDPSession(page);
+	await cdp.send('Input.dispatchTouchEvent', {
+		type: 'touchStart',
+		touchPoints: [{ x: box.x + 10, y: box.y + 10 }]
+	});
+	for (let i = 1; i <= 8; i++)
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchMove',
+			touchPoints: [{ x: box.x + 10, y: box.y + 10 + i * 9 }]
+		});
+	await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+	await cdp.detach();
+	await expect(row(0).locator('[data-section-id]')).toHaveCount(2);
+	if (start > 20)
+		await expect
+			.poll(() => page.locator('main').evaluate((el) => el.scrollTop))
+			.toBeLessThan(start);
+});
+
+test('seek times and lyrics presentation edit the sample and survive saving or splitting a field', async ({
+	page
+}) => {
+	const { button, key } = await startComposer(page, [
+		['player-timeline', false],
+		['player-lyrics', false]
+	]);
+	const sample = page.locator('[data-part=sample-player]'),
+		progress = sample.locator('[data-part=playback-bar]');
+	await button('Customize Playback position').click();
+	await page.getByLabel('Seek bar style').selectOption('waveform');
+	await page.getByRole('checkbox', { name: 'Elapsed time', exact: true }).uncheck();
+	await page.getByRole('checkbox', { name: 'Remaining time', exact: true }).check();
+	await expect(progress).toHaveAttribute('data-seek-style', 'waveform');
+	await expect(progress.locator('time')).toHaveCount(2);
+	await expect(progress.locator('time[aria-label="Time remaining"]')).toHaveText('−2:34');
+	await button('Customize Lyrics').click();
+	await page.getByLabel('Lyrics display').selectOption('sheet');
+	await button('Save layout').click();
+	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!) as Section[], key);
+	expect(saved.find((s) => s.id === 'player-lyrics')?.lyricsMode).toBe('sheet');
+	expect(saved.find((s) => s.id === 'player-timeline')).toMatchObject({
+		seekStyle: 'waveform',
+		showRemaining: true,
+		showElapsed: false
+	});
+	await button('Player settings').click();
+	await button('Customize Playback position').click();
+	await button('Split Playback position').click();
+	await expect(sample.locator('[data-section-id=player-duration]')).toHaveCount(1);
+	await expect(sample.locator('[data-section-id=player-remaining]')).toHaveCount(1);
+	await expect(sample.locator('[data-section-id=player-elapsed]')).toHaveCount(0);
+	await expect(progress).toHaveAttribute('data-seek-style', 'waveform');
+	await expect(progress.locator('time')).toHaveCount(0);
 });

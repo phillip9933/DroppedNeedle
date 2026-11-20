@@ -72,7 +72,7 @@ public final class PlaybackService extends MediaSessionService {
         @Override public OfflineStore store() { return offline; }
         @Override public JSONObject metadata(String id) { return metadata.get(id); }
 
-        boolean allowsOnlineArt() { return offline == null || !offline.offlineOnly(); }
+        boolean allowsOnlineMedia() { return offline == null || !offline.offlineOnly(); }
 
         boolean permits(HttpUrl url, String path) {
             return url != null && url.isHttps() && url.host().equals(base.host())
@@ -89,6 +89,9 @@ public final class PlaybackService extends MediaSessionService {
     private PlaybackEqualizer equalizer;
     private PlaybackFades fades;
     private PlaybackSleepTimer sleep;
+    private final TrackWaveform waveforms = new TrackWaveform();
+    private OkHttpClient playbackHttp;
+    private ExoPlayer localPlayback;
     private LibraryQueuePager pager;
     private boolean changingWindow, repeatLibrary, wasPlaying;
     private SavedQueue saved;
@@ -135,11 +138,12 @@ public final class PlaybackService extends MediaSessionService {
                     return chain.proceed(request.newBuilder()
                             .header("Authorization", "Bearer " + current.token).build());
                 }).addNetworkInterceptor(chain -> {
-                    Access artworkOwner = chain.request().tag(Access.class);
-                    if (artworkOwner != null && (artworkOwner != access || !artworkOwner.allowsOnlineArt()))
-                        throw new IOException("Online artwork is unavailable.");
+                    Access mediaOwner = chain.request().tag(Access.class);
+                    if (mediaOwner != null && (mediaOwner != access || !mediaOwner.allowsOnlineMedia()))
+                        throw new IOException("Online media is unavailable.");
                     return chain.proceed(chain.request());
                 }).build();
+        playbackHttp = http;
         OkHttpDataSource.Factory source = new OkHttpDataSource.Factory(http);
         ConversionSource audioSource = new ConversionSource(timeline -> {
             Access current = access;
@@ -153,6 +157,7 @@ public final class PlaybackService extends MediaSessionService {
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build();
+        localPlayback = local;
         player = new RoutedPlayer(this, local, item -> {
             Access owner = access;
             Uri canonical = item.localConfiguration.uri;
@@ -193,7 +198,11 @@ public final class PlaybackService extends MediaSessionService {
                 local.setPauseAtEndOfMediaItems(enabled);
                 player.pauseRemoteAtEnd(enabled);
             }
+            @Override public Object playingTrack() {
+                return showsPauseControl() ? trackIdentity(player.getCurrentMediaItem()) : null;
+            }
         });
+        player.remoteAdvance = item -> sleep.changedTrack(trackIdentity(item), true);
         pager = new LibraryQueuePager(new LibraryQueuePager.Host() {
             @Override public JSArray tracks() { return queueTracks(); }
             @Override public int index() { return player.getCurrentMediaItemIndex(); }
@@ -235,7 +244,8 @@ public final class PlaybackService extends MediaSessionService {
                 }
             }
             @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
-                sleep.changedTrack(trackIdentity(item));
+                sleep.changedTrack(trackIdentity(item), reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+                        || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT);
             }
             @Override public void onAudioSessionIdChanged(int id) { equalizer.setSession(id); }
         });
@@ -244,7 +254,7 @@ public final class PlaybackService extends MediaSessionService {
                 sleep.check();
                 boolean ended = source.getPlaybackState() == Player.STATE_ENDED;
                 boolean sleepBoundary = sleep.afterTrack() && ended;
-                if (ended) sleep.finishedTrack();
+                if (ended && (sleepBoundary || !pager.attached() || !pager.hasNext() && !repeatLibrary)) sleep.finishedTrack();
                 if (!changingWindow && pager.attached()) {
                     if (events.contains(Player.EVENT_REPEAT_MODE_CHANGED) && source.getRepeatMode() == Player.REPEAT_MODE_ALL)
                         setRepeat(Player.REPEAT_MODE_ALL);
@@ -356,7 +366,9 @@ public final class PlaybackService extends MediaSessionService {
             }
             owner.metadata.keySet().retainAll(retained);
             if (resume) {
-                player.seekTo(restart ? 0 : before - prefix, 0);
+                int nextIndex = restart ? 0 : before - prefix;
+                sleep.changedTrack(trackIdentity(player.getMediaItemAt(nextIndex)), true);
+                player.seekTo(nextIndex, 0);
                 player.prepare();
                 player.play();
             }
@@ -561,8 +573,8 @@ public final class PlaybackService extends MediaSessionService {
         if ("cancelSleepTimer".equals(action)) { sleep.cancel(); return; }
         if ("setSleepMinutes".equals(action) || "sleepAfterTrack".equals(action)) {
             if (count == 0) throw new IllegalStateException("Choose a track first.");
-            if ("setSleepMinutes".equals(action)) sleep.minutes(value);
-            else sleep.afterTrack(trackIdentity(player.getCurrentMediaItem()));
+            if ("setSleepMinutes".equals(action)) sleep.minutes(value, to == 1);
+            else sleep.afterTracks(trackIdentity(player.getCurrentMediaItem()), value < 1 ? 1 : value);
             return;
         }
         if (count == 0) return;
@@ -658,6 +670,45 @@ public final class PlaybackService extends MediaSessionService {
         return tracks;
     }
 
+    void readWaveform(String trackId, String request, java.util.function.Consumer<JSObject> result) {
+        MediaItem item = player.getCurrentMediaItem();
+        Access owner = access;
+        if (request.isEmpty() || owner == null || item == null || item.localConfiguration == null
+                || !item.mediaId.equals(trackId)) {
+            JSObject empty = new JSObject();
+            empty.put("peaks", new JSArray());
+            result.accept(empty);
+            return;
+        }
+        double seconds = player.getDuration() == C.TIME_UNSET ? 0 : player.getDuration() / 1000.0;
+        waveforms.read(request, getCacheDir(), owner, item.localConfiguration.uri, seconds, playbackHttp, result);
+    }
+
+    void cancelWaveform(String request) { waveforms.cancel(request); }
+
+    @Nullable
+    private JSObject currentQuality() {
+        if (!player.destination().isEmpty()) return null;
+        androidx.media3.common.Format format = localPlayback.getAudioFormat();
+        if (format == null || format.sampleMimeType == null) return null;
+        String codec;
+        switch (format.sampleMimeType) {
+            case "audio/raw": codec = "PCM"; break;
+            case "audio/mp4a-latm": codec = "AAC"; break;
+            case "audio/mpeg": codec = "MP3"; break;
+            case "audio/opus": codec = "Opus"; break;
+            case "audio/vorbis": codec = "Vorbis"; break;
+            default: codec = format.sampleMimeType.replace("audio/", "").toUpperCase(java.util.Locale.ROOT);
+        }
+        JSObject out = new JSObject();
+        out.put("format", codec);
+        if (format.sampleRate > 0) out.put("sampleRate", format.sampleRate);
+        if (format.averageBitrate > 0) out.put("bitrate", Math.round(format.averageBitrate / 1000f));
+        if (androidx.media3.common.util.Util.isEncodingLinearPcm(format.pcmEncoding))
+            out.put("bitDepth", androidx.media3.common.util.Util.getPcmFrameSize(format.pcmEncoding, 1) * 8);
+        return out;
+    }
+
     JSObject snapshot() {
         sleep.check();
         JSArray tracks = queueTracks();
@@ -671,9 +722,16 @@ public final class PlaybackService extends MediaSessionService {
         if (pager.attached()) result.put("libraryWindow", pager.status(tracks.length()));
         JSObject timer = new JSObject();
         long remaining = sleep.remaining();
-        if (sleep.afterTrack()) timer.put("mode", "track");
-        else if (remaining > 0) { timer.put("mode", "minutes"); timer.put("endsAt", System.currentTimeMillis() + remaining); }
+        if (sleep.tracks() > 0) {
+            timer.put("mode", "track");
+            timer.put("remaining", sleep.tracks());
+        } else if (remaining > 0) {
+            timer.put("mode", "minutes");
+            timer.put("endsAt", System.currentTimeMillis() + remaining);
+            timer.put("finishTrack", sleep.finishLast());
+        }
         result.put("sleepTimer", timer.length() > 0 ? timer : JSONObject.NULL);
+        result.put("quality", currentQuality());
         result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
         result.put("tracks", tracks);
         result.put("index", index);
@@ -686,6 +744,7 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        waveforms.close();
         cancelHeadset();
         generation++;
         save(false);

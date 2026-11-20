@@ -1,17 +1,39 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import type { Section } from '../boards/layout';
 	import PlayerActionFace from './PlayerActionFace.svelte';
-	import { Star, Heart, ListPlus, Wrench, Download, CircleCheck } from '@lucide/svelte';
+	import {
+		Star,
+		Heart,
+		ListPlus,
+		Download,
+		CircleCheck,
+		Server,
+		HardDrive,
+		FileAudio,
+		Clock3,
+		Activity,
+		Waves,
+		AudioLines,
+		Gauge,
+		Disc3,
+		UserRound,
+		UsersRound,
+		Tags,
+		CalendarDays,
+		ListMusic
+	} from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, postJson, type Session } from '../connection';
 	import { trackToolFields } from './layout';
-	import type { PlayerTrack } from '../player';
+	import type { PlaybackFormat, PlayerTrack } from '../player';
 	import { errorMessage, path } from '../catalog/catalog';
+	import Cover from '../catalog/Cover.svelte';
+	import PlayerQuality from './PlayerQuality.svelte';
 	import Favorite from '../catalog/Favorite.svelte';
 	import {
 		offlineInventory,
+		storageSize,
 		offlineSupported,
 		removeOffline,
 		saveOfflineTracks,
@@ -34,26 +56,30 @@
 	let {
 		session,
 		track,
-		title,
-		startOpen,
 		sample = false,
 		section,
-		mode = 'tools',
+		mode = 'field',
+		artwork,
+		playback,
+		duration,
 		fields = trackToolFields.map((a) => a.id) as readonly string[]
 	}: {
 		session: Session;
 		track: PlayerTrack;
-		title: string;
-		startOpen: boolean;
+		title?: string;
+		startOpen?: boolean;
 		sample?: boolean;
 		section?: Section;
-		mode?: 'tools' | 'field';
+		mode?: 'details' | 'actions' | 'field';
+		artwork?: string;
+		playback?: PlaybackFormat | null;
+		duration?: number;
 		fields?: readonly string[];
 	} = $props();
-	let open = $state(untrack(() => startOpen)),
-		playlist = $state(false);
+	let playlist = $state(false);
 	let origin = $state<OfflineOrigin>(),
 		deviceReady = $state(false),
+		deviceBytes = $state<number>(),
 		online = $state(navigator.onLine),
 		offlineOnly = $state(false),
 		confirmRemove = $state(false),
@@ -97,8 +123,129 @@
 			: (local?.format?.toUpperCase() ?? '')
 	);
 
+	const offlineNames: Record<OfflineOrigin, string> = {
+		downloaded: 'Saved manually',
+		automatic: 'Automatically saved',
+		cached: 'Playback cache'
+	};
+	const offlineState = $derived(
+		origin ? offlineNames[origin] : deviceReady ? 'Not saved on this device' : undefined
+	);
+	function durationLabel(seconds?: number | null) {
+		if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return;
+		const value = Math.floor(seconds),
+			hours = Math.floor(value / 3600);
+		const minutes = Math.floor((value % 3600) / 60),
+			sec = String(value % 60).padStart(2, '0');
+		return hours ? hours + ':' + String(minutes).padStart(2, '0') + ':' + sec : minutes + ':' + sec;
+	}
+	function dateLabel(seconds?: number | null) {
+		if (!seconds || !Number.isFinite(seconds)) return;
+		const date = new Date(seconds * 1000);
+		if (Number.isFinite(date.getTime()))
+			return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+	}
+	const detailGroups = $derived.by(() => {
+		if (mode !== 'details') return [];
+		const fileBytes = library?.file_size_bytes,
+			rate = library?.sample_rate,
+			depth = library?.bit_depth,
+			bits = library?.bit_rate;
+		return [
+			{
+				title: 'Source',
+				rows: [
+					{ label: 'Media provider', value: 'DroppedNeedle', icon: Server },
+					{ label: 'Offline copy', value: offlineState, icon: Download },
+					{
+						label: 'File size',
+						value: fileBytes && fileBytes > 0 ? storageSize(fileBytes) : undefined,
+						icon: FileAudio
+					},
+					{
+						label: 'Size on device',
+						value: origin && deviceBytes && deviceBytes > 0 ? storageSize(deviceBytes) : undefined,
+						icon: HardDrive
+					}
+				]
+			},
+			{
+				title: 'Format',
+				rows: [
+					{
+						label: 'Duration',
+						value: durationLabel(
+							library?.duration_seconds ?? track.duration ?? local?.duration ?? duration
+						),
+						icon: Clock3
+					},
+					{
+						label: 'Codec or container',
+						value: (library?.format || local?.format || track.format)?.toUpperCase(),
+						icon: FileAudio
+					},
+					{ label: 'Bitrate', value: bits && bits > 0 ? bits + ' kbps' : undefined, icon: Gauge },
+					{
+						label: 'Sample rate',
+						value: rate && rate > 0 ? Number((rate / 1000).toFixed(3)) + ' kHz' : undefined,
+						icon: Activity
+					},
+					{
+						label: 'Bit depth',
+						value: depth && depth > 0 ? depth + '-bit' : undefined,
+						icon: Waves
+					},
+					{
+						label: 'Channels',
+						value: library?.channels && library.channels > 0 ? library.channels : undefined,
+						icon: AudioLines
+					}
+				]
+			},
+			{
+				title: 'Music metadata',
+				rows: [
+					{
+						label: 'Artist',
+						value: library?.artist_name || track.artist || local?.artist,
+						icon: UserRound
+					},
+					{
+						label: 'Album',
+						value: library?.album_title || track.album || local?.album,
+						icon: Disc3
+					},
+					{
+						label: 'Album artist',
+						value: library?.album_artist_name || track.albumArtist || local?.albumArtist,
+						icon: UsersRound
+					},
+					{ label: 'Genre', value: library?.genre || track.genre || local?.genre, icon: Tags },
+					{ label: 'Year', value: library?.year || track.year || local?.year, icon: CalendarDays },
+					{
+						label: 'Disc',
+						value: library?.disc_number || track.discNumber || local?.discNumber,
+						icon: Disc3
+					},
+					{
+						label: 'Track',
+						value: library?.track_number || track.trackNumber || local?.trackNumber,
+						icon: ListMusic
+					},
+					{
+						label: 'Added to library',
+						value: dateLabel(library?.date_added ?? track.dateAdded ?? local?.dateAdded),
+						icon: CalendarDays
+					}
+				]
+			}
+		]
+			.map((group) => ({ ...group, rows: group.rows.filter((row) => row.value) }))
+			.filter((group) => group.rows.length);
+	});
+
 	$effect(() => {
-		if (!open || sample) return;
+		if (sample) return;
 		const id = trackId,
 			name = trackTitle,
 			current = session;
@@ -112,6 +259,13 @@
 		origin = undefined;
 		deviceReady = false;
 		const scope = feedbackScope(current);
+		const wantFavorite = fields.includes('player-favorite'),
+			wantRating = fields.includes('player-rating'),
+			wantFeedback = wantFavorite || wantRating,
+			wantQuality = fields.includes('player-quality') || mode === 'details',
+			wantDownload = fields.includes('player-download') && offlineSupported;
+		const controller = new AbortController();
+		deviceBytes = undefined;
 		let observed: FeedbackRecord[] = [];
 		async function preferred(field: 'rating' | 'favorite', value: number | boolean) {
 			return confirmedFeedback(
@@ -128,7 +282,7 @@
 			if (record.field === 'rating') rating = Number(record.value);
 			else favoriteValue = record.value === true;
 		};
-		window.addEventListener(feedbackChanged, update);
+		if (wantFeedback) window.addEventListener(feedbackChanged, update);
 		async function findTrack() {
 			// The library exposes a paged search. Use the UUID to distinguish live versions and duplicate titles.
 			let after: string | undefined;
@@ -136,15 +290,16 @@
 			do {
 				const result = await getJson<Model['TrackListPage']>(
 					current,
-					path('/api/v3/library/tracks', {}, { q: name, limit: 100, after })
+					path('/api/v3/library/tracks', {}, { q: name, limit: 100, after }),
+					controller.signal
 				);
 				if (!live) return;
 				const found = result.items.find((t) => t.id === id);
 				if (found) {
-					const favorite = await preferred('favorite', found.favorite);
-					if (live) {
-						library = found;
-						favoriteValue = Boolean(favorite);
+					library = found;
+					if (wantFavorite) {
+						const favorite = await preferred('favorite', found.favorite);
+						if (live) favoriteValue = Boolean(favorite);
 					}
 					return;
 				}
@@ -154,10 +309,6 @@
 			} while (live);
 			if (live) libraryError = 'Library details are unavailable for this track.';
 		}
-		const wantFavorite = fields.includes('player-favorite'),
-			wantQuality = fields.includes('player-quality'),
-			wantRating = fields.includes('player-rating'),
-			wantDownload = fields.includes('player-download') && offlineSupported;
 		let read = 0;
 		async function readDevice() {
 			const version = ++read;
@@ -166,21 +317,26 @@
 					? await offlineInventory(current).catch(() => undefined)
 					: undefined;
 			if (live && version === read) {
-				origin = data?.byId.get(id)?.origin;
+				const saved = data?.byId.get(id);
+				origin = saved?.origin;
+				deviceBytes = saved?.bytes;
+				if (mode === 'details') local = saved?.track;
 				offlineOnly = data?.offlineOnly === true;
-				deviceReady = !!scope;
+				deviceReady = mode === 'details' ? !!data : !!scope;
 			}
 			return data;
 		}
-		function connectionChanged() {
+		function connectionChanged(event?: Event) {
 			online = navigator.onLine;
+			if (event?.type === 'online' && mode === 'details') retry++;
 		}
-		const stopWatching = wantDownload
+		const observeDevice = wantDownload || (mode === 'details' && offlineSupported);
+		const stopWatching = observeDevice
 			? watchOfflineMedia(() => {
 					void readDevice();
 				})
 			: undefined;
-		if (wantDownload) {
+		if (observeDevice) {
 			connectionChanged();
 			window.addEventListener('online', connectionChanged);
 			window.addEventListener('offline', connectionChanged);
@@ -196,11 +352,11 @@
 			}
 			const offline = !navigator.onLine || data?.offlineOnly === true;
 			if (offline) {
-				if (!stored && (wantFavorite || wantQuality || wantRating))
+				if (!stored && (wantFavorite || wantRating || (wantQuality && mode !== 'details')))
 					libraryError = 'This track has no offline details.';
 				return;
 			}
-			if (stored) observed = await trackFeedback(scope, id).catch(() => []);
+			if (stored && wantFeedback) observed = await trackFeedback(scope, id).catch(() => []);
 			if (!live) return;
 			if (wantFavorite || wantQuality)
 				void findTrack().catch((e) => {
@@ -221,6 +377,7 @@
 		void load();
 		return () => {
 			live = false;
+			controller.abort();
 			stopWatching?.();
 			window.removeEventListener('online', connectionChanged);
 			window.removeEventListener('offline', connectionChanged);
@@ -268,6 +425,7 @@
 		size={18}
 		label={active ? 'Favorited' : 'Favorite'}
 		fill={active}
+		defaultLabel={mode === 'actions'}
 	/>{/snippet}
 {#snippet favorite()}{#if sample}<button
 			class="icon-button custom-action"
@@ -303,6 +461,7 @@
 {#snippet contents()}
 	{#if fields.includes('player-favorite') || fields.includes('player-playlist') || (fields.includes('player-download') && offlineSupported)}<div
 			class="tools"
+			class:action-list={mode === 'actions'}
 		>
 			{#if fields.includes('player-favorite')}{@render favorite()}{/if}{#if fields.includes('player-playlist')}{@render addPlaylist()}{/if}
 			{#if fields.includes('player-download') && offlineSupported}<button
@@ -347,7 +506,7 @@
 					aria-pressed={rating === value}
 					onclick={() => rate(value)}
 					><PlayerActionFace
-						section={mode === 'field' ? section : undefined}
+						section={mode === 'field' && section ? { ...section, showLabel: false } : undefined}
 						glyph={Star}
 						size={20}
 						label={String(value)}
@@ -359,7 +518,7 @@
 					>Clear rating</button
 				>{/if}
 		</div>{/if}
-	{#if fields.includes('player-quality') && (quality || sample)}<p>
+	{#if mode !== 'details' && fields.includes('player-quality') && (quality || sample)}<p>
 			{sample ? 'FLAC · 24-bit · 48 kHz' : quality}
 		</p>{/if}
 	{#if !sample && local && (fields.includes('player-favorite') || fields.includes('player-rating'))}
@@ -377,17 +536,39 @@
 			{[libraryError, ratingError].filter(Boolean).join(' ')}
 		</p>
 		<button class="text-button" onclick={() => retry++}>Try again</button>{/if}{/snippet}
-{#if mode === 'tools'}<details bind:open data-part="track-tools">
-		<summary aria-label={title}
-			>{#if (section?.icon && section.icon !== 'default') || section?.showLabel !== undefined || section?.iconSize}<PlayerActionFace
-					{section}
-					glyph={Wrench}
-					size={18}
-					label={title}
-					defaultLabel
-				/>{:else}{title}{/if}</summary
-		>{#if open}{@render contents()}{/if}
-	</details>{:else}{@render contents()}{/if}
+{#if mode === 'details'}
+	<div class="details" data-part="track-details">
+		<header class="details-title">
+			<span class="thumbnail"
+				><Cover
+					{session}
+					path={artwork}
+					seed={track.album || track.id}
+					cacheOnly={offlineOnly || !online}
+				/></span
+			>
+			<h2>{track.title}</h2>
+		</header>
+		{#each detailGroups as group (group.title)}
+			<section aria-label={group.title}>
+				<h3>{group.title}</h3>
+				<dl>
+					{#each group.rows as row (row.label)}
+						<div class="detail-row">
+							<dt><row.icon size={20} aria-hidden="true" />{row.label}</dt>
+							<dd>{row.value}</dd>
+						</div>
+					{/each}
+				</dl>
+			</section>
+		{/each}
+		{#if playback?.format}<section aria-label="Current playback">
+				<h3>Current playback</h3>
+				<div class="playing-format"><PlayerQuality {track} quality={playback} /></div>
+			</section>{/if}
+	</div>
+{/if}
+{@render contents()}
 {#if playlist}<AddToPlaylist {session} tracks={[track]} onclose={() => (playlist = false)} />{/if}
 {#if confirmRemove}<PlaylistDialog
 		title="Remove download?"
@@ -407,6 +588,72 @@
 	</PlaylistDialog>{/if}
 
 <style>
+	.details {
+		min-width: 0;
+	}
+	.details-title {
+		display: flex;
+		gap: 0.95rem;
+		align-items: center;
+		margin: 0.25rem 0 1.15rem;
+	}
+	.thumbnail {
+		width: clamp(3.25rem, 15vw, 4.25rem);
+		flex: none;
+	}
+	.details-title h2 {
+		margin: 0;
+		font-size: 1.3rem;
+		line-height: 1.25;
+		overflow-wrap: anywhere;
+	}
+	.details h3 {
+		margin: 0.95rem 0 0.35rem;
+		color: var(--accent);
+		font-size: 1rem;
+		font-weight: 650;
+	}
+	.details dl {
+		margin: 0;
+	}
+	.detail-row {
+		display: grid;
+		grid-template-columns: 1.4rem minmax(0, 1fr);
+		column-gap: 0.8rem;
+		row-gap: 0.1rem;
+		padding: 0.48rem 0.2rem;
+		align-content: center;
+	}
+	.detail-row dt {
+		display: flex;
+		gap: 0.8rem;
+		grid-column: 1/-1;
+		align-items: center;
+		font-size: 0.85rem;
+		line-height: 1.25;
+		color: var(--muted);
+	}
+	.detail-row dt :global(svg) {
+		color: var(--text);
+		flex: none;
+		width: 1.4rem;
+	}
+	.detail-row dd {
+		grid-column: 2;
+		margin: 0;
+		color: var(--text);
+		font-size: 1rem;
+		line-height: 1.35;
+		overflow-wrap: anywhere;
+	}
+	.playing-format {
+		padding: 0.5rem 0.2rem;
+	}
+	.playing-format :global(.quality) {
+		font-size: 0.97rem;
+		color: var(--text);
+		gap: 0.8rem;
+	}
 	button.custom-action {
 		width: auto;
 		min-width: min(44px, 100%);
@@ -415,11 +662,6 @@
 		max-width: 100%;
 	}
 
-	summary {
-		cursor: pointer;
-		padding: 0.65rem 0;
-		font-weight: 600;
-	}
 	.stars,
 	.tools,
 	.tools .secondary {
@@ -428,6 +670,29 @@
 		flex-wrap: wrap;
 		justify-content: var(--cell-justify, flex-start);
 		gap: 0.35rem;
+	}
+	.tools.action-list {
+		display: grid;
+		gap: 0;
+		justify-content: stretch;
+	}
+	.action-list :global(button) {
+		display: flex;
+		align-items: center;
+		justify-content: start;
+		width: 100%;
+		padding: 0;
+		background: none;
+		border: 0;
+		border-radius: 0;
+	}
+	.action-list :global(.face) {
+		flex-direction: row;
+		gap: 0.8rem;
+	}
+	.action-list :global(.glyph) {
+		flex: none;
+		width: 20px;
 	}
 	.stars button {
 		min-height: 44px;

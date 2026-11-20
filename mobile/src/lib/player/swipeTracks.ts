@@ -1,4 +1,5 @@
-import { navigationEdge } from '../drawerSwipe';
+// Leave the platform’s back-swipe area available on either side.
+const systemBackInset = 36;
 
 type Skip = (direction: 'previous' | 'next') => void;
 
@@ -16,8 +17,8 @@ export function swipeTracks(node: HTMLElement, skip: Skip | undefined) {
 			const touch = event.touches[0];
 			const bounds = node.closest('[data-part="app"]')?.getBoundingClientRect();
 			if (
-				touch.clientX <= (bounds?.left ?? 0) + navigationEdge ||
-				touch.clientX >= (bounds?.right ?? window.innerWidth) - navigationEdge
+				touch.clientX <= (bounds?.left ?? 0) + systemBackInset ||
+				touch.clientX >= (bounds?.right ?? window.innerWidth) - systemBackInset
 			)
 				return;
 			origin = touch;

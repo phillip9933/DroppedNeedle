@@ -37,11 +37,22 @@ export interface PlayerAccess {
 export type QueuePlacement = 'next' | 'end';
 export type RepeatMode = 'off' | 'all' | 'one';
 
-export type SleepTimerState = { mode: 'minutes'; endsAt: number } | { mode: 'track' };
+export type SleepTimerState =
+	| { mode: 'minutes'; endsAt: number; finishTrack?: boolean }
+	| { mode: 'track'; remaining?: number };
+
+/** Measurements for the audio representation the player actually opened. */
+export type PlaybackFormat = {
+	format: string;
+	sampleRate?: number;
+	bitDepth?: number;
+	bitrate?: number;
+};
 
 export interface PlayerState {
 	libraryWindow?: LibraryWindowStatus | null;
 	sleepTimer?: SleepTimerState | null;
+	quality?: PlaybackFormat | null;
 	repeat: RepeatMode;
 	tracks: PlayerTrack[];
 	index: number;
@@ -242,8 +253,9 @@ export const player = {
 	shuffleUpcoming: () => command('shuffleUpcoming'),
 	clearUpcoming: () => command('clearUpcoming'),
 	cycleRepeat: () => command('cycleRepeat'),
-	setSleepMinutes: (minutes: number) => command('setSleepMinutes', minutes),
-	sleepAfterTrack: () => command('sleepAfterTrack'),
+	setSleepMinutes: (minutes: number, finishTrack = false) =>
+		command('setSleepMinutes', minutes, finishTrack ? 1 : 0),
+	sleepAfterTrack: (count = 1) => command('sleepAfterTrack', count),
 	cancelSleepTimer: () => command('cancelSleepTimer'),
 	retryLibraryWindow: () => command('retryLibraryWindow'),
 	toggle: () => command('toggle'),

@@ -111,6 +111,9 @@ for (const group of [false, true])
 				page.locator('[data-part=album-detail]').getByRole('heading', { name: 'Shared title' })
 			).toBeVisible();
 			await expect(button(page, 'Back to Now Playing')).toBeVisible();
+			await expect(page.getByRole('region', { name: 'Current track' })).toBeVisible();
+			await expect(page.getByRole('navigation', { name: 'Music' })).toBeVisible();
+			await expect(page.getByRole('region', { name: 'Now playing' })).toHaveCount(0);
 			await button(page, 'Back to Now Playing').click();
 			await expect(album).toBeFocused();
 			await artist.tap();

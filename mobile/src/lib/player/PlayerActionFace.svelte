@@ -38,10 +38,18 @@
 	const Mark = $derived(playback === 'pause' ? Pause : Play);
 </script>
 
-{#if Glyph || displayLabel}<span class="face" data-player-icon={icon} data-playback={playback}>
+{#if Glyph || displayLabel}<span
+		class="face"
+		class:labeled={displayLabel}
+		data-label-position={section?.labelPosition ?? 'below'}
+		data-player-icon={icon}
+		data-playback={playback}
+	>
 		{#if Glyph}<span
 				class="glyph"
-				style:--glyph-size={(section?.iconSize ?? size) + 'px'}
+				style:--glyph-size={'max(' +
+					(section?.iconSize ?? size) +
+					'px,var(--player-face-size, 0px))'}
 				aria-hidden="true"
 			>
 				<Glyph size="100%" fill={fill ? 'currentColor' : 'none'} />
@@ -49,7 +57,7 @@
 						><Mark size="100%" fill="currentColor" /></span
 					>{/if}
 			</span>{/if}
-		{#if displayLabel}<span class="caption">{label}</span>{/if}
+		{#if displayLabel}<span class="caption">{section?.labelName?.trim() || label}</span>{/if}
 	</span>{/if}
 
 <style>
@@ -63,6 +71,16 @@
 		max-width: 100%;
 		min-width: 0;
 		vertical-align: middle;
+	}
+	.labeled {
+		flex-direction: column;
+		flex-wrap: nowrap;
+	}
+	.labeled[data-label-position='above'] .caption {
+		order: -1;
+	}
+	.labeled .glyph {
+		flex: none;
 	}
 	.glyph {
 		display: block;

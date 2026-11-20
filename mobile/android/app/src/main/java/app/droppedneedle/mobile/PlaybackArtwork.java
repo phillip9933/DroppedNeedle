@@ -74,16 +74,16 @@ final class PlaybackArtwork implements BitmapLoader {
             if (current.get() != owner || track == null) return null;
             File file = owner.offline == null ? null : owner.offline.artworkSource(track.optString("streamUrl"));
             HttpUrl remote = HttpUrl.parse(track.optString("artworkUrl"));
-            if (!owner.allowsOnlineArt() || !owner.permits(remote, "")) remote = null;
+            if (!owner.allowsOnlineMedia() || !owner.permits(remote, "")) remote = null;
             Source source = new Source(uri, file, inline, remote);
             if (source.equals(lastSource)) return current.get() == owner ? lastCover : null;
 
             Bitmap cover = embedded(file);
             if (cover == null) cover = decode(inline);
             if (cover == null && remote != null) {
-                if (current.get() != owner || !owner.allowsOnlineArt()) return null;
+                if (current.get() != owner || !owner.allowsOnlineMedia()) return null;
                 cover = download(owner, remote);
-                if (cover == null || !owner.allowsOnlineArt()) return null;
+                if (cover == null || !owner.allowsOnlineMedia()) return null;
             }
             if (current.get() != owner) return null;
             lastSource = source;

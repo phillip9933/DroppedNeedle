@@ -1,8 +1,8 @@
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
-import { playerCanvas, packPlayerCanvas } from '../src/lib/player/composition';
-import { playerDefaults } from '../src/lib/player/layout';
+import { playerCanvas, packPlayerCanvas, playerColumns } from '../src/lib/player/composition';
+
 import type { Section } from '../src/lib/boards/layout';
 import { exportPlayerStyle, importPlayerStyle } from '../src/lib/player/playerStyle';
 
@@ -66,43 +66,52 @@ test('versioned player layout JSON round trips supported options and rejects mal
 	expect(() => importPlayerStyle('界'.repeat(25000))).toThrow(/64 KiB/);
 });
 
-test('version 1 layout files retain the implicit menu, a customized menu or an explicitly hidden menu', () => {
-	const defaults = playerDefaults(),
-		header = playerCanvas(defaults)[0];
-	expect(header.map((s) => s.id)).toEqual([
-		'player-menu',
-		'player-close',
-		'player-heading',
-		'player-settings',
-		'player-queue',
-		'player-output'
-	]);
-	const checkRoundTrip = (sections: Section[]) => {
-		const canvas = playerCanvas(sections);
-		const packed = packPlayerCanvas(
-			canvas,
-			sections.filter((s) => s.placement === 'hidden')
-		);
-		const imported = importPlayerStyle(exportPlayerStyle(packed));
-		expect(imported).toEqual(packed);
-		const arrangement = (rows: Section[][]) => rows.map((row) => row.map((s) => s.id));
-		expect(arrangement(playerCanvas(imported))).toEqual(arrangement(canvas));
-	};
-	checkRoundTrip(defaults);
-	for (const placement of ['header', 'hidden', undefined] as const) {
-		const menu: Section = {
-			id: 'player-menu',
-			title: 'Controls',
+test('version 1 layouts migrate removed controls and preserve nested header and body fields', () => {
+	const original: Section[] = [
+		{ id: 'player-menu', title: 'Menu', preview: true, placement: 'header' },
+		{ id: 'player-close', title: '', preview: true, placement: 'header' },
+		{ id: 'player-title', title: '', preview: true, placement: 'header', stack: true },
+		{ id: 'player-tools', title: 'Song', preview: true },
+		{
+			id: 'player-text',
+			title: '',
 			preview: true,
-			icon: 'star',
-			iconSize: 23,
-			placement
-		};
-		checkRoundTrip([...defaults, menu]);
-		expect(importPlayerStyle(exportPlayerStyle([menu]))).toEqual([menu]);
-	}
+			sameRow: true,
+			stack: true,
+			template: '{album}',
+			labelName: 'Album',
+			labelPosition: 'above',
+			showLabel: true
+		},
+		{
+			id: 'player-seek',
+			title: '',
+			preview: true,
+			seekStyle: 'waveform',
+			showRemaining: true,
+			showElapsed: false
+		},
+		{ id: 'player-lyrics', title: '', preview: true, lyricsMode: 'sheet' }
+	];
+	const migrated = importPlayerStyle(exportPlayerStyle(original));
+	expect(migrated.map((s) => s.id)).toEqual([
+		'player-close',
+		'player-title',
+		'player-more',
+		'player-text',
+		'player-seek',
+		'player-lyrics'
+	]);
+	const canvas = playerCanvas(migrated);
+	expect(playerColumns(canvas[0])[0].map((s) => s.id)).toEqual(['player-close', 'player-title']);
+	expect(playerColumns(canvas[1])[0].map((s) => s.id)).toEqual(['player-more', 'player-text']);
+	expect(
+		packPlayerCanvas(
+			playerCanvas(importPlayerStyle(exportPlayerStyle(packPlayerCanvas(canvas, [])))),
+			[]
+		)
+	).toEqual(packPlayerCanvas(canvas, []));
 });
-
 const server = 'https://layout.example/music',
 	key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'listener', 'player']);
 async function openEditor(page: Page) {
