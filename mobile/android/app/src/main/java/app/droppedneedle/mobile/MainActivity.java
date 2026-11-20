@@ -7,6 +7,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle state) {
         registerPlugin(DNPlayerPlugin.class);
+        registerPlugin(DNAppearancePlugin.class);
         super.onCreate(state);
     }
 }
