@@ -29,6 +29,11 @@
 		loading = $state(false),
 		submitting = $state(false);
 	let missing = false;
+	const tiers = {
+		recommended: 'Recommended match',
+		possible: 'Possible match',
+		refused: 'Outside download settings'
+	} satisfies Record<SearchCandidate['tier'], string>;
 	const refusalNames = {
 		quality_outside_range: 'Quality outside your configured range',
 		over_size_cap: 'Exceeds your size limit',
@@ -86,7 +91,18 @@
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if selected}
 		{#if typeof selected === 'object'}
-			<p>Download {selected.title} from {selected.source}?</p>
+			<p>Download <strong>{selected.title}</strong> from {selected.source}?</p>
+			{#if selected.files.length}
+				<details class="files">
+					<summary>View files ({selected.files.length})</summary>
+					<ul>
+						{#each selected.files as file, i (i)}<li>
+								{file.filename.split(/[\\/]/).pop() || file.filename}{#if file.bitrate}
+									<small>· {file.bitrate} kbps</small>{/if}
+							</li>{/each}
+					</ul>
+				</details>
+			{/if}
 			{#if selected.refusal?.length}<ul>
 					{#each selected.refusal as reason (reason)}<li>{refusalNames[reason]}</li>{/each}
 				</ul>{/if}
@@ -119,7 +135,7 @@
 				<div class="matches">
 					{#each job.candidates as candidate (candidate.candidate_index)}
 						<button class="secondary match" onclick={() => (selected = candidate)}>
-							<strong>{candidate.title}</strong>
+							<strong>{candidate.title}</strong><span class="tier">{tiers[candidate.tier]}</span>
 							<small
 								>{[
 									candidate.source.replace(/^plugin:/, ''),
@@ -180,7 +196,31 @@
 		margin-bottom: 0.8rem;
 	}
 	.match {
+		display: grid;
+		justify-items: start;
+		gap: 0.2rem;
+		width: 100%;
+		border: 1px solid var(--line);
 		text-align: start;
+		overflow-wrap: anywhere;
+	}
+	.match .tier {
+		display: inline-block;
+		padding: 0.1rem 0.45rem;
+		border: 1px solid currentColor;
+		border-radius: 99rem;
+		font-size: 0.78rem;
+		font-weight: 650;
+	}
+	.files {
+		margin-block: var(--gap);
+	}
+	.files summary {
+		min-height: 44px;
+		align-content: center;
+		cursor: pointer;
+	}
+	.files li {
 		overflow-wrap: anywhere;
 	}
 	.match small {

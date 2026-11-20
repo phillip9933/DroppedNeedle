@@ -277,13 +277,13 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await page.getByRole('button', { name: 'Request album' }).click();
 	await page.getByRole('button', { name: 'View requests' }).click();
 	await expect(page.getByRole('button', { name: /After Dark.*Queued/ })).toBeVisible();
-	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('tab', { name: 'Downloads', exact: true }).click();
 	await page.getByRole('button', { name: 'Review matches for ' + album }).click();
 	const review = page.getByRole('dialog');
 	await review.getByRole('button', { name: /Matching edition/ }).click();
 	await review.getByRole('button', { name: 'Start download' }).click();
 	await expect(page.getByText('Download started from your selection.')).toBeVisible();
-	await page.getByRole('button', { name: 'Activity', exact: true }).click();
+	await page.getByRole('tab', { name: 'Activity', exact: true }).click();
 	await page.getByRole('button', { name: /After Dark.*Imported/ }).click();
 	await page.getByRole('button', { name: 'Play album' }).click();
 	await expect(page.getByRole('heading', { name: 'Fading Light', exact: true })).toBeVisible();

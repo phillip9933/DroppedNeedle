@@ -91,12 +91,36 @@ export function requestActions(
 	return [];
 }
 
-export function taskStatus(task: Download) {
-	if (task.held_for_review) return 'Held for review';
-	if (task.remote_queued && task.status === 'downloading') return 'Waiting for a source';
-	if (task.status === 'queued' && !task.search_job_id) return 'Searching';
-	if (task.status === 'queued' && task.candidate_index == null) return 'Awaiting review';
-	return task.status.charAt(0).toUpperCase() + task.status.slice(1);
+export function taskState(task: Download) {
+	if (task.held_for_review) return 'held_for_review';
+	if (task.remote_queued && task.status === 'downloading') return 'waiting_for_a_source';
+	if (task.status === 'queued' && !task.search_job_id) return 'searching';
+	if (task.status === 'queued' && task.candidate_index == null) return 'awaiting_review';
+	return task.status;
+}
+
+export function downloadGroups(tasks: Download[]) {
+	const groups = {
+		'Needs review': [] as Download[],
+		'In progress': [] as Download[],
+		'Scheduled retries': [] as Download[],
+		'Download history': [] as Download[]
+	};
+	for (const task of tasks) {
+		const state = taskState(task);
+		if (state === 'held_for_review' || state === 'awaiting_review')
+			groups['Needs review'].push(task);
+		else if (['queued', 'downloading', 'processing'].includes(task.status))
+			groups['In progress'].push(task);
+		else if (
+			(task.status === 'failed' || task.status === 'partial') &&
+			task.retry_max > 0 &&
+			task.next_retry_at != null
+		)
+			groups['Scheduled retries'].push(task);
+		else groups['Download history'].push(task);
+	}
+	return Object.entries(groups).filter(([, items]) => items.length);
 }
 
 export function taskActions(
