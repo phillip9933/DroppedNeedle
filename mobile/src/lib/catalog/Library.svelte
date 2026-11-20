@@ -24,6 +24,7 @@
 	import TrackActions from './TrackActions.svelte';
 	import Albums from './Albums.svelte';
 	import { prepareLibraryQueue } from './libraryQueue';
+	import { prepareLibraryPlayback } from '../player/libraryWindow';
 	import TrackList from './TrackList.svelte';
 	import { trackDuration } from './TrackRow.svelte';
 	const selectable = useLibrarySelection();
@@ -206,13 +207,19 @@
 		progress = 'Preparing queue…';
 		try {
 			const filters = shuffle ? { ...listFilters, sort: 'random', order: 'asc' } : listFilters;
-			const tracks = await prepareLibraryQueue(session, filters, controller.signal, (n, total) => {
-				progress = 'Preparing ' + n.toLocaleString() + ' of ' + total.toLocaleString() + ' tracks…';
-			});
+			const batch = await prepareLibraryPlayback(
+				session,
+				filters,
+				controller.signal,
+				(n, total) => {
+					progress =
+						'Preparing ' + n.toLocaleString() + ' of ' + total.toLocaleString() + ' tracks…';
+				}
+			);
 			if (controller.signal.aborted || !active) return;
 			preparation = null;
 			progress = '';
-			await onplay(tracks, 0);
+			await onplay(batch.tracks, 0, batch.continuation);
 		} catch (e) {
 			if (!controller.signal.aborted) queueError = errorMessage(e);
 		} finally {

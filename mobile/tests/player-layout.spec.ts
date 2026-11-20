@@ -1,28 +1,12 @@
+import { silentWav } from './fixtures/silentWav';
 import { openPlayerPlacement } from './fixtures/playerEditor';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 const server = 'https://layout.example/dn';
 const otherServer = 'https://layout.example/elsewhere';
 const songs = ['Night Train', 'Day Train'];
-function audio() {
-	const samples = 8000 * 60;
-	const data = Buffer.alloc(44 + samples * 2);
-	data.write('RIFF');
-	data.writeUInt32LE(data.length - 8, 4);
-	data.write('WAVEfmt ', 8);
-	data.writeUInt32LE(16, 16);
-	data.writeUInt16LE(1, 20);
-	data.writeUInt16LE(1, 22);
-	data.writeUInt32LE(8000, 24);
-	data.writeUInt32LE(16000, 28);
-	data.writeUInt16LE(2, 32);
-	data.writeUInt16LE(16, 34);
-	data.write('data', 36);
-	data.writeUInt32LE(samples * 2, 40);
-	return data;
-}
 async function fixture(page: Page) {
-	const wav = audio(),
+	const wav = silentWav(),
 		ratings: Record<string, number> = {},
 		favorites: Record<string, boolean> = {},
 		lookups: string[] = [];

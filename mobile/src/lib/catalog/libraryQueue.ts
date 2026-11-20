@@ -3,7 +3,7 @@ import { getJson, type Session } from '../connection';
 import type { PlayerTrack } from '../player';
 import { localSong, path } from './catalog';
 
-type TrackPage = components['schemas']['TrackListPage'];
+export type TrackPage = components['schemas']['TrackListPage'];
 const pageSize = 200;
 export const maxQueueTracks = 2000;
 const maxBytes = 1024 * 1024;
@@ -21,8 +21,13 @@ export function queueSizeCheck(server: string) {
 			encoder.encode(
 				JSON.stringify({
 					...track,
-					streamUrl: server + track.streamUrl,
-					artworkUrl: track.artworkUrl ? server + track.artworkUrl : undefined
+					streamUrl: track.streamUrl.startsWith('https://')
+						? track.streamUrl
+						: server + track.streamUrl,
+					artworkUrl:
+						track.artworkUrl && !track.artworkUrl.startsWith('https://')
+							? server + track.artworkUrl
+							: track.artworkUrl
 				})
 			).length + 1;
 		if (bytes > maxBytes)
@@ -38,7 +43,8 @@ export async function prepareLibraryQueue(
 	signal: AbortSignal,
 	onprogress?: (loaded: number, total: number) => void,
 	forQueue = true,
-	playlist?: { limit: number }
+	playlist?: { limit: number },
+	first?: TrackPage
 ): Promise<PlayerTrack[]> {
 	if (
 		playlist &&
@@ -52,19 +58,22 @@ export async function prepareLibraryQueue(
 	let after: string | undefined, total: number | undefined;
 	do {
 		signal.throwIfAborted();
-		const page: TrackPage = await getJson(
-			session,
-			path(
-				'/api/v3/library/tracks',
-				{},
-				{
-					...filters,
-					limit: playlist ? Math.min(pageSize, playlist.limit - tracks.length) : pageSize,
-					after
-				}
-			),
-			signal
-		);
+		const page: TrackPage =
+			first ??
+			(await getJson(
+				session,
+				path(
+					'/api/v3/library/tracks',
+					{},
+					{
+						...filters,
+						limit: playlist ? Math.min(pageSize, playlist.limit - tracks.length) : pageSize,
+						after
+					}
+				),
+				signal
+			));
+		first = undefined;
 		signal.throwIfAborted();
 		if (
 			!Number.isSafeInteger(page.total) ||

@@ -112,6 +112,11 @@
 	const rows = $derived(playerCanvas(sections));
 	const flushRows = $derived(rows.map((row) => row.every((s) => s.padding === 0)));
 	const clock = $derived(preview ?? $store.position);
+	const libraryWindow = $derived($store.libraryWindow);
+	const queueOffset = $derived(libraryWindow?.offset ?? 0);
+	const shuffleLabel = $derived(
+		libraryWindow ? 'Shuffle loaded upcoming tracks' : 'Shuffle upcoming'
+	);
 	const fields = $derived({
 		title: track?.title ?? '',
 		artist: track?.artist ?? '',
@@ -119,8 +124,8 @@
 		elapsed: stamp(clock),
 		duration: stamp(duration),
 		remaining: stamp(Math.max(0, duration - clock)),
-		position: String($store.index + 1),
-		count: String($store.tracks.length)
+		position: String(queueOffset + $store.index + 1),
+		count: String(libraryWindow?.total ?? $store.tracks.length)
 	});
 	async function edit(call: () => Promise<void>) {
 		if (pending || editor) return;
@@ -163,7 +168,9 @@
 	<button
 		class="skip"
 		aria-label="Next track"
-		disabled={$store.index + 1 >= $store.tracks.length && $store.repeat !== 'all'}
+		disabled={$store.index + 1 >= $store.tracks.length &&
+			!libraryWindow?.more &&
+			$store.repeat !== 'all'}
 		onclick={() => action(player.next)}
 	>
 		<PlayerActionFace {section} glyph={SkipForward} size={28} label="Next" />
@@ -188,7 +195,7 @@
 {#snippet shuffle(label: boolean, section?: Section)}
 	<button
 		class="repeat"
-		aria-label="Shuffle upcoming"
+		aria-label={shuffleLabel}
 		disabled={$store.tracks.length - $store.index <= 2 || pending}
 		onclick={() => edit(player.shuffleUpcoming)}
 	>
@@ -196,7 +203,7 @@
 			{section}
 			glyph={Shuffle}
 			size={18}
-			label="Shuffle upcoming"
+			label={shuffleLabel}
 			defaultLabel={label}
 		/>
 	</button>
@@ -453,7 +460,11 @@
 														>
 															<strong>{next.title}</strong><small>{next.artist}</small>
 														</button>
-													{:else}<p>End of the queue.</p>{/each}
+													{:else}<p>
+															{libraryWindow?.more
+																? 'Loading upcoming tracks…'
+																: 'End of the queue.'}
+														</p>{/each}
 												{/if}
 											</div>
 										{/if}
@@ -478,6 +489,15 @@
 				</svelte:element>
 			{/if}
 		{/each}
+		{#if libraryWindow?.problem}
+			<div role="status">
+				<p>{libraryWindow.problem}</p>
+				<button class="secondary" onclick={() => action(player.retryLibraryWindow)}
+					>Retry library queue</button
+				>
+			</div>
+		{/if}
+
 		{#if queueOpen && track}
 			<div class="queue-tools">
 				{#if !rows[0].some((s) => s.id === 'player-sleep')}<SleepTimer
@@ -486,8 +506,7 @@
 				<button
 					class="secondary"
 					disabled={$store.tracks.length - $store.index <= 2 || pending}
-					onclick={() => edit(player.shuffleUpcoming)}
-					><Shuffle size={16} /> Shuffle upcoming</button
+					onclick={() => edit(player.shuffleUpcoming)}><Shuffle size={16} /> {shuffleLabel}</button
 				>
 				<button class="text-button" aria-pressed={editing} onclick={() => (editing = !editing)}
 					>{editing ? 'Done' : 'Edit queue'}</button
@@ -495,16 +514,24 @@
 			</div>
 			{#if editing}<div class="queue-options">
 					<button class="text-button" onclick={() => (saveQueue = [...$store.tracks])}
-						>Save queue to playlist</button
+						>{libraryWindow ? 'Save loaded tracks to playlist' : 'Save queue to playlist'}</button
 					>
 					<button
 						class="text-button"
-						disabled={pending || $store.index + 1 >= $store.tracks.length}
+						disabled={pending || ($store.index + 1 >= $store.tracks.length && !libraryWindow?.more)}
 						onclick={() => edit(player.clearUpcoming)}>Clear upcoming</button
 					>
 				</div>{/if}
 			<div class="queue" data-part="play-queue">
 				<h1>Play queue</h1>
+				{#if libraryWindow}
+					<p>
+						Tracks {queueOffset + 1}–{libraryWindow.loaded} of {libraryWindow.total.toLocaleString()}
+					</p>
+					{#if editing}<p>
+							Editing this queue keeps the {$store.tracks.length} tracks shown here.
+						</p>{/if}
+				{/if}
 				<ol>
 					{#each $store.tracks as item, i (item.id + ':' + i)}
 						<li>
@@ -513,7 +540,9 @@
 								aria-current={i === $store.index ? 'true' : undefined}
 								onclick={() => action(() => player.skipTo(i))}
 							>
-								{#if i === $store.index}<AudioLines size={18} />{:else}<span>{i + 1}</span>{/if}
+								{#if i === $store.index}<AudioLines size={18} />{:else}<span
+										>{queueOffset + i + 1}</span
+									>{/if}
 								<span><strong>{item.title}</strong><small>{item.artist}</small></span>
 							</button>
 							{#if editing}
@@ -572,7 +601,9 @@
 		<button
 			class="mini-control"
 			aria-label="Next track"
-			disabled={$store.index + 1 >= $store.tracks.length && $store.repeat !== 'all'}
+			disabled={$store.index + 1 >= $store.tracks.length &&
+				!libraryWindow?.more &&
+				$store.repeat !== 'all'}
 			onclick={() => action(player.next)}><SkipForward /></button
 		>
 	</section>

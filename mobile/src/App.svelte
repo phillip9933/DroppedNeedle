@@ -20,6 +20,7 @@
 	import OfflineLibrary from './lib/offline/OfflineLibrary.svelte';
 	import Connect from './lib/auth/Connect.svelte';
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
+	import type { LibraryContinuation } from './lib/player/libraryWindow';
 	import { player, type PlayerTrack } from './lib/player';
 	import PlayerView from './lib/PlayerView.svelte';
 	import Catalog from './lib/catalog/Catalog.svelte';
@@ -167,11 +168,11 @@
 		focusMain();
 		if (restoreError) report(restoreError);
 	}
-	async function start(tracks: PlayerTrack[], index: number) {
+	async function start(tracks: PlayerTrack[], index: number, continuation?: LibraryContinuation) {
 		const account = session;
 		if (!account) return;
 		try {
-			await player.setQueue(tracks, index, account);
+			await player.setQueue(tracks, index, account, continuation);
 			if (session === account) {
 				issue = '';
 				openPanel('player');

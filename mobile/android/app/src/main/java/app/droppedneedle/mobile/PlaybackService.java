@@ -85,6 +85,8 @@ public final class PlaybackService extends MediaSessionService {
     private PlaybackEqualizer equalizer;
     private PlaybackFades fades;
     private PlaybackSleepTimer sleep;
+    private LibraryQueuePager pager;
+    private boolean changingWindow, repeatLibrary, wasPlaying;
     private SavedQueue saved;
     private SecretKey queueKey;
     private String revision;
@@ -99,14 +101,15 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     private void save(boolean includeTracks) {
-        if (queueKey == null || player.getMediaItemCount() == 0) return;
+        if (changingWindow || queueKey == null || player.getMediaItemCount() == 0) return;
         if (includeTracks) revision = UUID.randomUUID().toString();
         if (revision == null) return;
         JSObject state = new JSObject();
         state.put("revision", revision);
         state.put("index", player.getCurrentMediaItemIndex());
         state.put("position", Math.max(0, player.getCurrentPosition()));
-        state.put("repeat", player.getRepeatMode());
+        state.put("repeat", repeatMode());
+        if (pager.attached()) state.put("continuation", pager.saved());
         if (includeTracks) state.put("tracks", queueTracks());
         saved.write(queueKey, state, includeTracks);
     }
@@ -170,12 +173,30 @@ public final class PlaybackService extends MediaSessionService {
             @Override public long elapsed() { return SystemClock.elapsedRealtime(); }
             @Override public void schedule(Runnable task, long ms) { main.postDelayed(task, ms); }
             @Override public void unschedule(Runnable task) { main.removeCallbacks(task); }
-            @Override public void pause() { player.pause(); }
+            @Override public void pause() {
+                wasPlaying = false;
+                pager.cancelAdvance();
+                player.pause();
+            }
             @Override public void pauseAtEnd(boolean enabled) {
                 local.setPauseAtEndOfMediaItems(enabled);
                 player.pauseRemoteAtEnd(enabled);
             }
         });
+        pager = new LibraryQueuePager(new LibraryQueuePager.Host() {
+            @Override public JSArray tracks() { return queueTracks(); }
+            @Override public int index() { return player.getCurrentMediaItemIndex(); }
+            @Override public int count() { return player.getMediaItemCount(); }
+            @Override public boolean active() { return showsPauseControl(); }
+            @Override public boolean offlineOnly() { return access == null || access.offline != null && access.offline.offlineOnly(); }
+            @Override public void apply(LibraryWindow.Batch batch, boolean restart, boolean resume) throws JSONException {
+                applyPage(batch, restart, resume);
+            }
+        }, new LibraryQueuePager.Dispatch() {
+            @Override public void post(Runnable task) { main.post(task); }
+            @Override public void later(Runnable task, long delay) { main.postDelayed(task, delay); }
+            @Override public void cancel(Runnable task) { main.removeCallbacks(task); }
+        }, http);
         fades = new PlaybackFades(this, local);
         equalizer = new PlaybackEqualizer(this);
         int audioSession = local.getAudioSessionId();
@@ -196,7 +217,11 @@ public final class PlaybackService extends MediaSessionService {
         reporter = new PlaybackReporter(this, player);
         local.addListener(new Player.Listener() {
             @Override public void onPlayWhenReadyChanged(boolean ready, int reason) {
-                if (!ready && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) sleep.finishedTrack();
+                if (!ready && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && sleep.afterTrack()) {
+                    wasPlaying = false;
+                    pager.cancelAdvance();
+                    sleep.finishedTrack();
+                }
             }
             @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
                 sleep.changedTrack(trackIdentity(item));
@@ -206,7 +231,20 @@ public final class PlaybackService extends MediaSessionService {
         player.addListener(new Player.Listener() {
             @Override public void onEvents(Player source, Player.Events events) {
                 sleep.check();
-                if (source.getPlaybackState() == Player.STATE_ENDED) sleep.finishedTrack();
+                boolean ended = source.getPlaybackState() == Player.STATE_ENDED;
+                boolean sleepBoundary = sleep.afterTrack() && ended;
+                if (ended) sleep.finishedTrack();
+                if (!changingWindow && pager.attached()) {
+                    if (events.contains(Player.EVENT_REPEAT_MODE_CHANGED) && source.getRepeatMode() == Player.REPEAT_MODE_ALL)
+                        setRepeat(Player.REPEAT_MODE_ALL);
+                    if (ended && wasPlaying) {
+                        wasPlaying = false;
+                        if (!sleepBoundary && (pager.hasNext() || repeatLibrary)) pager.end(false);
+                    } else if (!ended) {
+                        wasPlaying = showsPauseControl();
+                        if (wasPlaying) pager.load(false);
+                    }
+                }
                 if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
                         Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) checkpoint();
             }
@@ -251,15 +289,75 @@ public final class PlaybackService extends MediaSessionService {
                     .setAlbumTitle(track.getString("album"));
             String art = track.optString("artworkUrl", "");
             if (!art.isEmpty() && access.permits(HttpUrl.parse(art), "")) metadata.setArtworkUri(Uri.parse(art));
-            access.metadata.put(track.getString("id"), track);
+
             items.add(new MediaItem.Builder().setMediaId(track.getString("id"))
                     .setUri(stream).setTag(track).setMediaMetadata(metadata.build()).build());
         }
         return items;
     }
 
+    private int repeatMode() { return repeatLibrary ? Player.REPEAT_MODE_ALL : player.getRepeatMode(); }
+
+    private void setRepeat(int mode) {
+        repeatLibrary = pager.attached() && mode == Player.REPEAT_MODE_ALL;
+        if (!repeatLibrary && !pager.hasNext()) pager.cancelAdvance();
+        player.setRepeatMode(repeatLibrary ? Player.REPEAT_MODE_OFF : mode);
+    }
+
+    private void detachWindow() {
+        int repeat = repeatMode();
+        pager.detach();
+        wasPlaying = false;
+        setRepeat(repeat);
+    }
+
+    private static void remember(Access owner, ArrayList<MediaItem> items) {
+        for (MediaItem item : items) owner.metadata.put(item.mediaId, (JSONObject) trackIdentity(item));
+    }
+
+    private void applyPage(LibraryWindow.Batch batch, boolean restart, boolean resume) throws JSONException {
+        Access owner = access;
+        int before = player.getMediaItemCount();
+        int prefix = restart ? before : Math.max(0, player.getCurrentMediaItemIndex() - LibraryWindow.HISTORY);
+        JSArray incoming = new JSArray(batch.tracks.toString());
+        ArrayList<MediaItem> newItems = items(owner, incoming);
+        int bytes = 2;
+        java.util.HashSet<String> retained = new java.util.HashSet<>();
+        for (int i = prefix; i < before; i++) {
+            MediaItem item = player.getMediaItemAt(i);
+            bytes += trackIdentity(item).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1;
+            retained.add(item.mediaId);
+        }
+        bytes += incoming.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        if (bytes > LibraryWindow.MAX_BYTES || before - prefix + incoming.length() > 300)
+            throw new IllegalArgumentException("The library queue is too large.");
+        changingWindow = true;
+        try {
+            remember(owner, newItems);
+            for (MediaItem item : newItems) retained.add(item.mediaId);
+            if (restart) {
+                player.setMediaItems(newItems, 0, 0);
+            } else {
+                player.addMediaItems(newItems);
+                if (prefix > 0) player.removeMediaItems(0, prefix);
+            }
+            owner.metadata.keySet().retainAll(retained);
+            if (resume) {
+                player.seekTo(restart ? 0 : before - prefix, 0);
+                player.prepare();
+                player.play();
+            }
+        } finally { changingWindow = false; }
+        save(true);
+    }
+
     void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index,
             @Nullable String placement, @Nullable JSONObject profiles) throws JSONException {
+        setQueue(address, token, userId, queue, index, placement, profiles, null);
+    }
+
+    void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index,
+            @Nullable String placement, @Nullable JSONObject profiles, @Nullable JSONObject continuation) throws JSONException {
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
@@ -267,22 +365,35 @@ public final class PlaybackService extends MediaSessionService {
         Access next = new Access(this, address, token, userId);
         next.profiles.migrate(profiles);
         ArrayList<MediaItem> items = items(next, queue);
+        LibraryWindow window = LibraryWindow.parse(continuation, items.size());
+        if (window != null && placement != null) throw new IllegalArgumentException("Invalid initial library queue.");
+        remember(next, items);
         if (placement != null && player.getMediaItemCount() > 0) {
-            if (access == null || !access.base.equals(next.base) || !access.token.equals(token)) {
+            if (access == null || !access.base.equals(next.base) || !access.token.equals(token) || !java.util.Objects.equals(access.userId, userId)) {
                 throw new IllegalArgumentException("This queue belongs to a different session.");
             }
             int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
+            detachWindow();
             access.metadata.putAll(next.metadata);
             player.addMediaItems(at, items);
             save(true);
             return;
         }
-        sleep.changedTrack(null);
-        attach(next);
-        player.stop();
-        player.setMediaItems(items, index, 0);
-        player.prepare();
-        player.play();
+        changingWindow = true;
+        try {
+            int repeat = repeatMode();
+            detachWindow();
+            sleep.changedTrack(null);
+            attach(next);
+            pager.attach(window, next.base, next.apiPath, next.token);
+            setRepeat(repeat);
+            player.stop();
+            player.setMediaItems(items, index, 0);
+            player.prepare();
+            player.play();
+        } finally { changingWindow = false; }
+        wasPlaying = showsPauseControl();
+        pager.load(false);
         save(true);
     }
 
@@ -329,9 +440,14 @@ public final class PlaybackService extends MediaSessionService {
                     if (index < 0 || index >= queue.length() || repeat < Player.REPEAT_MODE_OFF
                             || repeat > Player.REPEAT_MODE_ALL) throw new JSONException("Invalid saved cursor");
                     ArrayList<MediaItem> checked = items(next, queue);
+                    remember(next, checked);
+                    LibraryWindow window;
+                    try { window = LibraryWindow.parse(record.optJSONObject("continuation"), checked.size()); }
+                    catch (JSONException badCursor) { window = null; }
                     attach(next);
                     player.pause();
-                    player.setRepeatMode(repeat);
+                    pager.attach(window, next.base, next.apiPath, next.token);
+                    setRepeat(repeat);
                     player.setMediaItems(checked, index, Math.max(0, record.getLong("position")));
                     revision = savedRevision;
                     // Preparing a paused restoration would fetch audio before the listener presses play.
@@ -360,6 +476,7 @@ public final class PlaybackService extends MediaSessionService {
             revision = null;
             queueKey = null;
             sleep.cancel();
+            detachWindow();
             saved.clear();
             reporter.disconnect();
             player.disconnect(true, "");
@@ -379,11 +496,15 @@ public final class PlaybackService extends MediaSessionService {
             return;
         }
         if (count == 0) return;
+        boolean edit = "clearUpcoming".equals(action) || "shuffleUpcoming".equals(action)
+                || "move".equals(action) && item >= 0 && item < count && to >= 0 && to < count
+                || "remove".equals(action) && item >= 0 && item < count;
+        if (edit) detachWindow();
         generation++;
         switch (action) {
             case "cycleRepeat":
-                int repeat = player.getRepeatMode();
-                player.setRepeatMode(repeat == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL
+                int repeat = repeatMode();
+                setRepeat(repeat == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL
                         : repeat == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
                 break;
             case "clearUpcoming":
@@ -406,8 +527,16 @@ public final class PlaybackService extends MediaSessionService {
                     player.removeMediaItem(item);
                 }
                 break;
+            case "retryLibraryWindow":
+                pager.load(true);
+                break;
             case "toggle":
-                if (showsPauseControl()) {
+                if (pager.waiting()) {
+                    pager.cancelAdvance();
+                    wasPlaying = false;
+                    player.pause();
+                } else if (showsPauseControl()) {
+                    wasPlaying = false;
                     player.pause();
                 } else {
                     if (player.getPlaybackState() == Player.STATE_ENDED) player.seekTo(0);
@@ -416,18 +545,23 @@ public final class PlaybackService extends MediaSessionService {
                 }
                 break;
             case "previous":
+                pager.cancelAdvance();
                 player.seekToPrevious();
                 break;
             case "next":
-                player.seekToNextMediaItem();
+                if (pager.attached() && player.getCurrentMediaItemIndex() == count - 1 && (pager.hasNext() || repeatLibrary)) {
+                    pager.end(true);
+                } else player.seekToNextMediaItem();
                 break;
             case "seek":
+                pager.cancelAdvance();
                 if (Double.isFinite(value)) player.seekTo((long) (Math.max(0, value) * 1000));
                 break;
             case "skipTo":
                 if (value != (int) value || value < 0 || value >= count) {
                     throw new IllegalArgumentException("Choose a track in the queue.");
                 }
+                pager.cancelAdvance();
                 player.seekTo((int) value, 0);
                 if (player.getPlaybackState() == Player.STATE_IDLE) player.prepare();
                 player.play();
@@ -435,7 +569,7 @@ public final class PlaybackService extends MediaSessionService {
             default:
                 throw new IllegalArgumentException("Unknown playback command.");
         }
-        save("move".equals(action) || "remove".equals(action) || "shuffleUpcoming".equals(action) || "clearUpcoming".equals(action));
+        save(edit);
     }
 
     private boolean showsPauseControl() {
@@ -463,7 +597,8 @@ public final class PlaybackService extends MediaSessionService {
                 ? (track == null ? 0 : track.optDouble("duration", 0)) : player.getDuration() / 1000.0;
         if (player.remoteDuration() > 0) duration = player.remoteDuration() / 1000.0;
         JSObject result = new JSObject();
-        int repeat = player.getRepeatMode();
+        int repeat = repeatMode();
+        if (pager.attached()) result.put("libraryWindow", pager.status(tracks.length()));
         JSObject timer = new JSObject();
         long remaining = sleep.remaining();
         if (sleep.afterTrack()) timer.put("mode", "track");
@@ -472,7 +607,7 @@ public final class PlaybackService extends MediaSessionService {
         result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
         result.put("tracks", tracks);
         result.put("index", index);
-        result.put("playing", index >= 0 && showsPauseControl());
+        result.put("playing", index >= 0 && (showsPauseControl() || pager.waiting()));
         result.put("position", player.getCurrentPosition() / 1000.0);
         result.put("duration", duration);
         result.put("error", !player.routeError().isEmpty() ? player.routeError()
@@ -485,6 +620,7 @@ public final class PlaybackService extends MediaSessionService {
         save(false);
         queueKey = null;
         main.removeCallbacks(checkpoint);
+        pager.detach();
         reporter.close();
         sleep.cancel();
         fades.release();

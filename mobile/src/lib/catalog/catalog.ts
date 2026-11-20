@@ -1,10 +1,15 @@
 import type { components, paths } from '../../../../frontend/src/lib/api/v3/openapi';
 import { DnError, getJson, postJson, type Session } from '../connection';
+import type { LibraryContinuation } from '../player/libraryWindow';
 import type { PlayerTrack } from '../player';
 
 type Schema = components['schemas'];
 export type CatalogTab = 'home' | 'library' | 'discover' | 'search' | 'requests';
-export type OnPlay = (tracks: PlayerTrack[], index: number) => Promise<void> | void;
+export type OnPlay = (
+	tracks: PlayerTrack[],
+	index: number,
+	continuation?: LibraryContinuation
+) => Promise<void> | void;
 export type Edition = Schema['AlbumEditionItem'];
 export type RequestItem = Schema['RequestItem'];
 export type Album = {

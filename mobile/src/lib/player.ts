@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { writable } from 'svelte/store';
 import { streamAddress, streamProfiles, original, type Profiles } from './player/streaming';
+import type { LibraryContinuation, LibraryWindowStatus } from './player/libraryWindow';
 import { browserPlayer } from './player/browser';
 import type { EqualizerBridge } from './player/equalizer';
 import { nativePlayer as native } from './player/native';
@@ -39,6 +40,7 @@ export type RepeatMode = 'off' | 'all' | 'one';
 export type SleepTimerState = { mode: 'minutes'; endsAt: number } | { mode: 'track' };
 
 export interface PlayerState {
+	libraryWindow?: LibraryWindowStatus | null;
 	sleepTimer?: SleepTimerState | null;
 	repeat: RepeatMode;
 	tracks: PlayerTrack[];
@@ -63,7 +65,8 @@ export type PlayerAction =
 	| 'cycleRepeat'
 	| 'setSleepMinutes'
 	| 'sleepAfterTrack'
-	| 'cancelSleepTimer';
+	| 'cancelSleepTimer'
+	| 'retryLibraryWindow';
 export interface PlaybackBridge {
 	setQueue(
 		options: PlayerAccess & {
@@ -71,6 +74,7 @@ export interface PlaybackBridge {
 			index: number;
 			placement?: QueuePlacement;
 			profiles?: Profiles;
+			continuation?: LibraryContinuation;
 		}
 	): Promise<PlayerState>;
 	command(options: { action: PlayerAction; value?: number; to?: number }): Promise<PlayerState>;
@@ -148,7 +152,8 @@ async function submitTracks(
 	tracks: PlayerTrack[],
 	index: number,
 	access: PlayerAccess,
-	placement?: QueuePlacement
+	placement?: QueuePlacement,
+	continuation?: LibraryContinuation
 ) {
 	window.dispatchEvent(new Event('dn-playback-intent'));
 	if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
@@ -171,7 +176,9 @@ async function submitTracks(
 		streamUrl: streamAddress(mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'), original),
 		artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
 	}));
-	return update(() => backend.setQueue({ ...access, tracks: queue, index, placement, profiles }));
+	return update(() =>
+		backend.setQueue({ ...access, tracks: queue, index, placement, profiles, continuation })
+	);
 }
 
 export const player = {
@@ -188,8 +195,12 @@ export const player = {
 		}
 	},
 	subscribe: state.subscribe,
-	setQueue: (tracks: PlayerTrack[], index: number, access: PlayerAccess) =>
-		submitTracks(tracks, index, access),
+	setQueue: (
+		tracks: PlayerTrack[],
+		index: number,
+		access: PlayerAccess,
+		continuation?: LibraryContinuation
+	) => submitTracks(tracks, index, access, undefined, continuation),
 	enqueue: (tracks: PlayerTrack[], access: PlayerAccess, placement: QueuePlacement = 'end') =>
 		submitTracks(tracks, 0, access, placement),
 	move: (from: number, to: number) => command('move', from, to),
@@ -200,6 +211,7 @@ export const player = {
 	setSleepMinutes: (minutes: number) => command('setSleepMinutes', minutes),
 	sleepAfterTrack: () => command('sleepAfterTrack'),
 	cancelSleepTimer: () => command('cancelSleepTimer'),
+	retryLibraryWindow: () => command('retryLibraryWindow'),
 	toggle: () => command('toggle'),
 	seek: (seconds: number) => command('seek', seconds),
 	skipTo: (index: number) => command('skipTo', index),
