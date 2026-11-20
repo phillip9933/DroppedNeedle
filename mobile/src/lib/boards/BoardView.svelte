@@ -7,6 +7,7 @@
 	import type { Playlist } from '../catalog/playlists';
 	import LibraryWidget from '../catalog/LibraryWidget.svelte';
 	import DiscoveryWidget from '../catalog/DiscoveryWidget.svelte';
+	import type { Preview } from './display';
 	import PreviewViewport from './PreviewViewport.svelte';
 	import {
 		accountId,
@@ -23,6 +24,7 @@
 		active,
 		onopen,
 		onartist,
+		ongenre,
 		onlocal,
 		onplaylist,
 		onplay
@@ -31,6 +33,7 @@
 		session: Session;
 		active: boolean;
 		onopen: (album: Album) => void;
+		ongenre?: (name: string) => void;
 		onartist: (a: DiscoverArtistRef) => void;
 		onlocal: (a: { id: string; name: string }) => void;
 		onplaylist: (p: Playlist) => void;
@@ -89,7 +92,7 @@
 	}
 </script>
 
-{#snippet widget(item: Section, full: boolean)}
+{#snippet widget(item: Section, full: boolean, display: Preview)}
 	{#if item.id.startsWith('library-')}
 		<LibraryWidget
 			id={item.id}
@@ -100,10 +103,12 @@
 			{onplay}
 			active={active && (full || !expanded)}
 			expanded={full}
+			{display}
 			onexpand={() => enter(item)}
 		/>
 	{:else}
 		<DiscoveryWidget
+			{ongenre}
 			id={item.id}
 			{session}
 			{onopen}
@@ -111,6 +116,7 @@
 			{onplay}
 			active={active && (full || !expanded)}
 			expanded={full}
+			{display}
 			onexpand={() => enter(item)}
 		/>
 	{/if}
@@ -124,7 +130,14 @@
 			>
 		</div>
 		<h1>{sectionTitle(expanded)}</h1>
-		{@render widget(expanded, true)}
+		{@const selected = expanded}
+		<PreviewViewport section={selected} expanded
+			>{#snippet children(display)}{@render widget(
+					selected,
+					true,
+					display
+				)}{/snippet}</PreviewViewport
+		>
 	{/if}
 	<div hidden={!!expanded}>
 		<header class="head"><h1>{boardNames[board]}</h1></header>
@@ -148,7 +161,13 @@
 							><span>{sectionTitle(item)}</span><ChevronRight size={20} /></button
 						>
 					</h2>
-					{#if item.preview}<PreviewViewport>{@render widget(item, false)}</PreviewViewport>{/if}
+					{#if item.preview}<PreviewViewport section={item}
+							>{#snippet children(display)}{@render widget(
+									item,
+									false,
+									display
+								)}{/snippet}</PreviewViewport
+						>{/if}
 				</section>
 			{/each}
 		{/if}

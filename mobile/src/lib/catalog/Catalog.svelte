@@ -8,6 +8,7 @@
 	import type { DiscoverArtistRef } from './discovery';
 	import PlaylistDetail from './PlaylistDetail.svelte';
 	import type { Playlist } from './playlists';
+	import GenreDetail from './GenreDetail.svelte';
 	import Search from './Search.svelte';
 	import Requests from './Requests.svelte';
 	import AlbumDetail from './AlbumDetail.svelte';
@@ -33,10 +34,11 @@
 		album = $state<Album | null>(null);
 	let localArtist = $state<LocalArtist | null>(null);
 	let artist = $state<DiscoverArtistRef | null>(null);
-	let term = $state('');
+	let term = $state(''),
+		genre = $state('');
 	let root: HTMLElement;
 	const offsets: number[] = [];
-	const inside = $derived(!!(album || playlist || artist || localArtist));
+	const inside = $derived(!!(album || playlist || artist || localArtist || genre));
 	function move(offset: number) {
 		void tick().then(() => {
 			const main = root.closest('main');
@@ -52,6 +54,14 @@
 		enter();
 		album = item;
 	}
+	function openGenre(name: string) {
+		enter();
+		genre = name;
+	}
+	function openPlaylist(item: Playlist) {
+		enter();
+		playlist = item;
+	}
 	function openArtist(item: DiscoverArtistRef) {
 		enter();
 		artist = item;
@@ -64,7 +74,8 @@
 		if (album) album = null;
 		else if (playlist) playlist = null;
 		else if (artist) artist = null;
-		else localArtist = null;
+		else if (localArtist) localArtist = null;
+		else genre = '';
 		move(offsets.pop() ?? 0);
 	}
 	function systemBack(event: Event) {
@@ -95,10 +106,8 @@
 				onopen={open}
 				onartist={openArtist}
 				onlocal={openLocal}
-				onplaylist={(item) => {
-					enter();
-					playlist = item;
-				}}
+				onplaylist={openPlaylist}
+				ongenre={openGenre}
 				{onplay}
 			/>
 		{:else if tab === 'search'}<Search
@@ -109,10 +118,25 @@
 					else if (a.localId) openLocal({ id: a.localId, name: a.name });
 				}}
 				{onplay}
+				onplaylist={openPlaylist}
+				ongenre={openGenre}
 				bind:term
 			/>
 		{:else}<Requests {session} onopen={open} />{/if}
 	</div>
+	{#if genre}<div hidden={!!(album || artist || localArtist)}>
+			<button class="text-button" onclick={back}
+				>Back to {tab === 'search' ? 'search' : 'sections'}</button
+			>
+			{#key genre}<GenreDetail
+					{session}
+					name={genre}
+					onopen={open}
+					onartist={(who) =>
+						who.localOnly ? openLocal({ id: who.id, name: who.name }) : openArtist(who)}
+					{onplay}
+				/>{/key}
+		</div>{/if}
 	{#if localArtist}<div hidden={!!album || !!artist}>
 			<LocalArtistDetail
 				{session}
@@ -135,7 +159,13 @@
 				onback={back}
 				onrequests={showRequests}
 			/>{/key}
-	{:else if playlist}<PlaylistDetail {session} {playlist} {onplay} onback={back} />{/if}
+	{:else if playlist}<PlaylistDetail
+			{session}
+			{playlist}
+			{onplay}
+			onback={back}
+			backLabel={tab === 'search' ? 'Back to search' : undefined}
+		/>{/if}
 </section>
 
 <style>

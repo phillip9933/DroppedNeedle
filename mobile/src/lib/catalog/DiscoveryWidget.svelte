@@ -1,32 +1,34 @@
 <script lang="ts">
+	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import { errorMessage, type Album, type OnPlay } from './catalog';
 	import type { ChartRange, DiscoverArtistRef } from './discovery';
 	import {
 		isChart,
 		playableSong,
-		previewShelf,
 		readWidget,
 		type ShelfSong,
 		type WidgetResult
 	} from './discoveryWidgets';
+	import DiscoveryPreview from './DiscoveryPreview.svelte';
 	import DiscoverDeck from './DiscoverDeck.svelte';
-	import DiscoverShelf from './DiscoverShelf.svelte';
 	import DiscoverGenres from './DiscoverGenres.svelte';
-	import LibraryRadio from './LibraryRadio.svelte';
-	import TrackRow from './TrackRow.svelte';
 	let {
 		id,
+		display,
 		session,
 		onopen,
 		onartist,
+		ongenre,
 		onplay,
 		expanded = false,
 		active = true
 	}: {
 		id: string;
 		session: Session;
+		display: Preview;
 		onopen: (a: Album) => void;
+		ongenre?: (name: string) => void;
 		onartist: (a: DiscoverArtistRef) => void;
 		onplay: OnPlay;
 		active?: boolean;
@@ -45,10 +47,8 @@
 	let tap = 0;
 	let lastLoad = '',
 		lastSession: Session | undefined;
-	const rows = $derived(
-		expanded ? (data?.shelves ?? []) : (data?.shelves ?? []).slice(0, 1).map(previewShelf)
-	);
-	const concerts = $derived((data?.concerts ?? []).slice(0, expanded ? undefined : 2));
+	const rows = $derived(data?.shelves ?? []);
+	const concerts = $derived(data?.concerts ?? []);
 	const options = $derived(data?.playlists ?? []);
 	const hasRows = $derived(
 		rows.some(
@@ -63,6 +63,11 @@
 		) || concerts.length
 	);
 	const genreWidget = $derived(id === 'discover-genre_list' || id === 'discover-unexplored_genres');
+	const previewCapacity = $derived(
+		!expanded && (isChart(id) || id === 'discover-playlist_discovery')
+			? display.capacity
+			: undefined
+	);
 	function pickPlaylist(value: string) {
 		selectedPlaylist = value;
 	}
@@ -71,13 +76,14 @@
 			account = session,
 			period = range,
 			offset = offsets.at(-1) ?? 0,
-			choice = selectedPlaylist;
+			choice = selectedPlaylist,
+			capacity = previewCapacity;
 		void retry;
 		if (!active) return;
 		let current = true,
 			timer: ReturnType<typeof setTimeout>,
 			checks = 0;
-		const nextLoad = JSON.stringify([key, period, offset, choice]);
+		const nextLoad = JSON.stringify([key, period, offset, choice, capacity]);
 		if (lastLoad !== nextLoad || lastSession !== account) {
 			busy = true;
 			data = null;
@@ -89,7 +95,7 @@
 		pendingSong = null;
 		async function load() {
 			try {
-				const result = await readWidget(account, key, period, offset, choice);
+				const result = await readWidget(account, key, period, offset, choice, capacity);
 				if (!current) return;
 				data = result;
 				if (result.refreshing && checks++ < 6)
@@ -146,16 +152,15 @@
 		{#if data.notice}<p>{data.notice}</p>{/if}
 		{#if data.playlists}
 			{#if options.length}
-				{#if expanded}<label
-						>Choose a playlist<select
-							value={selectedPlaylist}
-							onchange={(e) => pickPlaylist(e.currentTarget.value)}
-							><option value="">Select a playlist</option>{#each options as p (p.id)}<option
-									value={p.id}>{p.name}</option
-								>{/each}</select
-						></label
-					>
-				{:else}{#each options.slice(0, 3) as p (p.id)}<div class="simple">{p.name}</div>{/each}{/if}
+				<label
+					>Choose a playlist<select
+						value={selectedPlaylist}
+						onchange={(e) => pickPlaylist(e.currentTarget.value)}
+						><option value="">Select a playlist</option>{#each options as p (p.id)}<option
+								value={p.id}>{p.name}</option
+							>{/each}</select
+					></label
+				>
 			{:else}<p>Create a playlist in your library to get suggestions for it.</p>{/if}
 		{/if}
 		{#if expanded && data.cards}<DiscoverDeck
@@ -172,47 +177,16 @@
 				{active}
 				names={rows.flatMap((s) => s.genres)}
 			/>
-		{:else}
-			{#each rows as shelf (shelf)}
-				<DiscoverShelf
-					{session}
-					shelf={{ ...shelf, title: rows.length > 1 ? shelf.title : '' }}
-					{onopen}
-					{onartist}
-				/>
-				{#if shelf.note}<p>{shelf.note}</p>{/if}
-				{#if shelf.radio && expanded}<LibraryRadio
-						{session}
-						seedType={shelf.radio.kind}
-						seedId={shelf.radio.id}
-						{onplay}
-					/>{/if}
-				{#each shelf.songs as song, j (song)}<TrackRow
-						title={song.title}
-						artist={song.artist}
-						position={j + 1}
-						onplay={() => playSong(song)}
-					/>{/each}
-				{#if shelf.genres.length}<div class="chips">
-						{#each shelf.genres as genre (genre)}<span>{genre}</span>{/each}
-					</div>{/if}
-			{/each}
-		{/if}
-		{#each concerts as concert (concert)}<article>
-				<time datetime={concert.local_date}>{concert.local_date}</time><strong
-					>{concert.event_name}</strong
-				><span
-					>{[concert.venue_name, concert.city || concert.matched_city, concert.country_code]
-						.filter(Boolean)
-						.join(' · ')}</span
-				>{#if concert.status !== 'scheduled'}<span
-						>{concert.status === 'cancelled' ? 'Cancelled' : 'Rescheduled'}</span
-					>{/if}<button
-					class="text-button"
-					onclick={() => onartist({ id: concert.artist_mbid, name: concert.artist_name })}
-					>{concert.artist_name}</button
-				>
-			</article>{/each}
+		{:else}<DiscoveryPreview
+				{display}
+				{data}
+				{session}
+				{onopen}
+				{onartist}
+				{onplay}
+				{ongenre}
+				onplaysong={playSong}
+			/>{/if}
 		{#if !data.notice && !hasRows && !(expanded && data.cards) && !data.playlists && !(genreWidget && expanded)}<p
 			>
 				{empty[id] ?? 'No items for this section yet.'}
@@ -250,36 +224,15 @@
 		gap: 0.7rem;
 		margin-block: 0.55rem;
 	}
-	.chips span {
-		padding: 0.35rem 0.6rem;
-		border: 1px solid var(--line);
-		border-radius: var(--radius);
-	}
-	.chips,
 	.pages {
 		display: flex;
 		align-items: center;
-		flex-wrap: wrap;
 		gap: 0.45rem;
+		flex-wrap: wrap;
 	}
+
 	.pages {
 		justify-content: space-between;
-	}
-	article {
-		display: grid;
-		justify-items: start;
-		gap: 0.15rem;
-		padding-block: 0.45rem;
-		border-bottom: 1px solid var(--line);
-	}
-	article time,
-	article span {
-		color: var(--muted);
-		font-size: 0.88rem;
-	}
-	.simple {
-		padding-block: 0.5rem;
-		border-bottom: 1px solid var(--line);
 	}
 	select {
 		max-width: 100%;

@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
@@ -77,7 +78,7 @@ test('a local artist links credited songs, paginated guest appearances and the D
 			favorite = true;
 			return json({ favorited: favorite });
 		}
-		if (path === '/library/tracks') {
+		if (path === '/library/tracks' && url.searchParams.has('artist_id')) {
 			expect(url.searchParams.get('artist_id')).toBe(artistId);
 			read.push('songs');
 			return json({ items: [song], total: 1 });
@@ -89,6 +90,7 @@ test('a local artist links credited songs, paginated guest appearances and the D
 				),
 				contentType: 'audio/wav'
 			});
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected DN endpoint ' + path);
 	});
 	await page.goto('/');

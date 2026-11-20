@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +43,7 @@ test('editing the queue keeps the current entry and repeat all wraps to the visi
 			played.push(path.split('/').at(-1)!);
 			return route.fulfill({ path: wav, contentType: 'audio/wav' });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected request ' + path);
 	});
 	await page.goto('/');

@@ -100,19 +100,50 @@ export function localSong(t: Schema['TrackView'], artist = '') {
 	};
 }
 
-export async function search(session: Session, term: string) {
-	const url = path(
-		'/api/v3/search',
-		{},
-		{
-			q: term,
-			buckets: 'albums,artists,tracks',
-			limit_albums: 40,
-			limit_artists: 24,
-			limit_tracks: 24
-		}
-	);
-	const result = await getJson<Schema['SearchResponse']>(session, url);
+export type SearchBucket = 'albums' | 'artists' | 'tracks';
+export type SearchScope = 'top' | SearchBucket | 'genres' | 'playlists';
+const bucketSize = 24;
+
+export async function search(
+	session: Session,
+	term: string,
+	scope: 'top' | SearchBucket = 'top',
+	offset = 0,
+	signal?: AbortSignal
+) {
+	let result: Pick<Schema['SearchResponse'], 'albums' | 'artists' | 'tracks'>;
+	let partial: boolean;
+	let next: number | null = null;
+	if (scope === 'top') {
+		const response = await getJson<Schema['SearchResponse']>(
+			session,
+			path(
+				'/api/v3/search',
+				{},
+				{
+					q: term,
+					buckets: 'albums,artists,tracks',
+					limit_albums: 40,
+					limit_artists: 24,
+					limit_tracks: 24
+				}
+			),
+			signal
+		);
+		result = response;
+		partial = [response.album_status, response.artist_status, response.track_status].some(
+			(s) => s !== 'ok'
+		);
+	} else {
+		const page = await getJson<Schema['SearchBucketResponse']>(
+			session,
+			path('/api/v3/search/{bucket}', { bucket: scope }, { q: term, limit: bucketSize, offset }),
+			signal
+		);
+		result = { albums: [], artists: [], tracks: [], [scope]: page.results };
+		partial = page.status !== 'ok';
+		next = page.results.length >= bucketSize ? offset + bucketSize : null;
+	}
 	const albums = result.albums
 		.filter((a) => a.id || a.musicbrainz_id)
 		.map((a): Album => ({
@@ -157,9 +188,9 @@ export async function search(session: Session, term: string) {
 		tracks,
 		artists,
 		recordings,
-		partial: [result.album_status, result.artist_status, result.track_status].some(
-			(status) => status !== 'ok'
-		)
+		partial,
+		previous: Math.max(0, offset - bucketSize),
+		next
 	};
 }
 
@@ -203,10 +234,11 @@ export async function albumTracks(session: Session, album: Album) {
 		.map((t) => localSong(t, album.artist));
 }
 
-export function editions(session: Session, albumId: string) {
+export function editions(session: Session, albumId: string, signal?: AbortSignal) {
 	return getJson<Schema['AlbumEditionsResponse']>(
 		session,
-		path('/api/v3/albums/{album_id}/editions', { album_id: albumId })
+		path('/api/v3/albums/{album_id}/editions', { album_id: albumId }),
+		signal
 	);
 }
 

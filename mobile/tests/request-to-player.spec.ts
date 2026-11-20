@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { test, expect } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
@@ -254,6 +255,7 @@ test('the requested edition arrives and both local tracks play in disc order', a
 			played.push(operation);
 			return route.fulfill({ path: audio, contentType: 'audio/wav' });
 		}
+		if (await emptyBoardRead(route)) return;
 		unknown.push(operation);
 		return json({ error: { code: 'NOT_FOUND', message: 'Unknown API route' } }, 404);
 	});

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from './catalog';
 	import type { Playlist } from './playlists';
@@ -8,6 +9,7 @@
 
 	let {
 		id,
+		display,
 		session,
 		onopen,
 		onartist,
@@ -18,6 +20,7 @@
 	}: {
 		id: string;
 		session: Session;
+		display: Preview;
 		onopen: (album: Album) => void;
 		onartist: (artist: { id: string; name: string }) => void;
 		onplaylist: (playlist: Playlist) => void;
@@ -30,11 +33,12 @@
 
 {#key id}
 	{#if id === 'library-recently-played'}
-		<RecentlyPlayed {session} {onplay} {active} preview={!expanded} />
+		<RecentlyPlayed {display} {session} {onplay} {active} />
 	{:else if id === 'library-playlists'}
-		<Playlists {active} {session} onopen={onplaylist} preview={!expanded} />
+		<Playlists {display} {active} {session} onopen={onplaylist} preview={!expanded} />
 	{:else if id === 'library-recently-added' || id === 'library-albums' || id === 'library-artists' || id === 'library-tracks'}
 		<Library
+			{display}
 			{active}
 			{session}
 			{onopen}

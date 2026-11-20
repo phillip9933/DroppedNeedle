@@ -148,3 +148,217 @@ test('an empty layout remains editable and Discover selections can be shared wit
 	await save(page);
 	await expect(button(page, 'Browse Recently added')).toBeVisible();
 });
+
+test('Top picks and library entries render inline with per-screen rows, sizing and density', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 1100, height: 800 });
+	await fixture(page);
+	const albums = Array.from({ length: 12 }, (_, i) => ({
+		id: 'record-' + i,
+		title: 'Album ' + (i + 1),
+		artist_name: 'Board artist',
+		art_missing: true
+	}));
+	const picks = albums.map((a) => ({
+		album: { local_id: a.id, title: a.title, artist_name: a.artist_name, in_library: true },
+		match_pct: 81,
+		reasons: ['Your listening history']
+	}));
+	await page.route(server + '/api/v3/discover', (r) =>
+		r.fulfill({
+			json: {
+				sections: [
+					{
+						key: 'top_picks',
+						content: { shape: 'picks', picks: { title: 'Top picks', items: picks } }
+					}
+				],
+				refreshing: false
+			}
+		})
+	);
+	await page.route(server + '/api/v3/library/albums?**', (r) =>
+		r.fulfill({
+			json: {
+				items: albums.slice(0, Number(new URL(r.request().url()).searchParams.get('limit'))),
+				next: null
+			}
+		})
+	);
+	await page.route(server + '/api/v3/library/tracks?**', (r) =>
+		r.fulfill({
+			json: {
+				items: albums.map((a, i) => ({
+					...a,
+					id: 'track-' + i,
+					title: 'Song ' + (i + 1),
+					album_title: a.title
+				})),
+				next: null
+			}
+		})
+	);
+	await page.route(server + '/api/v3/playlists', (r) =>
+		r.fulfill({
+			json: {
+				playlists: [
+					{ id: 'mine', name: 'Travel days', cover_urls: [], track_count: 3, is_redacted: false }
+				]
+			}
+		})
+	);
+	await page.goto('/');
+	await login(page);
+	const shelf = (id: string) => page.locator('[data-board]:visible [data-widget="' + id + '"]');
+	const homePicks = shelf('discover-top_picks');
+	await homePicks.scrollIntoViewIfNeeded();
+	await expect(homePicks.getByRole('button', { name: /Album 1 Board artist/ })).toBeVisible();
+	await expect(homePicks).toContainText('81% match');
+	await edit(page, 'Home');
+	await button(page, 'Customize Top picks for you').click();
+	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
+	await page.getByRole('combobox', { name: 'Maximum columns', exact: true }).selectOption('3');
+	await page.getByRole('combobox', { name: 'Preview rows', exact: true }).selectOption('2');
+	await page.getByRole('combobox', { name: 'Column size', exact: true }).selectOption('small');
+	await page.getByRole('combobox', { name: 'Row density', exact: true }).selectOption('compact');
+	await save(page);
+	await homePicks.scrollIntoViewIfNeeded();
+	const tiles = homePicks.locator('[data-preview-item]');
+	await expect(tiles).toHaveCount(6);
+	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-density', 'compact');
+	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-column-size', 'small');
+	await button(page, 'Browse Top picks for you').click();
+	const expanded = page.locator('[data-collection="expanded"]:visible');
+	await expect(expanded).toHaveAttribute('data-preview', 'grid');
+	await expect(expanded.locator('[data-preview-item]')).toHaveCount(12);
+	await expect(expanded.getByRole('button', { name: 'Hidden albums' })).toBeVisible();
+	await button(page, 'Back to Home').click();
+	await tiles.first().getByRole('button').click();
+	await expect(page.getByRole('heading', { name: 'Album 1', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await page.setViewportSize({ width: 320, height: 640 });
+	await expect.poll(async () => await tiles.count()).toBeLessThanOrEqual(6);
+	const layout = await homePicks.locator('.preview-items').evaluate((el) => {
+		const cols = getComputedStyle(el).gridTemplateColumns.split(' ').length;
+		return {
+			cols,
+			rows: Math.ceil(el.children.length / cols),
+			fits: el.scrollWidth <= el.clientWidth + 1
+		};
+	});
+	expect(layout.rows).toBe(2);
+	expect(layout.fits).toBe(true);
+	await edit(page, 'Home');
+	await button(page, 'Customize Top picks for you').click();
+	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('list');
+	await page.getByRole('combobox', { name: 'Maximum columns' }).selectOption('2');
+	await save(page);
+	await homePicks.scrollIntoViewIfNeeded();
+	await expect(tiles).toHaveCount(2);
+	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-preview', 'list');
+	await button(page, 'Discover').click();
+	const discoverPicks = shelf('discover-top_picks');
+	await expect(discoverPicks.locator('[data-preview]')).toHaveAttribute('data-preview', 'grid');
+	await button(page, 'Library').click();
+	await edit(page, 'Library');
+	await button(page, 'Customize Tracks').click();
+	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
+	await page.getByRole('combobox', { name: 'Column size', exact: true }).selectOption('small');
+	await page.getByRole('combobox', { name: 'Maximum columns', exact: true }).selectOption('2');
+	await save(page);
+	const artists = shelf('library-artists');
+	await artists.scrollIntoViewIfNeeded();
+	await expect(artists.getByRole('button', { name: 'Southerly 1 album' })).toBeVisible();
+	const songs = shelf('library-tracks');
+	await songs.scrollIntoViewIfNeeded();
+	await expect(songs.getByRole('button', { name: 'Play Song 1', exact: true })).toBeVisible();
+	await expect(songs.getByRole('button', { name: 'More options for Song 1' })).toBeVisible();
+	await button(page, 'Browse Tracks').click();
+	await expect(expanded).toHaveAttribute('data-preview', 'grid');
+	await expect(expanded.locator('[data-preview-item]')).toHaveCount(12);
+	await expect(expanded.getByLabel('Filter songs')).toBeVisible();
+	await expect(expanded.getByRole('button', { name: 'Play all', exact: true })).toBeVisible();
+	await expanded.getByRole('button', { name: 'More options for Song 1', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Add to queue', exact: true })).toBeVisible();
+	await button(page, 'Close').click();
+	await button(page, 'Back to Library').click();
+	const playlists = shelf('library-playlists');
+	await playlists.scrollIntoViewIfNeeded();
+	await expect(playlists.getByRole('button', { name: /Travel days/ })).toBeVisible();
+	await page.reload();
+	await login(page);
+	await homePicks.scrollIntoViewIfNeeded();
+	await expect(tiles).toHaveCount(2);
+	await expect(homePicks.locator('[data-preview]')).toHaveAttribute('data-preview', 'list');
+	await page.setViewportSize({ width: 1100, height: 800 });
+	await expect(tiles).toHaveCount(4);
+});
+
+test('visible shelves share the Discover response and limit overlapping cover requests', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 1000, height: 1400 });
+	await fixture(page);
+	await page.addInitScript((server) => {
+		const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'id-alex', 'home']);
+		const display = { layout: 'list', rows: 6, density: 'compact' };
+		localStorage.setItem(
+			key,
+			JSON.stringify(
+				['top_picks', 'fresh_releases'].map((key) => ({
+					id: 'discover-' + key,
+					title: '',
+					preview: true,
+					display
+				}))
+			)
+		);
+	}, server);
+	const albums = Array.from({ length: 6 }, (_, i) => ({
+		kind: 'album',
+		local_id: 'shared-' + i,
+		title: 'Record ' + (i + 1),
+		artist_name: 'Performer'
+	}));
+	let pages = 0,
+		active = 0,
+		peak = 0;
+	const covers: string[] = [];
+	let release!: () => void;
+	const hold = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route(server + '/api/v3/discover', (r) => {
+		pages++;
+		return r.fulfill({
+			json: {
+				sections: ['top_picks', 'fresh_releases'].map((key) => ({
+					key,
+					content: { shape: 'shelf', shelf: { title: 'New', items: albums } }
+				})),
+				refreshing: false
+			}
+		});
+	});
+	await page.route(server + '/api/v3/library/albums/*/artwork?**', async (r) => {
+		active++;
+		peak = Math.max(peak, active);
+		covers.push(new URL(r.request().url()).pathname);
+		await hold;
+		await r.fulfill({ status: 404, json: {} });
+		active--;
+	});
+	await page.goto('/');
+	await login(page);
+	try {
+		await expect(page.locator('[data-preview-item]')).toHaveCount(12);
+		await expect.poll(() => covers.length).toBe(4);
+	} finally {
+		release();
+	}
+	await expect.poll(() => covers.length).toBe(6);
+	expect(peak).toBeLessThanOrEqual(4);
+	expect(new Set(covers).size).toBe(6);
+	expect(pages).toBe(1);
+});
