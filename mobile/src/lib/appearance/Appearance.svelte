@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { Capacitor } from '@capacitor/core';
+	import EqualizerSettings from '../player/EqualizerSettings.svelte';
 	import {
 		ChevronLeft,
 		ChevronRight,
@@ -33,6 +35,7 @@
 		| Board
 		| 'player'
 		| 'themes'
+		| 'equalizer'
 		| 'account'
 		| 'content'
 		| 'tools'
@@ -85,6 +88,7 @@
 			...personal,
 			...administration,
 			{ id: 'themes', label: 'Themes' },
+			{ id: 'equalizer', label: 'Equalizer' },
 			{ id: 'about', label: 'About' }
 		].find((i) => i.id === page)?.label ?? 'Settings'
 	);
@@ -170,6 +174,14 @@
 					><Palette size={19} /><span>Themes</span><ChevronRight size={16} /></button
 				>
 			</div>
+			{#if session && Capacitor.getPlatform() === 'android'}
+				<h2>Playback</h2>
+				<div class="menu">
+					<button class="entry" onclick={() => open('equalizer')}
+						><SlidersHorizontal size={19} /><span>Equalizer</span><ChevronRight size={16} /></button
+					>
+				</div>
+			{/if}
 			{#if session}
 				<h2>Your account</h2>
 				<div class="menu">
@@ -196,6 +208,8 @@
 			</div>
 			{#if session}<p class="server">{session.serverUrl}</p>
 				<button class="secondary" disabled={busy} onclick={signOut}>Sign out</button>{/if}
+		{:else if page === 'equalizer' && session && Capacitor.getPlatform() === 'android'}<EqualizerSettings
+			/>
 		{:else if page === 'themes'}<ThemeSettings {session} />
 		{:else if page === 'account' && session}<Account {session} />
 		{:else if page === 'content' && session}<ServerSections {session} {admin} />
