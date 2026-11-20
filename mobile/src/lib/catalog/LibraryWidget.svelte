@@ -35,6 +35,7 @@
 		<Playlists {active} {session} onopen={onplaylist} preview={!expanded} />
 	{:else if id === 'library-recently-added' || id === 'library-albums' || id === 'library-artists' || id === 'library-tracks'}
 		<Library
+			{active}
 			{session}
 			{onopen}
 			{onartist}
