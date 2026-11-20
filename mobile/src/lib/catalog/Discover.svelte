@@ -7,22 +7,24 @@
 		type ChartRange,
 		type DiscoveryPage
 	} from './discovery';
-	import { errorMessage, type Album } from './catalog';
-	import Albums from './Albums.svelte';
-	import Cover from './Cover.svelte';
+	import { errorMessage, type Album, type OnPlay } from './catalog';
+	import DiscoverShelf from './DiscoverShelf.svelte';
+	import DiscoverGenres from './DiscoverGenres.svelte';
 
 	let {
 		session,
 		onopen,
 		onartist,
+		onplay,
 		active = true
 	}: {
 		session: Session;
 		onopen: (a: Album) => void;
 		onartist: (a: DiscoverArtistRef) => void;
+		onplay: OnPlay;
 		active?: boolean;
 	} = $props();
-	let view = $state<DiscoverView>('recommendations'),
+	let view = $state<DiscoverView | 'genres'>('recommendations'),
 		range = $state<ChartRange>('this_month');
 	let offsets = $state<number[]>([0]),
 		refresh = $state(0),
@@ -52,7 +54,8 @@
 			windowRange = range,
 			page = offsets.at(-1) ?? 0;
 		void refresh;
-		if (!active) return;
+		if (!active || selected === 'genres') return;
+		const feed: DiscoverView = selected;
 		let current = true,
 			timer: ReturnType<typeof setTimeout>,
 			reads = 0;
@@ -63,7 +66,7 @@
 		if (newPage) result = null;
 		async function load() {
 			try {
-				const answer = await discover(account, selected, windowRange, page);
+				const answer = await discover(account, feed, windowRange, page);
 				if (!current) return;
 				lastSession = account;
 				lastPage = pageKey;
@@ -91,6 +94,7 @@
 	<div class="filters">
 		<select bind:value={view} aria-label="Discover view" onchange={() => (offsets = [0])}>
 			<option value="recommendations">For you</option>
+			<option value="genres">Genres</option>
 			<optgroup label="Charts"
 				><option value="popular">Popular albums</option><option value="trending"
 					>Trending artists</option
@@ -111,7 +115,15 @@
 				><option value="this_year">This year</option><option value="all_time">All time</option>
 			</select>{/if}
 	</div>
-	{#if error}<p role="alert">{error}</p>
+	{#if view === 'genres'}<DiscoverGenres
+			{session}
+			{onopen}
+			{onartist}
+			{onplay}
+			{active}
+		/>{:else if error}<p role="alert">
+			{error}
+		</p>
 		<button class="secondary" onclick={() => refresh++}>Try again</button>
 	{:else if busy}<p role="status">Loading…</p>
 	{:else if result}
@@ -119,20 +131,10 @@
 		{#if result.notice}<p role="status">
 				{result.notice}
 			</p>{:else if !hasRows && !result.refreshing}<p>{empty[view]}</p>{/if}
-		{#each result.shelves as shelf}
-			{#if shelf.title}<h2>{shelf.title}</h2>{/if}
-			{#if shelf.albums.length}<Albums {session} albums={shelf.albums} {onopen} />{/if}
-			{#each shelf.artists as artist}
-				{@const target = artist.target}
-				{#if target}<button class="artist" onclick={() => onartist(target)}
-						><span class="avatar"><Cover {session} path={artist.art} seed={target.id} /></span
-						><strong>{artist.name}</strong></button
-					>
-				{:else}<p>{artist.name}</p>{/if}
-			{/each}
-			{#each shelf.unlinked as text}<p>{text}</p>{/each}
+		{#each result.shelves as shelf (shelf)}
+			<DiscoverShelf {session} {shelf} {onopen} {onartist} />
 		{/each}
-		{#each result.concerts ?? [] as concert}
+		{#each result.concerts ?? [] as concert (concert)}
 			<article data-part="concert">
 				<time datetime={concert.local_date}>{concert.local_date}</time>
 				<strong>{concert.event_name}</strong><span
@@ -151,7 +153,7 @@
 			</article>
 		{/each}
 	{/if}
-	{#if offsets.length > 1 || result?.next != null}
+	{#if chart && (offsets.length > 1 || result?.next != null)}
 		<div class="pages">
 			<button
 				class="secondary"
@@ -187,22 +189,6 @@
 		border: 1px solid var(--line);
 		background: var(--surface);
 		color: var(--text);
-	}
-	.artist {
-		display: flex;
-		align-items: center;
-		text-align: start;
-		width: 100%;
-		gap: var(--gap);
-		padding: 0.45rem 0;
-		min-height: 48px;
-		border-bottom: 1px solid var(--line);
-		color: var(--text);
-	}
-	.avatar {
-		flex: 0 0 2.7rem;
-		border-radius: 50%;
-		overflow: hidden;
 	}
 	.pages {
 		justify-content: space-between;
