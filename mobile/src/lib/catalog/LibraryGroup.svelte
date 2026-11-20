@@ -7,7 +7,10 @@
 	import { errorMessage, type OnPlay } from './catalog';
 	import { offlineInventory, watchOfflineMedia } from '../offline/media';
 	import type { OfflineInventory } from '../offline/library';
-	import { type BrowseItem, trackItem } from './libraryBrowse';
+	import { browseChoice, type BrowseItem, trackItem } from './libraryBrowse';
+	import { loadNearEnd } from './browseViewport';
+	import { tappedPlayback, type PageEnd } from './browsePlayback';
+	import { untrack } from 'svelte';
 	import { shuffled } from './browseActions';
 	import { queueSizeCheck } from './libraryQueue';
 	import { genreTracksPage, tracksInGenre } from './libraryGenres';
@@ -34,6 +37,11 @@
 		error = $state(''),
 		busy = $state(false),
 		inventory = $state.raw<OfflineInventory>();
+	let results = $state<BrowseEntries>(),
+		returnItem = '',
+		inBackground = false,
+		shownDocument = $state(!document.hidden);
+	const pages: PageEnd[] = [];
 	const remoteGenre = $derived(item.genre !== undefined && !item.localTracks);
 	let serverTracks = $state.raw<PlayerTrack[]>([]),
 		cursor = $state<string | null>(null),
@@ -63,6 +71,7 @@
 			serverTracks = more ? [...serverTracks, ...p.tracks.filter((t) => !ids.has(t.id))] : p.tracks;
 			knownTotal = p.total;
 			cursor = p.next;
+			pages.push({ end: serverTracks.length, after: cursor });
 		} catch (cause) {
 			if (!job.signal.aborted) pageError = errorMessage(cause);
 		} finally {
@@ -114,7 +123,8 @@
 	// Offline playlists can contain the same recording twice. Each occurrence has its own action.
 	const rows = $derived(shown.map((t, i) => ({ ...trackItem(t), id: 'entry:' + i })));
 	onMount(() => {
-		if (remoteGenre) void readPage();
+		const visibility = () => (shownDocument = !document.hidden);
+		document.addEventListener('visibilitychange', visibility);
 		let alive = true;
 		async function read() {
 			try {
@@ -128,17 +138,49 @@
 		const stop = watchOfflineMedia(read);
 		return () => {
 			alive = false;
+			document.removeEventListener('visibilitychange', visibility);
 			stop();
 		};
 	});
-	async function play(music: PlayerTrack[], index: number) {
+	$effect(() => {
+		const foreground = active && shownDocument;
+		untrack(() => {
+			if (!foreground) {
+				inBackground = true;
+				pageRead?.abort();
+				queueRead?.abort();
+				reading = false;
+				return;
+			}
+			if (remoteGenre && !serverTracks.length && !pages.length && !pageError && !reading)
+				void readPage();
+			if (inBackground && returnItem) {
+				const id = returnItem;
+				returnItem = '';
+				requestAnimationFrame(() => {
+					if (active && shownDocument) void results?.focusItem(id);
+				});
+			}
+			inBackground = false;
+		});
+	});
+	async function play(row: BrowseItem) {
 		if (busy) return;
 		busy = true;
 		error = '';
+		returnItem = row.id;
 		try {
-			const validate = queueSizeCheck(session.serverUrl);
-			music.forEach(validate);
-			await onplay(music, index);
+			const source = remoteGenre ? shown : tracks,
+				index = rows.findIndex((i) => i.id === row.id);
+			const batch = tappedPlayback(
+				session.serverUrl,
+				source,
+				index,
+				pages,
+				total,
+				remoteGenre && item.genre ? { genre: item.genre, sort: 'album', order: 'asc' } : undefined
+			);
+			await onplay(batch.tracks, batch.index, batch.continuation);
 		} catch (cause) {
 			error = errorMessage(cause);
 		} finally {
@@ -147,7 +189,16 @@
 	}
 </script>
 
-<SelectionHost {session} {onplay} {active} localOnly={offline} heading={item.title} scope={item.id}>
+<SelectionHost
+	choices={() => rows.map((i) => browseChoice(session, i))}
+	contains={(id) => rows.some((i) => i.id === id)}
+	{session}
+	{onplay}
+	{active}
+	localOnly={offline}
+	heading={item.title}
+	scope={item.id}
+>
 	{#if item.smart}<small>Smart playlist · on this device</small>{/if}
 	<p>{total.toLocaleString()} {total === 1 ? 'track' : 'tracks'}</p>
 	{#if shown.length}
@@ -159,6 +210,9 @@
 			>
 		</div>
 		<BrowseEntries
+			bind:this={results}
+			{active}
+			{total}
 			{session}
 			items={rows}
 			category="Tracks"
@@ -166,18 +220,16 @@
 			columns={1}
 			{inventory}
 			localOnly={offline}
-			open={(row) =>
-				play(
-					shown,
-					rows.findIndex((i) => i.id === row.id)
-				)}
+			open={play}
 		/>
 		{#if remoteGenre && cursor}<button
 				class="secondary"
 				disabled={reading}
+				use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
 				onclick={() => readPage(true)}>More songs</button
 			>{:else if !remoteGenre && limit < tracks.length}<button
 				class="secondary"
+				use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
 				onclick={() => (limit += 48)}>More songs</button
 			>{/if}
 	{:else if !reading && !pageError}<p>No matching tracks.</p>{/if}

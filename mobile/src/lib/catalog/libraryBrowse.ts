@@ -82,6 +82,13 @@ export function trackItem(track: PlayerTrack): BrowseItem {
 		added: track.dateAdded
 	};
 }
+export function browseChoice(session: Session, item: BrowseItem) {
+	return {
+		id: item.id,
+		title: item.title,
+		tracks: (signal: AbortSignal, forQueue: boolean) => resolveItem(session, item, signal, forQueue)
+	};
+}
 export async function resolveItem(
 	session: Session,
 	item: BrowseItem,
@@ -200,6 +207,7 @@ export function localPage(items: BrowseItem[], after?: string | null): BrowsePag
 		next: end < items.length ? String(end) : null
 	};
 }
+export type BrowseSnapshot = { items?: BrowseItem[] };
 export async function browsePage(
 	session: Session,
 	category: Category,
@@ -207,10 +215,16 @@ export async function browsePage(
 	after: string | null,
 	signal: AbortSignal,
 	available?: PlayerTrack[],
-	progress?: (n: number, total: number) => void
+	progress?: (n: number, total: number) => void,
+	snapshot?: BrowseSnapshot
 ): Promise<BrowsePage> {
+	if (snapshot?.items) return localPage(snapshot.items, after);
+	const present = (all: BrowseItem[]) => {
+		if (snapshot) snapshot.items = all;
+		return localPage(all, after);
+	};
 	if (available && category !== 'Playlists')
-		return localPage(localBrowse(category, available, filters), after);
+		return present(localBrowse(category, available, filters));
 	const params = { ...requestFilters(filters), limit: 30, after: after ?? undefined };
 	if (category === 'Albums') {
 		const p = await getJson<Schema['AlbumPage']>(
@@ -259,7 +273,7 @@ export async function browsePage(
 	}
 	if (category === 'Genres') {
 		const labels = await readLibraryGenres(session, signal, progress);
-		return localPage(
+		return present(
 			sorted(
 				labels.map(([genre, count]) => ({
 					id: 'genre:' + genre,
@@ -268,8 +282,7 @@ export async function browsePage(
 					count
 				})),
 				filters
-			),
-			after
+			)
 		);
 	}
 	const [regular, smart] = await Promise.all([
@@ -301,5 +314,5 @@ export async function browsePage(
 			count: localTracks?.length
 		});
 	}
-	return localPage(sorted(all, filters), after);
+	return present(sorted(all, filters));
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		ArrowDown,
 		ArrowDownUp,
@@ -61,6 +62,9 @@
 	import type { SmartPlaylist } from './smartPlaylists';
 	import SelectionHost from './SelectionHost.svelte';
 	import BrowseEntries from './BrowseEntries.svelte';
+	import { loadNearEnd } from './browseViewport';
+	import { tappedPlayback, type PageEnd } from './browsePlayback';
+	import { browseChoice, requestFilters, type BrowseSnapshot } from './libraryBrowse';
 	import LibraryFilters from './LibraryFilters.svelte';
 	import LibrarySmartPlaylists from './LibrarySmartPlaylists.svelte';
 	import PlaylistImport from './PlaylistImport.svelte';
@@ -150,7 +154,23 @@
 		progress = $state(''),
 		busy = $state(false);
 	let pageRequest: AbortController | undefined, actionRequest: AbortController | undefined;
-	let wasActive = false;
+	let results: BrowseEntries;
+	let returnItem = '',
+		preserveLength = 0,
+		wasActive = false,
+		visible = $state(!document.hidden);
+	let snapshot: BrowseSnapshot = {},
+		pages: PageEnd[] = [],
+		cursors = new SvelteSet<string>();
+	const known = $derived(new Set(items.map((i) => i.id)));
+	const changeKey = $derived({
+		f: { ...filters, formats: [...filters.formats] },
+		c: category,
+		a: session,
+		m: available,
+		retry
+	});
+	let lastKey: typeof changeKey | undefined;
 	let context = $state.raw<BrowseItem | null>(null),
 		smart = $state.raw<SmartPlaylist | 'new' | null>(null),
 		newName = $state(false),
@@ -223,6 +243,15 @@
 			}
 		};
 		const favorite = () => retry++;
+		const playlistsChanged = () => {
+			if (category === 'Playlists') {
+				preserveLength = items.length;
+				retry++;
+			}
+		};
+		const visibility = () => (visible = !document.hidden);
+		window.addEventListener('dn-playlists-updated', playlistsChanged);
+		document.addEventListener('visibilitychange', visibility);
 		const release = watchOfflineMedia(refresh);
 		window.addEventListener('online', network);
 		window.addEventListener('offline', network);
@@ -234,6 +263,8 @@
 			window.removeEventListener('online', network);
 			window.removeEventListener('offline', network);
 			window.removeEventListener('dnfavoritechange', favorite);
+			window.removeEventListener('dn-playlists-updated', playlistsChanged);
+			document.removeEventListener('visibilitychange', visibility);
 		};
 	});
 	function cancelAction() {
@@ -247,67 +278,115 @@
 		cancelAction();
 	});
 	$effect(() => {
-		void retry;
-		const f = { ...filters, formats: [...filters.formats] },
-			c = category,
-			a = session,
-			m = available;
+		const definition = changeKey,
+			shown = active && visible;
 		if (!ready) return;
-		const controller = new AbortController();
-		pageRequest = controller;
 		untrack(() => {
-			items = [];
-			total = undefined;
-			cursor = null;
+			if (!shown) {
+				pageRequest?.abort();
+				pageRequest = undefined;
+				waitingMore = false;
+				if (loading) lastKey = undefined;
+				cancelAction();
+				wasActive = false;
+				return;
+			}
+			if (!wasActive && returnItem) {
+				const id = returnItem;
+				returnItem = '';
+				requestAnimationFrame(() => {
+					if (active && visible) void results?.focusItem(id);
+				});
+			}
+			wasActive = true;
+			if (lastKey === definition) {
+				pageRequest ??= new AbortController();
+				return;
+			}
+			lastKey = definition;
+			pageRequest?.abort();
+			const controller = new AbortController();
+			pageRequest = controller;
+			const prior = preserveLength;
+			preserveLength = 0;
+			pages = [];
+			cursors.clear();
+			snapshot = {};
+			if (!prior) {
+				items = [];
+				total = undefined;
+				cursor = null;
+			}
 			loading = true;
 			waitingMore = false;
 			error = '';
 			scan = '';
-		});
-		void browsePage(a, c, f, null, controller.signal, m, (n, t) => {
-			if (!controller.signal.aborted)
-				scan = 'Reading genre tags · ' + n.toLocaleString() + ' of ' + t.toLocaleString();
-		})
-			.then(
-				(page) => {
-					if (controller.signal.aborted) return;
-					items = page.items;
-					total = page.total;
-					cursor = page.next ?? null;
+			const { a, c, f, m } = definition;
+			void browsePage(
+				a,
+				c,
+				f,
+				null,
+				controller.signal,
+				m,
+				(n, t) => {
+					if (!controller.signal.aborted)
+						scan = 'Reading genre tags · ' + n.toLocaleString() + ' of ' + t.toLocaleString();
 				},
-				(cause) => {
-					if (!controller.signal.aborted) error = errorMessage(cause);
-				}
+				snapshot
 			)
-			.finally(() => {
-				if (!controller.signal.aborted) {
-					loading = false;
-					scan = '';
-				}
-			});
-		return () => controller.abort();
-	});
-	$effect(() => {
-		const visible = active,
-			c = category;
-		if (!visible) untrack(cancelAction);
-		else if (wasActive === false && c === 'Playlists') untrack(() => retry++);
-		wasActive = visible;
+				.then(
+					(page) => {
+						if (controller.signal.aborted) return;
+						if (prior > page.items.length && snapshot.items) {
+							items = snapshot.items.slice(0, prior);
+							total = snapshot.items.length;
+							cursor = items.length < total ? String(items.length) : null;
+						} else {
+							items = page.items;
+							total = page.total;
+							cursor = page.next ?? null;
+						}
+						pages.push({ end: items.length, after: cursor });
+						if (cursor) cursors.add(cursor);
+					},
+					(cause) => {
+						if (!controller.signal.aborted) error = errorMessage(cause);
+					}
+				)
+				.finally(() => {
+					if (!controller.signal.aborted) {
+						loading = false;
+						scan = '';
+					}
+				});
+		});
 	});
 	async function more() {
 		const after = cursor,
 			signal = pageRequest?.signal;
-		if (!after || !signal || signal.aborted || waitingMore) return;
+		if (!after || !active || !visible || !signal || signal.aborted || waitingMore) return;
 		waitingMore = true;
 		error = '';
 		try {
-			const result = await browsePage(session, category, filters, after, signal, available);
+			const result = await browsePage(
+				session,
+				category,
+				filters,
+				after,
+				signal,
+				available,
+				undefined,
+				snapshot
+			);
 			if (signal.aborted) return;
-			if (result.next === after) throw Error('The collection changed while loading. Try again.');
-			const seen = new Set(items.map((i) => i.id));
-			items = [...items, ...result.items.filter((i) => !seen.has(i.id))];
+			if (result.next && (cursors.has(result.next) || !result.items.some((i) => !known.has(i.id))))
+				throw Error('The collection changed while loading. Try again.');
+			items = [...items, ...result.items.filter((i) => !known.has(i.id))];
 			cursor = result.next ?? null;
 			total = result.total ?? total;
+			pages.push({ end: items.length, after: cursor });
+			if (cursor) cursors.add(cursor);
 		} catch (cause) {
 			if (!signal.aborted) error = errorMessage(cause);
 		} finally {
@@ -317,15 +396,25 @@
 	type Action = 'open' | 'play' | 'shuffle' | 'next' | 'end' | 'playlist' | 'offline';
 	function open(row: BrowseItem) {
 		context = null;
+		returnItem = row.id;
 		if (row.track) {
 			cancelAction();
-			const tracks = items.flatMap((i) => (i.track ? [i.track] : []));
-			void Promise.resolve(
-				onplay(
+			try {
+				const tracks = (available && snapshot.items ? snapshot.items : items).map((i) => i.track!);
+				const batch = tappedPlayback(
+					session.serverUrl,
 					tracks,
-					tracks.findIndex((t) => t.id === row.track!.id)
-				)
-			).catch((e) => (actionError = errorMessage(e)));
+					items.indexOf(row),
+					pages,
+					total,
+					available ? undefined : requestFilters(filters)
+				);
+				void Promise.resolve(onplay(batch.tracks, batch.index, batch.continuation)).catch(
+					(e) => (actionError = errorMessage(e))
+				);
+			} catch (e) {
+				actionError = errorMessage(e);
+			}
 		} else if (row.album) onopen(row.album);
 		else if (row.artist) onlocal(row.artist);
 		else if (row.playlist) onplaylist(row.playlist);
@@ -452,6 +541,8 @@
 	{active}
 	{onplay}
 	bind:this={host}
+	choices={() => items.map((i) => browseChoice(session, i))}
+	contains={(id) => known.has(id)}
 	externalToggle
 	localOnly={disconnected}
 	scope={JSON.stringify([category, filters, availability])}
@@ -507,6 +598,12 @@
 					size={15}
 				/>{/if}</button
 		>
+		{#if category === 'Playlists'}<button
+				aria-label="Collection filters"
+				title="Collection filters"
+				aria-expanded={panel === 'filters'}
+				onclick={() => toggle('filters')}><Filter /></button
+			>{/if}
 		<button
 			aria-label="Choose sort order"
 			title="Sort"
@@ -600,9 +697,6 @@
 					has tagged with it.
 				</p>{/if}
 			{#if category === 'Playlists'}
-				<button class="secondary" onclick={() => toggle('filters')}
-					><Filter size={17} />Collection filters</button
-				>
 				{#if !disconnected}<button class="secondary" onclick={() => (newName = true)}
 						><Plus size={17} />New playlist</button
 					>{/if}
@@ -639,6 +733,9 @@
 			>Retry</button
 		>{/if}
 	<BrowseEntries
+		bind:this={results}
+		{active}
+		{total}
 		{session}
 		{items}
 		{category}
@@ -653,8 +750,11 @@
 	{#if !loading && !error && !items.length}<p class="notice">
 			No matching {category.toLowerCase()}.
 		</p>{/if}
-	{#if cursor}<button class="secondary more-page" disabled={waitingMore} onclick={more}
-			>{waitingMore ? 'Loading…' : 'More ' + unit}</button
+	{#if cursor}<button
+			class="secondary more-page"
+			use:loadNearEnd={{ active, enabled: !error && !waitingMore && !loading, load: more }}
+			disabled={waitingMore}
+			onclick={more}>{waitingMore ? 'Loading…' : 'More ' + unit}</button
 		>{/if}
 </SelectionHost>
 
@@ -708,6 +808,7 @@
 				const added = await createPlaylist(session, name);
 				newName = false;
 				panel = '';
+				window.dispatchEvent(new Event('dn-playlists-updated'));
 				onplaylist(added);
 			}}
 		/></PlaylistDialog
