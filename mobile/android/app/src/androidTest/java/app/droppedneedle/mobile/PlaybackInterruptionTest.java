@@ -64,7 +64,7 @@ public final class PlaybackInterruptionTest {
                     try {
                         JSArray queue = new JSArray();
                         queue.put(track);
-                        playback.setQueue(address, "fixture", "fixture-listener", queue, 0, null);
+                        playback.setQueue(address, "fixture", "fixture-listener", queue, 0, null, null);
                     } catch (org.json.JSONException error) {
                         throw new AssertionError(error);
                     }

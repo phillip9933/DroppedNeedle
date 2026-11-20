@@ -27,6 +27,7 @@ final class OfflineDataSource implements DataSource {
     private final Library library;
     private final DataSource.Factory online;
     private final ConversionSource.Timeline timeline;
+    @Nullable private final StreamProfiles.Selection selection;
     private boolean originalFallback;
     private final List<TransferListener> listeners = new ArrayList<>();
     private DataSource source;
@@ -38,6 +39,11 @@ final class OfflineDataSource implements DataSource {
         this(library, online, new ConversionSource.Timeline(C.TIME_UNSET));
     }
     OfflineDataSource(Library library, DataSource.Factory online, ConversionSource.Timeline timeline) {
+        this(library, online, timeline, null);
+    }
+    OfflineDataSource(Library library, DataSource.Factory online, ConversionSource.Timeline timeline,
+            @Nullable StreamProfiles.Selection selection) {
+        this.selection = selection;
         this.timeline = timeline;
         this.library = library;
         this.online = online;
@@ -60,23 +66,22 @@ final class OfflineDataSource implements DataSource {
         }
         long base = timeline.base(spec.position);
         long startMs = timeline.startMs(spec.position);
-        Uri uri = spec.uri;
-        if (file != null)
-            uri = Uri.fromFile(file);
-        else if (originalFallback)
-            uri = ConversionSource.original(uri);
-        else if (startMs > 0)
-            uri = ConversionSource.streamAt(uri, startMs);
+        Uri representation = spec.uri;
+        if (file == null && selection != null) representation = selection.forRequest(spec.uri);
+        if (originalFallback) representation = ConversionSource.original(representation);
+        Uri uri = file != null ? Uri.fromFile(file)
+                : (startMs > 0 && !originalFallback ? ConversionSource.streamAt(representation, startMs) : representation);
         DataSpec physical = spec.buildUpon().setUri(uri).setPosition(spec.position - base).build();
         try {
             expected = openSource(file == null ? online.createDataSource() : new FileDataSource(), physical);
         } catch (HttpDataSource.InvalidResponseCodeException denied) {
-            if (denied.responseCode != 409 || !ConversionSource.requested(uri))
-                throw denied;
+            if (denied.responseCode != 409 || !ConversionSource.requested(uri)) throw denied;
             source.close();
+            representation = ConversionSource.original(spec.uri);
+            expected = openSource(online.createDataSource(), physical.withUri(representation));
             originalFallback = true;
-            expected = openSource(online.createDataSource(), physical.withUri(ConversionSource.original(spec.uri)));
         }
+        if (file == null && selection != null) selection.opened(representation);
         read = 0;
         if (file == null && store != null && store.cacheEnabled() && spec.position == 0
                 && spec.uri.getQueryParameter("start_seconds") == null && spec.length == C.LENGTH_UNSET

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BC40000B00000000000000A2 /* StreamProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000A2 /* StreamProfile.swift */; };
+		BC40000B00000000000000A3 /* ConvertedTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000A3 /* ConvertedTrack.swift */; };
 		BC40000B00000000000000A1 /* DNOutputsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000A1 /* DNOutputsPlugin.swift */; };
 		BC40000B0000000000000001 /* LibraryStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A0000000000000001 /* LibraryStream.swift */; };
 		BC40000B0000000000000000 /* DNPlayerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A0000000000000000 /* DNPlayerPlugin.swift */; };
@@ -22,6 +24,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		BC40000A00000000000000A2 /* StreamProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamProfile.swift; sourceTree = "<group>"; };
+		BC40000A00000000000000A3 /* ConvertedTrack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvertedTrack.swift; sourceTree = "<group>"; };
 		BC40000A00000000000000A1 /* DNOutputsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DNOutputsPlugin.swift; sourceTree = "<group>"; };
 		BC40000A0000000000000001 /* LibraryStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStream.swift; sourceTree = "<group>"; };
 		BC40000A0000000000000000 /* DNPlayerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DNPlayerPlugin.swift; sourceTree = "<group>"; };
@@ -73,6 +77,8 @@
 				BC40000A0000000000000000 /* DNPlayerPlugin.swift */,
 				BC40000A00000000000000A1 /* DNOutputsPlugin.swift */,
 				BC40000A0000000000000001 /* LibraryStream.swift */,
+				BC40000A00000000000000A2 /* StreamProfile.swift */,
+				BC40000A00000000000000A3 /* ConvertedTrack.swift */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -171,6 +177,8 @@
 				BC40000B0000000000000000 /* DNPlayerPlugin.swift in Sources */,
 				BC40000B00000000000000A1 /* DNOutputsPlugin.swift in Sources */,
 				BC40000B0000000000000001 /* LibraryStream.swift in Sources */,
+				BC40000B00000000000000A2 /* StreamProfile.swift in Sources */,
+				BC40000B00000000000000A3 /* ConvertedTrack.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

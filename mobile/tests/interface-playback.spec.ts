@@ -5,6 +5,7 @@ import { emptyBoardRead } from './fixtures/emptyBoardRead';
 declare global {
 	interface Window {
 		fixtureVolumes: number[];
+		setFixtureConnection: (transport: string) => void;
 	}
 }
 
@@ -16,7 +17,25 @@ const converted = fileURLToPath(
 	new URL('../../server/tests/fixtures/library/management_full.opus', import.meta.url)
 );
 
-async function connect(page: Page) {
+async function network(page: Page, legacy = false) {
+	await page.addInitScript(
+		({ server, legacy }) => {
+			const connection = Object.assign(new EventTarget(), { type: 'wifi' });
+			Object.defineProperty(navigator, 'connection', { configurable: true, value: connection });
+			window.setFixtureConnection = (transport) => {
+				connection.type = transport;
+				connection.dispatchEvent(new Event('change'));
+			};
+			if (legacy)
+				localStorage.setItem(
+					'dn.mobile.stream.v1.' + JSON.stringify([server, 'listener']),
+					JSON.stringify({ format: 'opus', rate: 192 })
+				);
+		},
+		{ server, legacy }
+	);
+}
+async function connect(page: Page, secondTrack = false, firstResponse?: Promise<void>) {
 	const streams: string[] = [];
 	let conversion = 'on';
 	await page.route(server + '/api/v3/**', async (route) => {
@@ -33,27 +52,32 @@ async function connect(page: Page) {
 				items: [{ id: 'a', title: 'Nightfall', artist_name: 'Strings', art_missing: true }],
 				next: null
 			});
-		if (path === '/library/albums/match/a')
-			return json({
-				items: [
-					{
-						id: 'first',
-						title: 'Reflections',
-						artist_name: 'Strings',
-						album_title: 'Nightfall',
-						duration_seconds: 0.3,
-						disc_number: 1,
-						track_number: 1
-					}
-				],
-				total: 1
-			});
-		if (path === '/stream/local/first') {
+		if (path === '/library/albums/match/a') {
+			const items = (secondTrack ? ['first', 'next'] : ['first']).map((id, i) => ({
+				id,
+				title: i ? 'Overtones' : 'Reflections',
+				artist_name: 'Strings',
+				album_title: 'Nightfall',
+				duration_seconds: 0.3,
+				disc_number: 1,
+				track_number: i + 1
+			}));
+			return json({ items, total: items.length });
+		}
+		if (path === '/stream/local/first' || path === '/stream/local/next') {
 			streams.push(url.search);
-			const opus = url.searchParams.get('format') === 'opus';
+			if (path.endsWith('first') && firstResponse) await firstResponse;
+			const format = url.searchParams.get('format');
+			if (format === 'mp3')
+				return route.fulfill({
+					path: fileURLToPath(
+						new URL('../../server/tests/fixtures/library/management_full.mp3', import.meta.url)
+					),
+					contentType: 'audio/mpeg'
+				});
 			return route.fulfill({
-				path: opus ? converted : original,
-				contentType: opus ? 'audio/ogg' : 'audio/wav'
+				path: format === 'opus' ? converted : original,
+				contentType: format === 'opus' ? 'audio/ogg' : 'audio/wav'
 			});
 		}
 		if (await emptyBoardRead(route)) return;
@@ -139,6 +163,7 @@ test('DN conversion and local fades apply to playback through the normal album a
 			})
 		});
 	});
+	await network(page);
 	const fixture = await connect(page);
 	async function play() {
 		await page
@@ -154,8 +179,8 @@ test('DN conversion and local fades apply to playback through the normal album a
 	expect(fixture.streams).toEqual(['']);
 	await settings(page, 'Streaming and fades');
 	await expect(page.getByText(/DN can convert streams/)).toBeVisible();
-	await page.getByLabel('Audio format').selectOption('opus');
-	await page.getByLabel('Requested bitrate').selectOption('128');
+	await page.getByLabel('Wi-Fi audio format').selectOption('opus');
+	await page.getByLabel('Wi-Fi requested bitrate').selectOption('128');
 	await page.getByLabel('Fade in and out').selectOption('500');
 	await back(page, 'Settings');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
@@ -171,10 +196,45 @@ test('DN conversion and local fades apply to playback through the normal album a
 	fixture.disableConversion();
 	await settings(page, 'Streaming and fades');
 	await expect(page.getByText(/Conversion is turned off/)).toBeVisible();
-	await expect(page.getByRole('option', { name: 'Opus', exact: true })).toHaveJSProperty(
-		'disabled',
-		true
-	);
+	await expect(page.getByLabel('Wi-Fi audio format')).toHaveValue('opus');
+	await expect(page.getByLabel('Cellular data audio format')).toHaveValue('original');
 	await expect(page.getByLabel('Fade in and out')).toHaveValue('500');
-	await page.getByLabel('Audio format').selectOption('original');
+	await page.getByLabel('Wi-Fi audio format').selectOption('original');
+});
+
+test('a queued track uses the new network profile without interrupting the track that was loading', async ({
+	page
+}) => {
+	await network(page, true);
+	let release: () => void = () => {};
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	const fixture = await connect(page, true, gate);
+	await settings(page, 'Streaming and fades');
+	await expect(page.getByLabel('Wi-Fi audio format')).toHaveValue('opus');
+	await expect(page.getByLabel('Cellular data audio format')).toHaveValue('opus');
+	await page.getByLabel('Cellular data audio format').selectOption('mp3');
+	await page.getByLabel('Cellular data requested bitrate').selectOption('96');
+	await expect(page.getByLabel('Wi-Fi requested bitrate')).toHaveValue('192');
+	await back(page, 'Settings');
+	await back(page, 'Home');
+	await page
+		.getByRole('button', { name: /Nightfall/ })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Play album', exact: true }).click();
+	try {
+		await expect.poll(() => fixture.streams).toEqual(['?format=opus&max_bitrate=192']);
+		await page.evaluate(() => window.setFixtureConnection('cellular'));
+	} finally {
+		release();
+	}
+	await expect
+		.poll(() => fixture.streams)
+		.toEqual(['?format=opus&max_bitrate=192', '?format=mp3&max_bitrate=96']);
+	await page.getByRole('button', { name: 'Close player', exact: true }).click();
+	await settings(page, 'Streaming and fades');
+	await expect(page.getByText('Connected through cellular data.')).toBeVisible();
+	await page.evaluate(() => window.setFixtureConnection('wifi'));
+	await expect(page.getByText('Connected through Wi-Fi or Ethernet.')).toBeVisible();
+	await expect(page.getByLabel('Cellular data requested bitrate')).toHaveValue('96');
 });

@@ -83,7 +83,7 @@ public final class DNPlayerPlugin extends Plugin {
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> {
             p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getArray("tracks"),
-                    call.getInt("index", -1), call.getString("placement"));
+                    call.getInt("index", -1), call.getString("placement"), call.getObject("profiles"));
             JSObject result = p.snapshot();
             p.afterWrite(() -> call.resolve(result));
         });
@@ -98,8 +98,25 @@ public final class DNPlayerPlugin extends Plugin {
     }
 
     @PluginMethod public void restore(PluginCall call) {
-        execute(call, p -> p.restore(call.getString("serverUrl"), call.getString("token"), call.getString("userId"),
+        execute(call, p -> p.restore(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getObject("profiles"),
                 () -> call.resolve(p.snapshot()), () -> call.reject("The playback session changed.")));
+    }
+
+    @PluginMethod public void setStreamProfiles(PluginCall call) {
+        try {
+            StreamProfiles profiles = new StreamProfiles(getContext(), call.getString("serverUrl"),
+                    call.getString("userId"), () -> StreamProfiles.active(getContext()));
+            profiles.set(call.getObject("wifi"), call.getObject("cellular"));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not save streaming profiles for this account.");
+        }
+    }
+
+    @PluginMethod public void getStreamNetwork(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("network", StreamProfiles.active(getContext()).value);
+        call.resolve(result);
     }
 
     @PluginMethod public void getTrackFade(PluginCall call) {

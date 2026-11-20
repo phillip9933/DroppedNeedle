@@ -1,5 +1,6 @@
 package app.droppedneedle.mobile;
 
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.media.AudioManager;
@@ -48,10 +49,12 @@ public final class PlaybackService extends MediaSessionService {
         final String apiPath;
         final String token;
         final OfflineStore offline;
+        final StreamProfiles profiles;
         final ConcurrentHashMap<String, JSONObject> metadata = new ConcurrentHashMap<>();
 
-        Access(String address, String token, OfflineStore offline) {
-            this.offline = offline;
+        Access(Context context, String address, String token, @Nullable String userId) {
+            offline = OfflineStore.forUser(context, address, userId);
+            profiles = new StreamProfiles(context, address, userId, () -> StreamProfiles.active(context));
             base = HttpUrl.parse(address);
             if (base == null || !base.isHttps() || !base.username().isEmpty()
                     || !base.password().isEmpty() || token == null || token.isEmpty()) {
@@ -124,7 +127,7 @@ public final class PlaybackService extends MediaSessionService {
             Access current = access;
             DataSource.Factory stream = current == null ? source : new OkHttpDataSource.Factory(http)
                     .setDefaultRequestProperties(Collections.singletonMap("Authorization", "Bearer " + current.token));
-            return new OfflineDataSource(current, stream, timeline);
+            return new OfflineDataSource(current, stream, timeline, current == null ? null : current.profiles.track());
         });
         ExoPlayer local = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(audioSource)
@@ -134,7 +137,9 @@ public final class PlaybackService extends MediaSessionService {
                 .build();
         player = new RoutedPlayer(this, local, item -> {
             Access owner = access;
-            String url = item.localConfiguration.uri.toString();
+            Uri canonical = item.localConfiguration.uri;
+            String url = canonical.toString();
+            StreamProfiles.Selection stream = owner == null ? null : owner.profiles.track();
             return (range, head) -> {
                 Access current = access;
                 if (owner == null || current == null || !owner.token.equals(current.token)
@@ -146,7 +151,15 @@ public final class PlaybackService extends MediaSessionService {
                     if (file != null) return CastRelay.fromFile(file, CastRelay.audioType(file)).open(range, head);
                     if (owner.offline.offlineOnly()) throw new IOException("This song is not saved on this device.");
                 }
-                return CastRelay.fromDn(http, url, owner.token).open(range, head);
+                Uri selected = stream.forRequest(canonical);
+                CastRelay.Media media = CastRelay.fromDn(http, selected.toString(), owner.token).open(range, head);
+                if (media.status == 409 && ConversionSource.requested(selected)) {
+                    media.close();
+                    selected = ConversionSource.original(canonical);
+                    media = CastRelay.fromDn(http, selected.toString(), owner.token).open(range, head);
+                }
+                if (media.status >= 200 && media.status < 300) stream.opened(selected);
+                return media;
             };
         });
         fades = new PlaybackFades(this, local);
@@ -223,12 +236,14 @@ public final class PlaybackService extends MediaSessionService {
         return items;
     }
 
-    void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index, @Nullable String placement) throws JSONException {
+    void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index,
+            @Nullable String placement, @Nullable JSONObject profiles) throws JSONException {
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
         generation++;
-        Access next = new Access(address, token, OfflineStore.forUser(this, address, userId));
+        Access next = new Access(this, address, token, userId);
+        next.profiles.migrate(profiles);
         ArrayList<MediaItem> items = items(next, queue);
         if (placement != null && player.getMediaItemCount() > 0) {
             if (access == null || !access.base.equals(next.base) || !access.token.equals(token)) {
@@ -258,8 +273,10 @@ public final class PlaybackService extends MediaSessionService {
         access = next;
     }
 
-    void restore(String address, String token, @Nullable String userId, Runnable complete, Runnable superseded) {
-        Access next = new Access(address, token, OfflineStore.forUser(this, address, userId));
+    void restore(String address, String token, @Nullable String userId, @Nullable JSONObject profiles,
+            Runnable complete, Runnable superseded) throws JSONException {
+        Access next = new Access(this, address, token, userId);
+        next.profiles.migrate(profiles);
         long version = ++generation;
         if (access != null) {
             if (!access.base.equals(next.base) || !access.token.equals(next.token)) {
