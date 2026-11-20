@@ -40,6 +40,7 @@ final class OfflineStore {
     private final SharedPreferences index;
     private final HttpUrl base;
     private final String prefix;
+    final String account;
 
     @Nullable
     static OfflineStore forUser(Context context, String server, @Nullable String userId) {
@@ -56,7 +57,7 @@ final class OfflineStore {
         this.context = context;
         this.base = base;
         prefix = base.encodedPath().replaceAll("/+$", "") + "/api/v3/stream/local/";
-        String account = digest(base.toString().replaceAll("/+$", "") + "\n" + userId);
+        account = digest(base.toString().replaceAll("/+$", "") + "\n" + userId);
         dir = new File(new File(context.getNoBackupFilesDir(), "dn-offline"), account);
         index = context.getSharedPreferences("dn.offline." + account, Context.MODE_PRIVATE);
     }
@@ -152,6 +153,22 @@ final class OfflineStore {
     }
     boolean offlineOnly() {
         return index.getBoolean("offlineOnly", false);
+    }
+    // Even revisions record offline history. A withdrawal also disqualifies the current occurrence
+    // if the listener enables recording again before the song ends.
+    long historyRevision() { return index.getLong("historyRevision", 0); }
+    boolean recordsHistory() { return (historyRevision() & 1) == 0; }
+    void recordHistory(boolean enabled) throws IOException {
+        synchronized (LOCK) {
+            if (enabled != recordsHistory()) requireWrite(index.edit().putLong("historyRevision", historyRevision() + 1));
+        }
+    }
+    Runnable watchOfflineMode(Runnable changed) {
+        SharedPreferences.OnSharedPreferenceChangeListener watch = (prefs, key) -> {
+            if ("offlineOnly".equals(key) || "historyRevision".equals(key)) changed.run();
+        };
+        index.registerOnSharedPreferenceChangeListener(watch);
+        return () -> index.unregisterOnSharedPreferenceChangeListener(watch);
     }
     private long budget() {
         return index.getInt("cacheMiB", 512) * MIB;

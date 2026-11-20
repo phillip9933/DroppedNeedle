@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Capacitor } from '@capacitor/core';
 	import type { Session } from '../connection';
 	import ViewedMediaSettings from './ViewedMediaSettings.svelte';
+	import AndroidHistorySettings from './AndroidHistorySettings.svelte';
 	import {
 		cacheSizes,
 		clearAutomatic,
@@ -174,6 +176,9 @@
 			>
 		{/if}
 	</fieldset>
+	{#if Capacitor.getPlatform() === 'android' && session.userId}<AndroidHistorySettings
+			{session}
+		/>{/if}
 	<ViewedMediaSettings {session} kind="artwork" />
 	<ViewedMediaSettings {session} kind="lyrics" />
 	<h2>On this device</h2>

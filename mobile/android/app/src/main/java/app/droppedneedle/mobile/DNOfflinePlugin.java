@@ -28,7 +28,8 @@ public final class DNOfflinePlugin extends Plugin {
                                               .build();
 
     private final Runnable changed = () -> notifyListeners("mediaChanged", new JSObject());
-    @Override public void load() { OfflineStore.mediaChanged = changed; }
+    private final Runnable historyChanged = () -> notifyListeners("historyChanged", new JSObject());
+    @Override public void load() { OfflineStore.mediaChanged = changed; OfflinePlayHistory.changed = historyChanged; }
 
     private interface Task {
         JSONObject run(OfflineStore store) throws Exception;
@@ -59,6 +60,24 @@ public final class DNOfflinePlugin extends Plugin {
     @PluginMethod
     public void options(PluginCall call) {
         execute(call, storage, OfflineStore::options);
+    }
+    @PluginMethod public void historySettings(PluginCall call) {
+        execute(call, storage, s -> OfflinePlayHistory.settings(getContext(), s));
+    }
+    @PluginMethod public void setOfflineHistory(PluginCall call) {
+        execute(call, storage, s -> {
+            Boolean enabled = call.getBoolean("enabled");
+            if (enabled == null) throw new IllegalArgumentException("Choose whether to record offline listens.");
+            s.recordHistory(enabled);
+            historyChanged.run();
+            return OfflinePlayHistory.settings(getContext(), s);
+        });
+    }
+    @PluginMethod public void discardOfflineHistory(PluginCall call) {
+        execute(call, storage, s -> {
+            OfflinePlayHistory.discard(getContext(), s);
+            return OfflinePlayHistory.settings(getContext(), s);
+        });
     }
     @PluginMethod
     public void configure(PluginCall call) {
@@ -130,6 +149,7 @@ public final class DNOfflinePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         if (OfflineStore.mediaChanged == changed) OfflineStore.mediaChanged = null;
+        if (OfflinePlayHistory.changed == historyChanged) OfflinePlayHistory.changed = null;
         http.dispatcher().cancelAll();
         transfers.shutdownNow();
         storage.shutdown();

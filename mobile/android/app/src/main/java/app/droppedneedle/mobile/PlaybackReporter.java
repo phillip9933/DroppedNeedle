@@ -2,6 +2,8 @@ package app.droppedneedle.mobile;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -16,12 +18,14 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.json.JSONException;
 
 /** The native playback session owns presence, history and scrobbling for a local library track. */
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
@@ -31,15 +35,22 @@ final class PlaybackReporter implements Player.Listener {
     private final Player player;
     private final String device;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final OkHttpClient http = new OkHttpClient.Builder()
-            .followRedirects(false).followSslRedirects(false)
-            .retryOnConnectionFailure(false).callTimeout(5, TimeUnit.SECONDS).build();
+    private final OkHttpClient http;
+    private final OfflinePlayHistory history;
+    private final ConnectivityManager connectivity;
+    private final BooleanSupplier connected;
+    private final ConnectivityManager.NetworkCallback restored = new ConnectivityManager.NetworkCallback() {
+        @Override public void onAvailable(Network network) { history.wake(); }
+    };
     // Stop must arrive before the following start, including successive plays of the same track.
     private final ThreadPoolExecutor sender = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(64), new ThreadPoolExecutor.DiscardPolicy());
     private final Runnable heartbeat = this::heartbeat;
     private HttpUrl endpoint;
-    private String token;
+    private OfflinePlayHistory.Session account;
+    private Runnable stopWatching;
+    private boolean offlinePlay;
+    private long started, historyRevision;
     private MediaItem active;
     private long lengthMs;
     private long positionMs;
@@ -47,7 +58,18 @@ final class PlaybackReporter implements Player.Listener {
     private long playingSince = C.TIME_UNSET;
 
     PlaybackReporter(Context context, Player player) {
+        this(context, player, new OfflinePlayHistory(context), new OkHttpClient.Builder()
+                .followRedirects(false).followSslRedirects(false)
+                .retryOnConnectionFailure(false).callTimeout(5, TimeUnit.SECONDS).build(), null);
+    }
+    PlaybackReporter(Context context, Player player, OfflinePlayHistory history, OkHttpClient http,
+            @Nullable BooleanSupplier network) {
         this.player = player;
+        this.history = history;
+        this.http = http;
+        connectivity = network == null ? context.getSystemService(ConnectivityManager.class) : null;
+        connected = network == null ? () -> connectivity != null && connectivity.getActiveNetwork() != null : network;
+        if (connectivity != null) connectivity.registerDefaultNetworkCallback(restored);
         SharedPreferences preferences = context.getSharedPreferences("playback", Context.MODE_PRIVATE);
         String saved = preferences.getString("device", null);
         if (saved == null) {
@@ -58,16 +80,21 @@ final class PlaybackReporter implements Player.Listener {
         player.addListener(this);
     }
 
-    void connect(HttpUrl api, String credential) {
+    void connect(HttpUrl api, String credential, @Nullable OfflineStore offline) {
         disconnect();
         endpoint = api;
-        token = credential;
+        account = new OfflinePlayHistory.Session(api, credential, offline, connected);
+        if (offline != null) stopWatching = offline.watchOfflineMode(history::wake);
+        history.authorize(account);
     }
+    void retryOfflineHistory() { history.wake(); }
 
     void disconnect() {
         if (active != null) finish(player.getCurrentPosition());
         endpoint = null;
-        token = null;
+        account = null;
+        history.authorize(null);
+        if (stopWatching != null) { stopWatching.run(); stopWatching = null; }
         main.removeCallbacks(heartbeat);
     }
 
@@ -103,18 +130,22 @@ final class PlaybackReporter implements Player.Listener {
             // Preparing and seeking a paused item must not announce a fresh listen.
             if (!player.isPlaying()) return;
             active = item;
+            // Pin one reporting path to this audible occurrence, including later offline-mode changes.
+            offlinePlay = !account.online.getAsBoolean();
+            historyRevision = account.offline == null ? -1 : account.offline.historyRevision();
+            started = System.currentTimeMillis() / 1000;
             lengthMs = Math.max(0, player.getDuration());
             positionMs = player.getCurrentPosition();
             heardMs = 0;
             playingSince = SystemClock.elapsedRealtime();
-            send("start", body());
+            if (!offlinePlay) send("start", body());
         } else {
             countTime();
             positionMs = player.getCurrentPosition();
             if (player.getDuration() > 0) lengthMs = player.getDuration();
             if (player.isPlaying()) playingSince = SystemClock.elapsedRealtime();
-            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)
-                    || events.contains(Player.EVENT_POSITION_DISCONTINUITY)) progress();
+            if (!offlinePlay && (events.contains(Player.EVENT_IS_PLAYING_CHANGED)
+                    || events.contains(Player.EVENT_POSITION_DISCONTINUITY))) progress();
         }
         main.removeCallbacks(heartbeat);
         if (player.isPlaying()) main.postDelayed(heartbeat, HEARTBEAT_MS);
@@ -124,7 +155,7 @@ final class PlaybackReporter implements Player.Listener {
         if (active == null || !player.isPlaying()) return;
         positionMs = player.getCurrentPosition();
         if (player.getDuration() > 0) lengthMs = player.getDuration();
-        if (sender.getQueue().isEmpty()) progress();
+        if (!offlinePlay && sender.getQueue().isEmpty()) progress();
         main.postDelayed(heartbeat, HEARTBEAT_MS);
     }
 
@@ -137,15 +168,23 @@ final class PlaybackReporter implements Player.Listener {
     private void finish(long position) {
         countTime();
         positionMs = position;
-        JSObject body = body();
-        // DN counts a local stop past 90% or in the last second. A seek alone is not a listen.
-        boolean listened = lengthMs > 0 && heardMs > 0
-                && (heardMs > lengthMs * 0.9 || heardMs >= Math.max(lengthMs / 2, lengthMs - 1000));
-        body.put("ignore_scrobble", !listened);
-        send("stop", body);
+        if (offlinePlay) {
+            if (OfflineScrobble.qualifies(lengthMs, heardMs, positionMs)) {
+                try {
+                    history.record(account, OfflineScrobble.play(active.mediaId, text(active.mediaMetadata.title),
+                            text(active.mediaMetadata.artist), text(active.mediaMetadata.albumTitle), lengthMs, started),
+                            historyRevision);
+                } catch (JSONException invalid) { Log.w("DNPlayback", "Offline play metadata was unavailable."); }
+            }
+        } else {
+            JSObject body = body();
+            body.put("ignore_scrobble", !OfflineScrobble.heardEnough(lengthMs, heardMs));
+            send("stop", body);
+        }
         active = null;
         main.removeCallbacks(heartbeat);
     }
+    private static String text(@Nullable CharSequence value) { return value == null ? "" : value.toString(); }
 
     private JSObject body() {
         JSObject body = new JSObject();
@@ -159,10 +198,13 @@ final class PlaybackReporter implements Player.Listener {
 
     private void send(String operation, JSObject body) {
         // Capture both the destination and the session. A queued report never adopts a later login.
+        OfflinePlayHistory.Session owner = account;
+        if (!owner.online.getAsBoolean()) return;
         Request request = new Request.Builder().url(endpoint.newBuilder().addPathSegment(operation).build())
-                .header("Authorization", "Bearer " + token)
+                .header("Authorization", "Bearer " + owner.token)
                 .post(RequestBody.create(JSON, body.toString())).build();
         sender.execute(() -> {
+            if (!owner.online.getAsBoolean()) return;
             try (Response response = http.newCall(request).execute()) {
                 if (!response.isSuccessful()) Log.w("DNPlayback", operation + " report returned " + response.code());
             } catch (IOException e) {
@@ -173,6 +215,8 @@ final class PlaybackReporter implements Player.Listener {
 
     void close() {
         disconnect();
+        if (connectivity != null) connectivity.unregisterNetworkCallback(restored);
+        history.close();
         player.removeListener(this);
         sender.shutdown();
     }

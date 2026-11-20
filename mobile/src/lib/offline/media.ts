@@ -1,4 +1,4 @@
-import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { getJson, postJson, type Session } from '../connection';
 import { localSong, path } from '../catalog/catalog';
@@ -18,17 +18,13 @@ export {
 	type OfflineOptions,
 	type OfflineSnapshot
 } from './tracks';
-import { webOffline, type OfflineBridge } from './web';
+import { webOffline } from './web';
+import { nativeMedia } from './nativeMedia';
 
 export const offlineSupported =
 	Capacitor.getPlatform() === 'android' || !Capacitor.isNativePlatform();
 export const nativeOffline = Capacitor.getPlatform() === 'android';
-const native = registerPlugin<
-	OfflineBridge & {
-		addListener(name: 'mediaChanged', listener: () => void): Promise<PluginListenerHandle>;
-	}
->('DNOffline');
-const backend = () => (nativeOffline ? native : webOffline);
+const backend = () => (nativeOffline ? nativeMedia : webOffline);
 export const mediaChanged = 'dn-offline-media';
 let activeBatches = 0;
 
@@ -49,7 +45,7 @@ export function watchOfflineMedia(listener: () => void) {
 		if (!activeBatches) listener();
 	};
 	window.addEventListener(mediaChanged, update);
-	const nativeListener = nativeOffline ? native.addListener('mediaChanged', update) : null;
+	const nativeListener = nativeOffline ? nativeMedia.addListener('mediaChanged', update) : null;
 	return () => {
 		window.removeEventListener(mediaChanged, update);
 		void nativeListener?.then((handle) => handle.remove());

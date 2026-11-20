@@ -14,6 +14,16 @@ test.beforeEach(async ({ page }) => {
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
 			DNDrawer: ['setMenuEdge'],
+			DNOffline: [
+				'snapshot',
+				'options',
+				'historySettings',
+				'setOfflineHistory',
+				'discardOfflineHistory',
+				'addListener',
+				'removeListener',
+				'cancelAutomatic'
+			],
 			DNPlayer: [
 				'getState',
 				'command',
@@ -63,6 +73,37 @@ test.beforeEach(async ({ page }) => {
 						if (method === 'internalSetItem') sessionStorage.setItem(opts.prefixedKey, opts.data);
 						if (method === 'internalRemoveItem') sessionStorage.removeItem(opts.prefixedKey);
 						return { data: sessionStorage.getItem(opts.prefixedKey), success: true };
+					}
+					if (plugin === 'DNOffline') {
+						const options = {
+							offlineOnly: false,
+							autoDownload: 'off',
+							downloadMiB: 512,
+							autoCache: false,
+							cacheMiB: 512,
+							unmeteredOnly: true
+						};
+						if (method === 'options') return options;
+						if (method === 'snapshot') return { items: [], options };
+						if (
+							['historySettings', 'setOfflineHistory', 'discardOfflineHistory'].includes(method)
+						) {
+							if (
+								opts.serverUrl !== 'https://library.example/dn' ||
+								opts.userId !== 'fixture-id' ||
+								'token' in opts
+							)
+								throw Error('Unexpected offline history account');
+							if (method === 'setOfflineHistory')
+								sessionStorage.setItem('history-enabled', String(opts.enabled));
+							if (method === 'discardOfflineHistory')
+								sessionStorage.setItem('history-pending', '0');
+							return {
+								enabled: sessionStorage.getItem('history-enabled') !== 'false',
+								pending: Number(sessionStorage.getItem('history-pending') ?? 2)
+							};
+						}
+						return;
 					}
 					if (plugin === 'Browser') {
 						sessionStorage.setItem('browser-url', opts.url);
@@ -167,6 +208,35 @@ async function deliverApproval(page: Page) {
 	}, reply);
 	return launched;
 }
+
+test('Android offline history settings preserve pending listens until discard is confirmed', async ({
+	page
+}) => {
+	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await deliverApproval(page);
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'Offline and cache', exact: true }).click();
+	const history = page.getByRole('group', { name: 'Offline listening history' }),
+		enabled = history.getByLabel('Record offline listens');
+	await expect(enabled).toBeChecked();
+	await expect(history.getByText('2 listens waiting to sync.')).toBeVisible();
+	await enabled.uncheck();
+	await expect
+		.poll(() => page.evaluate(() => sessionStorage.getItem('history-enabled')))
+		.toBe('false');
+	await history.getByRole('button', { name: 'Discard pending listens' }).click();
+	await history.getByRole('button', { name: 'Cancel' }).click();
+	await expect(history.getByText('2 listens waiting to sync.')).toBeVisible();
+	await history.getByRole('button', { name: 'Discard pending listens' }).click();
+	await history.getByRole('button', { name: 'Confirm discard' }).click();
+	await expect(history.getByText('Pending listens discarded.')).toBeVisible();
+	await expect(history.getByRole('button', { name: 'Discard pending listens' })).toHaveCount(0);
+	await enabled.check();
+	await expect
+		.poll(() => page.evaluate(() => sessionStorage.getItem('history-enabled')))
+		.toBe('true');
+});
 
 test('an Android listener chooses and disconnects a network output after browser sign-in', async ({
 	page

@@ -409,8 +409,12 @@ public final class PlaybackService extends MediaSessionService {
         }
         revision = null;
         queueKey = SavedQueue.key(next.base.toString(), next.token);
-        reporter.connect(next.base.newBuilder().encodedPath(next.apiPath + "playback").build(), next.token);
+        authorizeReports(next);
         access = next;
+    }
+    private void authorizeReports(Access account) {
+        reporter.connect(account.base.newBuilder().encodedPath(account.apiPath + "playback").build(),
+                account.token, account.offline);
     }
 
     void restore(String address, String token, @Nullable String userId, @Nullable JSONObject profiles,
@@ -424,9 +428,12 @@ public final class PlaybackService extends MediaSessionService {
                 command("clear", -1, -1);
                 long cleared = generation;
                 saved.afterWrite(() -> {
-                    if (generation == cleared) complete.run(); else superseded.run();
+                    if (generation == cleared) { authorizeReports(next); complete.run(); } else superseded.run();
                 });
-            } else complete.run();
+            } else {
+                reporter.retryOfflineHistory();
+                complete.run();
+            }
             return;
         }
         saved.load(SavedQueue.key(next.base.toString(), next.token), record -> {
@@ -456,6 +463,8 @@ public final class PlaybackService extends MediaSessionService {
                     Log.w("DNPlayback", "The saved queue could not be restored.");
                 }
             }
+            // A fresh credential can submit saved listens even when it has no restorable player queue.
+            if (access == null) authorizeReports(next);
             complete.run();
         });
     }
