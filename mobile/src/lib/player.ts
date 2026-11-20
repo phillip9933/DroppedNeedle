@@ -58,9 +58,10 @@ const empty: PlayerState = {
 	duration: 0,
 	error: null
 };
-const backend = Capacitor.isNativePlatform()
-	? registerPlugin<PlaybackBridge>('DNPlayer')
-	: browserPlayer();
+const native = registerPlugin<
+	PlaybackBridge & { restore(access: PlayerAccess): Promise<PlayerState> }
+>('DNPlayer');
+const backend = Capacitor.isNativePlatform() ? native : browserPlayer();
 let sequence = 0;
 const state = writable(empty, () => {
 	const timer = setInterval(() => {
@@ -145,6 +146,11 @@ async function submitTracks(
 }
 
 export const player = {
+	async restore(access: PlayerAccess) {
+		if (Capacitor.getPlatform() === 'android') {
+			await update(() => native.restore({ serverUrl: access.serverUrl, token: access.token }));
+		}
+	},
 	subscribe: state.subscribe,
 	setQueue: (tracks: PlayerTrack[], index: number, access: PlayerAccess) =>
 		submitTracks(tracks, index, access),

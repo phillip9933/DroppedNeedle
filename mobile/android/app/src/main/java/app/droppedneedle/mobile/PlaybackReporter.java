@@ -24,6 +24,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /** The native playback session owns presence, history and scrobbling for a local library track. */
+@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 final class PlaybackReporter implements Player.Listener {
     private static final long HEARTBEAT_MS = 5000;
     private static final MediaType JSON = MediaType.get("application/json");

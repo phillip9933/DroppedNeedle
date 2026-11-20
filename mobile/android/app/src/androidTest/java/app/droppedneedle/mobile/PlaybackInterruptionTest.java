@@ -16,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -24,6 +25,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 
+@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 @RunWith(AndroidJUnit4.class)
 public final class PlaybackInterruptionTest {
     private final Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
@@ -44,6 +46,7 @@ public final class PlaybackInterruptionTest {
         AudioManager audio = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
         AudioManager.OnAudioFocusChangeListener interruption = focus -> {};
         try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
             Intent intent = new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND);
             assertTrue(app.bindService(intent, binding, Context.BIND_AUTO_CREATE));
             try {
@@ -61,7 +64,7 @@ public final class PlaybackInterruptionTest {
                     try {
                         JSArray queue = new JSArray();
                         queue.put(track);
-                        playback.setQueue(address, "fixture", queue, 0);
+                        playback.setQueue(address, "fixture", queue, 0, null);
                     } catch (org.json.JSONException error) {
                         throw new AssertionError(error);
                     }
@@ -80,10 +83,24 @@ public final class PlaybackInterruptionTest {
                 await("The same track resumed", () -> player.isPlaying() && playback.snapshot().optBoolean("playing") && playback.snapshot().optInt("index") == 0);
             } finally {
                 audio.abandonAudioFocus(interruption);
-                if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", 0));
+                if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", 0, -1));
                 app.unbindService(binding);
             }
         }
+    }
+
+    // Startup intentionally clears orphaned playback before rendering the signed-out form.
+    private void awaitAppReady(ActivityScenario<MainActivity> activity) throws Exception {
+        long end = SystemClock.elapsedRealtime() + 10_000;
+        do {
+            CompletableFuture<Boolean> ready = new CompletableFuture<>();
+            activity.onActivity(a -> a.getBridge().getWebView().evaluateJavascript(
+                    "Boolean(document.querySelector('main form, nav[aria-label=Music]'))",
+                    value -> ready.complete("true".equals(value))));
+            if (ready.get(2, TimeUnit.SECONDS)) return;
+            SystemClock.sleep(50);
+        } while (SystemClock.elapsedRealtime() < end);
+        fail("The application did not finish restoring its session.");
     }
 
     private void await(String description, BooleanSupplier condition) {
