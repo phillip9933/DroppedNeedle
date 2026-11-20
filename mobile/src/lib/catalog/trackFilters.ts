@@ -18,7 +18,7 @@ export function requestFilters(f: BrowseFilters) {
 	};
 }
 
-function folded(value: string) {
+export function foldSearchText(value: string) {
 	return value.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 export function matchesDeviceTrack(track: PlayerTrack, f: BrowseFilters, confirmed = false) {
@@ -39,8 +39,12 @@ export function matchesDeviceTrack(track: PlayerTrack, f: BrowseFilters, confirm
 			return false;
 	}
 	if (!f.q.trim()) return true;
-	const names = [folded(track.title), folded(track.artist), folded(track.album)];
-	return folded(f.q)
+	const names = [
+		foldSearchText(track.title),
+		foldSearchText(track.artist),
+		foldSearchText(track.album)
+	];
+	return foldSearchText(f.q)
 		.trim()
 		.split(/\s+/)
 		.every((word) => names.some((s) => s.includes(word)));
@@ -51,13 +55,16 @@ export function deviceTrackOrder(f: Pick<BrowseFilters, 'sort' | 'order'>) {
 	const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 	return (a: PlayerTrack, b: PlayerTrack) => {
 		if (f.sort === 'title')
-			return dir * (compare(folded(a.title), folded(b.title)) || compare(a.id, b.id));
+			return (
+				dir * (compare(foldSearchText(a.title), foldSearchText(b.title)) || compare(a.id, b.id))
+			);
 		if (f.sort === 'date_added')
 			return dir * ((a.dateAdded ?? 0) - (b.dateAdded ?? 0) || compare(a.id, b.id));
-		const artist = f.sort === 'artist' ? compare(folded(a.artist), folded(b.artist)) : 0;
+		const artist =
+			f.sort === 'artist' ? compare(foldSearchText(a.artist), foldSearchText(b.artist)) : 0;
 		const album =
 			artist ||
-			compare(folded(a.album), folded(b.album)) ||
+			compare(foldSearchText(a.album), foldSearchText(b.album)) ||
 			compare(a.albumId ?? '', b.albumId ?? '');
 		// DN keeps each album's disc and track sequence even when album order is descending.
 		return (

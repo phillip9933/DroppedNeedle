@@ -35,10 +35,16 @@ function drain() {
 	}
 }
 
-export function observeCover(session: Session, path: string, receive: (source: string) => void) {
+export function observeCover(
+	session: Session,
+	path: string,
+	receive: (source: string) => void,
+	cacheOnly = false
+) {
+	const key = cacheOnly ? 'offline:' + path : path;
 	const entries = pending.get(session) ?? new Map<string, CoverRequest>();
 	pending.set(session, entries);
-	let request = entries.get(path);
+	let request = entries.get(key);
 	if (!request) {
 		const listeners = new Set<(source: string) => void>();
 		const job: CoverRequest = {
@@ -51,7 +57,8 @@ export function observeCover(session: Session, path: string, receive: (source: s
 						for (const listener of listeners) listener(cached.source);
 						if (Date.now() - (cached.fetched ?? 0) < freshFor) return;
 					}
-					if (!navigator.onLine || !listeners.size || (await offlineOnly(session))) return;
+					if (cacheOnly || !navigator.onLine || !listeners.size || (await offlineOnly(session)))
+						return;
 					const source = await getArtwork(session, path);
 					job.source = source;
 					for (const listener of listeners) listener(source);
@@ -59,12 +66,12 @@ export function observeCover(session: Session, path: string, receive: (source: s
 				} catch {
 					// Cover keeps its local artwork placeholder when the server has no image.
 				} finally {
-					entries.delete(path);
+					entries.delete(key);
 				}
 			}
 		};
 		request = job;
-		entries.set(path, request);
+		entries.set(key, request);
 		waiting.add(request);
 	}
 	request.listeners.add(receive);
@@ -72,6 +79,6 @@ export function observeCover(session: Session, path: string, receive: (source: s
 	drain();
 	return () => {
 		request.listeners.delete(receive);
-		if (!request.listeners.size && waiting.delete(request)) entries.delete(path);
+		if (!request.listeners.size && waiting.delete(request)) entries.delete(key);
 	};
 }

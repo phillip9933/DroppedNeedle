@@ -62,6 +62,7 @@
 	import type { SmartPlaylist } from './smartPlaylists';
 	import SelectionHost from './SelectionHost.svelte';
 	import BrowseEntries from './BrowseEntries.svelte';
+	import BrowseItemMenu from './BrowseItemMenu.svelte';
 	import { loadNearEnd } from './browseViewport';
 	import { tappedPlayback, type PageEnd } from './browsePlayback';
 	import { browseChoice, requestFilters, type BrowseSnapshot } from './libraryBrowse';
@@ -758,38 +759,18 @@
 		>{/if}
 </SelectionHost>
 
-{#if context}
-	{@const row = context}
-	<PlaylistDialog title={row.title} onclose={() => (context = null)}>
-		<div class="context-actions">
-			<button onclick={() => open(row)}
-				>Open {category === 'Playlists'
-					? 'playlist'
-					: category === 'Genres'
-						? 'genre'
-						: category === 'Albums'
-							? 'album'
-							: 'artist'}</button
-			>
-			<button onclick={() => run('play', row)}>Play</button><button
-				onclick={() => run('shuffle', row)}>Shuffle</button
-			>
-			<button onclick={() => run('next', row)}>Play next</button><button
-				onclick={() => run('end', row)}>Add to queue</button
-			>
-			{#if !disconnected}<button onclick={() => run('playlist', row)}>Add to playlist</button>{/if}
-			{#if offlineSupported && !disconnected}<button onclick={() => run('offline', row)}
-					>Save offline</button
-				>{/if}
-			{#if row.smart}<button
-					onclick={() => {
-						smart = row.smart!;
-						context = null;
-					}}>Edit smart playlist</button
-				>{/if}
-		</div>
-	</PlaylistDialog>
-{/if}
+{#if context}<BrowseItemMenu
+		row={context}
+		{category}
+		offline={disconnected}
+		onclose={() => (context = null)}
+		onopen={open}
+		action={run}
+		edit={(rule) => {
+			smart = rule;
+			context = null;
+		}}
+	/>{/if}
 {#if smart}<LibrarySmartPlaylists
 		{session}
 		initial={smart === 'new' ? undefined : smart}
@@ -968,14 +949,5 @@
 	.more-page {
 		margin-top: 0.8rem;
 		width: 100%;
-	}
-	.context-actions {
-		display: grid;
-	}
-	.context-actions button {
-		min-height: 44px;
-		padding: 0.4rem 0.3rem;
-		text-align: start;
-		border-bottom: 1px solid var(--line);
 	}
 </style>

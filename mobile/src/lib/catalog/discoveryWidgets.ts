@@ -163,6 +163,13 @@ const snapshot = sharedRead((session) =>
 const settings = sharedRead((session) =>
 	getJson<S['SectionPrefsResponse']>(session, path('/api/v3/me/section-prefs'))
 );
+export async function searchGenres(session: Session, signal: AbortSignal) {
+	signal.throwIfAborted();
+	const page = await snapshot(session);
+	signal.throwIfAborted();
+	const section = page.sections.find((s) => s.key === 'genre_list');
+	return section ? [...new Set(unwrap(section).flatMap((s) => s.genres))] : [];
+}
 export function forgetDiscoveryPage(session: Session) {
 	snapshot.clear(session);
 	settings.clear(session);
