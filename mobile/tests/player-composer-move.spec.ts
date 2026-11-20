@@ -209,9 +209,13 @@ test('touch editing moves and resizes real sample fields, changes header actions
 	).toBe(true);
 	const box = await resize.boundingBox();
 	await drag({ x: box!.x + 22, y: box!.y + 22 }, { x: box!.x - 30, y: box!.y + 24 });
-	expect(Number(await page.getByLabel('Element width', { exact: true }).inputValue())).toBeLessThan(
-		80
-	);
+	const width = page.getByLabel('Element width', { exact: true });
+	const draggedWidth = await width.inputValue();
+	expect(Number(draggedWidth)).toBeLessThan(80);
+	await button('Undo layout edit').click();
+	await expect(width).toHaveValue('80');
+	await button('Redo layout edit').click();
+	await expect(width).toHaveValue(draggedWidth);
 	await button('Finish editing field').click();
 	await button('Customize Player settings').click();
 	await page.getByRole('combobox', { name: 'Icon', exact: true }).selectOption('star');
@@ -291,6 +295,11 @@ test('a row handle can put the whole row in the header before opening an inspect
 		['player-album', true]
 	]);
 	const sample = page.locator('[data-part=sample-player]');
+	const headerIds = () =>
+		sample
+			.locator('header [data-section-id]')
+			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')));
+	const originalHeader = await headerIds();
 	await button('Edit header').evaluate((el) => {
 		const main = el.closest('main')!;
 		main.scrollTop += el.getBoundingClientRect().top - 170;
@@ -303,6 +312,10 @@ test('a row handle can put the whole row in the header before opening an inspect
 			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')))
 	).toEqual(['player-artist', 'player-album']);
 	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	await button('Undo layout edit').click();
+	expect(await headerIds()).toEqual(originalHeader);
+	await page.keyboard.press('Control+Shift+z');
+	expect(await headerIds()).toEqual(['player-artist', 'player-album']);
 	await button('Save layout').click();
 	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
 	await expect(
@@ -321,6 +334,42 @@ test('a row handle can put the whole row in the header before opening an inspect
 			.filter((s: { placement?: string }) => s.placement === 'header')
 			.map((s: { id: string }) => s.id)
 	).toEqual(['player-artist', 'player-album']);
+});
+
+test('undo groups typing, drops a superseded redo and keeps the saved layout until Save', async ({
+	page
+}) => {
+	const { key, button } = await startComposer(page, [
+		{ id: 'player-text', title: '', template: 'Original', preview: true }
+	]);
+	const original = await page.evaluate((k) => localStorage.getItem(k), key);
+	const rows = page.locator('[data-layout-row]');
+	const undo = button('Undo layout edit'),
+		redo = button('Redo layout edit');
+	await button('Customize Custom text').click();
+	const field = page.getByLabel('Text template');
+	await field.fill('New');
+	await field.press('End');
+	await field.pressSequentially(' release');
+	await undo.click();
+	await expect(field).toHaveValue('Original');
+	await expect(undo).toBeDisabled();
+	await redo.click();
+	await expect(field).toHaveValue('New release');
+	await undo.click();
+	await button('Finish editing field').click();
+	const before = await rows.count();
+	await button('Add row').click();
+	await expect(rows).toHaveCount(before + 1);
+	await expect(redo).toBeDisabled();
+	await undo.click();
+	await expect(rows).toHaveCount(before);
+	await expect(page.locator('[data-inspector]')).toHaveCount(0);
+	await page.keyboard.press('Control+y');
+	await expect(rows).toHaveCount(before + 1);
+	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBe(original);
+	await button('Cancel').click();
+	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBe(original);
 });
 
 test('the left edge belongs to row and field drags while an ordinary page swipe opens navigation', async ({

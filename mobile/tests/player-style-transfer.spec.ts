@@ -97,7 +97,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 		share = page.getByText('Share player layout', { exact: true }),
 		input = page.getByLabel('Shared layout JSON'),
 		output = page.getByLabel('Current layout JSON'),
-		preview = page.getByRole('button', { name: 'Preview layout', exact: true }),
+		preview = page.getByRole('button', { name: 'Review imported layout', exact: true }),
 		load = page.getByRole('button', { name: 'Load into editor', exact: true });
 	await edit.click();
 	await share.click();
