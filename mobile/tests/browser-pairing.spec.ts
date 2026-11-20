@@ -84,7 +84,8 @@ test.beforeEach(async ({ page }) => {
 							}
 							if (!sessionStorage.getItem('reconnected')) throw new Error('Server unreachable.');
 							data = { id: 'fixture-id', display_name: 'Listener' };
-						} else if (opts.url.includes('/library/albums')) data = { items: [], next: null };
+						} else if (opts.url.endsWith('/home')) data = { sections: [] };
+						else if (opts.url.includes('/library/albums')) data = { items: [], next: null };
 						else throw new Error('Unexpected test request.');
 						return { status: 200, headers: { 'Content-Type': 'application/json' }, data };
 					}
@@ -139,7 +140,7 @@ test('Android can finish a returned browser sign-in after the network and app re
 	await expect(page.getByRole('alert')).toContainText('Server unreachable.');
 	await page.evaluate(() => sessionStorage.setItem('reconnected', '1'));
 	await page.reload();
-	await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	expect(await page.evaluate(() => sessionStorage.getItem('browser-url'))).toBe(launched);
 });
 
