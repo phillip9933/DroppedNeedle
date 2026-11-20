@@ -32,21 +32,26 @@ const keys = [
 	'reserveLines'
 ] as const satisfies readonly (keyof Section)[];
 const knownIds = new Set<string>([...playerFields, ...playerWidgets].map((item) => item.id));
-const maxBytes = 64 * 1024;
+export const maxPlayerStyleBytes = 64 * 1024;
 function fits(text: string) {
-	return text.length <= maxBytes && new TextEncoder().encode(text).byteLength <= maxBytes;
+	return text.length <= maxPlayerStyleBytes && new TextEncoder().encode(text).byteLength <= maxPlayerStyleBytes;
 }
 function checkSize(text: string) {
 	if (!fits(text)) throw Error('Use a layout no larger than 64 KiB.');
 }
-export function exportPlayerStyle(sections: Section[]) {
+export function exportPlayerStyle(
+	sections: Section[],
+	spacing: 'readable' | 'compact' = 'readable'
+) {
 	// A layout can cross devices or accounts. Serialize only the composition fields.
 	const fields = sections.map((s) =>
 		Object.fromEntries(keys.filter((key) => s[key] !== undefined).map((key) => [key, s[key]]))
 	);
 	const layout = { format, version: 1, sections: fields };
-	const readable = JSON.stringify(layout, null, 2);
-	if (fits(readable)) return readable;
+	if (spacing === 'readable') {
+		const readable = JSON.stringify(layout, null, 2);
+		if (fits(readable)) return readable;
+	}
 	const compact = JSON.stringify(layout);
 	checkSize(compact);
 	return compact;

@@ -650,6 +650,7 @@ test('an older header becomes an editable grid with square controls on the heade
 	await geometry(live, 'player-close', 32);
 	await geometry(live, 'player-queue', 36);
 	await button('Player settings').click();
+	await expect(sample).toBeVisible();
 	expect(await ids(sample)).toEqual(order);
 	await geometry(sample, 'player-queue', 36);
 	await button('Edit header').click();

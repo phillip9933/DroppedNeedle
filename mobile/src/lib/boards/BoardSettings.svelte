@@ -11,6 +11,7 @@
 	} from './layout';
 	import type { FilterSection } from './filteredSections';
 	import PlayerComposer from '../player/PlayerComposer.svelte';
+	import { openPlayerDraft, type PlayerDraft } from '../player/playerDraft';
 	import LayoutEditor from './LayoutEditor.svelte';
 	let {
 		board,
@@ -19,6 +20,7 @@
 		onback
 	}: { board: LayoutTarget; session: Session; menuToggle: Snippet; onback: () => void } = $props();
 	let filters = $state<FilterSection[]>([]);
+	let recovery = $state.raw<PlayerDraft>();
 	let owner = $state(''),
 		sections = $state<Section[]>([]),
 		error = $state('');
@@ -28,11 +30,12 @@
 			owner = await accountId(session);
 			if (board !== 'player') filters = savedSections(session.serverUrl, owner);
 			sections = loadLayout(session.serverUrl, owner, board);
+			if (board === 'player') recovery = await openPlayerDraft(session.serverUrl, owner, sections);
 		} catch {
 			error = 'Could not load this layout.';
 		}
 	}
-	function save(items: Section[], custom?: FilterSection[]) {
+	function persist(items: Section[], custom?: FilterSection[]) {
 		saveLayout(
 			session.serverUrl,
 			owner,
@@ -40,6 +43,9 @@
 			items,
 			custom ? { before: filters, after: custom } : undefined
 		);
+	}
+	function save(items: Section[], custom?: FilterSection[]) {
+		persist(items, custom);
 		onback();
 	}
 	onMount(() => {
@@ -52,11 +58,8 @@
 		class="text-button"
 		onclick={onback}>Back</button
 	>
-{:else if owner}{#if board === 'player'}<PlayerComposer
-			{sections}
-			{menuToggle}
-			{onback}
-			onsave={save}
-		/>
-	{:else}<LayoutEditor {board} {sections} {filters} {onback} onsave={save} />{/if}
+{:else if board === 'player' && recovery}
+	<PlayerComposer {recovery} {menuToggle} {onback} onsave={persist} />
+{:else if board !== 'player' && owner}
+	<LayoutEditor {board} {sections} {filters} {onback} onsave={save} />
 {:else}<p role="status">Loading layout…</p>{/if}
