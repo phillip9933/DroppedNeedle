@@ -344,3 +344,66 @@ test('a playlist page is read once and returns to the same tile after opening it
 	expect(reads).toBe(1);
 	expect(Math.abs((await main.evaluate((m) => m.scrollTop)) - offset)).toBeLessThan(5);
 });
+
+test('six-column virtual track grids retain 44px controls, row spacing and keyboard order', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 720 });
+	await connect(page, 600);
+	// Exercise the largest outer spacing supported by the theme editor at this phone width.
+	await page.evaluate(() => document.documentElement.style.setProperty('--gap', '24px'));
+	await button(page, 'Browse Tracks').click();
+	const shelf = index(page);
+	await button(page, 'Category settings').click();
+	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
+	await page.getByLabel('Grid columns').selectOption('6');
+	await page.getByLabel('Compact rows').check();
+	await button(page, 'Category settings').click();
+	for (let n = 30; n < 300; n += 30) await step(page, n);
+	await expect(shelf).toHaveClass(/windowed/);
+	expect(await shelf.getByRole('listitem').count()).toBeLessThan(240);
+	await button(page, 'Select items').click();
+	await shelf.evaluate((el) => {
+		const main = el.closest('main')!,
+			pitch =
+				(el.clientHeight + parseFloat(getComputedStyle(el).rowGap)) /
+				Math.ceil(Number(el.dataset.loaded) / 6);
+		main.scrollTop +=
+			el.getBoundingClientRect().top - main.getBoundingClientRect().top + 18 * pitch;
+	});
+	const at = (n: number) => shelf.locator('[data-browse-index="' + n + '"]');
+	await expect(at(120).locator('.item')).toBeInViewport();
+	const layout = await shelf.evaluate((el) => {
+		const box = (i: number) =>
+			el.querySelector('[data-browse-index="' + i + '"]')!.getBoundingClientRect();
+		const first = box(120),
+			last = box(125),
+			next = box(126),
+			bounds = el.getBoundingClientRect();
+		return {
+			first: first.left - bounds.left,
+			last: bounds.right - last.right,
+			sameLine: Math.abs(last.top - first.top),
+			width: first.width,
+			spacing: next.top - first.bottom,
+			gap: parseFloat(getComputedStyle(el).rowGap),
+			adjacentGap: box(121).left - first.right,
+			cssGap: parseFloat(getComputedStyle(el).columnGap)
+		};
+	});
+	expect(layout.width).toBeGreaterThanOrEqual(44);
+	expect(layout.first).toBeCloseTo(0, 0);
+	expect(layout.last).toBeCloseTo(0, 0);
+	expect(layout.sameLine).toBeLessThan(1);
+	expect(layout.adjacentGap).toBeCloseTo(layout.cssGap, 0);
+	expect(layout.spacing).toBeCloseTo(layout.gap, 0);
+	const item = at(120).locator('button.item');
+	await item.focus();
+	await page.keyboard.press('Space');
+	await expect(item).toHaveAttribute('aria-pressed', 'true');
+	await page.keyboard.press('Tab');
+	await expect(at(120).getByRole('button', { name: /More options/ })).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(at(121).locator('button.item')).toBeFocused();
+	await page.screenshot({ path: test.info().outputPath('library-six-column-selection-320.png') });
+});

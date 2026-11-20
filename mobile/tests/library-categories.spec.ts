@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { localSignIn } from './fixtures/localSignIn';
+import { seedOfflineMusic } from './fixtures/offlineMusic';
 test('Library opens its five categories, shows a true count and switches between the artist grid and list', async ({
 	page
 }) => {
@@ -424,4 +425,142 @@ test('a 76k-track genre index resumes its cursor, survives restart and invalidat
 	await expect(b('Ambient')).toBeVisible();
 	await expect(b('Jazz')).toHaveCount(0);
 	expect(cursors.length).toBe(reads + 1);
+});
+
+test('all five categories keep their own one-to-six-column grid and compact spacing on a narrow phone', async ({
+	page
+}) => {
+	test.setTimeout(60000);
+	await page.setViewportSize({ width: 320, height: 720 });
+	await displayFixture(page);
+	await seedOfflineMusic(
+		page,
+		fixtureServer,
+		'member',
+		false,
+		records.map((song, i) => ({
+			track: {
+				id: song.id,
+				title: song.title,
+				album: song.album_title,
+				albumId: song.album_id,
+				artist: song.artist_name,
+				artistId: song.artist_id,
+				genre: song.genre,
+				streamUrl: '/api/v3/stream/local/' + song.id
+			},
+			origin: (['downloaded', 'automatic', 'cached'] as const)[i]
+		}))
+	);
+	const b = (name: string) => pct(page, name),
+		results = page.locator('[data-part=category-items]:visible');
+	const display = page.getByRole('combobox', { name: 'Display', exact: true });
+	const columns = page.getByLabel('Grid columns');
+	const compact = page.getByRole('checkbox', { name: 'Compact rows' });
+	const sizes = () =>
+		results.evaluate((el) => {
+			const css = getComputedStyle(el),
+				item = el.querySelector<HTMLElement>('button.item')!;
+			return {
+				columns: css.gridTemplateColumns.split(' ').length,
+				full: el.clientWidth,
+				cell: item.getBoundingClientRect().width,
+				rowGap: parseFloat(css.rowGap),
+				metaPadding: parseFloat(getComputedStyle(item.querySelector('.meta')!).paddingTop)
+			};
+		});
+	for (const category of ['Artists', 'Albums', 'Tracks', 'Genres', 'Playlists']) {
+		await b('Browse ' + category).tap();
+		await expect(results.locator('.item').first()).toBeVisible();
+		await b('Category settings').tap();
+		if (category === 'Tracks') {
+			await expect(display).toHaveValue('list');
+			const row = results.locator('.item').first();
+			const listHeight = (await row.boundingBox())!.height;
+			const gap = await results.evaluate((e) => parseFloat(getComputedStyle(e).rowGap));
+			await compact.check();
+			const compactHeight = (await row.boundingBox())!.height;
+			expect(compactHeight).toBeGreaterThanOrEqual(44);
+			expect(compactHeight).toBeLessThan(listHeight);
+			expect(await results.evaluate((e) => parseFloat(getComputedStyle(e).rowGap))).toBeLessThan(
+				gap
+			);
+			await compact.uncheck();
+		}
+		await display.selectOption('grid');
+		await expect(columns.locator('option')).toHaveText(['1', '2', '3', '4', '5', '6']);
+		await columns.selectOption('1');
+		const single = await sizes();
+		expect(single.columns).toBe(1);
+		expect(single.cell).toBeCloseTo(single.full, 0);
+		await columns.selectOption('6');
+		const regular = await sizes();
+		expect(regular.columns).toBe(6);
+		expect(regular.cell).toBeGreaterThanOrEqual(44);
+		expect(regular.cell).toBeLessThan(50);
+		await compact.check();
+		const dense = await sizes();
+		expect(dense.rowGap).toBeLessThan(regular.rowGap);
+		expect(dense.metaPadding).toBeLessThan(regular.metaPadding);
+		const cell = results.locator('.entry').first();
+		const primary = cell.locator('.item');
+		await primary.scrollIntoViewIfNeeded();
+		const menu = cell.getByRole('button', { name: /^More options/ });
+		if (['Tracks', 'Genres', 'Playlists'].includes(category)) {
+			const box = (await primary.boundingBox())!,
+				dots = (await menu.boundingBox())!;
+			expect(dots.width).toBeGreaterThanOrEqual(44);
+			expect(dots.height).toBeGreaterThanOrEqual(44);
+			expect(dots.y).toBeGreaterThanOrEqual(box.y + box.height - 0.5);
+			await menu.tap();
+			await expect(page.getByRole('dialog')).toBeVisible();
+			await page.keyboard.press('Escape');
+		}
+		if (category === 'Albums' || category === 'Artists') {
+			const badge = primary.locator('.offline');
+			await expect(primary).toHaveAccessibleDescription(
+				'Downloaded, Automatically saved, Playback cache'
+			);
+			await expect(badge).toHaveAttribute(
+				'aria-label',
+				'Downloaded, Automatically saved, Playback cache'
+			);
+			expect(
+				await badge.evaluate((el) => {
+					const cover = el.closest('.visual')!.getBoundingClientRect(),
+						badge = el.getBoundingClientRect();
+					const marks = [...el.querySelectorAll('svg')].map((svg) => svg.getBoundingClientRect());
+					return (
+						marks.length === 3 &&
+						marks.every(
+							(mark) => mark.width >= 10 && mark.left >= cover.left && mark.right <= cover.right
+						) &&
+						badge.top >= cover.top &&
+						badge.bottom <= cover.bottom
+					);
+				})
+			).toBe(true);
+		}
+		if (category === 'Tracks') {
+			await b('Select items').tap();
+			await primary.focus();
+			await page.keyboard.press('Space');
+			await expect(primary).toHaveAttribute('aria-pressed', 'true');
+			await expect(page.getByText('1 selected')).toBeVisible();
+			await b('Cancel selection').tap();
+		}
+		if (category === 'Artists') await columns.selectOption('1');
+		await b('Back to Library').tap();
+	}
+	for (const [category, n] of [
+		['Artists', '1'],
+		['Albums', '6']
+	]) {
+		await b('Browse ' + category).tap();
+		await expect(results).toHaveAttribute('data-columns', n);
+		await b('Category settings').tap();
+		await expect(compact).toBeChecked();
+		await b('Back to Library').tap();
+	}
+	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
 });

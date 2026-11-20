@@ -9,6 +9,7 @@
 	} from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { OfflineInventory } from '../offline/library';
+	import type { OfflineOrigin } from '../offline/tracks';
 	import type { BrowseItem, Category } from './libraryBrowse';
 	import { browseChoice } from './libraryBrowse';
 	import { tick } from 'svelte';
@@ -45,6 +46,7 @@
 		open: (item: BrowseItem) => void;
 		menu?: (item: BrowseItem) => void;
 	} = $props();
+	const view = $props.id();
 	const selectable = useLibrarySelection();
 	const storage = $derived(originIndex(session, inventory));
 	const originIcons = { downloaded: Download, automatic: CloudDownload, cached: HardDrive };
@@ -124,109 +126,125 @@
 	}
 </script>
 
+{#snippet badge(origins: OfflineOrigin[], id: string)}
+	<span
+		{id}
+		class="offline"
+		role="img"
+		title={origins.map((o) => originLabels[o]).join(', ')}
+		aria-label={origins.map((o) => originLabels[o]).join(', ')}
+		>{#each origins as origin (origin)}{@const Glyph = originIcons[origin]}<Glyph
+				size={14}
+			/>{/each}</span
+	>
+{/snippet}
+
 {#if present.length}<div class="legend" aria-label="Offline availability" role="group">
 		{#each present as value (value)}{@const Glyph = originIcons[value]}<span
 				><Glyph size={13} />{originLabels[value]}</span
 			>{/each}
 	</div>{/if}
-<div
-	bind:this={element}
-	use:browseViewport={{
-		count: items.length,
-		columns: cols,
-		compact,
-		active,
-		layout,
-		onwindow: (w) => (metrics = w)
-	}}
-	class:windowed={virtual}
-	style:height={virtual
-		? Math.max(0, Math.ceil(items.length / cols) * metrics.pitch - metrics.gap) + 'px'
-		: undefined}
-	style:--cell-width={metrics.width + 'px'}
-	use:focusNavigation
-	role="list"
-	aria-label={category + ' results'}
-	data-part="category-items"
-	data-loaded={items.length}
-	data-layout={layout}
-	data-columns={layout === 'grid' ? columns : 1}
-	class:grid={layout === 'grid'}
-	class:compact
-	class="entries"
-	style:--cols={columns}
->
-	{#each mounted as { item, index } (item.id)}
-		{@const origins = status?.get(item.id) ?? []}
-		<div
-			class="entry"
-			data-browse-index={index}
-			role="listitem"
-			aria-posinset={index + 1}
-			aria-setsize={total ?? items.length}
-			style:--entry-top={Math.floor(index / cols) * metrics.pitch + 'px'}
-			style:--entry-left={(index % cols) * (metrics.width + metrics.columnGap) + 'px'}
-			class:artist={category === 'Artists'}
-			class:playlist={category === 'Playlists'}
-			class:genre={category === 'Genres'}
-		>
-			<button
-				class="item"
-				aria-label={item.track ? 'Play ' + item.title : item.title}
-				onclick={() => open(item)}
-				use:selectable={browseChoice(session, item)}
+<div class="browse-width">
+	<div
+		bind:this={element}
+		use:browseViewport={{
+			count: items.length,
+			columns: cols,
+			compact,
+			active,
+			layout,
+			onwindow: (w) => (metrics = w)
+		}}
+		class:windowed={virtual}
+		style:height={virtual
+			? Math.max(0, Math.ceil(items.length / cols) * metrics.pitch - metrics.gap) + 'px'
+			: undefined}
+		style:--cell-width={metrics.width + 'px'}
+		use:focusNavigation
+		role="list"
+		aria-label={category + ' results'}
+		data-part="category-items"
+		data-loaded={items.length}
+		data-layout={layout}
+		data-columns={layout === 'grid' ? columns : 1}
+		class:grid={layout === 'grid'}
+		class:compact
+		class="entries"
+		style:--cols={columns}
+		style:--column-intervals={Math.max(1, columns - 1)}
+	>
+		{#each mounted as { item, index } (item.id)}
+			{@const origins = status?.get(item.id) ?? []}
+			{@const badgeId = view + '-offline-' + index}
+			<div
+				class="entry"
+				data-browse-index={index}
+				role="listitem"
+				aria-posinset={index + 1}
+				aria-setsize={total ?? items.length}
+				style:--entry-top={Math.floor(index / cols) * metrics.pitch + 'px'}
+				style:--entry-left={(index % cols) * (metrics.width + metrics.columnGap) + 'px'}
+				class:artist={category === 'Artists'}
+				class:playlist={category === 'Playlists'}
+				class:genre={category === 'Genres'}
 			>
-				<span
-					class="art"
-					class:round={category === 'Artists'}
-					class:collage={(item.covers?.length ?? 0) > 1}
-				>
-					{#if category === 'Genres'}<Tags size={23} />
-					{:else if item.covers?.length}{#each item.covers.length === 1 ? item.covers : Array.from({ length: 4 }, (_, i) => item.covers![i % item.covers!.length]) as art, i (i)}
-							<Cover {session} cacheOnly={localOnly} path={art} seed={art} />
-						{/each}
-					{:else if category === 'Playlists'}<ListMusic strokeWidth={1.3} size="48%" />
-					{:else}<Cover {session} cacheOnly={localOnly} path={item.art} seed={item.id} />{/if}
-				</span>
-				<span class="meta"
-					><strong>{item.title}</strong
-					>{#if item.subtitle && !(category === 'Artists' && layout === 'grid')}<small
-							>{item.subtitle}</small
-						>{/if}</span
-				>
-				{#if origins.length}<span
-						class="offline"
-						role="img"
-						title={origins.map((o) => originLabels[o]).join(', ')}
-						aria-label={origins.map((o) => originLabels[o]).join(', ')}
-						>{#each origins as origin (origin)}{@const Glyph = originIcons[origin]}<Glyph
-								size={14}
-							/>{/each}</span
-					>{/if}
-			</button>
-			{#if item.track}
-				<span class="more"
-					><TrackActions
-						{session}
-						{localOnly}
-						vertical
-						tracks={[item.track]}
-						label={'More options for ' + item.title}
-						favorite={item.track.favorite}
-					/></span
-				>
-			{:else if menu && (category === 'Genres' || category === 'Playlists' || layout === 'list')}
 				<button
-					class="more icon"
-					aria-label={'More options for ' + item.title}
-					onclick={() => menu?.(item)}><EllipsisVertical size={18} /></button
+					class="item"
+					aria-label={item.track ? 'Play ' + item.title : item.title}
+					aria-describedby={origins.length ? badgeId : undefined}
+					onclick={() => open(item)}
+					use:selectable={browseChoice(session, item)}
 				>
-			{/if}
-		</div>
-	{/each}
+					<span class="visual">
+						<span
+							class="art"
+							class:round={category === 'Artists'}
+							class:collage={(item.covers?.length ?? 0) > 1}
+						>
+							{#if category === 'Genres'}<Tags size={23} />
+							{:else if item.covers?.length}{#each item.covers.length === 1 ? item.covers : Array.from({ length: 4 }, (_, i) => item.covers![i % item.covers!.length]) as art, i (i)}
+									<Cover {session} cacheOnly={localOnly} path={art} seed={art} />
+								{/each}
+							{:else if category === 'Playlists'}<ListMusic strokeWidth={1.3} size="48%" />
+							{:else}<Cover {session} cacheOnly={localOnly} path={item.art} seed={item.id} />{/if}
+						</span>
+						{#if layout === 'grid' && origins.length}{@render badge(origins, badgeId)}{/if}
+					</span>
+					<span class="meta"
+						><strong>{item.title}</strong
+						>{#if item.subtitle && !(category === 'Artists' && layout === 'grid')}<small
+								>{item.subtitle}</small
+							>{/if}</span
+					>
+					{#if layout === 'list' && origins.length}{@render badge(origins, badgeId)}{/if}
+				</button>
+				{#if item.track}
+					<span class="more"
+						><TrackActions
+							{session}
+							{localOnly}
+							vertical
+							tracks={[item.track]}
+							label={'More options for ' + item.title}
+							favorite={item.track.favorite}
+						/></span
+					>
+				{:else if menu && (category === 'Genres' || category === 'Playlists' || layout === 'list')}
+					<button
+						class="more icon"
+						aria-label={'More options for ' + item.title}
+						onclick={() => menu?.(item)}><EllipsisVertical size={18} /></button
+					>
+				{/if}
+			</div>
+		{/each}
+	</div>
 </div>
 
 <style>
+	.browse-width {
+		container-type: inline-size;
+	}
 	.entries.windowed {
 		display: block;
 		position: relative;
@@ -239,7 +257,7 @@
 		width: var(--cell-width);
 	}
 	.grid .entry:not(.artist):not(.genre) .meta {
-		min-height: calc(1.3em + 1.118rem + 0.56rem);
+		min-height: calc(1.3em + 1.118rem + 2 * var(--meta-padding));
 	}
 
 	.entries {
@@ -248,8 +266,36 @@
 		min-width: 0;
 	}
 	.entries.grid {
+		--meta-padding: 0.28rem;
+		--grid-gap: 0.35rem;
 		grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
-		gap: 0.68rem 0.35rem;
+		row-gap: 0.68rem;
+		column-gap: clamp(
+			0px,
+			calc((100cqw - 44px * var(--cols)) / var(--column-intervals)),
+			var(--grid-gap)
+		);
+	}
+	.entries.grid.compact {
+		--meta-padding: 0.08rem;
+		--grid-gap: 0.2rem;
+		row-gap: 0.25rem;
+	}
+	.grid .entry {
+		container: browse-cell / inline-size;
+	}
+	.visual {
+		display: block;
+		position: relative;
+		flex: none;
+	}
+	.compact:not(.grid) {
+		row-gap: 0;
+	}
+	.compact:not(.grid) .item {
+		min-height: 44px;
+		padding-block: 0.1rem;
+		gap: 0.4rem;
 	}
 	.entry {
 		position: relative;
@@ -335,7 +381,7 @@
 		aspect-ratio: 1;
 	}
 	.grid .meta {
-		padding: 0.28rem 0.2rem;
+		padding: var(--meta-padding) 0.2rem;
 	}
 	.grid .artist .meta {
 		text-align: center;
@@ -351,10 +397,38 @@
 	.grid .offline {
 		position: absolute;
 		top: 0.25rem;
-		left: 0.25rem;
-		border-radius: 100%;
+		inset-inline-start: 0.25rem;
+		max-width: calc(100% - 0.5rem);
+		border-radius: 999px;
 		background: var(--surface);
 		padding: 0.15rem;
+	}
+	.grid .offline :global(svg) {
+		min-width: 0;
+	}
+	@container browse-cell (max-width: 94px) {
+		/* Give artwork and its menu independent touch targets when they cannot fit side by side. */
+		.grid .more {
+			position: static;
+			width: 100%;
+			background: transparent;
+		}
+		.grid .more :global(.bare-dots) {
+			width: 100%;
+		}
+		.grid .offline {
+			top: auto;
+			bottom: 1px;
+			inset-inline-start: 50%;
+			transform: translateX(-50%);
+			max-width: calc(100% - 2px);
+			gap: 1px;
+			padding: 1px 2px;
+		}
+		.grid .offline :global(svg) {
+			width: 12px;
+			height: 12px;
+		}
 	}
 	.offline {
 		display: inline-flex;
