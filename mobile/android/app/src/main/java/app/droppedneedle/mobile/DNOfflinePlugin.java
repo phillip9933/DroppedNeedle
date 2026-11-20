@@ -123,6 +123,10 @@ public final class DNOfflinePlugin extends Plugin {
     @PluginMethod public void manualStatus(PluginCall call) {
         execute(call, storage, s -> ManualDownloads.get(getContext()).status(s));
     }
+    @PluginMethod public void takeDownloadNotification(PluginCall call) {
+        boolean open = getActivity() instanceof MainActivity activity && activity.takeDownloadNotification();
+        call.resolve(new JSObject().put("open", open));
+    }
     @PluginMethod public void retryManual(PluginCall call) {
         execute(call, storage, s -> ManualDownloads.get(getContext()).retry(s));
     }

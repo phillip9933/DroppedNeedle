@@ -86,13 +86,12 @@ final class ManualDownloadScheduler implements ManualDownloads.Scheduler {
         Intent cancel = new Intent(ctx, ManualDownloadCancel.class).setData(new Uri.Builder()
                 .scheme("dn-download").authority("cancel").appendPath(owner).build());
         PendingIntent action = PendingIntent.getBroadcast(ctx, 0, cancel, PendingIntent.FLAG_IMMUTABLE);
-        Intent app = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
         NotificationCompat.Builder notification = new NotificationCompat.Builder(ctx, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).setOnlyAlertOnce(true)
-                .setContentTitle("Saving offline music").addAction(0, "Cancel", action);
+                .setContentTitle("Saving offline music").addAction(0, "Cancel", action)
+                .setContentIntent(PendingIntent.getActivity(ctx, 0, DownloadNotificationRoute.intent(ctx), PendingIntent.FLAG_IMMUTABLE));
         if (total > 0) notification.setContentText(done + " of " + total + " songs processed");
         notification.setProgress(total, done, total == 0);
-        if (app != null) notification.setContentIntent(PendingIntent.getActivity(ctx, 0, app, PendingIntent.FLAG_IMMUTABLE));
         return notification.build();
     }
 }

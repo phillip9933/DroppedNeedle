@@ -25,6 +25,7 @@ export const nativeMedia = registerPlugin<
 			status: ManualStatus;
 		}>;
 		manualStatus(owner: Account): Promise<ManualStatus>;
+		takeDownloadNotification(): Promise<{ open: boolean }>;
 		cancelManual(owner: Account): Promise<ManualStatus>;
 		retryManual(owner: Account): Promise<ManualStatus>;
 		historySettings(owner: Account): Promise<HistoryStatus>;
