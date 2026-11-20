@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Browser } from '@capacitor/browser';
 	import { Capacitor } from '@capacitor/core';
+	import WantedWatches from './WantedWatches.svelte';
 	import RequestCandidates from './RequestCandidates.svelte';
 	import {
 		ArrowDownToLine,
@@ -57,6 +58,7 @@
 	let menu = $state<{ title: string; options: Action[] } | null>(null),
 		selected = $state<Action | null>(null);
 	let reviewing = $state<{ jobId: string; title: string; taskId?: string } | null>(null);
+	let watchesOpen = $state(false);
 	let historyStatus = $state(''),
 		historySort = $state('');
 	let historyTotal = $state(0);
@@ -344,6 +346,17 @@
 	{/snippet}
 
 	{#if view === 'requests'}
+		<details class="watchlist" bind:open={watchesOpen}>
+			<summary>Wanted watches</summary>
+			{#if watchesOpen}<WantedWatches
+					{session}
+					{viewer}
+					{onopen}
+					onaction={open}
+					ondownloads={() => switchView('downloads')}
+					{launchWeb}
+				/>{/if}
+		</details>
 		{#if active.length}<section aria-label="Active requests">
 				<h2 class="section-title">Active <span>{active.length}</span></h2>
 				{@render rows(active, 'active')}
@@ -556,6 +569,17 @@
 {/if}
 
 <style>
+	.watchlist {
+		margin: var(--gap) 0;
+		border-block: 1px solid var(--line);
+		padding-bottom: 0.1rem;
+	}
+	.watchlist summary {
+		min-height: 44px;
+		align-content: center;
+		font-weight: 650;
+		cursor: pointer;
+	}
 	.server-tools {
 		margin-block: var(--gap);
 	}
