@@ -4,6 +4,7 @@ import type { OfflineBridge } from './web';
 
 type Account = { serverUrl: string; userId: string };
 export type HistoryStatus = { enabled: boolean; pending: number };
+export type DownloadNotificationState = 'appOff' | 'appOn' | 'channelOff' | 'on';
 export type ManualStatus = {
 	state:
 		'idle' | 'queued' | 'downloading' | 'waitingNetwork' | 'waitingOffline' | 'failed' | 'complete';
@@ -26,6 +27,8 @@ export const nativeMedia = registerPlugin<
 		}>;
 		manualStatus(owner: Account): Promise<ManualStatus>;
 		takeDownloadNotification(): Promise<{ open: boolean }>;
+		downloadNotificationSettings(): Promise<{ state: DownloadNotificationState }>;
+		openDownloadNotificationSettings(): Promise<void>;
 		cancelManual(owner: Account): Promise<ManualStatus>;
 		retryManual(owner: Account): Promise<ManualStatus>;
 		historySettings(owner: Account): Promise<HistoryStatus>;
