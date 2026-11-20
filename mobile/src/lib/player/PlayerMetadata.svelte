@@ -56,7 +56,7 @@
 		text-align: var(--cell-align, start);
 		padding: 0;
 		width: 100%;
-		min-height: 44px;
+		min-block-size: max(44px, calc(var(--reserved-lines, 0) * 1lh));
 	}
 	.credit-link:hover .lines,
 	.credit-link:focus-visible .lines {
@@ -80,7 +80,7 @@
 		height: 100%;
 		display: block;
 	}
-	.icon-only {
+	.icon-only:not(.credit-link) {
 		min-block-size: calc(var(--reserved-lines, 0) * 1lh);
 	}
 	.icon-only .metadata-icon {
