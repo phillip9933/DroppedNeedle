@@ -62,7 +62,7 @@ final class OfflineStore {
         index = context.getSharedPreferences("dn.offline." + account, Context.MODE_PRIVATE);
     }
 
-    private static String digest(String text) {
+    static String digest(String text) {
         try {
             byte[] bytes = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
             StringBuilder out = new StringBuilder(64);
@@ -184,8 +184,9 @@ final class OfflineStore {
         return source != null && !source.equals("off") && source.equals(source()) && !offlineOnly()
                 && !index.getBoolean("exclude." + key, false);
     }
+    boolean unmeteredOnly() { return index.getBoolean("unmeteredOnly", true); }
     boolean permittedNetwork() {
-        if (!index.getBoolean("unmeteredOnly", true))
+        if (!unmeteredOnly())
             return true;
         ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         return cm != null && cm.getActiveNetwork() != null && !cm.isActiveNetworkMetered();
@@ -271,6 +272,9 @@ final class OfflineStore {
     }
     long itemRevision(String id) { return index.getLong("revision." + row(id), 0); }
     long autoGeneration() { return index.getLong("automaticGeneration", 0); }
+    boolean hasAudio(String id) {
+        synchronized (LOCK) { return file(entry(row(id))) != null; }
+    }
     boolean pinExisting(String id) throws IOException, JSONException {
         return keepExisting(id, null, null);
     }
@@ -359,8 +363,7 @@ final class OfflineStore {
             if (track.opt(k) instanceof Number) copy.put(k, track.get(k));
         if (track.opt("favorite") instanceof Boolean) copy.put("favorite", track.get("favorite"));
     }
-    @Nullable
-    Capture begin(JSONObject track, String origin, @Nullable String source, long expected) throws IOException, JSONException {
+    JSONObject retained(JSONObject track) throws JSONException {
         String id = track.getString("id");
         HttpUrl stream = original(id);
         JSONObject copy =
@@ -387,6 +390,13 @@ final class OfflineStore {
                 && image.port() == base.port() && image.username().isEmpty() && image.password().isEmpty()
                 && image.encodedPath().startsWith(api))
             copy.put("artworkUrl", "/api/v3/" + image.encodedPath().substring(api.length()) + "?size=500");
+        return copy;
+    }
+
+    @Nullable
+    Capture begin(JSONObject track, String origin, @Nullable String source, long expected) throws IOException, JSONException {
+        JSONObject copy = retained(track);
+        String id = copy.getString("id");
         synchronized (LOCK) {
             if (CACHE.equals(origin)
                     && (!cacheEnabled() || !permittedNetwork() || expected > budget()

@@ -1,5 +1,8 @@
 package app.droppedneedle.mobile;
 
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -27,9 +30,28 @@ public final class DNOfflinePlugin extends Plugin {
                                               .readTimeout(30, TimeUnit.SECONDS)
                                               .build();
 
-    private final Runnable changed = () -> notifyListeners("mediaChanged", new JSObject());
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final class ChangeEvent implements Runnable {
+        final String name;
+        boolean posted;
+        ChangeEvent(String name) { this.name = name; }
+        synchronized void post() { if (!posted) posted = main.postDelayed(this, 100); }
+        @Override public synchronized void run() { posted = false; notifyListeners(name, new JSObject()); }
+    }
+    private final ChangeEvent mediaEvent = new ChangeEvent("mediaChanged"), transferEvent = new ChangeEvent("manualChanged");
+    private final Runnable changed = mediaEvent::post;
+    private final Runnable manualChanged = transferEvent::post;
     private final Runnable historyChanged = () -> notifyListeners("historyChanged", new JSObject());
-    @Override public void load() { OfflineStore.mediaChanged = changed; OfflinePlayHistory.changed = historyChanged; }
+    private final ConnectivityManager.NetworkCallback networks = new ConnectivityManager.NetworkCallback() {
+        @Override public void onLost(Network network) { transferEvent.post(); }
+        @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) { transferEvent.post(); }
+    };
+    @Override public void load() {
+        getContext().getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(networks);
+        OfflineStore.mediaChanged = changed;
+        OfflinePlayHistory.changed = historyChanged;
+        ManualDownloads.get(getContext()).changed = manualChanged;
+    }
 
     private interface Task {
         JSONObject run(OfflineStore store) throws Exception;
@@ -81,14 +103,35 @@ public final class DNOfflinePlugin extends Plugin {
     }
     @PluginMethod
     public void configure(PluginCall call) {
-        execute(call, storage, s -> s.configure(call.getObject("options")));
+        execute(call, storage, s -> {
+            boolean offline = s.offlineOnly(), unmetered = s.unmeteredOnly();
+            JSONObject options = s.configure(call.getObject("options"));
+            if (offline != s.offlineOnly() || unmetered != s.unmeteredOnly()) ManualDownloads.get(getContext()).policyChanged(s);
+            return options;
+        });
     }
     @PluginMethod
     public void remove(PluginCall call) {
         execute(call, storage, s -> {
-            s.remove(call.getArray("ids"));
+            ManualDownloads.get(getContext()).remove(s, call.getArray("ids"));
             return null;
         });
+    }
+    @PluginMethod public void enqueueManual(PluginCall call) {
+        execute(call, storage, s -> ManualDownloads.get(getContext()).enqueue(s, call.getArray("tracks")));
+    }
+    @PluginMethod public void manualStatus(PluginCall call) {
+        execute(call, storage, s -> ManualDownloads.get(getContext()).status(s));
+    }
+    @PluginMethod public void retryManual(PluginCall call) {
+        execute(call, storage, s -> ManualDownloads.get(getContext()).retry(s));
+    }
+    @PluginMethod public void cancelManual(PluginCall call) {
+        try {
+            OfflineStore owner = OfflineStore.forUser(getContext(), call.getString("serverUrl"), call.getString("userId"));
+            if (owner != null) ManualDownloads.get(getContext()).interrupt(owner.account);
+        } catch (IllegalArgumentException invalid) { call.reject("Invalid offline account."); return; }
+        execute(call, storage, s -> ManualDownloads.get(getContext()).cancel(s));
     }
     @PluginMethod
     public void clearCache(PluginCall call) {
@@ -150,6 +193,11 @@ public final class DNOfflinePlugin extends Plugin {
     protected void handleOnDestroy() {
         if (OfflineStore.mediaChanged == changed) OfflineStore.mediaChanged = null;
         if (OfflinePlayHistory.changed == historyChanged) OfflinePlayHistory.changed = null;
+        ManualDownloads downloads = ManualDownloads.get(getContext());
+        if (downloads.changed == manualChanged) downloads.changed = null;
+        getContext().getSystemService(ConnectivityManager.class).unregisterNetworkCallback(networks);
+        main.removeCallbacks(mediaEvent);
+        main.removeCallbacks(transferEvent);
         http.dispatcher().cancelAll();
         transfers.shutdownNow();
         storage.shutdown();
