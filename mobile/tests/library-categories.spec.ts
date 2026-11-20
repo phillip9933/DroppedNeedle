@@ -331,6 +331,15 @@ test('offline categories retain their groups, playlist membership and classified
 	await page.getByLabel('Availability', { exact: true }).selectOption('automatic');
 	await expect(legend).toHaveText('Automatically saved');
 	await b('Back to Library').click();
+	const availability = page.getByLabel('Availability', { exact: true });
+	await expect(availability).toHaveValue('automatic');
+	await availability.selectOption('cached');
+	await b('Library').click();
+	await expect(availability).toHaveValue('cached');
+	await b('Browse Tracks').click();
+	await expect(names).toHaveText(['Final Light']);
+	await b('Back to Library').click();
+	await availability.selectOption('automatic');
 	await b('Browse Playlists').click();
 	await expect(b('In rotation')).toBeVisible();
 	await expect(b('No available songs')).toHaveCount(0);
@@ -338,6 +347,7 @@ test('offline categories retain their groups, playlist membership and classified
 	const filters = b('Collection filters');
 	await expect(filters).toBeInViewport();
 	await filters.click();
+	await expect(availability).toHaveValue('automatic');
 	await page.getByLabel('Availability', { exact: true }).selectOption('cached');
 	await expect(b('In rotation')).toHaveCount(0);
 	await page.getByLabel('Availability', { exact: true }).selectOption('automatic');

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import {
 		ChevronLeft,
 		ChevronRight,
@@ -8,8 +8,7 @@
 		Disc3,
 		Music2,
 		Tags,
-		PanelsTopLeft,
-		Download
+		PanelsTopLeft
 	} from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from './catalog';
@@ -20,6 +19,9 @@
 	import { categories, type Category, type BrowseItem } from './libraryBrowse';
 	import LibraryBrowser from './LibraryBrowser.svelte';
 	import LibraryGroup from './LibraryGroup.svelte';
+	import LibraryAvailability from './LibraryAvailability.svelte';
+	import { readAvailability, saveAvailability } from './browsePreferences';
+	import type { Availability } from '../offline/library';
 	let {
 		session,
 		active,
@@ -49,6 +51,11 @@
 		Genres: Tags
 	};
 	let browser = $state<LibraryBrowser>();
+	let availability = $state(untrack(() => readAvailability(session)));
+	function chooseAvailability(value: Availability) {
+		availability = value;
+		saveAvailability(session, value);
+	}
 	export function getPlaybackAvailability() {
 		return current === 'sections'
 			? board?.getPlaybackAvailability()
@@ -112,6 +119,8 @@
 					bind:this={browser}
 					{session}
 					category={current}
+					{availability}
+					{chooseAvailability}
 					active={active && !detail}
 					{onopen}
 					{onlocal}
@@ -146,12 +155,12 @@
 			{/each}
 		</nav>
 		<div class="secondary-links">
+			{#if onoffline}
+				<LibraryAvailability inline value={availability} onchange={chooseAvailability} />
+			{/if}
 			<button onclick={() => enter('sections')}
 				><PanelsTopLeft size={20} />Library sections<ChevronRight size={16} /></button
 			>
-			{#if onoffline}<button aria-label="Open offline music" onclick={onoffline}
-					><Download size={20} />Offline music<ChevronRight size={16} /></button
-				>{/if}
 		</div>
 	{/if}
 </div>

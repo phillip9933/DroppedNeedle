@@ -1,14 +1,9 @@
 import type { Session } from '../connection';
-import type { OfflineInventory } from '../offline/library';
+import { originLabels, type OfflineInventory } from '../offline/library';
 import type { OfflineOrigin } from '../offline/tracks';
 import type { BrowseItem } from './libraryBrowse';
 import { offlinePlaylists } from './playlistOffline';
 
-export const originLabels = {
-	downloaded: 'Downloaded',
-	automatic: 'Automatically saved',
-	cached: 'Playback cache'
-} as const;
 const fold = (s: string | undefined) => s?.trim().toLocaleLowerCase() ?? '';
 const albumName = (album?: string, artist?: string) =>
 	'album-name:' + JSON.stringify([fold(album), fold(artist)]);

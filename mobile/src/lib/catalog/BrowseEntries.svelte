@@ -15,7 +15,8 @@
 	import { browseViewport, initialWindow } from './browseViewport';
 	import { useLibrarySelection } from './librarySelection.svelte';
 	import Cover from './Cover.svelte';
-	import { originIndex, itemOrigins, originLabels } from './libraryOrigins';
+	import { originIndex, itemOrigins } from './libraryOrigins';
+	import { originLabels } from '../offline/library';
 	import TrackActions from './TrackActions.svelte';
 	let {
 		session,

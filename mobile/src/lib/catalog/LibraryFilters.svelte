@@ -3,6 +3,7 @@
 	import { errorMessage, path } from './catalog';
 	import type { Category, BrowseFilters } from './libraryBrowse';
 	import type { Availability } from '../offline/library';
+	import LibraryAvailability from './LibraryAvailability.svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	type S = components['schemas'];
 	let {
@@ -72,19 +73,7 @@
 </script>
 
 <div class="filters" role="group" aria-label="Collection filters">
-	<label
-		>Availability<select
-			aria-label="Availability"
-			value={availability}
-			onchange={(e) => chooseAvailability(e.currentTarget.value as Availability)}
-		>
-			<option value="all">All library music</option><option value="offline"
-				>Available offline</option
-			><option value="downloaded">Downloaded</option><option value="automatic"
-				>Automatically saved</option
-			><option value="cached">Playback cache</option>
-		</select></label
-	>
+	<LibraryAvailability value={availability} onchange={chooseAvailability} />
 	{#if category === 'Tracks' || category === 'Albums' || category === 'Artists'}<button
 			class="secondary"
 			aria-pressed={filters.favorites}
