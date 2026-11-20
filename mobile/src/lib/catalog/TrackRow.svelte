@@ -7,6 +7,8 @@
 <script lang="ts">
 	import { useLibrarySelection, type LibraryChoice } from './librarySelection.svelte';
 	import { Play } from '@lucide/svelte';
+	import { trackStatusLabels, trackStatusIcons, type TrackStatus } from './trackStatus';
+	const statusId = $props.id();
 	const selectable = useLibrarySelection();
 	let {
 		title,
@@ -14,6 +16,7 @@
 		position,
 		duration,
 		onplay,
+		availability,
 		choice
 	}: {
 		title: string;
@@ -22,6 +25,7 @@
 		duration?: number | null;
 		onplay?: () => void;
 		choice?: LibraryChoice;
+		availability?: TrackStatus;
 	} = $props();
 </script>
 
@@ -29,6 +33,7 @@
 	use:selectable={choice}
 	disabled={!onplay}
 	onclick={onplay}
+	aria-describedby={availability ? statusId : undefined}
 	aria-label={onplay ? 'Play ' + title : title + ', unavailable in your library'}
 >
 	<span class="index">{position}</span>
@@ -36,7 +41,11 @@
 		><strong>{title}</strong><small
 			>{artist}{#if !onplay}
 				· Unavailable in library{/if}</small
-		></span
+		>
+		{#if availability}{@const Icon = trackStatusIcons[availability]}<span
+				class="availability"
+				id={statusId}><Icon size={13} aria-hidden="true" />{trackStatusLabels[availability]}</span
+			>{/if}</span
 	>
 	{#if duration}<span class="length">{trackDuration(duration)}</span>{/if}
 	{#if onplay}<Play size={16} aria-hidden="true" />{/if}
@@ -82,6 +91,14 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.name .availability {
+		display: flex;
+		gap: 0.3rem;
+		align-items: center;
+		color: var(--muted);
+		font-size: 0.76rem;
+		line-height: 1.35;
 	}
 	.length {
 		font-variant-numeric: tabular-nums;

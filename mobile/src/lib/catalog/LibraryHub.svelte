@@ -16,7 +16,12 @@
 	import type { DiscoverArtistRef } from './discovery';
 	import type { PlayerTrack } from '../player';
 	import BoardView from '../boards/BoardView.svelte';
-	import { categories, type Category, type BrowseItem } from './libraryBrowse';
+	import {
+		categories,
+		type Category,
+		type BrowseItem,
+		type DeviceCollection
+	} from './libraryBrowse';
 	import LibraryBrowser from './LibraryBrowser.svelte';
 	import LibraryGroup from './LibraryGroup.svelte';
 	import LibraryAvailability from './LibraryAvailability.svelte';
@@ -50,13 +55,15 @@
 		Tracks: Music2,
 		Genres: Tags
 	};
-	let browser = $state<LibraryBrowser>();
+	let browser = $state<LibraryBrowser>(),
+		group = $state<LibraryGroup>();
 	let availability = $state(untrack(() => readAvailability(session)));
 	function chooseAvailability(value: Availability) {
 		availability = value;
 		saveAvailability(session, value);
 	}
 	export function getPlaybackAvailability() {
+		if (detail) return group?.getPlaybackAvailability() ?? browser?.getPlaybackAvailability();
 		return current === 'sections'
 			? board?.getPlaybackAvailability()
 			: browser?.getPlaybackAvailability();
@@ -67,7 +74,12 @@
 	let current = $state<Category | 'sections' | ''>(''),
 		board = $state<BoardView>(),
 		root: HTMLElement;
-	let detail = $state<{ item: BrowseItem; tracks: PlayerTrack[]; offline: boolean } | null>(null);
+	let detail = $state<{
+		item: BrowseItem;
+		tracks: PlayerTrack[];
+		offline: boolean;
+		collection?: DeviceCollection;
+	} | null>(null);
 	let savedScroll = 0,
 		detailScroll = 0;
 	function scroll(y: number) {
@@ -90,9 +102,14 @@
 		scroll(savedScroll);
 		return true;
 	}
-	function localDetail(item: BrowseItem, tracks: PlayerTrack[], offline: boolean) {
+	function localDetail(
+		item: BrowseItem,
+		tracks: PlayerTrack[],
+		offline: boolean,
+		collection?: DeviceCollection
+	) {
 		detailScroll = root.closest('main')?.scrollTop ?? 0;
-		detail = { item, tracks, offline };
+		detail = { item, tracks, offline, collection };
 		scroll(0);
 	}
 </script>
@@ -121,6 +138,7 @@
 					category={current}
 					{availability}
 					{chooseAvailability}
+					observeDevice={active}
 					active={active && !detail}
 					{onopen}
 					{onlocal}
@@ -135,6 +153,10 @@
 				><ChevronLeft size={18} />{current}</button
 			>
 			<LibraryGroup
+				bind:this={group}
+				source={browser?.getDeviceSource()}
+				initialAvailability={availability}
+				collection={detail.collection}
 				{session}
 				{active}
 				{onplay}

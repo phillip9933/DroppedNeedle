@@ -22,12 +22,19 @@
 	import Cover from './Cover.svelte';
 	import SelectionHost from './SelectionHost.svelte';
 	import TrackList from './TrackList.svelte';
+	import { trackChoice } from './librarySelection.svelte';
+	import { rememberAlbumCount } from './albumTrackCounts';
+	import { detailInventory } from './detailInventory.svelte';
+	import DetailAvailability from './DetailAvailability.svelte';
+	import { matchesAvailability, type Availability } from '../offline/library';
+	import { offlineSupported } from '../offline/media';
 	let {
 		album,
 		session,
 		onplay,
 		onback,
 		onrequests,
+		foreground = true,
 		backLabel = 'Back'
 	}: {
 		album: Album;
@@ -36,6 +43,7 @@
 		onback: () => void;
 		onrequests: () => void;
 		backLabel?: string;
+		foreground?: boolean;
 	} = $props();
 	let tracks = $state<PlayerTrack[]>([]),
 		choices = $state<Edition[]>([]),
@@ -52,6 +60,29 @@
 		listError = $state(''),
 		listBusy = $state(false);
 	let active = true;
+	const device = detailInventory(
+		() => session,
+		() => foreground && !!tracks.length
+	);
+	let availability = $state<Availability>('all');
+	const rows = $derived(
+		tracks
+			.map((track, index) => ({ track, position: index + 1 }))
+			.filter(
+				({ track }) =>
+					availability === 'all' ||
+					(device.inventory && matchesAvailability(device.inventory, track.id, availability))
+			)
+	);
+	const shown = $derived(rows.map((r) => r.track));
+	const choicesInView = $derived(shown.map((track) => trackChoice(track)));
+	const eligible = $derived(new Set(choicesInView.map((c) => c.id)));
+	const countOnDevice = $derived(
+		tracks.reduce((n, t) => n + Number(!!device.inventory?.byId.has(t.id)), 0)
+	);
+	export function getPlaybackAvailability() {
+		return availability === 'all' ? undefined : availability;
+	}
 	async function loadChoices() {
 		if (!album.group) return;
 		loadingEditions = true;
@@ -76,6 +107,7 @@
 			const found = await albumTracks(session, album);
 			if (!active) return;
 			tracks = found;
+			if (album.localId) rememberAlbumCount(session, album.localId, found.length);
 			if (!tracks.length && !album.requested && !album.imported) await loadChoices();
 		} catch (e) {
 			if (active) error = errorMessage(e);
@@ -145,17 +177,46 @@
 	<button class="secondary" onclick={load}>Try again</button>
 {:else if busy}<p role="status">Loading album…</p>
 {:else if tracks.length}
-	<button class="primary" onclick={() => onplay(tracks, 0)}><Play size={18} /> Play album</button>
-	<TrackActions {session} {tracks} label="Album actions" />
+	<button class="primary" disabled={!shown.length} onclick={() => onplay(shown, 0)}
+		><Play size={18} /> Play album</button
+	>
+	{#if shown.length}<TrackActions
+			{session}
+			tracks={shown}
+			deviceAvailable={!!device.inventory?.byId.has(shown[0].id)}
+			label="Album actions"
+		/>{/if}
 	{#if album.localId && album.favorite !== undefined}<Favorite
 			{session}
 			kind="album"
 			id={album.localId}
 			value={album.favorite}
 		/>{/if}
-	<SelectionHost {session} {onplay}
-		><TrackList {session} {tracks} {onplay} albumSheet /></SelectionHost
+	{#if offlineSupported && session.userId}<DetailAvailability
+			source={device}
+			available={countOnDevice}
+			total={tracks.length}
+			value={availability}
+			onchange={(v) => (availability = v)}
+		/>{/if}
+	<SelectionHost
+		{session}
+		{onplay}
+		active={foreground}
+		scope={availability}
+		choices={() => choicesInView}
+		contains={(id) => eligible.has(id)}
 	>
+		<TrackList
+			{session}
+			tracks={shown}
+			positions={rows.map((r) => r.position)}
+			{device}
+			{onplay}
+			albumSheet
+		/>
+	</SelectionHost>
+	{#if !shown.length && device.inventory}<p>No tracks match this availability.</p>{/if}
 	{#if album.group}<button
 			class="text-button"
 			aria-expanded={showEditions}

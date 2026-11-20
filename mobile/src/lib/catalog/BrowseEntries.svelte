@@ -1,15 +1,7 @@
 <script lang="ts">
-	import {
-		ListMusic,
-		Tags,
-		EllipsisVertical,
-		Download,
-		CloudDownload,
-		HardDrive
-	} from '@lucide/svelte';
+	import { ListMusic, Tags, EllipsisVertical } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { OfflineInventory } from '../offline/library';
-	import type { OfflineOrigin } from '../offline/tracks';
 	import type { BrowseItem, Category } from './libraryBrowse';
 	import { browseChoice } from './libraryBrowse';
 	import { tick } from 'svelte';
@@ -17,7 +9,7 @@
 	import { useLibrarySelection } from './librarySelection.svelte';
 	import Cover from './Cover.svelte';
 	import { originIndex, itemOrigins } from './libraryOrigins';
-	import { originLabels } from '../offline/library';
+	import { trackStatusLabels, trackStatusIcons, type TrackStatus } from './trackStatus';
 	import TrackActions from './TrackActions.svelte';
 	let {
 		session,
@@ -30,6 +22,8 @@
 		inventory,
 		total,
 		localOnly = false,
+		cacheOnly = localOnly,
+		showOnlineOnly = false,
 		open,
 		menu
 	}: {
@@ -43,16 +37,23 @@
 		inventory?: OfflineInventory;
 		total?: number;
 		localOnly?: boolean;
+		cacheOnly?: boolean;
+		showOnlineOnly?: boolean;
 		open: (item: BrowseItem) => void;
 		menu?: (item: BrowseItem) => void;
 	} = $props();
 	const view = $props.id();
 	const selectable = useLibrarySelection();
 	const storage = $derived(originIndex(session, inventory));
-	const originIcons = { downloaded: Download, automatic: CloudDownload, cached: HardDrive };
-	const status = $derived(
-		storage.size ? new Map(items.map((i) => [i.id, itemOrigins(i, storage)])) : undefined
-	);
+	const status = $derived.by(() => {
+		if (!storage.size && !(showOnlineOnly && inventory)) return;
+		return new Map<string, TrackStatus[]>(
+			items.map((item) => {
+				const origins = itemOrigins(item, storage);
+				return [item.id, item.track && showOnlineOnly && !origins.length ? ['online'] : origins];
+			})
+		);
+	});
 	const present = $derived([...new Set([...(status?.values() ?? [])].flat())]);
 	let element: HTMLDivElement,
 		metrics = $state.raw(initialWindow),
@@ -126,22 +127,26 @@
 	}
 </script>
 
-{#snippet badge(origins: OfflineOrigin[], id: string)}
+{#snippet badge(origins: TrackStatus[], id: string)}
 	<span
 		{id}
 		class="offline"
 		role="img"
-		title={origins.map((o) => originLabels[o]).join(', ')}
-		aria-label={origins.map((o) => originLabels[o]).join(', ')}
-		>{#each origins as origin (origin)}{@const Glyph = originIcons[origin]}<Glyph
+		title={origins.map((o) => trackStatusLabels[o]).join(', ')}
+		aria-label={origins.map((o) => trackStatusLabels[o]).join(', ')}
+		>{#each origins as origin (origin)}{@const Glyph = trackStatusIcons[origin]}<Glyph
 				size={14}
 			/>{/each}</span
 	>
 {/snippet}
 
-{#if present.length}<div class="legend" aria-label="Offline availability" role="group">
-		{#each present as value (value)}{@const Glyph = originIcons[value]}<span
-				><Glyph size={13} />{originLabels[value]}</span
+{#if present.length}<div
+		class="legend"
+		aria-label={showOnlineOnly ? 'Track availability' : 'Offline availability'}
+		role="group"
+	>
+		{#each present as value (value)}{@const Glyph = trackStatusIcons[value]}<span
+				><Glyph size={13} />{trackStatusLabels[value]}</span
 			>{/each}
 	</div>{/if}
 <div class="browse-width">
@@ -203,10 +208,10 @@
 						>
 							{#if category === 'Genres'}<Tags size={23} />
 							{:else if item.covers?.length}{#each item.covers.length === 1 ? item.covers : Array.from({ length: 4 }, (_, i) => item.covers![i % item.covers!.length]) as art, i (i)}
-									<Cover {session} cacheOnly={localOnly} path={art} seed={art} />
+									<Cover {session} {cacheOnly} path={art} seed={art} />
 								{/each}
 							{:else if category === 'Playlists'}<ListMusic strokeWidth={1.3} size="48%" />
-							{:else}<Cover {session} cacheOnly={localOnly} path={item.art} seed={item.id} />{/if}
+							{:else}<Cover {session} {cacheOnly} path={item.art} seed={item.id} />{/if}
 						</span>
 						{#if layout === 'grid' && origins.length}{@render badge(origins, badgeId)}{/if}
 					</span>
@@ -225,6 +230,9 @@
 							{localOnly}
 							vertical
 							tracks={[item.track]}
+							deviceAvailable={inventory || showOnlineOnly
+								? !!inventory?.byId.has(item.track.id)
+								: undefined}
 							label={'More options for ' + item.title}
 							favorite={item.track.favorite}
 						/></span

@@ -49,6 +49,7 @@
 	let root: HTMLElement,
 		localResults = $state<DeviceSearchResults>(),
 		detail = $state.raw<{ category: Category; row: BrowseItem } | null>(null);
+	let groupView = $state<LibraryGroup>();
 	const source = catalogSource(
 		() => session,
 		() => active,
@@ -133,7 +134,8 @@
 			changedQuery();
 		}
 	}
-	export function getPlaybackAvailability(): 'offline' | undefined {
+	export function getPlaybackAvailability() {
+		if (groupView) return groupView.getPlaybackAvailability();
 		return useDevice || detail ? 'offline' : undefined;
 	}
 	function enterDevice(category: Category, row: BrowseItem) {
@@ -337,6 +339,8 @@
 			<button class="secondary" onclick={() => source.retryStorage()}>Retry device library</button>
 		{:else}
 			{#key detail.row.id}<LibraryGroup
+					bind:this={groupView}
+					{source}
 					{session}
 					{active}
 					offline

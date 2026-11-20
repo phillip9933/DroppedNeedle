@@ -3,23 +3,27 @@
 	let {
 		value,
 		onchange,
-		inline = false
+		inline = false,
+		label = 'Availability',
+		deviceOnly = false
 	}: {
 		value: Availability;
 		onchange: (value: Availability) => void;
 		inline?: boolean;
+		label?: string;
+		deviceOnly?: boolean;
 	} = $props();
 </script>
 
 <label class:inline
-	>Availability
+	>{label}
 	<select
-		aria-label="Availability"
+		aria-label={label}
 		{value}
 		onchange={(e) => onchange(e.currentTarget.value as Availability)}
 	>
 		{#each Object.entries(availabilityLabels) as [key, title] (key)}
-			<option value={key}>{title}</option>
+			{#if !deviceOnly || key !== 'all'}<option value={key}>{title}</option>{/if}
 		{/each}
 	</select>
 </label>

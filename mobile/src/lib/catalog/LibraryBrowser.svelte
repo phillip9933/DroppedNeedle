@@ -29,13 +29,9 @@
 	import type { Album, OnPlay } from './catalog';
 	import { errorMessage } from './catalog';
 	import { createPlaylist, type Playlist } from './playlists';
-	import {
-		offlineInventory,
-		offlineSupported,
-		saveOfflineTracks,
-		watchOfflineMedia
-	} from '../offline/media';
-	import { availableTracks, type Availability, type OfflineInventory } from '../offline/library';
+	import { offlineSupported, saveOfflineTracks } from '../offline/media';
+	import { detailInventory } from './detailInventory.svelte';
+	import { availableTracks, type Availability } from '../offline/library';
 	import { accountId, loadLayout, saveLayout } from '../boards/layout';
 	import {
 		libraryFilter,
@@ -48,6 +44,7 @@
 		orderChoices,
 		resolveItem,
 		type BrowseFilters,
+		type DeviceCollection,
 		type BrowseItem,
 		type Category
 	} from './libraryBrowse';
@@ -78,6 +75,7 @@
 		category,
 		availability,
 		chooseAvailability,
+		observeDevice,
 		active,
 		onopen,
 		onlocal,
@@ -90,12 +88,18 @@
 		category: Category;
 		availability: Availability;
 		chooseAvailability: (value: Availability) => void;
+		observeDevice: boolean;
 		active: boolean;
 		onopen: (album: Album) => void;
 		onlocal: (artist: { id: string; name: string }) => void;
 		onplaylist: (p: Playlist) => void;
 		onplay: OnPlay;
-		ondetail: (row: BrowseItem, tracks: PlayerTrack[], offline: boolean) => void;
+		ondetail: (
+			row: BrowseItem,
+			tracks: PlayerTrack[],
+			offline: boolean,
+			collection?: DeviceCollection
+		) => void;
 		onback: () => void;
 	} = $props();
 	const icons = {
@@ -123,9 +127,18 @@
 			order: settings.order
 		}))
 	);
-	let connected = $state(navigator.onLine),
-		inventory = $state.raw<OfflineInventory>(),
-		ready = $state(false);
+	let connected = $state(navigator.onLine);
+	const device = detailInventory(
+		() => session,
+		() => observeDevice
+	);
+	const inventory = $derived(device.inventory);
+	const ready = $derived(
+		!offlineSupported || !session.userId || !!inventory || !!device.storageError
+	);
+	export function getDeviceSource() {
+		return device;
+	}
 	const disconnected = $derived(!connected || inventory?.offlineOnly === true);
 	const availableScope = $derived([availability, disconnected].join('|'));
 	const available = $derived(
@@ -231,21 +244,7 @@
 	});
 
 	onMount(() => {
-		let alive = true,
-			version = 0;
 		const network = () => (connected = navigator.onLine);
-		const refresh = async () => {
-			const current = ++version;
-			try {
-				const data =
-					offlineSupported && session.userId ? await offlineInventory(session) : undefined;
-				if (alive && current === version) inventory = data;
-			} catch {
-				if (alive && current === version) inventory = undefined;
-			} finally {
-				if (alive && current === version) ready = true;
-			}
-		};
 		const favorite = () => retry++;
 		const playlistsChanged = () => {
 			if (category === 'Playlists') {
@@ -256,14 +255,10 @@
 		const visibility = () => (visible = !document.hidden);
 		window.addEventListener('dn-playlists-updated', playlistsChanged);
 		document.addEventListener('visibilitychange', visibility);
-		const release = watchOfflineMedia(refresh);
 		window.addEventListener('online', network);
 		window.addEventListener('offline', network);
 		window.addEventListener('dnfavoritechange', favorite);
-		void refresh();
 		return () => {
-			alive = false;
-			release();
 			window.removeEventListener('online', network);
 			window.removeEventListener('offline', network);
 			window.removeEventListener('dnfavoritechange', favorite);
@@ -469,7 +464,15 @@
 			signal.throwIfAborted();
 			window.removeEventListener('dn-playback-intent', stop);
 			if (action === 'open') {
-				if (row) ondetail(row, tracks, disconnected);
+				if (row)
+					ondetail(
+						row,
+						tracks,
+						disconnected,
+						available && (category === 'Albums' || category === 'Playlists')
+							? { category, filters }
+							: undefined
+					);
 				return;
 			}
 			if (!tracks.length) throw Error('No playable tracks match this selection.');

@@ -39,8 +39,11 @@
 	let boardView = $state<BoardView>();
 	let hub = $state<LibraryHub>();
 	let searchView = $state<Search>();
+	let albumView = $state<AlbumDetail>(),
+		playlistView = $state<PlaylistDetail>();
 	export function getPlaybackAvailability() {
-		if (inside) return undefined;
+		if (inside)
+			return albumView?.getPlaybackAvailability() ?? playlistView?.getPlaybackAvailability();
 		return tab === 'library'
 			? hub?.getPlaybackAvailability()
 			: tab === 'search'
@@ -206,6 +209,8 @@
 			<DiscoverArtist {session} {onplay} {artist} onopen={open} onback={back} />
 		</div>{/if}
 	{#if album}{#key album}<AlbumDetail
+				bind:this={albumView}
+				foreground={active}
 				{album}
 				backLabel={initialCredit?.kind === 'album' && initialCredit.album === album
 					? 'Back to Now Playing'
@@ -216,6 +221,8 @@
 				onrequests={showRequests}
 			/>{/key}
 	{:else if playlist}<PlaylistDetail
+			bind:this={playlistView}
+			{active}
 			{session}
 			{playlist}
 			{onplay}

@@ -12,6 +12,7 @@ import {
 	type BrowseFilters
 } from './trackFilters';
 export { requestFilters, type BrowseFilters } from './trackFilters';
+import { rememberAlbumCount } from './albumTrackCounts';
 import { offlinePlaylists } from './playlistOffline';
 import { readLibraryGenres, tracksInGenre, displayTag } from './libraryGenres';
 
@@ -33,6 +34,7 @@ export type BrowseItem = {
 	localTracks?: PlayerTrack[];
 	available?: PlayerTrack[];
 	count?: number;
+	knownPlayable?: number;
 	year?: number;
 	added?: number;
 };
@@ -81,6 +83,14 @@ export function trackItem(track: PlayerTrack): BrowseItem {
 		year: track.year,
 		added: track.dateAdded
 	};
+}
+export function trackOccurrences(tracks: PlayerTrack[]) {
+	const occurrences = new Map<string, number>();
+	return tracks.map((track) => {
+		const occurrence = (occurrences.get(track.id) ?? 0) + 1;
+		occurrences.set(track.id, occurrence);
+		return { ...trackItem(track), id: JSON.stringify([track.id, occurrence]) };
+	});
 }
 export function browseChoice(session: Session, item: BrowseItem) {
 	return {
@@ -142,6 +152,16 @@ function sorted(items: BrowseItem[], f: BrowseFilters) {
 		)
 		.sort(compare);
 }
+export function localAlbumKey(track: PlayerTrack) {
+	return (
+		track.albumId ||
+		JSON.stringify([
+			track.album || 'Unknown album',
+			track.albumArtist || track.artist || 'Unknown artist'
+		])
+	);
+}
+export type DeviceCollection = { category: 'Albums' | 'Playlists'; filters: BrowseFilters };
 export function localBrowse(
 	category: Category,
 	tracks: PlayerTrack[],
@@ -183,7 +203,7 @@ export function localBrowse(
 			}
 		} else if (category === 'Albums') {
 			const title = t.album || 'Unknown album';
-			group(t.albumId || JSON.stringify([title, artist]), title, t, artist);
+			group(localAlbumKey(t), title, t, artist);
 		} else if (category === 'Genres') {
 			const title = t.genre?.trim() || '';
 			group(title.toLocaleLowerCase(), title, t);
@@ -236,6 +256,7 @@ export async function browsePage(
 			...p,
 			items: p.items.map((a) => {
 				const album = localAlbum(a);
+				rememberAlbumCount(session, a.id, a.track_count);
 				return {
 					id: 'album:' + a.id,
 					title: album.title,

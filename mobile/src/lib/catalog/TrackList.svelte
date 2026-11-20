@@ -4,18 +4,24 @@
 	import type { Session } from '../connection';
 	import TrackRow from './TrackRow.svelte';
 	import type { PlayerTrack } from '../player';
+	import type { DetailInventory } from './detailInventory.svelte';
 	import type { OnPlay } from './catalog';
 	let {
 		session,
 		tracks,
 		onplay,
+		device,
+		positions,
 		albumSheet = false
 	}: {
 		albumSheet?: boolean;
+		device?: DetailInventory;
+		positions?: number[];
 		session: Session;
 		tracks: (PlayerTrack & { favorite?: boolean })[];
 		onplay: OnPlay;
 	} = $props();
+	const inventory = $derived(device?.inventory);
 </script>
 
 <div data-part="track-list" data-album-sheet={albumSheet || undefined}>
@@ -26,12 +32,14 @@
 				title={track.title}
 				artist={track.artist}
 				duration={track.duration}
-				position={index + 1}
+				position={positions?.[index] ?? index + 1}
+				availability={inventory ? (inventory.byId.get(track.id)?.origin ?? 'online') : undefined}
 				onplay={() => onplay(tracks, index)}
 			/><TrackActions
 				{session}
 				tracks={[track]}
 				label={'More options for ' + track.title}
+				deviceAvailable={device ? !!inventory?.byId.has(track.id) : undefined}
 				favorite={track.favorite}
 			/>
 		</div>

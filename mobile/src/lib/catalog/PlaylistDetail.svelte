@@ -15,6 +15,10 @@
 	import SelectionHost from './SelectionHost.svelte';
 	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
+	import { detailInventory } from './detailInventory.svelte';
+	import DetailAvailability from './DetailAvailability.svelte';
+	import { matchesAvailability, type Availability } from '../offline/library';
+	import { offlineSupported } from '../offline/media';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import PlaylistExport from './PlaylistExport.svelte';
 	import { Download } from '@lucide/svelte';
@@ -26,6 +30,7 @@
 		playlist,
 		onplay,
 		onback,
+		active = true,
 		backLabel = 'Back to playlists'
 	}: {
 		session: Session;
@@ -33,6 +38,7 @@
 		onplay: OnPlay;
 		onback: () => void;
 		backLabel?: string;
+		active?: boolean;
 	} = $props();
 	let detail = $state<Awaited<ReturnType<typeof readPlaylist>>>();
 	let count = $state(50),
@@ -45,6 +51,38 @@
 	let dialog = $state<'export' | 'rename' | 'sharing' | 'remove' | 'delete' | null>(null);
 	let remove = $state<{ id: string; title: string } | null>(null);
 	const current = $derived(detail?.playlist ?? playlist);
+	const device = detailInventory(
+		() => session,
+		() => active && !!detail
+	);
+	let availability = $state<Availability>('all');
+	const filter = $derived(editing ? 'all' : availability);
+	const visible = $derived.by(() => {
+		const data = detail;
+		let playIndex = 0;
+		return (
+			data?.rows.flatMap(({ entry, index }, position) => {
+				const track = index === null ? undefined : data.tracks[index];
+				if (
+					filter !== 'all' &&
+					!(track && device.inventory && matchesAvailability(device.inventory, track.id, filter))
+				)
+					return [];
+				return [{ entry, position, track, playIndex: track ? playIndex++ : null }];
+			}) ?? []
+		);
+	});
+	const shownTracks = $derived(visible.flatMap(({ track }) => track ?? []));
+	const choicesInView = $derived(
+		visible.flatMap(({ entry, track }) => (track ? [trackChoice(track, 'entry:' + entry.id)] : []))
+	);
+	const eligible = $derived(new Set(choicesInView.map((c) => c.id)));
+	const countOnDevice = $derived(
+		detail?.tracks.reduce((n, t) => n + Number(!!device.inventory?.byId.has(t.id)), 0) ?? 0
+	);
+	export function getPlaybackAvailability() {
+		return filter === 'all' ? undefined : filter;
+	}
 	async function load() {
 		busy = !detail;
 		error = '';
@@ -106,7 +144,7 @@
 	{/if}
 	<div class="actions">
 		{#if detail.tracks.length}
-			<button class="primary" onclick={() => detail && onplay(detail.tracks, 0)}
+			<button class="primary" disabled={!shownTracks.length} onclick={() => onplay(shownTracks, 0)}
 				><Play size={18} />Play playlist</button
 			>
 		{/if}
@@ -148,6 +186,21 @@
 		</div>
 	{/if}
 	{#if editError && !dialog}<p role="alert">{editError}</p>{/if}
+	{#if offlineSupported && session.userId}<DetailAvailability
+			source={device}
+			available={countOnDevice}
+			total={detail.tracks.length}
+			unavailable={detail.rows.length - detail.tracks.length}
+			{editing}
+			value={availability}
+			onchange={(v) => {
+				availability = v;
+				count = 50;
+			}}
+		/>{/if}
+	{#if !visible.length && detail.tracks.length && device.inventory}<p>
+			No tracks match this availability.
+		</p>{/if}
 	{#if !detail.tracks.length}
 		<p>
 			{detail.rows.length
@@ -155,7 +208,15 @@
 				: 'This playlist is empty.'}
 		</p>
 	{/if}
-	<SelectionHost {session} {onplay} enabled={!editing} scope={String(editing)}>
+	<SelectionHost
+		{session}
+		{onplay}
+		{active}
+		enabled={!editing}
+		scope={String(editing) + filter}
+		choices={() => choicesInView}
+		contains={(id) => eligible.has(id)}
+	>
 		<ReorderList
 			count={detail.rows.length}
 			order={() => JSON.stringify(detail?.rows.map(({ entry }) => entry.id))}
@@ -164,17 +225,18 @@
 			{#snippet children(grip)}
 				{#if detail}
 					<div data-part="track-list">
-						{#each detail.rows.slice(0, count) as { entry, index }, position (entry.id)}
+						{#each visible.slice(0, count) as { entry, position, track, playIndex } (entry.id)}
 							<div class="entry" data-entry={entry.id} data-reorder-row={position}>
 								<TrackRow
-									choice={index === null
-										? undefined
-										: trackChoice(detail.tracks[index], 'entry:' + entry.id)}
+									choice={track ? trackChoice(track, 'entry:' + entry.id) : undefined}
+									availability={track && device.inventory
+										? (device.inventory.byId.get(track.id)?.origin ?? 'online')
+										: undefined}
 									title={entry.track_name}
 									artist={entry.artist_name}
 									duration={entry.duration}
 									position={position + 1}
-									onplay={index === null ? undefined : () => detail && onplay(detail.tracks, index)}
+									onplay={playIndex === null ? undefined : () => onplay(shownTracks, playIndex)}
 								/>
 								{#if editing && current.can_edit}
 									<div class="tools">
@@ -197,7 +259,7 @@
 				{/if}
 			{/snippet}
 		</ReorderList>
-		{#if count < detail.rows.length}<button class="secondary more" onclick={() => (count += 50)}
+		{#if count < visible.length}<button class="secondary more" onclick={() => (count += 50)}
 				>More tracks</button
 			>{/if}</SelectionHost
 	>
