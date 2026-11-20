@@ -36,7 +36,7 @@
 		onnavigate: (tab: CatalogTab) => void;
 	} = $props();
 	const dismissSelection = librarySelectionBack();
-	let boardView = $state<{ goBack: () => boolean }>();
+	let boardView = $state<BoardView>();
 	let hub = $state<LibraryHub>();
 	let searchView = $state<Search>();
 	export function getPlaybackAvailability() {
@@ -45,7 +45,7 @@
 			? hub?.getPlaybackAvailability()
 			: tab === 'search'
 				? searchView?.getPlaybackAvailability()
-				: undefined;
+				: boardView?.getPlaybackAvailability();
 	}
 	export function getHeader() {
 		return tab === 'library' && !inside ? hub?.getHeader() : undefined;

@@ -77,7 +77,7 @@ export function defaults(board: LayoutTarget): Section[] {
 		board === 'home'
 			? ['library-recently-added', 'library-recently-played', 'discover-top_picks']
 			: board === 'library'
-				? libraryWidgets.map((w) => w.id)
+				? libraryWidgets.filter((w) => w.id !== 'library-genres').map((w) => w.id)
 				: defaultDiscoveryWidgets;
 	return ids.map((id) => ({
 		id,

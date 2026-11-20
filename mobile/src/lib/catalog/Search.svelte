@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import { unreachableDn, type Session } from '../connection';
-	import {
-		offlineSupported,
-		preferredOffline,
-		offlineInventory,
-		watchOfflineMedia
-	} from '../offline/media';
-	import type { OfflineInventory } from '../offline/library';
+	import type { Session } from '../connection';
+	import { catalogSource } from './catalogSource.svelte';
 	import { DeviceSearchIndex } from './deviceSearch';
 	import DeviceSearchResults from './DeviceSearchResults.svelte';
 	import LibraryGroup from './LibraryGroup.svelte';
@@ -55,18 +49,14 @@
 	let root: HTMLElement,
 		localResults = $state<DeviceSearchResults>(),
 		detail = $state.raw<{ category: Category; row: BrowseItem } | null>(null);
-	let ready = $state(false),
-		policyIssue = $state(''),
-		forced = $state(false),
-		connected = $state(navigator.onLine),
-		failedConnection = $state(false),
-		policyRetry = $state(0);
-	let inventory = $state.raw<OfflineInventory>(),
-		storageError = $state(''),
-		storageBusy = $state(false),
-		storageRetry = $state(0),
-		ruleRevision = $state(0);
-	const useDevice = $derived(forced || !connected || failedConnection);
+	const source = catalogSource(
+		() => session,
+		() => active,
+		() => !!detail
+	);
+	const useDevice = $derived(source.useDevice),
+		inventory = $derived(source.inventory);
+	let ruleRevision = $state(0);
 	const localModel = $derived.by(() => {
 		void ruleRevision;
 		return inventory ? new DeviceSearchIndex(session, inventory) : undefined;
@@ -82,84 +72,6 @@
 		restoration = 0;
 	const query = $derived({ account: session, q: term.trim(), kind: scope, start: offset, retry });
 	let completed: typeof query | undefined;
-	$effect(() => {
-		const account = session;
-		void policyRetry;
-		let live = true,
-			version = 0;
-		ready = false;
-		policyIssue = '';
-		failedConnection = false;
-		inventory = undefined;
-		async function policy() {
-			const current = ++version;
-			ready = false;
-			try {
-				const value = offlineSupported && account.userId ? await preferredOffline(account) : false;
-				if (live && version === current) {
-					forced = value;
-					ready = true;
-					policyIssue = '';
-				}
-			} catch (cause) {
-				if (live && version === current) {
-					policyIssue = errorMessage(cause);
-					ready = false;
-				}
-			}
-		}
-		const network = () => {
-			connected = navigator.onLine;
-			if (connected) failedConnection = false;
-		};
-		window.addEventListener('online', network);
-		window.addEventListener('offline', network);
-		window.addEventListener('dn-offline-policy', policy);
-		void policy();
-		return () => {
-			live = false;
-			window.removeEventListener('online', network);
-			window.removeEventListener('offline', network);
-			window.removeEventListener('dn-offline-policy', policy);
-		};
-	});
-	$effect(() => {
-		const account = session,
-			needs = useDevice || !!detail;
-		void storageRetry;
-		if (!ready || !needs || !active) return;
-		let live = true,
-			version = 0;
-		async function read() {
-			const n = ++version;
-			if (!account.userId) {
-				storageError = 'Reconnect to DroppedNeedle once to identify this device library.';
-				storageBusy = false;
-				return;
-			}
-			if (!offlineSupported) {
-				storageError = 'Offline music is unavailable on this platform.';
-				storageBusy = false;
-				return;
-			}
-			storageBusy = true;
-			storageError = '';
-			try {
-				const state = await offlineInventory(account);
-				if (live && n === version) inventory = state;
-			} catch (cause) {
-				if (live && n === version) storageError = errorMessage(cause);
-			} finally {
-				if (live && n === version) storageBusy = false;
-			}
-		}
-		const stop = watchOfflineMedia(read);
-		void read();
-		return () => {
-			live = false;
-			stop();
-		};
-	});
 	$effect(() => {
 		const selected = detail,
 			model = localModel;
@@ -246,16 +158,9 @@
 		});
 		return true;
 	}
-	function connectionFailed(cause: unknown) {
-		if (unreachableDn(cause)) {
-			failedConnection = true;
-			return true;
-		}
-		return false;
-	}
 	$effect(() => {
 		const spec = query,
-			can = active && ready && !detail;
+			can = active && source.ready && !detail;
 		if (useDevice) {
 			completed = undefined;
 			return;
@@ -289,7 +194,8 @@
 					completed = spec;
 				}
 			} catch (cause) {
-				if (!controller.signal.aborted && !connectionFailed(cause)) error = errorMessage(cause);
+				if (!controller.signal.aborted && !source.connectionFailed(cause))
+					error = errorMessage(cause);
 			} finally {
 				if (!controller.signal.aborted) {
 					busy = false;
@@ -323,24 +229,24 @@
 					onclick={() => choose(item.id)}>{item.label}</button
 				>{/each}
 		</div>
-		{#if policyIssue}<p role="alert">{policyIssue}</p>
-			<button class="secondary" onclick={() => policyRetry++}>Retry search settings</button>
-		{:else if !ready}<p role="status">Opening search…</p>
+		{#if source.policyIssue}<p role="alert">{source.policyIssue}</p>
+			<button class="secondary" onclick={() => source.retryPolicy()}>Retry search settings</button>
+		{:else if !source.ready}<p role="status">Opening search…</p>
 		{:else if useDevice}
 			<p class="device-source" role="status">
-				{failedConnection && connected && !forced
+				{source.unreachable
 					? 'DN is unavailable. Searching music on this device.'
 					: 'Searching music on this device.'}
-				{#if failedConnection && connected && !forced}<button
+				{#if source.unreachable}<button
 						class="text-button"
 						onclick={() => {
-							failedConnection = false;
+							source.retryNetwork();
 							retry++;
 						}}>Retry DN</button
 					>{/if}
 			</p>
-			{#if storageError}<p role="alert">{storageError}</p>
-				{#if session.userId}<button class="secondary" onclick={() => storageRetry++}
+			{#if source.storageError}<p role="alert">{source.storageError}</p>
+				{#if session.userId}<button class="secondary" onclick={() => source.retryStorage()}
 						>Retry device library</button
 					>{/if}
 			{:else if inventory && !inventory.items.length}<p>
@@ -361,7 +267,7 @@
 					onready={restore}
 					onrules={() => ruleRevision++}
 				/>
-			{:else if storageBusy}<p role="status">Opening saved music…</p>{/if}
+			{:else if source.storageBusy}<p role="status">Opening saved music…</p>{/if}
 		{:else if scope === 'genres' || scope === 'playlists'}
 			<SearchCollection
 				{session}
@@ -370,7 +276,7 @@
 				{ongenre}
 				{onplaylist}
 				active={active && !detail}
-				onerror={connectionFailed}
+				onerror={source.connectionFailed}
 				onready={restore}
 			/>
 		{:else if error}<p role="alert">{error}</p>
@@ -428,7 +334,7 @@
 			><ChevronLeft size={18} />Back to search</button
 		>
 		{#if detailError}<p role="alert">{detailError}</p>
-			<button class="secondary" onclick={() => storageRetry++}>Retry device library</button>
+			<button class="secondary" onclick={() => source.retryStorage()}>Retry device library</button>
 		{:else}
 			{#key detail.row.id}<LibraryGroup
 					{session}

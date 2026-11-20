@@ -3,8 +3,10 @@
 		libraryFilter,
 		filterSummary,
 		sorts,
+		type FilterSection,
 		type LibraryFilter
 	} from '../boards/filteredSections';
+	import { recordShelfMatches } from '../boards/shelfLibrary';
 	import type { Preview } from '../boards/display';
 	import { untrack, onMount } from 'svelte';
 	import { Heart, Play, Shuffle } from '@lucide/svelte';
@@ -49,7 +51,7 @@
 		display?: Preview;
 		kind: 'albums' | 'artists' | 'songs';
 		artist?: Artist;
-		fixedFilter?: LibraryFilter;
+		fixedFilter?: FilterSection;
 		onsavefilters?: (config: LibraryFilter) => void;
 		artistAppearances?: boolean;
 		active?: boolean;
@@ -250,6 +252,13 @@
 					...albums,
 					...result.items.filter((a) => !albums.some((v) => v.localId === a.id)).map(localAlbum)
 				];
+				if (fixedFilter)
+					recordShelfMatches(
+						session,
+						fixedFilter,
+						albums.flatMap((a) => (a.localId ? [a.localId] : [])),
+						!result.next
+					);
 				next = result.next ?? null;
 			} else if (kind === 'artists') {
 				const result = await getJson<Schema['ArtistPage']>(
@@ -258,6 +267,13 @@
 				);
 				if (version !== generation) return;
 				artists = [...artists, ...result.items.filter((a) => !artists.some((v) => v.id === a.id))];
+				if (fixedFilter)
+					recordShelfMatches(
+						session,
+						fixedFilter,
+						artists.map((a) => a.id),
+						!result.next
+					);
 				next = result.next ?? null;
 			} else {
 				const result = await getJson<Schema['TrackListPage']>(

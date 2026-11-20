@@ -2,6 +2,13 @@
 	import { onMount, tick } from 'svelte';
 	import { ArrowLeft, ChevronRight, PanelsTopLeft, Download, ListFilterPlus } from '@lucide/svelte';
 	import type { Session } from '../connection';
+	import { catalogSource } from '../catalog/catalogSource.svelte';
+	import { availableTracks } from '../offline/library';
+	import { errorMessage } from '../catalog/catalog';
+	import type { BrowseItem } from '../catalog/libraryBrowse';
+	import LibraryGroup from '../catalog/LibraryGroup.svelte';
+	import LibraryShelf from './LibraryShelf.svelte';
+	import { shelfRows } from './shelfLibrary';
 	import type { Album, OnPlay } from '../catalog/catalog';
 	import type { DiscoverArtistRef } from '../catalog/discovery';
 	import type { Playlist } from '../catalog/playlists';
@@ -66,11 +73,59 @@
 	}
 	let expanded = $state<Section | null>(null);
 	let root: HTMLElement;
+	let group = $state.raw<{ row: BrowseItem; section: Section; device: boolean } | null>(null),
+		groupScroll = 0;
+	const source = catalogSource(
+		() => session,
+		() => active,
+		() => !!group?.device
+	);
+	const deviceShelves = $derived(source.useDevice || !!group?.device);
+	const tracks = $derived(source.inventory ? availableTracks(source.inventory) : undefined);
+	const localDetail = $derived(!!group && (group.device || source.useDevice));
+	let detailRow = $state.raw<BrowseItem>(),
+		detailError = $state(''),
+		detailRetry = $state(0);
+	$effect(() => {
+		const detail = group,
+			music = tracks;
+		void detailRetry;
+		if (!active || !detail || !localDetail || !music) return;
+		const request = new AbortController();
+		detailError = '';
+		void shelfRows(session, detail.section, music, request.signal).then(
+			(rows) => {
+				const match = rows.find(
+					(row) =>
+						row.id === detail.row.id ||
+						(detail.row.genre !== undefined &&
+							row.id === 'Genres:' + detail.row.genre.toLocaleLowerCase())
+				);
+				if (!request.signal.aborted) detailRow = match;
+			},
+			(e) => {
+				if (!request.signal.aborted) detailError = errorMessage(e);
+			}
+		);
+		return () => request.abort();
+	});
+	function openGroup(section: Section, row: BrowseItem) {
+		groupScroll = root.closest('main')?.scrollTop ?? 0;
+		group = { section, row, device: source.useDevice };
+		detailRow = row;
+		detailError = '';
+		scroll(0);
+	}
+	export function getPlaybackAvailability(): 'offline' | undefined {
+		return source.useDevice || group?.device ? 'offline' : undefined;
+	}
+
 	let offset = 0;
 	let live = false;
 	async function load() {
 		error = '';
 		try {
+			if (!session.userId && !navigator.onLine) throw Error('Reconnect to identify this listener.');
 			const id = await accountId(session);
 			if (!live) return;
 			sections = loadLayout(session.serverUrl, id, board);
@@ -119,6 +174,12 @@
 		scroll(0);
 	}
 	export function goBack() {
+		if (group) {
+			group = null;
+			detailRow = undefined;
+			scroll(groupScroll);
+			return true;
+		}
 		if (!expanded) return false;
 		expanded = null;
 		scroll(offset);
@@ -127,7 +188,25 @@
 </script>
 
 {#snippet widget(item: Section, full: boolean, display: Preview)}
-	{#if item.id.startsWith('library-')}
+	{#if deviceShelves && (item.id.startsWith('discover-') || item.id === 'library-recently-played')}
+		<p>
+			{item.id === 'library-recently-played'
+				? 'Connect to DroppedNeedle to view your listening history.'
+				: 'Connect to DroppedNeedle to load this Discover section.'}
+		</p>
+	{:else if deviceShelves || item.id === 'library-genres'}
+		{#if !deviceShelves || tracks}<LibraryShelf
+				section={item}
+				{display}
+				expanded={full}
+				{session}
+				tracks={deviceShelves ? tracks : undefined}
+				active={active && !group && (full || !expanded)}
+				onopen={(row) => openGroup(item, row)}
+				{onplay}
+			/>
+		{:else if !source.storageError}<p role="status">Opening saved music…</p>{/if}
+	{:else if item.id.startsWith('library-')}
 		<LibraryWidget
 			filter={item.filter}
 			onsavefilters={board !== 'discover' ? (config) => (newFilter = config) : undefined}
@@ -137,7 +216,7 @@
 			onartist={onlocal}
 			{onplaylist}
 			{onplay}
-			active={active && (full || !expanded)}
+			active={active && !group && (full || !expanded)}
 			expanded={full}
 			{display}
 			onexpand={() => enter(item)}
@@ -150,7 +229,7 @@
 			{onopen}
 			{onartist}
 			{onplay}
-			active={active && (full || !expanded)}
+			active={active && !group && (full || !expanded)}
 			expanded={full}
 			{display}
 			onexpand={() => enter(item)}
@@ -159,79 +238,122 @@
 {/snippet}
 
 <div bind:this={root} data-board={board}>
-	{#if expanded}
-		<div class="detailbar">
+	{#if source.policyIssue}<p role="alert">{source.policyIssue}</p>
+		<button class="text-button" onclick={source.retryPolicy}>Retry offline settings</button>
+	{:else if !source.ready}<p role="status">Opening sections…</p>
+	{:else}
+		{#if group}
 			<button class="text-button" onclick={goBack}
-				><ArrowLeft size={17} /> Back to {boardNames[board]}</button
+				><ArrowLeft size={17} /> Back to {expanded
+					? sectionTitle(expanded)
+					: boardNames[board]}</button
 			>
-		</div>
-		<SelectionHost
-			{session}
-			{onplay}
-			{active}
-			enabled={board !== 'discover'}
-			scope={expanded.id}
-			heading={sectionTitle(expanded)}
-		>
-			{@const selected = expanded}
-			<PreviewViewport section={selected} expanded>
-				{#snippet children(display)}{@render widget(selected, true, display)}{/snippet}
-			</PreviewViewport>
-		</SelectionHost>
-	{/if}
-	<div hidden={!!expanded}>
-		{#if onrootback}<button class="text-button" onclick={onrootback}
-				><ArrowLeft size={17} />Back to Library</button
-			>{/if}
-		<SelectionHost
-			{session}
-			{onplay}
-			active={active && !expanded}
-			enabled={board !== 'discover'}
-			heading={boardNames[board]}
-		>
-			{#snippet tools()}
-				{#if board === 'library'}
-					{#if owner}<button class="board-action secondary" onclick={() => (newFilter = {})}
-							><ListFilterPlus size={17} />New filtered section</button
-						>{/if}
-					{#if onoffline}<button class="board-action secondary" onclick={onoffline}
-							><Download size={17} />Offline music</button
-						>{/if}
-				{/if}
-			{/snippet}
-			{#if error}<p role="alert">{error}</p>
-				<button class="text-button" onclick={load}>Try again</button>
-			{:else if !owner}<p role="status">Loading layout…</p>
-			{:else if !sections.length}<div class="empty">
-					<PanelsTopLeft size={28} />
-					<p>Choose sections for {boardNames[board]} in Settings.</p>
-				</div>
-			{:else}
-				{#each sections as item (item.id)}
-					<section
-						class:shortcut={!item.preview}
-						class="shelf"
-						data-widget={item.id}
-						aria-label={sectionTitle(item)}
+			{#if detailError || source.storageError}<p role="alert">
+					{detailError || source.storageError}
+				</p>
+				<button
+					class="text-button"
+					onclick={() => {
+						detailRetry++;
+						source.retryStorage();
+					}}>Retry collection</button
+				>{/if}
+			{#key group.row.id + localDetail}
+				<LibraryGroup
+					{session}
+					{active}
+					{onplay}
+					item={localDetail
+						? { ...group.row, localTracks: detailRow?.localTracks ?? [] }
+						: group.row}
+					tracks={localDetail ? (detailRow?.localTracks ?? []) : []}
+					offline={localDetail}
+				/>
+			{/key}
+		{/if}
+		<div hidden={!!group}>
+			{#if deviceShelves}<p class="source">Music on this device</p>
+				{#if source.storageError}<p role="alert">{source.storageError}</p>
+					{#if session.userId}<button class="text-button" onclick={source.retryStorage}
+							>Retry device library</button
+						>{/if}{/if}{/if}
+			{#if expanded}
+				<div class="detailbar">
+					<button class="text-button" onclick={goBack}
+						><ArrowLeft size={17} /> Back to {boardNames[board]}</button
 					>
-						<h2>
-							<button aria-label={'Browse ' + sectionTitle(item)} onclick={() => enter(item)}
-								><span>{sectionTitle(item)}</span><ChevronRight size={20} /></button
-							>
-						</h2>
-						{#if item.preview}<PreviewViewport section={item}
-								>{#snippet children(display)}{@render widget(
-										item,
-										false,
-										display
-									)}{/snippet}</PreviewViewport
-							>{/if}
-					</section>
-				{/each}
+				</div>
+				<SelectionHost
+					{session}
+					{onplay}
+					active={active && !group}
+					localOnly={deviceShelves}
+					enabled={board !== 'discover'}
+					scope={expanded.id + (deviceShelves ? '/device' : '/dn')}
+					heading={sectionTitle(expanded)}
+				>
+					{@const selected = expanded}
+					<PreviewViewport section={selected} expanded>
+						{#snippet children(display)}{@render widget(selected, true, display)}{/snippet}
+					</PreviewViewport>
+				</SelectionHost>
 			{/if}
-		</SelectionHost>
-	</div>
+			<div hidden={!!expanded}>
+				{#if onrootback}<button class="text-button" onclick={onrootback}
+						><ArrowLeft size={17} />Back to Library</button
+					>{/if}
+				<SelectionHost
+					{session}
+					{onplay}
+					active={active && !expanded && !group}
+					localOnly={deviceShelves}
+					enabled={board !== 'discover'}
+					scope={board + (deviceShelves ? '/device' : '/dn')}
+					heading={boardNames[board]}
+				>
+					{#snippet tools()}
+						{#if board === 'library'}
+							{#if owner}<button class="board-action secondary" onclick={() => (newFilter = {})}
+									><ListFilterPlus size={17} />New filtered section</button
+								>{/if}
+							{#if onoffline}<button class="board-action secondary" onclick={onoffline}
+									><Download size={17} />Offline music</button
+								>{/if}
+						{/if}
+					{/snippet}
+					{#if error}<p role="alert">{error}</p>
+						<button class="text-button" onclick={load}>Try again</button>
+					{:else if !owner}<p role="status">Loading layout…</p>
+					{:else if !sections.length}<div class="empty">
+							<PanelsTopLeft size={28} />
+							<p>Choose sections for {boardNames[board]} in Settings.</p>
+						</div>
+					{:else}
+						{#each sections as item (item.id)}
+							<section
+								class:shortcut={!item.preview}
+								class="shelf"
+								data-widget={item.id}
+								aria-label={sectionTitle(item)}
+							>
+								<h2>
+									<button aria-label={'Browse ' + sectionTitle(item)} onclick={() => enter(item)}
+										><span>{sectionTitle(item)}</span><ChevronRight size={20} /></button
+									>
+								</h2>
+								{#if item.preview}<PreviewViewport section={item}
+										>{#snippet children(display)}{@render widget(
+												item,
+												false,
+												display
+											)}{/snippet}</PreviewViewport
+									>{/if}
+							</section>
+						{/each}
+					{/if}
+				</SelectionHost>
+			</div>
+		</div>{/if}
 </div>
 
 {#if newFilter}<FilterSectionDialog
@@ -241,6 +363,10 @@
 	/>{/if}
 
 <style>
+	.source {
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
 	.board-action {
 		display: inline-flex;
 		align-items: center;
