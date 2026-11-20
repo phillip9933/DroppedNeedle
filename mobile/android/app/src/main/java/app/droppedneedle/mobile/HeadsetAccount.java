@@ -17,7 +17,7 @@ final class HeadsetAccount {
     static final String SESSION_KEY = "capacitor-storage_dn.mobile.session";
     final HttpUrl server;
     final String token, userId;
-    private HeadsetAccount(HttpUrl server, String token, String userId) {
+    HeadsetAccount(HttpUrl server, String token, String userId) {
         this.server = server;
         this.token = token;
         this.userId = userId;
