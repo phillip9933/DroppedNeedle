@@ -1,30 +1,21 @@
 <script lang="ts">
-	import { onDestroy, tick, untrack } from 'svelte';
-	import {
-		ArrowLeft,
-		ArrowRight,
-		Plus,
-		GripVertical,
-		Scaling,
-		X,
-		Pencil,
-		Columns3
-	} from '@lucide/svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
+	import { ArrowLeft, ArrowRight, Plus, GripVertical, Scaling } from '@lucide/svelte';
 	import { defaults, sectionTitle, type Section } from '../boards/layout';
-	import {
-		playerWidgets,
-		navigationFields,
-		navigationPlacement,
-		isNavigation,
-		type NavigationId
-	} from './layout';
+	import { playerWidgets, isNavigation } from './layout';
 	import PlayerView from '../PlayerView.svelte';
 	import { sampleSession } from './samplePlayer';
 	import PlayerStyleTransfer from './PlayerStyleTransfer.svelte';
 	import PlayerSlotPicker from './PlayerSlotPicker.svelte';
 	import PlayerCellAppearance from './PlayerCellAppearance.svelte';
 	import PlayerRowInspector from './PlayerRowInspector.svelte';
-	import { emptyColumn, resizeColumns, fillColumn, fiveControlRow, newField } from './composerRows';
+	import {
+		emptyColumn,
+		resizeColumns,
+		fillColumn,
+		fiveControlRow,
+		retainHeader
+	} from './composerRows';
 	import {
 		defaultPlayerText,
 		flattenPlayerRows,
@@ -32,6 +23,9 @@
 		isPlayerSlot,
 		maxPlayerColumns,
 		playerRows,
+		playerCanvas,
+		packPlayerCanvas,
+		rowName,
 		playerTokens,
 		sideBySidePlayer,
 		splitAvailable,
@@ -47,61 +41,31 @@
 		onback: () => void;
 		onsave: (sections: Section[]) => void;
 	} = $props();
-	let rows = $state<Section[][]>(untrack(() => playerRows(sections.map((s) => ({ ...s })))));
+	let rows = $state<Section[][]>(untrack(() => playerCanvas(sections.map((s) => ({ ...s })))));
 	let selected = $state(''),
 		rowAnchor = $state(''),
 		error = $state(''),
 		status = $state('');
-	let swapTarget = $state<number | null>(null);
+	let swapTarget = $state<number | null>(null),
+		placementOpen = $state(false);
 	let list: HTMLDivElement;
-	let headerEntries = $state<Section[]>(
-		untrack(() => sections.filter((s) => s.placement).map((s) => ({ ...s })))
+	let hidden = $state<Section[]>(
+		untrack(() => sections.filter((s) => s.placement === 'hidden').map((s) => ({ ...s })))
 	);
-	let draft = $derived([...flattenPlayerRows(rows), ...headerEntries]);
-
-	let navPanel: HTMLDetailsElement;
-	function editNav(id: NavigationId) {
-		select('');
-		navPanel.open = true;
-		void tick().then(() =>
-			navPanel
-				.querySelector<HTMLSelectElement>(
-					'[aria-label="' + navigationFields.find((a) => a.id === id)!.label + ' placement"]'
-				)
-				?.focus()
-		);
-	}
-	function placeNav(id: NavigationId, placement: string) {
-		const cells = rows.flat();
-		const original =
-			cells.find((s) => s.id === id) ??
-			headerEntries.find((s) => s.id === id) ??
-			newField(id, cells);
-		headerEntries = headerEntries.filter((s) => s.id !== id);
-		if (placement === 'canvas') {
-			if (!cells.some((s) => s.id === id)) {
-				rows = [...rows, [{ ...original, placement: undefined, sameRow: false }]];
-				select(id);
-			}
-		} else {
-			rows = rows.map((row) => row.filter((s) => s.id !== id)).filter((row) => row.length);
-			headerEntries = [
-				...headerEntries,
-				{ ...original, sameRow: undefined, placement: placement as Section['placement'] }
-			];
-			if (selected === id) select('');
-		}
-		status = sectionTitle(original) + ' placement updated.';
-	}
+	let draft = $derived(packPlayerCanvas(rows, hidden));
 
 	type Destination = { r: number; c: number; edge: 'before' | 'after' | 'left' | 'right' };
 	let target = $state<Destination | null>(null),
 		ghost = $state<{ x: number; y: number; name: string } | null>(null);
 	function dropTarget(x: number, y: number): Destination | null {
-		const element = document.elementFromPoint(x, y),
-			row = element?.closest<HTMLElement>('[data-player-row]');
+		const element = document.elementFromPoint(x, y);
+		const row =
+			element?.closest<HTMLElement>('[data-layout-row]') ??
+			element
+				?.closest<HTMLElement>('[data-edit-row]')
+				?.parentElement?.querySelector<HTMLElement>('[data-layout-row]');
 		if (!row || !list.contains(row)) return null;
-		const r = Number(row.dataset.playerRow),
+		const r = Number(row.dataset.layoutRow),
 			box = row.getBoundingClientRect();
 		const cols = [...row.querySelectorAll<HTMLElement>('[data-section-id]')];
 		let c = cols.findIndex((cell) => x <= cell.getBoundingClientRect().right);
@@ -141,7 +105,7 @@
 			next[from].splice(col, 1);
 			next[dest.r].splice(to - (dest.r === from && col < to ? 1 : 0), 0, item);
 		}
-		rows = next.filter((row) => row.length);
+		rows = retainHeader(next);
 		status = sectionTitle(item) + ' moved.';
 	}
 	function rowHeight(r: number) {
@@ -152,19 +116,19 @@
 		const h = Math.max(0, Math.min(640, Math.round(value)));
 		for (const cell of rows[r]) cell.minHeight = h || undefined;
 	}
+	let suppressClick = false;
 	let cancelGesture: (() => void) | undefined;
 	onDestroy(() => cancelGesture?.());
-	function pointer(e: PointerEvent, id: string, mode: 'move' | 'resize') {
+	function pointer(e: PointerEvent, id: string, mode: 'move' | 'resize' | 'row') {
 		if (e.button !== 0 || !e.isPrimary) return;
 		cancelGesture?.();
-		e.preventDefault();
 		e.stopPropagation();
 		const handle = e.currentTarget as HTMLElement,
 			pointerId = e.pointerId;
 		const r = rows.findIndex((row) => row.some((s) => s.id === id)),
 			item = rows[r]?.find((s) => s.id === id);
 		if (!item) return;
-		const row = list.querySelector<HTMLElement>('[data-player-row="' + r + '"]')!;
+		const row = list.querySelector<HTMLElement>('[data-layout-row="' + r + '"]')!;
 		const initialHeight = row.getBoundingClientRect().height,
 			storedHeight = rows[r].map((s) => s.minHeight),
 			initialWidth = item.width,
@@ -185,9 +149,10 @@
 			scroll = scroll.parentElement;
 		const scroller = scroll ?? document.scrollingElement;
 		function paint() {
-			if (mode === 'move') {
+			if (mode !== 'resize') {
 				target = dropTarget(x, y);
-				ghost = { x, y, name: sectionTitle(item!) };
+				if (target && mode === 'row') target.edge = target.r < r ? 'before' : 'after';
+				ghost = { x, y, name: mode === 'row' ? rowName(r) : sectionTitle(item!) };
 			} else {
 				if (rows[r].length === 1 && Math.abs(x - e.clientX) > 4)
 					item!.contentWidth = Math.min(
@@ -203,7 +168,7 @@
 			}
 		}
 		function scrollFrame() {
-			if (moved && mode === 'move' && scroller) {
+			if (moved && mode !== 'resize' && scroller) {
 				const box = scroll?.getBoundingClientRect(),
 					top = box?.top ?? 0,
 					bottom = box?.bottom ?? innerHeight;
@@ -231,9 +196,17 @@
 			handle.removeEventListener('pointercancel', finish);
 			handle.removeEventListener('lostpointercapture', finish);
 			cancelAnimationFrame(frame);
-			if (p?.type === 'pointerup' && moved && mode === 'move') {
+			if (p?.type === 'pointerup' && moved) {
+				// A completed drag must not also open whichever editor is under the release.
+				suppressClick = true;
+				window.setTimeout(() => {
+					suppressClick = false;
+				}, 0);
+			}
+			if (p?.type === 'pointerup' && moved && mode !== 'resize') {
 				const dest = dropTarget(p.clientX, p.clientY);
-				if (dest) drop(id, dest);
+				if (dest && mode === 'row') moveRow(r, dest.r);
+				else if (dest) drop(id, dest);
 			} else if (p?.type !== 'pointerup' && mode === 'resize') {
 				item!.width = initialWidth;
 				item!.contentWidth = initialContent;
@@ -273,7 +246,7 @@
 		let observer: ResizeObserver | undefined;
 		void tick().then(() => {
 			if (stopped) return;
-			const grid = list?.querySelector<HTMLElement>('[data-player-row="' + r + '"]');
+			const grid = list?.querySelector<HTMLElement>('[data-layout-row="' + r + '"]');
 			if (!grid) return;
 			const cells = Array.from(grid.querySelectorAll<HTMLElement>('[data-section-id]'));
 			const measure = () => {
@@ -297,47 +270,109 @@
 	const widget = $derived(playerWidgets.find((w) => w.id === field?.id));
 
 	function select(id: string) {
+		if (selected !== id) placementOpen = false;
 		selected = id;
 		rowAnchor = '';
 		swapTarget = null;
 		error = '';
 	}
-	async function focusField(id: string) {
+	let prior = $state<{ scroll: number; row?: string }>();
+	const mainScroll = () => list.closest('main');
+	async function focusField(id: string, scroll?: number) {
 		await tick();
-		list
-			?.querySelector<HTMLButtonElement>('[data-section-id="' + CSS.escape(id) + '"] .field')
-			?.focus();
+		const el = list?.querySelector<HTMLButtonElement>(
+			'[data-section-id="' + CSS.escape(id) + '"] .field'
+		);
+		restoreFocus(el, scroll);
 	}
-	function finishField() {
-		const id = selected;
+	function restoreFocus(el: HTMLElement | null, scroll?: number) {
+		const main = mainScroll();
+		if (!el || !main) return;
+		if (scroll !== undefined) main.scrollTo(0, scroll);
+		el.focus({ preventScroll: true });
+		const view = main.getBoundingClientRect(),
+			box = el.getBoundingClientRect();
+		if (box.bottom <= view.top + 80 || box.top >= view.bottom)
+			el.scrollIntoView({ block: 'center' });
+	}
+	async function focusPanel() {
+		await tick();
+		const panel = list?.querySelector<HTMLElement>('[data-inspector]');
+		panel?.focus({ preventScroll: true });
+		const main = mainScroll();
+		if (panel && main) {
+			const box = main.getBoundingClientRect(),
+				top = panel.getBoundingClientRect().top;
+			if (top < box.top + 96 || top > box.bottom - 140)
+				main.scrollTop += top - box.top - Math.min(180, box.height * 0.32);
+		}
+	}
+	function openField(id: string, fromRow = false) {
+		if (suppressClick) return;
+		if (id === selected) {
+			finishField();
+			return;
+		}
+		prior = { scroll: mainScroll()?.scrollTop ?? 0, row: fromRow ? rowAnchor : undefined };
+		select(id);
+		void focusPanel();
+	}
+	async function finishField() {
+		const id = selected,
+			previous = prior;
+		prior = undefined;
 		select('');
-		if (id) void focusField(id);
+		if (previous?.row && rows.some((row) => row.some((s) => s.id === previous.row))) {
+			rowAnchor = previous.row;
+			await tick();
+			restoreFocus(
+				list.querySelector<HTMLButtonElement>('[data-edit-column="' + CSS.escape(id) + '"]'),
+				previous.scroll
+			);
+		} else if (id) await focusField(id, previous?.scroll);
 	}
+	let rowScroll = 0;
 	async function finishRow(r: number) {
 		select('');
 		await tick();
-		list
-			?.querySelector<HTMLButtonElement>('button[aria-label="Edit row ' + (r + 1) + '"]')
-			?.focus({ preventScroll: true });
+		restoreFocus(list.querySelector<HTMLButtonElement>('[data-edit-row="' + r + '"]'), rowScroll);
 	}
-
-	function editRow(r: number) {
+	function finishInspector() {
+		if (selected) void finishField();
+		else if (editingRow >= 0) void finishRow(editingRow);
+	}
+	onMount(() => {
+		function back(event: Event) {
+			if ((selected || editingRow >= 0) && !document.querySelector('dialog[open]')) {
+				event.preventDefault();
+				finishInspector();
+			}
+		}
+		window.addEventListener('dn-back', back);
+		return () => window.removeEventListener('dn-back', back);
+	});
+	function editRow(r: number, focus = true) {
+		if (suppressClick) return;
+		prior = undefined;
+		if (focus) rowScroll = mainScroll()?.scrollTop ?? 0;
 		select('');
 		rowAnchor = rows[r]?.[0].id ?? '';
+		if (focus) void focusPanel();
 	}
 	async function addRow() {
 		rows = [...rows, [emptyColumn(rows.flat())]];
-		editRow(rows.length - 1);
+		editRow(rows.length - 1, false);
 		status = 'Row added.';
 		await tick();
-		list
-			.querySelector<HTMLSelectElement>('[aria-label="Edit row ' + rows.length + '"] select')
-			?.focus();
+		const marker = list.querySelector<HTMLElement>('[data-edit-row="' + (rows.length - 1) + '"]');
+		marker?.scrollIntoView({ block: 'nearest' });
+		rowScroll = mainScroll()?.scrollTop ?? 0;
+		list.querySelector<HTMLSelectElement>('[data-inspector] select')?.focus();
 	}
 	function changeColumns(r: number, n: number) {
 		rows = resizeColumns(rows, r, n);
-		editRow(r);
-		status = 'Row ' + (r + 1) + ' now has ' + rows[r].length + ' columns.';
+		editRow(r, false);
+		status = rowName(r) + ' now has ' + rows[r].length + ' columns.';
 	}
 	function chooseFeature(id: string) {
 		if (!field || !isPlayerSlot(field.id)) return;
@@ -345,33 +380,35 @@
 			rows,
 			field.id,
 			id,
-			headerEntries.find((h) => h.id === id)
+			hidden.find((h) => h.id === id)
 		);
-		if (isNavigation(id)) headerEntries = headerEntries.filter((h) => h.id !== id);
+		if (isNavigation(id)) hidden = hidden.filter((h) => h.id !== id);
 		rows = choice.rows;
-		select(isPlayerText(choice.id) ? choice.id : '');
-		status = sectionTitle(rows.flat().find((s) => s.id === choice.id)!) + ' placed.';
-		void focusField(choice.id);
+		const row = rows.find((r) => r.some((s) => s.id === choice.id))!;
+		if (prior?.row && !row.some((s) => s.id === prior!.row)) prior.row = row[0].id;
+		select(choice.id);
+		status = sectionTitle(row.find((s) => s.id === choice.id)!) + ' placed.';
+		if (isPlayerText(choice.id)) void focusPanel();
+		else void finishField();
 	}
 	function moveIntoSlot(id: string, slot: string) {
 		const source = rows.flat().find((s) => s.id === id);
 		const dest = rows.flat().find((s) => s.id === slot);
 		if (!source || !dest) return;
-		rows = rows
-			.map((row) => {
+		rows = retainHeader(
+			rows.map((row) => {
 				const same = row.some((s) => s.id === slot);
 				return row.flatMap((s) =>
 					s.id === slot
-						? [{ ...source, width: dest.width, minHeight: dest.minHeight }]
+						? [{ ...source, width: dest.width, minHeight: dest.minHeight, gap: dest.gap }]
 						: s.id === id
 							? same
-								? [{ ...dest, width: source.width, minHeight: source.minHeight }]
+								? [{ ...dest, width: source.width, minHeight: source.minHeight, gap: source.gap }]
 								: []
 							: [s]
 				);
 			})
-			.filter((row) => row.length);
-		select(id);
+		);
 		status = sectionTitle(source) + ' moved.';
 		void focusField(id);
 	}
@@ -379,21 +416,21 @@
 		const current = rows[r][c],
 			slot = emptyColumn(rows.flat(), current);
 		rows = rows.map((row, i) => (i === r ? row.map((s, j) => (j === c ? slot : s)) : row));
-		if (isNavigation(current.id))
-			headerEntries = [...headerEntries, { ...current, placement: 'hidden' }];
+		if (isNavigation(current.id)) hidden = [...hidden, { ...current, placement: 'hidden' }];
 		select(slot.id);
 		status = 'Column cleared.';
 	}
 	function removeRow(r: number) {
-		headerEntries = [
-			...headerEntries,
+		hidden = [
+			...hidden,
 			...rows[r]
 				.filter((s) => isNavigation(s.id))
 				.map((s) => ({ ...s, placement: 'hidden' as const }))
 		];
-		rows = rows.filter((_, i) => i !== r);
+		rows = retainHeader(rows.map((row, i) => (i === r ? [] : row)));
 		select('');
-		status = 'Row removed.';
+		status = r === 0 ? 'Header cleared.' : 'Row removed.';
+		void finishRow(Math.min(r, rows.length - 1));
 	}
 	function standardControls() {
 		rows = fiveControlRow(rows);
@@ -403,10 +440,8 @@
 	}
 	function remove(r: number, c: number) {
 		const item = rows[r][c];
-		rows = rows
-			.map((row, i) => (i === r ? row.filter((_, j) => j !== c) : row))
-			.filter((row) => row.length);
-		if (isNavigation(item.id)) headerEntries = [...headerEntries, { ...item, placement: 'hidden' }];
+		rows = retainHeader(rows.map((row, i) => (i === r ? row.filter((_, j) => j !== c) : row)));
+		if (isNavigation(item.id)) hidden = [...hidden, { ...item, placement: 'hidden' }];
 		if (item.id === selected) select('');
 		status = sectionTitle(item) + ' removed.';
 		const next = rows[r]?.[Math.min(c, rows[r].length - 1)] ?? rows.at(-1)?.at(-1);
@@ -433,7 +468,7 @@
 	function moveField(value: string) {
 		if (!field) return;
 		swapTarget = null;
-		const to = value === 'new' ? rows.length : Number(value);
+		const to = value === 'new' ? rows.length : Number(value) + 1;
 		if (to === rowIndex) return;
 		const slot = rows[to]?.find((s) => isPlayerSlot(s.id));
 		if (slot) {
@@ -449,7 +484,7 @@
 		next[rowIndex].splice(column, 1);
 		if (to === next.length) next.push([moved]);
 		else next[to].push(moved);
-		rows = next.filter((row) => row.length);
+		rows = retainHeader(next);
 		status =
 			sectionTitle(moved) +
 			' moved to row ' +
@@ -481,7 +516,7 @@
 		}
 		parts[0].sameRow = original.sameRow;
 		flat.splice(at, 1, ...parts);
-		rows = playerRows(flat);
+		rows = retainHeader(playerRows(flat));
 		select(parts[0].id);
 		status = sectionTitle(original) + ' split into separate fields.';
 		void focusField(selected);
@@ -507,8 +542,8 @@
 		}
 	}
 	function loadDraft(items: Section[], message: string) {
-		rows = playerRows(items);
-		headerEntries = items.filter((s) => s.placement);
+		rows = playerCanvas(items);
+		hidden = items.filter((s) => s.placement === 'hidden');
 		select('');
 		status = message;
 	}
@@ -517,6 +552,11 @@
 <div class="composer" data-part="layout-editor">
 	<div class="bar">
 		<button class="text-button" onclick={onback}>Cancel</button>
+		{#if selected || editingRow >= 0}<button
+				class="text-button inspector-done"
+				onclick={finishInspector}
+				><ArrowLeft size={16} /> {prior?.row ? 'Back to row' : 'Back to layout'}</button
+			>{/if}
 		<button class="add-row secondary" onclick={addRow}><Plus size={17} />Add row</button>
 		<button class="primary" onclick={save}>Save layout</button>
 	</div>
@@ -524,32 +564,37 @@
 	{#if error}<p role="alert">{error}</p>{/if}
 	<p class="sr-only" role="status">{status}</p>
 	<p class="hint">
-		Add a row, choose its columns, then tap + to place a feature. The pencil edits a feature in the
-		sample player.
+		Drag the handles to move rows or features. Tap a feature to edit it, or an empty column to add
+		one.
 	</p>
-	<button class="secondary transport-preset" onclick={standardControls}
-		>Arrange five playback controls</button
-	>
+
 	<div class="canvas" bind:this={list} aria-label="Sample player layout">
 		{#snippet rowControls(r: number)}
 			<button
 				class="row-marker"
-				aria-label={'Edit row ' + (r + 1)}
+				data-edit-row={r}
+				aria-label={'Edit ' + rowName(r).toLowerCase()}
 				aria-expanded={editingRow === r}
-				onclick={() => (editingRow === r ? select('') : editRow(r))}
+				onclick={() => {
+					if (!suppressClick) {
+						if (editingRow === r) void finishRow(r);
+						else editRow(r);
+					}
+				}}
+				onpointerdown={(e) => pointer(e, rows[r][0].id, 'row')}
 			>
-				<Columns3 size={15} /><strong>Row {r + 1}</strong><span
+				<GripVertical size={15} /><strong>{rowName(r)}</strong><span
 					>{rows[r].length} {rows[r].length === 1 ? 'column' : 'columns'}</span
-				><Pencil size={13} />
+				>
 			</button>
 		{/snippet}
 		{#snippet overlay(item: Section, r: number, c: number)}
 			{#if isPlayerSlot(item.id)}
 				<button
 					class="field empty"
-					aria-label={'Add feature to row ' + (r + 1) + ', column ' + (c + 1)}
+					aria-label={'Add feature to ' + rowName(r).toLowerCase() + ', column ' + (c + 1)}
 					aria-expanded={selected === item.id}
-					onclick={() => select(item.id)}
+					onclick={() => openField(item.id)}
 				>
 					<Plus size={19} />
 				</button>
@@ -558,18 +603,14 @@
 					class="field filled"
 					aria-label={'Customize ' + sectionTitle(item)}
 					aria-expanded={selected === item.id}
-					onclick={() => select(selected === item.id ? '' : item.id)}
+					onclick={() => openField(item.id)}
+					onpointerdown={(e) => pointer(e, item.id, 'move')}
+					><span class="grip" data-layout-drag aria-hidden="true" title="Drag to move"
+						><GripVertical size={16} /></span
+					></button
 				>
-					<span class="edit-pencil"><Pencil size={12} /></span>
-				</button>
 			{/if}
 			{#if selected === item.id && !isPlayerSlot(item.id)}<button
-					class="grip"
-					data-layout-drag
-					aria-label={'Drag ' + sectionTitle(item)}
-					onpointerdown={(e) => pointer(e, item.id, 'move')}
-					title="Drag field"><GripVertical size={18} /></button
-				><button
 					class="resize-corner"
 					data-layout-drag
 					aria-label={'Resize ' + sectionTitle(item)}
@@ -590,7 +631,11 @@
 					close={() => void finishRow(r)}
 					resize={(n) => changeColumns(r, n)}
 					setWidth={(c, n) => (rows[r][c].width = n)}
-					{select}
+					select={(id) => openField(id, true)}
+					gap={rows[r][0].gap}
+					setGap={(n) => {
+						for (const cell of rows[r]) cell.gap = n;
+					}}
 					move={(to) => moveRow(r, to)}
 					height={rowHeight(r)}
 					setHeight={(n) => setHeight(r, n)}
@@ -601,13 +646,14 @@
 						{r}
 						c={column}
 						{rows}
-						headers={headerEntries}
 						choose={chooseFeature}
 						close={finishField}
 					/>{/key}
 			{:else if r === rowIndex && field}
 				<div
 					class="inspector"
+					data-inspector
+					tabindex="-1"
 					hidden={!!ghost}
 					role="group"
 					aria-label={'Customize ' + sectionTitle(field)}
@@ -616,7 +662,7 @@
 						<strong>{sectionTitle(field)}</strong><button
 							class="tool"
 							aria-label="Finish editing field"
-							onclick={finishField}><X size={18} /></button
+							onclick={finishField}>Done</button
 						>
 					</div>
 					<PlayerCellAppearance
@@ -664,7 +710,7 @@
 								>{/if}</label
 						>
 					{/if}
-					<details class="advanced">
+					<details class="advanced" bind:open={placementOpen}>
 						<summary>Placement and sizing</summary>
 						<div>
 							<label
@@ -678,11 +724,11 @@
 								<label
 									>Move to row<select
 										aria-label="Move to row"
-										value={swapTarget ?? rowIndex}
+										value={(swapTarget ?? rowIndex) - 1}
 										onchange={(e) => moveField(e.currentTarget.value)}
 									>
-										{#each rows as dest, i (i)}<option value={i}
-												>Row {i + 1}{dest.length === maxPlayerColumns && i !== rowIndex
+										{#each rows as dest, i (i)}<option value={i - 1}
+												>{rowName(i)}{dest.length === maxPlayerColumns && i !== rowIndex
 													? ' (full)'
 													: ''}</option
 											>{/each}
@@ -692,10 +738,10 @@
 								<label
 									>Row position<select
 										aria-label="Position"
-										value={rowIndex}
-										onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value))}
+										value={rowIndex - 1}
+										onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value) + 1)}
 									>
-										{#each rows.keys() as i (i)}<option value={i}>{i + 1}</option>{/each}
+										{#each rows.keys() as i (i)}<option value={i - 1}>{rowName(i)}</option>{/each}
 									</select></label
 								>
 							</div>
@@ -705,7 +751,7 @@
 										aria-label="Swap with"
 										value=""
 										onchange={(e) => swapWith(Number(e.currentTarget.value))}
-										><option value="" disabled>Choose a field in row {swapTarget + 1}</option
+										><option value="" disabled>Choose a field in {rowName(swapTarget)}</option
 										>{#each rows[swapTarget] as partner, i (partner.id)}<option value={i}
 												>{sectionTitle(partner)}</option
 											>{/each}</select
@@ -795,8 +841,7 @@
 				selected,
 				overlay,
 				rowControls,
-				inspector,
-				selectNavigation: editNav
+				inspector
 			}}
 		/>
 		{#if !rows.length}<p>Add a row to start your layout.</p>{/if}
@@ -804,24 +849,9 @@
 	{#if ghost}<div class="ghost" style:left={ghost.x + 'px'} style:top={ghost.y + 'px'}>
 			{ghost.name}
 		</div>{/if}
-	<details class="navigation" bind:this={navPanel}>
-		<summary>Header controls</summary>
-		<div>
-			{#each navigationFields as a (a.id)}<label
-					>{a.label}<select
-						aria-label={a.label + ' placement'}
-						value={navigationPlacement(a.id, draft)}
-						onchange={(e) => placeNav(a.id, e.currentTarget.value)}
-						><option value="header-start">Header start</option><option value="header-end"
-							>Header end</option
-						><option value="canvas">Player layout</option><option value="hidden">Hidden</option
-						></select
-					></label
-				>{/each}
-		</div>
-	</details>
 
 	<div class="presets">
+		<button class="secondary" onclick={standardControls}>Arrange five playback controls</button>
 		<button
 			class="secondary"
 			onclick={() => loadDraft(sideBySidePlayer(), 'Side-by-side draft is ready to edit.')}
@@ -841,6 +871,8 @@
 
 <style>
 	.row-marker {
+		touch-action: none;
+		cursor: grab;
 		min-height: 44px;
 		display: flex;
 		align-items: center;
@@ -874,16 +906,6 @@
 	.field.filled {
 		align-items: start;
 		justify-items: end;
-	}
-	.edit-pencil {
-		display: grid;
-		place-items: center;
-		width: 18px;
-		height: 18px;
-		border-radius: 50%;
-		border: 1px solid var(--line);
-		background: var(--raised);
-		color: var(--muted);
 	}
 	.field.empty {
 		color: var(--accent);
@@ -955,9 +977,6 @@
 		}
 	}
 
-	.transport-preset {
-		margin-bottom: 0.55rem;
-	}
 	.hint {
 		font-size: 0.88rem;
 		color: var(--muted);
@@ -977,6 +996,12 @@
 		min-height: 44px;
 		z-index: 1;
 		border-radius: inherit;
+	}
+	.canvas :global([data-inspector]) {
+		scroll-margin-block-start: 6rem;
+	}
+	.canvas :global([data-inspector]:focus:not(:focus-visible)) {
+		outline: none;
 	}
 	.inspector[hidden] {
 		display: none;
@@ -1001,26 +1026,49 @@
 			display: none;
 		}
 	}
-	.field:focus-visible,
-	.grip:focus-visible {
+	.field:focus-visible {
 		outline: 2px solid var(--accent);
 	}
 	.grip {
 		position: absolute;
-		inset-inline-start: 0;
-		bottom: 0;
+		inset-inline-end: 0;
+		top: 0;
 		width: 44px;
 		height: 44px;
 		z-index: 2;
 		display: grid;
-		place-items: center;
-		color: var(--text);
-		background: var(--raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius);
+		align-items: start;
+		justify-items: end;
+		padding: 2px;
+		color: var(--muted);
+		background: transparent;
 		touch-action: none;
 		cursor: grab;
 	}
+	.grip :global(svg) {
+		background: var(--bg);
+		border-radius: 3px;
+	}
+	.field.filled {
+		touch-action: pan-y;
+	}
+	.inspector-done {
+		grid-column: 1 / -1;
+		justify-self: start;
+	}
+	.bar:has(.inspector-done) {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		row-gap: 0;
+	}
+	.bar .inspector-done {
+		grid-row: 2;
+		min-height: 36px;
+	}
+	.bar > .add-row {
+		justify-self: center;
+	}
+
 	.grip:active,
 	.grip-resize:active {
 		cursor: grabbing;
@@ -1088,24 +1136,6 @@
 	.grip-resize {
 		touch-action: none;
 		cursor: nwse-resize;
-	}
-	.navigation {
-		margin-block: var(--gap);
-		border-bottom: 1px solid var(--line);
-	}
-	.navigation summary {
-		cursor: pointer;
-		font-weight: 600;
-		padding: 0.7rem 0;
-	}
-	.navigation label {
-		display: grid;
-		gap: 0.2rem;
-	}
-	.navigation > div {
-		display: grid;
-		gap: 0.5rem;
-		padding: 0 0 var(--gap);
 	}
 	.remove {
 		justify-self: start;

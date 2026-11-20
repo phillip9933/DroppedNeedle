@@ -23,8 +23,9 @@ export type Section = {
 	display?: BoardDisplay;
 	filter?: FilterSection;
 	minHeight?: number;
+	gap?: number;
 	contentWidth?: number;
-	placement?: 'header-start' | 'header-end' | 'hidden';
+	placement?: 'header' | 'header-start' | 'header-end' | 'hidden';
 	sameRow?: boolean;
 	width?: number;
 	padding?: number;
@@ -193,8 +194,8 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 				if (validMeasurement(measure, value)) section[measure] = value;
 			}
 			if (
-				isNavigation(item.id) &&
-				['header-start', 'header-end', 'hidden'].includes(item.placement)
+				item.placement === 'header' ||
+				(isNavigation(item.id) && ['header-start', 'header-end', 'hidden'].includes(item.placement))
 			)
 				section.placement = item.placement;
 			if (item.sameRow === true) section.sameRow = true;

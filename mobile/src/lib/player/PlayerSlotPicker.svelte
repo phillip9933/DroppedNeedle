@@ -1,19 +1,15 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-	import { Check, Plus, X } from '@lucide/svelte';
+	import { Check, Plus } from '@lucide/svelte';
 	import { available, sectionTitle, type Section } from '../boards/layout';
-	import { isPlayerText, splitAvailable, splitPlayerSection } from './composition';
-	import { isNavigation, navigationPlacement } from './layout';
+	import { isPlayerText, splitAvailable, splitPlayerSection, rowName } from './composition';
 	let {
 		rows,
-		headers,
 		choose,
 		close,
 		r,
 		c
 	}: {
 		rows: Section[][];
-		headers: Section[];
 		choose: (id: string) => void;
 		close: () => void;
 		r: number;
@@ -45,32 +41,21 @@
 	function from(id: string) {
 		if (isPlayerText(id)) return '';
 		const row = rows.findIndex((row) => row.some((s) => s.id === id));
-		if (row >= 0) return 'Move from row ' + (row + 1);
+		if (row >= 0) return 'Move from ' + rowName(row).toLowerCase();
 		for (const [index, cells] of rows.entries()) {
 			const group = cells.find(
 				(s) => splitAvailable(s.id) && splitPlayerSection(s).some((p) => p.id === id)
 			);
-			if (group) return sectionTitle(group) + ' · row ' + (index + 1);
+			if (group) return sectionTitle(group) + ' · ' + rowName(index).toLowerCase();
 		}
-		if (isNavigation(id) && navigationPlacement(id, headers) !== 'hidden') return 'Player header';
 		return '';
 	}
-	let panel: HTMLDivElement;
-	$effect(() => {
-		void tick().then(() => panel?.focus({ preventScroll: true }));
-	});
 </script>
 
-<div
-	class="picker"
-	tabindex="-1"
-	bind:this={panel}
-	role="group"
-	aria-label="Choose a player feature"
->
+<div class="picker" tabindex="-1" data-inspector role="group" aria-label="Choose a player feature">
 	<div class="head">
-		<div><strong>Choose a feature</strong><small>Row {r + 1} · column {c + 1}</small></div>
-		<button class="icon" aria-label="Close feature picker" onclick={close}><X size={18} /></button>
+		<div><strong>Choose a feature</strong><small>{rowName(r)} · column {c + 1}</small></div>
+		<button class="icon" aria-label="Close feature picker" onclick={close}>Back</button>
 	</div>
 	<input
 		type="search"

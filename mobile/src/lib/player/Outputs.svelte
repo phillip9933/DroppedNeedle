@@ -84,7 +84,6 @@
 
 {#if android || ios}
 	<button
-		class:custom-face={!!section}
 		class={drawer ? 'drawer-entry' : compact ? 'icon-button' : 'secondary'}
 		aria-label="Cast and audio output"
 		bind:this={opener}
@@ -145,14 +144,6 @@
 {/if}
 
 <style>
-	button.custom-face {
-		width: auto;
-		min-width: min(44px, 100%);
-		height: auto;
-		min-height: 44px;
-		max-width: 100%;
-	}
-
 	.outputs {
 		display: grid;
 		gap: 0.75rem;

@@ -1,140 +1,110 @@
 <script lang="ts">
-	import PlayerNavigationAction from './PlayerNavigationAction.svelte';
-	import { ListMusic, Ellipsis, Pause, Play } from '@lucide/svelte';
+	import { Ellipsis, ListMusic, Pause, Play } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
-	import { navigationFields, navigationPlacement, type NavigationId } from './layout';
 	let {
+		row,
 		sections,
-		title,
-		playing,
 		queueOpen,
+		track,
+		playing,
 		onclose,
 		onqueue,
 		onsettings,
-		ontoggle,
-		onselect
+		ontoggle
 	}: {
+		row: Section[];
 		sections: Section[];
-		title: string;
-		playing: boolean;
 		queueOpen: boolean;
+		track: boolean;
+		playing: boolean;
 		onclose: () => void;
 		onqueue?: () => void;
 		onsettings?: () => void;
 		ontoggle: () => void;
-		onselect?: (id: NavigationId) => void;
 	} = $props();
-	let menu = $state(false);
+	let menu = $state(false),
+		trigger = $state<HTMLButtonElement>();
+	const missingClose = $derived(!row.some((s) => s.id === 'player-close'));
+	const queueExit = $derived(queueOpen && !row.some((s) => s.id === 'player-queue'));
+	const missingPlay = $derived(
+		track &&
+			!queueOpen &&
+			!sections.some(
+				(s) => ['player-toggle', 'player-transport'].includes(s.id) && s.placement !== 'hidden'
+			)
+	);
+	function dismiss() {
+		menu = false;
+		trigger?.focus({ preventScroll: true });
+	}
 	$effect(() => {
 		if (!menu) return;
-		function dismiss(e: Event) {
+		function back(e: Event) {
 			e.preventDefault();
-			menu = false;
+			dismiss();
 		}
-		window.addEventListener('dn-back', dismiss);
-		return () => window.removeEventListener('dn-back', dismiss);
+		window.addEventListener('dn-back', back);
+		return () => window.removeEventListener('dn-back', back);
 	});
-	function activate(id: NavigationId) {
-		menu = false;
-		if (onselect) {
-			onselect(id);
-			return;
-		}
-		if (id === 'player-close') onclose();
-		else if (id === 'player-settings') onsettings?.();
-		else onqueue?.();
-	}
-	const actions = $derived(
-		navigationFields.filter((a) => a.id !== 'player-settings' || onsettings || onselect)
-	);
-	const fallback = $derived(
-		!actions.some(
-			(a) => a.id === 'player-close' && navigationPlacement(a.id, sections).startsWith('header')
-		)
-	);
 </script>
 
-{#snippet action(id: NavigationId)}
-	<PlayerNavigationAction
-		{id}
-		section={sections.find((s) => s.id === id)}
-		{queueOpen}
-		editing={!!onselect}
-		header
-		onactivate={activate}
-	/>
-{/snippet}
-<header class="player-header">
-	<div class="actions">
-		{#each actions.filter((a) => navigationPlacement(a.id, sections) === 'header-start') as a (a.id)}{@render action(
-				a.id
-			)}{/each}
-		{#if fallback}<button
+{#if missingClose || queueExit || missingPlay}
+	<div class="fallback">
+		{#if missingClose}<button
 				class="icon-button"
+				bind:this={trigger}
 				aria-label="Player menu"
 				aria-expanded={menu}
 				onclick={() => (menu = !menu)}><Ellipsis /></button
 			>{/if}
-	</div>
-	<strong
-		>{queueOpen || sections.some((s) => ['player-track', 'player-title'].includes(s.id))
-			? 'Now playing'
-			: title}</strong
-	>
-	<div class="actions">
-		{#if !queueOpen && !sections.some( (s) => ['player-transport', 'player-toggle'].includes(s.id) )}<button
+		{#if missingPlay}<button
 				class="icon-button"
 				aria-label={playing ? 'Pause' : 'Play'}
 				onclick={ontoggle}
 				>{#if playing}<Pause />{:else}<Play />{/if}</button
 			>{/if}
-		{#each actions.filter((a) => navigationPlacement(a.id, sections) === 'header-end') as a (a.id)}{@render action(
-				a.id
-			)}{/each}
-	</div>
-	{#if menu}<div class="menu" role="group" aria-label="Player navigation">
-			<button onclick={() => activate('player-close')}>Close player</button
-			>{#if onsettings || onselect}<button onclick={() => activate('player-settings')}
-					>Player settings</button
-				>{/if}<button onclick={() => activate('player-queue')}
-				>{queueOpen ? 'Hide play queue' : 'Show play queue'}</button
-			>
-		</div>{/if}
-	{#if queueOpen && !navigationPlacement('player-queue', sections).startsWith('header')}<button
-			class="icon-button"
-			aria-label="Hide play queue"
-			onclick={onqueue}><ListMusic /></button
-		>{/if}
-</header>
+		{#if queueExit}<button class="icon-button" aria-label="Hide play queue" onclick={onqueue}
+				><ListMusic /></button
+			>{/if}
+		{#if menu}<div class="menu" role="group" aria-label="Player navigation">
+				<button
+					onclick={() => {
+						dismiss();
+						onclose();
+					}}>Close player</button
+				>
+				{#if onsettings}<button
+						onclick={() => {
+							dismiss();
+							onsettings();
+						}}>Player settings</button
+					>{/if}
+				{#if track}<button
+						onclick={() => {
+							dismiss();
+							onqueue?.();
+						}}>{queueOpen ? 'Hide play queue' : 'Show play queue'}</button
+					>{/if}
+			</div>{/if}
+	</div>{/if}
 
 <style>
-	.player-header {
-		position: sticky;
-		top: 0;
-		z-index: 1;
+	.fallback {
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-end;
+		gap: 0.25rem;
 		align-items: center;
-		min-height: 3.8rem;
-		background: var(--bg);
-		gap: 0.2rem;
+		position: relative;
 	}
-	.actions {
-		display: flex;
-		align-items: center;
-	}
-	.player-header strong {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 0.87rem;
-		letter-spacing: 0.03em;
+	.fallback > button {
+		width: 44px;
+		height: 44px;
+		flex: none;
 	}
 	.menu {
 		position: absolute;
 		top: 100%;
-		inset-inline-start: 0;
+		inset-inline-end: 0;
 		z-index: 2;
 		display: grid;
 		background: var(--surface);
@@ -147,5 +117,6 @@
 		min-height: 44px;
 		padding-inline: 0.8rem;
 		text-align: start;
+		white-space: nowrap;
 	}
 </style>

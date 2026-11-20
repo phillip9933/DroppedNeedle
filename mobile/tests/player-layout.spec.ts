@@ -162,7 +162,7 @@ test('a listener saves, cancels and restores the Now Playing layout independentl
 	await page.getByRole('combobox', { name: 'Position', exact: true }).selectOption('0');
 	await page.getByRole('button', { name: 'Save layout' }).click();
 	await expect(playing).toBeVisible();
-	await expect(playing.locator('[data-section-id]').first()).toHaveAttribute(
+	await expect(playing.locator('[data-part=player-row] [data-section-id]').first()).toHaveAttribute(
 		'data-section-id',
 		'player-up-next'
 	);
@@ -181,7 +181,7 @@ test('a listener saves, cancels and restores the Now Playing layout independentl
 	await play(page, 'alex');
 	await expect(playing.getByRole('heading', { name: 'On the turntable' })).toBeVisible();
 	await edit();
-	const fields = page.locator('.canvas [data-section-id] button.field');
+	const fields = page.locator('.canvas [data-player-row] [data-section-id] button.field');
 	await expect(fields.first()).toBeVisible();
 	while (await fields.count()) {
 		await fields.last().click();
@@ -374,9 +374,11 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	await addFeature(page, 'Add to playlist');
 	await button('Customize Playback position').click();
 	await button('Split Playback position').click();
-	await page.getByText('Header controls', { exact: true }).click();
-	await page.getByLabel('Play queue placement').selectOption('canvas');
-	await page.getByLabel('Close player placement').selectOption('hidden');
+	await button('Customize Play queue').click();
+	await openPlayerPlacement(page);
+	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
+	await button('Customize Close player').click();
+	await button('Remove Close player').click();
 	await button('Save layout').click();
 	await expect(region.locator('[data-section-id=player-quality]')).toHaveText(
 		'FLAC · 16-bit · 44.1 kHz'
@@ -553,5 +555,112 @@ test('a listener sees the five-button row proportions, appearance and reserved t
 	await checkRow(live);
 	await expect(lines(live)).toHaveCSS('-webkit-line-clamp', '3');
 	expect(await hasLines(live)).toBe(true);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('an older header becomes an editable grid with square controls on the header, in a body row and in the queue', async ({
+	page
+}) => {
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+	await page.addInitScript(
+		({ key }) => {
+			if (localStorage.getItem(key)) return;
+			const fields = [
+				{ id: 'player-track' },
+				{ id: 'player-transport' },
+				{ id: 'player-close', placement: 'header-end', icon: 'circle-play', iconSize: 32 },
+				{ id: 'player-queue', placement: 'header-start', icon: 'square-play', iconSize: 36 },
+				{ id: 'player-output', placement: 'hidden' }
+			];
+			localStorage.setItem(
+				key,
+				JSON.stringify(fields.map((s) => ({ title: '', preview: true, ...s })))
+			);
+		},
+		{ key }
+	);
+	await page.setViewportSize({ width: 320, height: 720 });
+	await fixture(page);
+	await play(page);
+	const live = page.locator('[data-part=now-playing]'),
+		sample = page.locator('[data-part=sample-player]'),
+		button = (name: string) => page.getByRole('button', { name, exact: true });
+	const ids = (where: typeof live) =>
+		where
+			.locator('header [data-section-id]')
+			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')));
+	const geometry = async (where: typeof live, id: string, size: number) => {
+		const field = where.locator('[data-section-id="' + id + '"]');
+		const boxes = await field
+			.locator('.content .icon-button, .content .glyph > svg')
+			.evaluateAll((nodes) =>
+				nodes.map((n) => {
+					const box = n.getBoundingClientRect();
+					return { w: box.width, h: box.height };
+				})
+			);
+		expect(boxes).toHaveLength(2);
+		for (const box of boxes) expect(Math.abs(box.w - box.h)).toBeLessThan(1);
+		expect(boxes[0].w).toBeGreaterThanOrEqual(44);
+		expect(boxes[1].w).toBeCloseTo(size, 0);
+	};
+	const order = ['player-queue', 'player-heading', 'player-close', 'player-settings'];
+	expect(await ids(live)).toEqual(order);
+	await geometry(live, 'player-close', 32);
+	await geometry(live, 'player-queue', 36);
+	await button('Player settings').click();
+	expect(await ids(sample)).toEqual(order);
+	await geometry(sample, 'player-queue', 36);
+	await button('Edit header').click();
+	const panel = page.getByRole('group', { name: 'Edit header', exact: true });
+	await panel.getByLabel('Number of columns').selectOption('5');
+	await panel.getByLabel('Column spacing (px)').fill('4');
+	await panel.getByLabel('Minimum row height').fill('72');
+	await panel.getByLabel('Column 2 width').fill('4');
+	const empty = button('Open column 5, Empty column');
+	await empty.click();
+	await expect(page.getByRole('group', { name: 'Choose a player feature' })).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(empty).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(button('Edit header')).toBeFocused();
+	await button('Add feature to header, column 5').click();
+	await button('Use Remaining time').click();
+	await button('Customize Close player').click();
+	await openPlayerPlacement(page);
+	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
+	await geometry(sample, 'player-close', 32);
+	await button('Save layout').click();
+	expect(await ids(live)).toEqual([
+		'player-queue',
+		'player-heading',
+		'player-settings',
+		'player-remaining'
+	]);
+	await geometry(live, 'player-close', 32);
+	await geometry(live, 'player-queue', 36);
+	const grid = live.locator('[data-part=player-header-row]');
+	expect(
+		await grid
+			.locator(':scope > [data-section-id]')
+			.evaluateAll(
+				(nodes) => nodes[1].getBoundingClientRect().left - nodes[0].getBoundingClientRect().right
+			)
+	).toBeCloseTo(4, 0);
+	await expect(grid).toHaveCSS('min-height', '72px');
+	await button('Show play queue').click();
+	await expect(live.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+	await expect(grid.locator('[data-section-id=player-remaining]')).toBeVisible();
+	await geometry(live, 'player-queue', 36);
+	await button('Hide play queue').click();
+	await geometry(live, 'player-close', 32);
+	const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
+	expect(stored.find((s: { id: string }) => s.id === 'player-output')).toMatchObject({
+		placement: 'hidden'
+	});
+	expect(stored.find((s: { id: string }) => s.id === 'player-close')).toMatchObject({
+		icon: 'circle-play',
+		iconSize: 32
+	});
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

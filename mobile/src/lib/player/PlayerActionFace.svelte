@@ -59,19 +59,23 @@
 		justify-content: center;
 		gap: 0.3em;
 		flex-wrap: wrap;
+		width: fit-content;
 		max-width: 100%;
 		min-width: 0;
 		vertical-align: middle;
 	}
 	.glyph {
-		display: inline-grid;
+		display: block;
 		position: relative;
 		width: var(--glyph-size);
 		max-width: 100%;
-		aspect-ratio: 1;
-		flex: 0 1 auto;
+		aspect-ratio: 1 / 1;
+		flex: 0 1 var(--glyph-size);
 	}
-	.glyph :global(svg) {
+	.glyph > :global(svg),
+	.state > :global(svg) {
+		position: absolute;
+		inset: 0;
 		display: block;
 		width: 100%;
 		height: 100%;
