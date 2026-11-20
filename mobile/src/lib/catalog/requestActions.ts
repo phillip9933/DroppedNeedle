@@ -15,11 +15,40 @@ export function approvals(session: Session) {
 	return getJson<Schema['ActiveRequestsResponse']>(session, path('/api/v3/requests/approvals'));
 }
 
-export function taskPage(session: Session, page: number) {
+function taskPage(
+	session: Session,
+	page: number,
+	signal: AbortSignal,
+	status?: Download['status']
+) {
 	return getJson<Schema['DownloadListResponse']>(
 		session,
-		path('/api/v3/downloads/tasks', {}, { page, page_size: 30 })
+		path('/api/v3/downloads/tasks', {}, { page, page_size: status ? 100 : 30, status }),
+		signal
 	);
+}
+
+export async function downloadPage(session: Session, page: number, signal: AbortSignal) {
+	const recent = await taskPage(session, page, signal);
+	const more = recent.items.length === recent.page_size;
+	if (page === 1 && !more) return { items: recent.items, more };
+	// DN pages by creation date. Pin live transfers even when newer history fills a page.
+	const active = ['downloading', 'processing', 'queued'] as const;
+	const lanes = await Promise.all(
+		active.map(async (status) => {
+			const found = new Map<string, Download>();
+			for (let p = 1; ; p++) {
+				signal.throwIfAborted();
+				const response = await taskPage(session, p, signal, status);
+				const before = found.size;
+				for (const task of response.items) if (task.status === status) found.set(task.id, task);
+				if (response.items.length < response.page_size || found.size === before) break;
+			}
+			return [...found.values()];
+		})
+	);
+	const unique = new Map([...recent.items, ...lanes.flat()].map((t) => [t.id, t]));
+	return { items: [...unique.values()], more };
 }
 
 export function requestActions(
@@ -103,6 +132,7 @@ export function downloadGroups(tasks: Download[]) {
 	const groups = {
 		'Needs review': [] as Download[],
 		'In progress': [] as Download[],
+		Queued: [] as Download[],
 		'Scheduled retries': [] as Download[],
 		'Download history': [] as Download[]
 	};
@@ -110,8 +140,12 @@ export function downloadGroups(tasks: Download[]) {
 		const state = taskState(task);
 		if (state === 'held_for_review' || state === 'awaiting_review')
 			groups['Needs review'].push(task);
-		else if (['queued', 'downloading', 'processing'].includes(task.status))
-			groups['In progress'].push(task);
+		else if (
+			task.status === 'queued' ||
+			(state === 'waiting_for_a_source' && task.downloaded_bytes === 0 && !task.files_completed)
+		)
+			groups.Queued.push(task);
+		else if (['downloading', 'processing'].includes(task.status)) groups['In progress'].push(task);
 		else if (
 			(task.status === 'failed' || task.status === 'partial') &&
 			task.retry_max > 0 &&

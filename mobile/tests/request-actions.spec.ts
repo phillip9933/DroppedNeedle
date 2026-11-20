@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
 type S = components['schemas'];
@@ -105,6 +106,7 @@ async function connect(page: Page, role: S['Role']) {
 		if (path === '/me/section-prefs') return json({ pages: { home: [], discover: [] } });
 		if (path === '/home') return json({ sections: [] });
 		if (path === '/library/albums') return json({ items: [], total: 0 });
+		if (path === '/held') return json({ entries: [] });
 		if (path === '/requests/active') return json({ items: active });
 		if (path === '/requests/history') {
 			const filter = url.searchParams.get('status');
@@ -223,6 +225,7 @@ async function connect(page: Page, role: S['Role']) {
 			tasks[2].status = 'completed';
 			return json({ success: true, status: 'completed' });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw new Error('Unexpected request ' + m + ' ' + path);
 	});
 	await page.goto('/');
@@ -341,15 +344,11 @@ test('a listener reviews matches, confirms a settings override, watches or cance
 		server + '/requests?tab=wanted'
 	);
 	await expect(page.getByRole('link', { name: 'Inspect quarantined downloads' })).toHaveCount(0);
-	const held = page.getByRole('link', { name: 'Review held files for Held recording in browser' });
-	await expect(held).toHaveAttribute('href', server + '/downloads');
-	await page.context().route(server + '/downloads', async (route) => {
-		expect(route.request().headers().authorization).toBeUndefined();
-		await route.fulfill({ contentType: 'text/html', body: '<h1>Sign in to DN</h1>' });
-	});
-	const opened = page.waitForEvent('popup');
+	const held = page.getByRole('button', { name: 'Review held files for Held recording' });
 	await held.click();
-	await expect((await opened).getByRole('heading', { name: 'Sign in to DN' })).toBeVisible();
+	await expect(page.getByRole('dialog').getByText('No held files to review.')).toBeVisible();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	expect(calls).toContain('GET /held?task_id=held');
 });
 
 test('administrators see links to the deployed upgrade, import, auto-download and quarantine pages', async ({
@@ -445,3 +444,294 @@ for (const theme of ['dark', 'light', 'midnight']) {
 		await page.screenshot({ path: testInfo.outputPath('downloads-' + theme + '.png') });
 	});
 }
+
+test('held files use only the chosen eligible file IDs and keep replacement and discard behind confirmation', async ({
+	page
+}) => {
+	await connect(page, 'trusted');
+	const writes: { path: string; body: unknown }[] = [];
+	const heldFile = (id: number, name: string, actions: S['HeldFileAction'][], taskId = 'held') =>
+		({
+			id,
+			original_name: name,
+			track_title: name,
+			source_task_id: taskId,
+			source: 'soulseek',
+			reason: 'wrong_track',
+			reason_kind: 'hold',
+			reason_text: 'This recording differs.',
+			reason_action: 'Review the file.',
+			actions,
+			created_at: 18,
+			recording_mbid: second
+		}) satisfies S['HeldFileResponse'];
+	let files = [
+		heldFile(8, 'Mixed.flac', ['import', 'recheck']),
+		heldFile(9, 'Existing.flac', ['use_this_file']),
+		heldFile(10, 'Other task.flac', ['import'], 'elsewhere')
+	];
+	await page.route(api + '/held**', async (route) => {
+		const req = route.request(),
+			url = new URL(req.url());
+		expect(req.headers().authorization).toBe('Bearer fixture');
+		if (req.method() === 'GET') {
+			expect(url.searchParams.get('task_id')).toBe('held');
+			expect(url.searchParams.has('all')).toBe(false);
+			return route.fulfill({
+				json: {
+					entries: [
+						{
+							id: 3,
+							album_title: 'Held recording',
+							origin: 'download',
+							state: 'held',
+							created_at: 18,
+							files
+						} satisfies S['HeldEntryResponse']
+					]
+				}
+			});
+		}
+		const body = req.postDataJSON();
+		writes.push({ path: url.pathname, body });
+		files = files.filter((f) => !body.file_ids.includes(f.id));
+		return route.fulfill({ json: { imported: 1, discarded: 0, already_owned: 0, still_held: 0 } });
+	});
+	await page.route(api + '/search/albums?**', async (route) => {
+		expect(new URL(route.request().url()).searchParams.get('q')).toBe('Held recording');
+		await route.fulfill({
+			json: {
+				results: [
+					{ title: 'Reissue', artist: 'North', musicbrainz_id: second },
+					{ title: 'Unidentified local row' }
+				]
+			}
+		});
+	});
+	await page.getByRole('tab', { name: 'Downloads' }).click();
+	await page.getByRole('button', { name: 'Review held files for Held recording' }).click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.getByText('Other task.flac')).toHaveCount(0);
+	await dialog.getByRole('button', { name: 'Use this file (1)' }).click();
+	await expect(dialog.getByText(/recycle bin/)).toBeVisible();
+	await expect(dialog.getByText('Mixed.flac', { exact: true })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	expect(writes).toEqual([]);
+	await dialog.getByRole('button', { name: 'Discard (2)' }).click();
+	await page.evaluate(() => window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true })));
+	await dialog.getByRole('checkbox', { name: 'Existing.flac' }).uncheck();
+	await dialog.getByRole('button', { name: 'Match to album (1)' }).click();
+	await dialog.getByRole('button', { name: /Reissue/ }).click();
+	await expect(dialog.getByText('Import the selected files as Reissue by North.')).toBeVisible();
+	expect(writes).toEqual([]);
+	await dialog.getByRole('button', { name: 'Confirm match to album' }).click();
+	await expect(dialog.getByText('1 imported.')).toBeVisible();
+	expect(writes).toEqual([
+		{ path: '/music/api/v3/held/3/match', body: { file_ids: [8], release_group_mbid: second } }
+	]);
+	await expect(dialog.getByRole('checkbox', { name: 'Mixed.flac' })).toHaveCount(0);
+});
+
+test('live downloads and queued matches remain visible above newer history across queue pages', async ({
+	page
+}) => {
+	await connect(page, 'user');
+	const history = Array.from({ length: 32 }, (_, i) =>
+		task('old' + i, 'Past transfer ' + i, 'completed')
+	);
+	const waiting = Array.from({ length: 100 }, (_, i) => ({
+		...task('q' + i, 'Queued ' + i, 'queued'),
+		search_job_id: 'job' + i,
+		candidate_index: 0
+	}));
+	const review = { ...task('review', 'Old match', 'queued'), search_job_id: 'review' };
+	const moving = task('down', 'Old download', 'downloading');
+	const process = task('process', 'Old import', 'processing');
+	await page.route(api + '/downloads/tasks?**', (route) => {
+		const params = new URL(route.request().url()).searchParams,
+			status = params.get('status'),
+			page = Number(params.get('page')),
+			size = Number(params.get('page_size'));
+		const data =
+			status === 'queued'
+				? [...waiting, review]
+				: status === 'downloading'
+					? [moving]
+					: status === 'processing'
+						? [process]
+						: history;
+		return route.fulfill({
+			json: { items: data.slice((page - 1) * size, page * size), page, page_size: size }
+		});
+	});
+	await page.getByRole('tab', { name: 'Downloads' }).click();
+	const panel = page.getByRole('tabpanel', { name: 'Downloads' });
+	await expect(panel.getByRole('button', { name: 'Review matches for Old match' })).toBeVisible();
+	const headings = panel.getByRole('heading', { level: 2 });
+	expect(await headings.allTextContents()).toEqual([
+		'Needs review 1',
+		'In progress 2',
+		'Queued 100',
+		'Download history 30'
+	]);
+	await panel.getByRole('button', { name: 'Next', exact: true }).click();
+	await expect(panel.getByText('History page 2')).toBeVisible();
+	await expect(panel.getByText('Old download')).toBeVisible();
+	await expect(panel.getByText('Old import')).toBeVisible();
+	await expect(panel.getByText('Past transfer 30', { exact: true })).toBeVisible();
+});
+
+test('held review uses viewer scope and refreshes after a stale discard without replaying the deletion', async ({
+	page
+}) => {
+	await connect(page, 'admin');
+	let reads = 0,
+		writes = 0;
+	await page.route(api + '/held**', (route) => {
+		const req = route.request(),
+			url = new URL(req.url());
+		expect(req.headers().authorization).toBe('Bearer fixture');
+		if (req.method() === 'GET') {
+			reads++;
+			expect(url.searchParams.get('all')).toBe('true');
+			expect(url.searchParams.has('task_id')).toBe(false);
+			return route.fulfill({
+				json: {
+					entries: writes
+						? []
+						: [
+								{
+									id: 7,
+									state: 'held',
+									origin: 'import_folder',
+									album_title: 'Loose tracks',
+									created_at: 1,
+									files: [
+										{
+											id: 5,
+											original_name: 'loose.flac',
+											reason: 'wrong_track',
+											reason_kind: 'hold',
+											reason_text: 'No verified match.',
+											reason_action: 'Pick an album.',
+											actions: [],
+											source: 'import_folder',
+											created_at: 1
+										}
+									]
+								}
+							]
+				}
+			});
+		}
+		expect(url.pathname).toBe('/music/api/v3/held/7/discard');
+		expect(req.postDataJSON()).toEqual({ file_ids: [5] });
+		writes++;
+		return route.fulfill({
+			status: 409,
+			json: { message: 'Another listener handled these files.' }
+		});
+	});
+	await page.getByRole('tab', { name: 'Downloads' }).click();
+	await page.getByRole('button', { name: 'Review all held files' }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByRole('button', { name: /Loose tracks/ }).click();
+	await expect(dialog.getByRole('button', { name: /^Import/ })).toHaveCount(0);
+	await dialog.getByRole('button', { name: 'Discard (1)' }).click();
+	await expect(dialog.getByText(/Permanently delete these original files/)).toBeVisible();
+	expect(writes).toBe(0);
+	await dialog.getByRole('button', { name: 'Confirm discard' }).click();
+	await expect(dialog.getByRole('alert')).toBeVisible();
+	expect(writes).toBe(1);
+	expect(reads).toBe(2);
+	await expect(dialog.getByRole('button', { name: 'Confirm discard' })).toHaveCount(0);
+});
+
+test('a listener auditions their own held file from DN and rechecks eligible fingerprints', async ({
+	page
+}) => {
+	await connect(page, 'user');
+	const recording = Buffer.alloc(44 + 8000);
+	recording.write('RIFF');
+	recording.writeUInt32LE(recording.length - 8, 4);
+	recording.write('WAVEfmt ', 8);
+	recording.writeUInt32LE(16, 16);
+	recording.writeUInt16LE(1, 20);
+	recording.writeUInt16LE(1, 22);
+	recording.writeUInt32LE(8000, 24);
+	recording.writeUInt32LE(8000, 28);
+	recording.writeUInt16LE(1, 32);
+	recording.writeUInt16LE(8, 34);
+	recording.write('data', 36);
+	recording.writeUInt32LE(8000, 40);
+	let previewReads = 0,
+		checks = 0;
+	await page.route(api + '/held**', async (route) => {
+		const req = route.request(),
+			url = new URL(req.url());
+		expect(req.headers().authorization).toBe('Bearer fixture');
+		if (url.pathname.endsWith('/audio')) {
+			previewReads++;
+			expect(req.headers().range).toBe('bytes=0-2097151');
+			return route.fulfill({
+				status: 206,
+				headers: {
+					'Content-Type': 'audio/wav',
+					'Content-Range': 'bytes 0-' + (recording.length - 1) + '/' + recording.length,
+					'Content-Length': String(recording.length)
+				},
+				body: recording
+			});
+		}
+		if (req.method() === 'POST') {
+			expect(url.pathname).toBe('/music/api/v3/held/recheck');
+			expect(req.postDataJSON()).toEqual({ entry_ids: [7] });
+			checks++;
+			return route.fulfill({
+				json: { results: [{ entry_id: 7, file_id: 5, status: 'still_held' }] }
+			});
+		}
+		expect(url.searchParams.has('all')).toBe(false);
+		return route.fulfill({
+			json: {
+				entries: [
+					{
+						id: 7,
+						state: 'held',
+						origin: 'upload',
+						created_at: 1,
+						album_title: 'Uncertain',
+						files: [
+							{
+								id: 5,
+								original_name: 'Open.wav',
+								reason_text: 'The recording could not be confirmed.',
+								reason_action: 'Listen to the file.',
+								actions: ['recheck']
+							}
+						]
+					}
+				]
+			}
+		});
+	});
+	await page.getByRole('tab', { name: 'Downloads' }).click();
+	await page.getByRole('button', { name: 'Review all held files' }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByRole('button', { name: /Uncertain/ }).click();
+	await expect(
+		dialog.getByRole('button', {
+			name: /Match to album|Check album edition|Use this file|Import \(/
+		})
+	).toHaveCount(0);
+	expect(previewReads).toBe(0);
+	await dialog.getByRole('button', { name: 'Preview Open.wav' }).click();
+	await expect(dialog.locator('audio')).toHaveJSProperty('paused', false);
+	expect(previewReads).toBe(1);
+	await page.keyboard.press('Escape');
+	await dialog.getByRole('button', { name: 'Recheck held fingerprints' }).click();
+	expect(checks).toBe(0);
+	await dialog.getByRole('button', { name: 'Confirm recheck' }).click();
+	await expect(dialog.getByText('1 still held.')).toBeVisible();
+	expect(checks).toBe(1);
+});

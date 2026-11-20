@@ -3,6 +3,7 @@
 	import { Browser } from '@capacitor/browser';
 	import { Capacitor } from '@capacitor/core';
 	import WantedWatches from './WantedWatches.svelte';
+	import HeldReview from './HeldReview.svelte';
 	import RequestCandidates from './RequestCandidates.svelte';
 	import {
 		ArrowDownToLine,
@@ -33,7 +34,7 @@
 		requestActions,
 		taskActions,
 		downloadGroups,
-		taskPage,
+		downloadPage as loadDownloadPage,
 		taskState,
 		type Action,
 		type Download,
@@ -58,10 +59,13 @@
 	let menu = $state<{ title: string; options: Action[] } | null>(null),
 		selected = $state<Action | null>(null);
 	let reviewing = $state<{ jobId: string; title: string; taskId?: string } | null>(null);
+	let held = $state<{ taskId?: string; title?: string } | null>(null);
+	let read: AbortController | null = null;
 	let watchesOpen = $state(false);
 	let historyStatus = $state(''),
 		historySort = $state('');
 	let historyTotal = $state(0);
+	let shown = $state<Record<string, number>>({});
 	const downloadSections = $derived(downloadGroups(tasks));
 	const tabs = $derived<{ id: View; label: string }[]>([
 		{ id: 'requests', label: 'Activity' },
@@ -115,7 +119,6 @@
 		reviewing = null;
 	}
 	const serverTools = $derived([
-		{ label: 'Review held files and download history', route: '/downloads' },
 		{ label: 'Manage wanted watches', route: '/requests?tab=wanted' },
 		...(viewer?.role === 'admin' || viewer?.role === 'trusted'
 			? [
@@ -156,6 +159,9 @@
 		}
 	}
 	async function refresh(wanted = view === 'downloads' ? downloadPage : page) {
+		read?.abort();
+		const controller = new AbortController();
+		read = controller;
 		const sequence = ++version;
 		busy = true;
 		error = '';
@@ -175,11 +181,11 @@
 				const reply = await approvals(session);
 				if (sequence === version) pending = reply.items;
 			} else if (view === 'downloads') {
-				const reply = await taskPage(session, wanted);
+				const reply = await loadDownloadPage(session, wanted, controller.signal);
 				if (sequence !== version) return;
 				tasks = reply.items;
-				downloadPage = reply.page;
-				moreDownloads = tasks.length === reply.page_size;
+				downloadPage = wanted;
+				moreDownloads = reply.more;
 			}
 		} catch (cause) {
 			if (sequence === version) error = errorMessage(cause);
@@ -229,12 +235,13 @@
 		void profile();
 		void refresh();
 		const visible = () => {
-			if (!document.hidden && !busy && !menu && !reviewing) void refresh();
+			if (!document.hidden && !busy && !menu && !reviewing && !held) void refresh();
 		};
 		const timer = setInterval(visible, 15000);
 		document.addEventListener('visibilitychange', visible);
 		return () => {
 			mounted = false;
+			read?.abort();
 			version++;
 			clearInterval(timer);
 			document.removeEventListener('visibilitychange', visible);
@@ -433,11 +440,15 @@
 				{busy ? 'Loading approvals…' : 'No requests awaiting approval.'}
 			</p>{/if}
 	{:else}
+		{#if viewer}<button class="secondary held-list" onclick={() => (held = {})}
+				>Review all held files</button
+			>{/if}
 		{#each downloadSections as [group, entries] (group)}
+			{@const visible = shown[group] ?? (group === 'Queued' ? 5 : 20)}
 			<section aria-label={group}>
 				<h2 class="section-title">{group} <span>{entries.length}</span></h2>
 				<ul class="records">
-					{#each entries as task (task.id)}
+					{#each entries.slice(0, visible) as task (task.id)}
 						{@const title = task.track_title || task.album_title}
 						{@const state = taskState(task)}
 						{@const label = state.charAt(0).toUpperCase() + state.slice(1).replaceAll('_', ' ')}
@@ -452,15 +463,11 @@
 									>
 								</div>
 
-								{#if task.held_for_review}
-									<a
-										class="text-button"
-										href={session.serverUrl + '/downloads'}
-										target="_blank"
-										rel="noopener noreferrer"
-										onclick={launchWeb}
-										aria-label={'Review held files for ' + title + ' in browser'}
-										>Review held files</a
+								{#if task.held_for_review && viewer && (viewer.role === 'admin' || viewer.id === task.user_id)}
+									<button
+										class="secondary"
+										aria-label={'Review held files for ' + title}
+										onclick={() => (held = { taskId: task.id, title })}>Review held files</button
 									>
 								{:else if task.status === 'queued' && task.search_job_id && task.candidate_index == null && viewer?.id === task.user_id}
 									<button
@@ -502,19 +509,24 @@
 						</li>
 					{/each}
 				</ul>
+				{#if entries.length > visible}
+					<button class="text-button" onclick={() => (shown[group] = visible + 20)}
+						>Show more {group.toLowerCase()} ({entries.length - visible})</button
+					>
+				{/if}
 			</section>
 		{/each}
 		{#if !tasks.length && !error}<p role="status">
 				{busy ? 'Loading downloads…' : 'No downloads on this page.'}
 			</p>{/if}
 		{#if downloadPage > 1 || moreDownloads}
-			<div class="pagination">
+			<div class="pagination" aria-label="Download history pages">
 				<button
 					class="secondary"
 					disabled={busy || downloadPage < 2}
 					onclick={() => refresh(downloadPage - 1)}>Previous</button
 				>
-				<span>Page {downloadPage}</span><button
+				<span>History page {downloadPage}</span><button
 					class="secondary"
 					disabled={busy || !moreDownloads}
 					onclick={() => refresh(downloadPage + 1)}>Next</button
@@ -536,6 +548,18 @@
 		</details>
 	{/if}
 </div>
+{#if held && viewer}
+	<HeldReview
+		{session}
+		{viewer}
+		taskId={held.taskId}
+		title={held.title}
+		onclose={() => {
+			held = null;
+			void refresh();
+		}}
+	/>
+{/if}
 {#if reviewing}
 	<RequestCandidates
 		{session}
