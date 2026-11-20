@@ -1,3 +1,4 @@
+import { boardDisplay, type BoardDisplay } from './display';
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
@@ -10,6 +11,10 @@ export type Section = {
 	id: string;
 	title: string;
 	preview: boolean;
+	display?: BoardDisplay;
+	minHeight?: number;
+	contentWidth?: number;
+	placement?: 'header-start' | 'header-end' | 'hidden';
 	sameRow?: boolean;
 	width?: 1 | 2 | 3;
 	align?: 'start' | 'center' | 'end';
@@ -51,11 +56,10 @@ export function defaults(board: LayoutTarget): Section[] {
 			: board === 'library'
 				? libraryWidgets.map((w) => w.id)
 				: defaultDiscoveryWidgets;
-	return ids.map((id, index) => ({
+	return ids.map((id) => ({
 		id,
 		title: '',
-		preview:
-			board === 'discover' || index === 0 || (board === 'home' && id === 'library-recently-played')
+		preview: true
 	}));
 }
 
@@ -105,12 +109,27 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 			preview: item.preview !== false
 		};
 		if (board === 'player') {
+			if (
+				Number.isInteger(item.contentWidth) &&
+				item.contentWidth >= 20 &&
+				item.contentWidth <= 100
+			)
+				section.contentWidth = item.contentWidth;
+			if (Number.isInteger(item.minHeight) && item.minHeight >= 0 && item.minHeight <= 640)
+				section.minHeight = item.minHeight;
+			if (
+				['player-close', 'player-settings', 'player-queue'].includes(item.id) &&
+				['header-start', 'header-end', 'hidden'].includes(item.placement)
+			)
+				section.placement = item.placement;
 			if (item.sameRow === true) section.sameRow = true;
 			if ([1, 2, 3].includes(item.width)) section.width = item.width;
 			if (['start', 'center', 'end'].includes(item.align)) section.align = item.align;
 			if (['small', 'normal', 'large'].includes(item.textSize)) section.textSize = item.textSize;
 			if (isPlayerText(item.id) && typeof item.template === 'string')
 				section.template = item.template.slice(0, 512);
+		} else if (item.display && typeof item.display === 'object') {
+			section.display = boardDisplay(section.id, item.display);
 		}
 		sections.push(section);
 	}

@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
 
@@ -122,6 +123,7 @@ async function connect(page: Page) {
 		}
 		const [, group, id, ...parts] = path.split('/'),
 			p = lists.find((item) => item.id === id);
+		if (await emptyBoardRead(route)) return;
 		if (group !== 'playlists' || !p) throw new Error('Unexpected request ' + method + ' ' + path);
 		const action = parts.join('/');
 		if (action === '') {

@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { test, expect, type Page } from '@playwright/test';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
 
@@ -68,6 +69,7 @@ async function connect(page: Page, role: 'admin' | 'user' | 'trusted') {
 				]
 			} satisfies S['WantedResponse']);
 		}
+		if (await emptyBoardRead(route)) return;
 		writes.push(method + ' ' + path);
 		if (path === '/requests/wanted/clear-finished') {
 			expect(method).toBe('POST');

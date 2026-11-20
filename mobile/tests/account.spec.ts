@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
 test('a listener can edit their DN profile, save visibility and revoke a different device', async ({
@@ -45,6 +46,7 @@ test('a listener can edit their DN profile, save visibility and revoke a differe
 			removed = true;
 			return route.fulfill({ status: 204 });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected account operation ' + p);
 	});
 	await openAccount(page, server);
@@ -110,6 +112,7 @@ test('an administrator can inspect library health and confirm an incremental sca
 			started = true;
 			return json({ disposition: 'queued' });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected admin operation ' + p);
 	});
 	await openAccount(page, server);
@@ -182,6 +185,7 @@ test('account identity, linked services and personal mix use the signed-in liste
 			}
 			return json(prefs);
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected account operation ' + p);
 	});
 	await openAccount(page, server);

@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
 const oldKey = 'dn.mobile.appearance.v1';
@@ -143,7 +144,7 @@ test('account theme changes are explicit and send only the DN theme enum', async
 	let mode = 'midnight',
 		fail = false;
 	const writes: unknown[] = [];
-	await page.route(server + '/api/v3/**', (route) => {
+	await page.route(server + '/api/v3/**', async (route) => {
 		const req = route.request(),
 			path = new URL(req.url()).pathname.slice('/music/api/v3'.length);
 		const json = (data: unknown) => route.fulfill({ json: data });
@@ -192,6 +193,7 @@ test('account theme changes are explicit and send only the DN theme enum', async
 				stored: true
 			});
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected fixture route ' + path);
 	});
 	await page.goto('/');
@@ -248,7 +250,7 @@ test('preview and import only supported account CSS colors from a current or his
 		foreign.push(r.request().url());
 		return r.abort();
 	});
-	await page.route(server + '/api/v3/**', (route) => {
+	await page.route(server + '/api/v3/**', async (route) => {
 		const req = route.request(),
 			p = new URL(req.url()).pathname.slice('/dn/api/v3'.length);
 		const json = (data: unknown) => route.fulfill({ json: data });
@@ -275,6 +277,7 @@ test('preview and import only supported account CSS colors from a current or his
 					: { theme: 'light', custom_css: { text: current, enabled: true }, stored: true, site: {} }
 			);
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected palette fixture endpoint ' + p);
 	});
 	await page.goto('/');

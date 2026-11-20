@@ -3,7 +3,7 @@
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, postJson, mutateJson, type Session } from '../connection';
 	import { path, errorMessage, type Album } from './catalog';
-	import Cover from './Cover.svelte';
+	import PreviewItem from '../boards/PreviewItem.svelte';
 	import type { DeckCard } from './discoveryWidgets';
 	type S = components['schemas'];
 	let {
@@ -139,29 +139,36 @@
 		>{hidden ? 'Show recommendations' : 'Hidden albums'}</button
 	>
 </div>
-{#if hidden}{#each ledger as row (row.release_group_mbid)}<article>
-			<strong>{row.release_name}</strong><span>{row.artist_name}</span><button
-				class="text-button"
-				disabled={busy}
-				onclick={() => run(() => restore(row.release_group_mbid))}
-				>Restore {row.release_name}</button
+<div class="preview-items">
+	{#if hidden}{#each ledger as row (row.release_group_mbid)}
+			<PreviewItem {session} title={row.release_name} subtitle={row.artist_name}>
+				{#snippet actions()}<button
+						class="text-button"
+						disabled={busy}
+						onclick={() => run(() => restore(row.release_group_mbid))}
+						>Restore {row.release_name}</button
+					>{/snippet}
+			</PreviewItem>
+		{:else}<p>No hidden albums.</p>{/each}
+	{:else}{#each shown as card, i (`${i}-${card.album.group ?? card.album.title}`)}
+			<PreviewItem
+				{session}
+				part="album-card"
+				title={card.album.title}
+				subtitle={card.album.artist}
+				detail={card.reason}
+				artwork={card.album.art}
+				coverSeed={card.album.group || card.album.localId || card.album.title}
+				onclick={() => onopen(card.album)}
 			>
-		</article>{:else}<p>No hidden albums.</p>{/each}
-{:else}{#each shown as card, i (`${i}-${card.album.group ?? card.album.title}`)}<article>
-			<button class="open" onclick={() => onopen(card.album)}
-				><span class="cover"
-					><Cover
-						{session}
-						path={card.album.art}
-						seed={card.album.group || card.album.title}
-					/></span
-				><span><strong>{card.album.title}</strong><small>{card.album.artist}</small></span></button
-			>{#if card.reason}<p>{card.reason}</p>{/if}{#if card.album.group && card.artistId}<button
-					class="text-button"
-					disabled={busy}
-					onclick={() => run(() => hide(card))}>Hide {card.album.title}</button
-				>{/if}
-		</article>{:else}<p>No recommended albums yet.</p>{/each}{/if}
+				{#snippet actions()}{#if card.album.group && card.artistId}<button
+							class="text-button"
+							disabled={busy}
+							onclick={() => run(() => hide(card))}>Hide {card.album.title}</button
+						>{/if}{/snippet}
+			</PreviewItem>
+		{:else}<p>No recommended albums yet.</p>{/each}{/if}
+</div>
 {#if message}<p role="status">{message}</p>{/if}{#if error}<p role="alert">{error}</p>{/if}
 
 <style>
@@ -169,35 +176,6 @@
 		display: flex;
 		gap: 0.55rem;
 		flex-wrap: wrap;
-	}
-	.open {
-		display: flex;
-		align-items: center;
-		gap: var(--gap);
-		width: 100%;
-		text-align: left;
-	}
-	.cover {
-		width: 3.3rem;
-		flex: none;
-	}
-	.open strong,
-	.open small {
-		display: block;
-	}
-	.open small,
-	article p,
-	article > span {
-		color: var(--muted);
-	}
-	article {
-		padding-block: 0.6rem;
-		border-bottom: 1px solid var(--line);
-		display: grid;
-		justify-items: start;
-		gap: 0.35rem;
-	}
-	article p {
-		margin: 0;
+		margin-bottom: var(--gap);
 	}
 </style>

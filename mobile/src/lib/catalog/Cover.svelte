@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Disc3 } from '@lucide/svelte';
-	import { getArtwork, type Session } from '../connection';
+	import type { Session } from '../connection';
+	import { observeCover } from './coverRequests';
 
 	let { session, path, seed }: { session: Session; path?: string; seed: string } = $props();
 	let element: HTMLSpanElement;
@@ -12,25 +13,20 @@
 	$effect(() => {
 		const src = path,
 			account = session;
-		let active = true;
+		let unsubscribe: (() => void) | undefined;
 		source = '';
 		if (!src) return;
 		const observer = new IntersectionObserver(
 			(entries) => {
 				if (!entries.some((e) => e.isIntersecting)) return;
 				observer.disconnect();
-				void getArtwork(account, src).then(
-					(data) => {
-						if (active) source = data;
-					},
-					() => {}
-				);
+				unsubscribe = observeCover(account, src, (data) => (source = data));
 			},
 			{ rootMargin: '100px' }
 		);
 		observer.observe(element);
 		return () => {
-			active = false;
+			unsubscribe?.();
 			observer.disconnect();
 		};
 	});

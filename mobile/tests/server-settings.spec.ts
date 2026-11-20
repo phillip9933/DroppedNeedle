@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 const server = 'https://dn.example/music';
@@ -81,6 +82,7 @@ async function setup(page: Page, role: 'user' | 'admin') {
 			return json({ queues: [{ kind: 'identify', queued: 3, running: 1, failed: 0 }], jobs: [] });
 		if (p === '/admin/provider-stats' && role === 'admin') return json({ calls: [], limiters: [] });
 		if (p === '/version') return json({ version: 'test-server' });
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected settings route ' + p);
 	});
 	await page.goto('/');

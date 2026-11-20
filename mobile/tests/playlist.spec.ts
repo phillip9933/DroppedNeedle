@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
@@ -102,6 +103,7 @@ test('a mixed playlist plays all local entries in saved order, including repeats
 			streamed.push(path);
 			return route.fulfill({ path: audio, contentType: 'audio/wav' });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected API call: ' + path);
 	});
 	await page.goto('/');

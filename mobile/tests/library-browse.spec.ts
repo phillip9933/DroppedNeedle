@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
 
 test('browse a library artist, open their album and keep a favorite across views', async ({
@@ -55,6 +56,7 @@ test('browse a library artist, open their album and keep a favorite across views
 			favorite = request.postDataJSON().favorited;
 			return json({ kind: 'album', item_id: 'album-one', favorited: favorite });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected fixture request ' + path);
 	});
 	await page.goto('/');
@@ -142,6 +144,7 @@ test('rating and format filters preserve the server cursor and stay off previews
 				next: null
 			});
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected fixture request ' + path);
 	});
 	await page.goto('/');

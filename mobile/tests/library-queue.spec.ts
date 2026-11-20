@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
@@ -40,6 +41,7 @@ async function connect(page: Page, prepare: (route: Route, url: URL) => Promise<
 			return route.fulfill({ path: wav, contentType: 'audio/wav' });
 		}
 		if (path.includes('/lyrics')) return json({ items: [] });
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected request ' + path);
 	});
 	await page.goto('/');

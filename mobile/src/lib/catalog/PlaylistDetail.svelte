@@ -20,8 +20,15 @@
 		session,
 		playlist,
 		onplay,
-		onback
-	}: { session: Session; playlist: Playlist; onplay: OnPlay; onback: () => void } = $props();
+		onback,
+		backLabel = 'Back to playlists'
+	}: {
+		session: Session;
+		playlist: Playlist;
+		onplay: OnPlay;
+		onback: () => void;
+		backLabel?: string;
+	} = $props();
 	let detail = $state<Awaited<ReturnType<typeof readPlaylist>>>();
 	let count = $state(50),
 		editing = $state(false);
@@ -71,7 +78,7 @@
 	});
 </script>
 
-<button class="text-button" onclick={onback}><ArrowLeft size={16} /> Back to playlists</button>
+<button class="text-button" onclick={onback}><ArrowLeft size={16} /> {backLabel}</button>
 <h1>{current.name}</h1>
 {#if busy}<p role="status">Loading tracks…</p>
 {:else if error}<p role="alert">{error}</p>

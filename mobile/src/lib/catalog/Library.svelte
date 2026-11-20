@@ -1,15 +1,20 @@
 <script lang="ts">
+	import type { Preview } from '../boards/display';
 	import { untrack, onMount } from 'svelte';
 	import { Heart, Play, Shuffle } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
 	import { path, localAlbum, localSong, errorMessage, type Album, type OnPlay } from './catalog';
+	import PreviewItem from '../boards/PreviewItem.svelte';
+	import TrackActions from './TrackActions.svelte';
 	import Albums from './Albums.svelte';
 	import { prepareLibraryQueue } from './libraryQueue';
 	import TrackList from './TrackList.svelte';
+	import { trackDuration } from './TrackRow.svelte';
 	type Schema = components['schemas'];
 	type Artist = Pick<Schema['ArtistView'], 'id' | 'name'>;
 	let {
+		display,
 		session,
 		kind,
 		artist,
@@ -22,6 +27,7 @@
 		onplay
 	}: {
 		session: Session;
+		display?: Preview;
 		kind: 'albums' | 'artists' | 'songs';
 		artist?: Artist;
 		artistAppearances?: boolean;
@@ -183,10 +189,11 @@
 			if (preparation === controller) cancelPreparation();
 		}
 	}
+	const fetchLimit = $derived(preview ? (display?.capacity ?? 6) : 30);
 	async function load(cursor: string | null, version: number) {
 		busy = true;
 		error = '';
-		const limit = preview ? (kind === 'albums' ? 6 : 3) : 30;
+		const limit = fetchLimit;
 		const params = { ...listFilters, limit, after: cursor ?? undefined };
 
 		try {
@@ -241,6 +248,7 @@
 		void favorites;
 		void kind;
 		void preview;
+		void fetchLimit;
 		void recent;
 		void artistAppearances;
 		void advanced;
@@ -355,15 +363,65 @@
 	</div>
 	{#if queueError}<p role="alert">{queueError}</p>{/if}
 {/if}
-{#if albums.length}<Albums {session} {albums} {onopen} strip={preview} />{/if}
-{#if artists.length}<div class="artists">
-		{#each artists as a (a.id)}<button onclick={() => onartist(a)}
-				><strong>{a.name}</strong><small
-					>{a.album_count} {a.album_count === 1 ? 'album' : 'albums'}</small
-				></button
-			>{/each}
-	</div>{/if}
-{#if songs.length}<TrackList {session} tracks={songs} {onplay} />{/if}
+{#if display}
+	<div
+		class="preview-items"
+		data-part={kind === 'albums' ? 'album-grid' : kind === 'artists' ? 'artist-list' : 'track-list'}
+	>
+		{#each albums.slice(0, display.limit) as album (album.localId || album.group)}
+			<PreviewItem
+				{session}
+				part="album-card"
+				title={album.title}
+				subtitle={album.artist}
+				artwork={album.art}
+				coverSeed={album.group || album.localId || album.title}
+				onclick={() => onopen(album)}
+			/>
+		{/each}
+		{#each artists.slice(0, display.limit) as a (a.id)}
+			<PreviewItem
+				{session}
+				title={a.name}
+				subtitle={a.album_count + (a.album_count === 1 ? ' album' : ' albums')}
+				artwork={path('/api/v3/library/artists/{id}/artwork', { id: a.id }, { size: 250 })}
+				coverSeed={a.id}
+				onclick={() => onartist(a)}
+			/>
+		{/each}
+		{#each songs.slice(0, display.limit) as song, index (song.id)}
+			<PreviewItem
+				{session}
+				title={song.title}
+				label={'Play ' + song.title}
+				subtitle={song.artist}
+				detail={[song.album, song.duration ? trackDuration(song.duration) : '']
+					.filter(Boolean)
+					.join(' · ')}
+				artwork={song.artworkUrl}
+				coverSeed={song.album || song.title}
+				onclick={() => onplay(songs.slice(0, display?.limit), index)}
+			>
+				{#snippet actions()}<TrackActions
+						{session}
+						tracks={[song]}
+						label={'More options for ' + song.title}
+						favorite={song.favorite}
+					/>{/snippet}
+			</PreviewItem>
+		{/each}
+	</div>
+{:else}
+	{#if albums.length}<Albums {session} {albums} {onopen} strip={preview} />{/if}
+	{#if artists.length}<div class="artists">
+			{#each artists as a (a.id)}<button onclick={() => onartist(a)}
+					><strong>{a.name}</strong><small
+						>{a.album_count} {a.album_count === 1 ? 'album' : 'albums'}</small
+					></button
+				>{/each}
+		</div>{/if}
+	{#if songs.length}<TrackList {session} tracks={songs} {onplay} />{/if}
+{/if}
 {#if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => load(next, generation)}>Try again</button>
 {:else if busy}<p role="status">Loading {noun}…</p>

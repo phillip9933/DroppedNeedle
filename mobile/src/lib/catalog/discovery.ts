@@ -56,9 +56,10 @@ export async function discover(
 	session: Session,
 	view: DiscoverView,
 	range: ChartRange,
-	offset: number
+	offset: number,
+	limit = 24
 ): Promise<DiscoveryPage> {
-	const query = { range, offset, limit: 24 };
+	const query = { range, offset, limit };
 	switch (view) {
 		case 'top':
 		case 'popular': {

@@ -1,21 +1,23 @@
 <script lang="ts">
-	import { ChevronRight } from '@lucide/svelte';
+	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
 	import { playlists, createPlaylist, playlistCover, type Playlist } from './playlists';
-	import Cover from './Cover.svelte';
+	import PreviewItem from '../boards/PreviewItem.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import PlaylistImport from './PlaylistImport.svelte';
 	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	let creating = $state(false),
 		saving = $state(false);
 	let {
+		display,
 		session,
 		preview = false,
 		active = true,
 		onopen
 	}: {
 		session: Session;
+		display: Preview;
 		preview?: boolean;
 		active?: boolean;
 		onopen: (playlist: Playlist) => void;
@@ -70,17 +72,16 @@
 	<button class="secondary" onclick={() => retry++}>Try again</button>
 {:else if !items.length}<p>No playlists yet.</p>
 {:else}
-	<div data-part="playlist-list">
-		{#each items.slice(0, preview ? 3 : count) as item (item.id)}
-			<button class="row" onclick={() => onopen(item)}>
-				<span class="art"><Cover {session} path={playlistCover(item)} seed={item.id} /></span>
-				<span class="info"
-					><strong>{item.name}</strong><small
-						>{item.track_count} {item.track_count === 1 ? 'track' : 'tracks'}</small
-					></span
-				>
-				<ChevronRight size={18} aria-hidden="true" />
-			</button>
+	<div data-part="playlist-list" class="preview-items">
+		{#each items.slice(0, preview ? display.limit : count) as item (item.id)}
+			<PreviewItem
+				{session}
+				title={item.name}
+				subtitle={item.track_count + (item.track_count === 1 ? ' track' : ' tracks')}
+				artwork={playlistCover(item)}
+				coverSeed={item.id}
+				onclick={() => onopen(item)}
+			/>
 		{/each}
 	</div>
 	{#if !preview && count < items.length}<button class="secondary more" onclick={() => (count += 40)}
@@ -89,31 +90,6 @@
 {/if}
 
 <style>
-	.row {
-		display: flex;
-		align-items: center;
-		text-align: start;
-		gap: var(--gap);
-		width: 100%;
-		padding: 0.55rem 0;
-		border-bottom: 1px solid var(--line);
-	}
-	.info {
-		min-width: 0;
-		flex: 1;
-	}
-	.info strong,
-	.info small {
-		display: block;
-		overflow-wrap: anywhere;
-	}
-	.info small {
-		color: var(--muted);
-	}
-	.art {
-		width: 3.25rem;
-		flex-shrink: 0;
-	}
 	.more {
 		margin-top: var(--gap);
 	}

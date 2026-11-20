@@ -1,19 +1,20 @@
 <script lang="ts">
-	import { Play } from '@lucide/svelte';
+	import type { Preview } from '../boards/display';
+	import PreviewItem from '../boards/PreviewItem.svelte';
 	import type { Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
 	import { findListen, recentListens, type Listen } from './libraryWidgets';
 
 	let {
+		display,
 		session,
 		onplay,
-		active = true,
-		preview = false
+		active = true
 	}: {
 		session: Session;
+		display: Preview;
 		onplay: OnPlay;
 		active?: boolean;
-		preview?: boolean;
 	} = $props();
 	let listens = $state<Listen[]>([]),
 		refreshing = $state(false),
@@ -89,25 +90,21 @@
 	<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => retry++}>Try again</button>
 {:else if listens.length}
-	<ol data-part="recent-listens">
-		{#each listens.slice(0, preview ? 3 : undefined) as listen, i (i)}
+	<ol data-part="recent-listens" class="preview-items">
+		{#each listens.slice(0, display.limit) as listen, i (i)}
 			<li>
-				<div>
-					<strong>{listen.title}</strong><small
-						>{[listen.artist_name, listen.album_name].filter(Boolean).join(' · ')}</small
-					>
-					{#if playedAt(listen.listened_at)}<time datetime={listen.listened_at ?? undefined}
-							>{playedAt(listen.listened_at)}</time
-						>{/if}
-				</div>
-				{#if listen.musicbrainz_id && !unavailable[i]}
-					<button
-						class="icon-button"
-						aria-label={'Replay ' + listen.title}
-						disabled={resolving !== null}
-						onclick={() => play(listen, i)}><Play size={18} aria-hidden="true" /></button
-					>
-				{:else}<small>{unavailable[i] || 'Local copy unknown'}</small>{/if}
+				<PreviewItem
+					{session}
+					title={listen.title}
+					subtitle={[listen.artist_name, listen.album_name].filter(Boolean).join(' · ')}
+					detail={unavailable[i] || (!listen.musicbrainz_id ? 'Local copy unknown' : '')}
+					time={listen.listened_at && playedAt(listen.listened_at)
+						? { value: listen.listened_at, label: playedAt(listen.listened_at) }
+						: undefined}
+					onclick={listen.musicbrainz_id && !unavailable[i] ? () => play(listen, i) : undefined}
+					label={'Replay ' + listen.title}
+					disabled={resolving !== null}
+				/>
 			</li>
 		{/each}
 	</ol>
@@ -124,31 +121,8 @@
 	</p>{/if}
 
 <style>
-	ol {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-	}
 	li {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: var(--gap);
-		border-bottom: 1px solid var(--line);
-		padding: 0.6rem 0;
-	}
-	li > div {
 		min-width: 0;
-		overflow-wrap: anywhere;
-	}
-	strong,
-	small,
-	time {
-		display: block;
-	}
-	small,
-	time {
-		color: var(--muted);
-		font-size: 0.85rem;
+		display: grid;
 	}
 </style>

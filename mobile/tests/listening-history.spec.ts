@@ -1,3 +1,4 @@
+import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
@@ -90,6 +91,7 @@ test('personal history keeps repeated listens and only replays unique local reco
 			played.push(path);
 			return route.fulfill({ path: audio, contentType: 'audio/wav' });
 		}
+		if (await emptyBoardRead(route)) return;
 		throw Error('Unexpected fixture request ' + path);
 	});
 	await page.goto('/');
@@ -140,6 +142,7 @@ for (const scenario of ['disabled', 'enabled', 'unsupported'] as const) {
 					pages: { home: [{ key: 'recently_played', enabled: scenario === 'enabled' }] }
 				});
 			}
+			if (await emptyBoardRead(route)) return;
 			throw Error('Unexpected fixture request ' + path);
 		});
 		await page.goto('/');

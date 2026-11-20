@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	export function trackDuration(seconds: number) {
+		return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
+	}
+</script>
+
 <script lang="ts">
 	import { Play } from '@lucide/svelte';
 	let {
@@ -13,9 +19,6 @@
 		duration?: number | null;
 		onplay?: () => void;
 	} = $props();
-	function length(seconds: number) {
-		return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
-	}
 </script>
 
 <button
@@ -30,7 +33,7 @@
 				· Unavailable in library{/if}</small
 		></span
 	>
-	{#if duration}<span class="length">{length(duration)}</span>{/if}
+	{#if duration}<span class="length">{trackDuration(duration)}</span>{/if}
 	{#if onplay}<Play size={16} aria-hidden="true" />{/if}
 </button>
 

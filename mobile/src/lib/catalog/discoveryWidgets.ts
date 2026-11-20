@@ -196,7 +196,8 @@ export async function readWidget(
 	id: string,
 	range: ChartRange,
 	offset: number,
-	playlistId: string
+	playlistId: string,
+	previewCapacity?: number
 ): Promise<WidgetResult> {
 	const key = id.slice('discover-'.length);
 	if (Object.hasOwn(otherViews, key)) {
@@ -204,7 +205,8 @@ export async function readWidget(
 			session,
 			otherViews[key as keyof typeof otherViews],
 			range,
-			offset
+			offset,
+			previewCapacity
 		);
 		return { ...result, shelves: result.shelves.map((s) => ({ ...s, genres: [], songs: [] })) };
 	}
@@ -241,7 +243,10 @@ export async function readWidget(
 		const suggestions = await postJson<S['PlaylistSuggestionsResponse']>(
 			session,
 			path('/api/v3/discover/playlist-suggestions'),
-			{ playlist_id: playlistId, count: 15 } satisfies S['PlaylistSuggestionsRequest']
+			{
+				playlist_id: playlistId,
+				count: previewCapacity ?? 15
+			} satisfies S['PlaylistSuggestionsRequest']
 		);
 		return { playlists: options, shelves: [fromChart(suggestions.suggestions)] };
 	}
@@ -320,21 +325,4 @@ export async function playableSong(session: Session, song: ShelfSong) {
 		seen.add(after);
 	} while (after);
 	return fallback ? localSong(fallback) : null;
-}
-export function previewShelf(source: FeatureShelf): FeatureShelf {
-	// The same section can contain different item types. Bound the total visible rows.
-	let left = 3;
-	function take<T>(items: T[]) {
-		const result = items.slice(0, left);
-		left -= result.length;
-		return result;
-	}
-	return {
-		...source,
-		albums: take(source.albums),
-		artists: take(source.artists),
-		songs: take(source.songs),
-		genres: take(source.genres),
-		unlinked: take(source.unlinked)
-	};
 }
