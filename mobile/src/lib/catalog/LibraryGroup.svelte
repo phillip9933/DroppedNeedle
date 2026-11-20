@@ -5,9 +5,21 @@
 	import type { Session } from '../connection';
 	import type { PlayerTrack } from '../player';
 	import { errorMessage, type OnPlay } from './catalog';
-	import { offlineInventory, watchOfflineMedia } from '../offline/media';
-	import type { OfflineInventory } from '../offline/library';
-	import { browseChoice, type BrowseItem, trackItem } from './libraryBrowse';
+	import { offlineSupported } from '../offline/media';
+	import { availableTracks, matchesAvailability, type Availability } from '../offline/library';
+	import { detailInventory, type DetailInventory } from './detailInventory.svelte';
+	import DetailAvailability from './DetailAvailability.svelte';
+	import { albumTrackCount } from './albumTrackCounts';
+	import { offlinePlaylists } from './playlistOffline';
+	import { smartPlaylistTracks } from './smartPlaylists';
+	import { deviceTrackOrder, matchesDeviceTrack } from './trackFilters';
+	import {
+		browseChoice,
+		localAlbumKey,
+		type BrowseItem,
+		type DeviceCollection,
+		trackOccurrences
+	} from './libraryBrowse';
 	import { loadNearEnd } from './browseViewport';
 	import { tappedPlayback, type PageEnd } from './browsePlayback';
 	import { untrack } from 'svelte';
@@ -23,6 +35,9 @@
 		item,
 		tracks,
 		offline,
+		source,
+		collection,
+		initialAvailability = 'all',
 		onplay,
 		active
 	}: {
@@ -30,13 +45,15 @@
 		item: BrowseItem;
 		tracks: PlayerTrack[];
 		offline: boolean;
+		source?: DetailInventory;
+		collection?: DeviceCollection;
+		initialAvailability?: Availability;
 		onplay: OnPlay;
 		active: boolean;
 	} = $props();
 	let limit = $state(48),
 		error = $state(''),
-		busy = $state(false),
-		inventory = $state.raw<OfflineInventory>();
+		busy = $state(false);
 	let results = $state<BrowseEntries>(),
 		returnItem = '',
 		inBackground = false,
@@ -50,9 +67,83 @@
 		pageError = $state(''),
 		pageRead: AbortController | undefined,
 		queueRead = $state<AbortController>();
-	const shown = $derived(remoteGenre ? serverTracks : tracks.slice(0, limit));
+	const ownSource = detailInventory(
+		() => session,
+		() => !source && active
+	);
+	const device = $derived(source ?? ownSource);
+	const inventory = $derived(device.inventory);
+	const isAlbum = $derived(item.id.startsWith('Albums:'));
+	const isPlaylist = $derived(item.id.startsWith('playlist:') || !!item.smart);
+	const showAvailability = $derived(
+		offlineSupported && !!session.userId && (isAlbum || isPlaylist)
+	);
+	const deviceOnly = $derived(!!collection || offline || !!item.localTracks);
+	let availability = $state<Availability>(untrack(() => initialAvailability));
+	const filter = $derived(availability === 'all' && deviceOnly ? 'offline' : availability);
+	export function getPlaybackAvailability() {
+		return filter === 'all' ? undefined : filter;
+	}
+	let smartTracks = $state.raw<PlayerTrack[]>(),
+		smartError = $state(''),
+		smartRevision = $state(0);
+	$effect(() => {
+		const data = inventory,
+			rule = item.smart,
+			owner = session;
+		void smartRevision;
+		if (!collection || !rule || !data || !active) return;
+		const job = new AbortController();
+		smartError = '';
+		void smartPlaylistTracks(owner, rule, job.signal, availableTracks(data)).then(
+			(result) => {
+				if (!job.signal.aborted) smartTracks = result;
+			},
+			(cause) => {
+				if (!job.signal.aborted) smartError = errorMessage(cause);
+			}
+		);
+		return () => job.abort();
+	});
+	const savedAlbum = $derived(
+		isAlbum && inventory && deviceOnly
+			? availableTracks(inventory).filter((t) => 'Albums:' + localAlbumKey(t) === item.id)
+			: undefined
+	);
+	const candidates = $derived.by(() => {
+		if (!deviceOnly) return tracks;
+		if (!inventory) return [];
+		if (collection?.category === 'Albums') {
+			const filters = { ...collection.filters, q: '' };
+			return (savedAlbum ?? [])
+				.filter((t) => matchesDeviceTrack(t, filters))
+				.sort(deviceTrackOrder({ sort: 'album', order: 'asc' }));
+		}
+		if (collection?.category === 'Playlists') {
+			if (item.smart) return smartTracks ?? [];
+			return offlinePlaylists(session, availableTracks(inventory), item.id)[0]?.localTracks ?? [];
+		}
+		return tracks.flatMap((t) => inventory?.byId.get(t.id)?.track ?? []);
+	});
+	const countOnDevice = $derived(
+		savedAlbum?.length ?? candidates.reduce((n, t) => n + Number(!!inventory?.byId.has(t.id)), 0)
+	);
+	const knownPlayable = $derived(
+		!deviceOnly
+			? candidates.length
+			: (item.knownPlayable ??
+					(isAlbum
+						? albumTrackCount(session, candidates[0]?.albumId ?? tracks[0]?.albumId)
+						: undefined))
+	);
+	const filteredTracks = $derived(
+		!showAvailability || filter === 'all'
+			? candidates
+			: candidates.filter((t) => inventory && matchesAvailability(inventory, t.id, filter))
+	);
+	const shown = $derived(remoteGenre ? serverTracks : filteredTracks.slice(0, limit));
 	const total = $derived(
-		remoteGenre ? (knownTotal ?? item.count ?? serverTracks.length) : tracks.length
+		remoteGenre ? (knownTotal ?? item.count ?? serverTracks.length) : filteredTracks.length
 	);
 	const seenCursors = new SvelteSet<string>();
 	async function readPage(more = false) {
@@ -100,7 +191,7 @@
 			}
 			const selection = remoteGenre
 				? await tracksInGenre(session, item.genre!, job.signal, true)
-				: tracks;
+				: filteredTracks;
 			job.signal.throwIfAborted();
 			window.removeEventListener('dn-playback-intent', cancel);
 			const check = queueSizeCheck(session.serverUrl);
@@ -121,26 +212,12 @@
 		queueRead?.abort();
 	});
 	// Offline playlists can contain the same recording twice. Each occurrence has its own action.
-	const rows = $derived(shown.map((t, i) => ({ ...trackItem(t), id: 'entry:' + i })));
+	const rows = $derived(trackOccurrences(shown));
+	const eligible = $derived(new Set(rows.map((r) => r.id)));
 	onMount(() => {
 		const visibility = () => (shownDocument = !document.hidden);
 		document.addEventListener('visibilitychange', visibility);
-		let alive = true;
-		async function read() {
-			try {
-				const result = await offlineInventory(session);
-				if (alive) inventory = result;
-			} catch {
-				/* Library playback is independent of offline storage availability. */
-			}
-		}
-		void read();
-		const stop = watchOfflineMedia(read);
-		return () => {
-			alive = false;
-			document.removeEventListener('visibilitychange', visibility);
-			stop();
-		};
+		return () => document.removeEventListener('visibilitychange', visibility);
 	});
 	$effect(() => {
 		const foreground = active && shownDocument;
@@ -170,7 +247,7 @@
 		error = '';
 		returnItem = row.id;
 		try {
-			const source = remoteGenre ? shown : tracks,
+			const source = remoteGenre ? shown : filteredTracks,
 				index = rows.findIndex((i) => i.id === row.id);
 			const batch = tappedPlayback(
 				session.serverUrl,
@@ -191,16 +268,27 @@
 
 <SelectionHost
 	choices={() => rows.map((i) => browseChoice(session, i))}
-	contains={(id) => rows.some((i) => i.id === id)}
+	contains={(id) => eligible.has(id)}
 	{session}
 	{onplay}
 	{active}
 	localOnly={offline}
 	heading={item.title}
-	scope={item.id}
+	scope={JSON.stringify([item.id, filter])}
 >
 	{#if item.smart}<small>Smart playlist · on this device</small>{/if}
-	<p>{total.toLocaleString()} {total === 1 ? 'track' : 'tracks'}</p>
+	{#if showAvailability}<DetailAvailability
+			source={device}
+			available={countOnDevice}
+			total={knownPlayable}
+			{deviceOnly}
+			value={filter}
+			onchange={(v) => {
+				availability = v;
+				limit = 48;
+			}}
+		/>
+	{:else}<p>{total.toLocaleString()} {total === 1 ? 'track' : 'tracks'}</p>{/if}
 	{#if shown.length}
 		<div class="group-actions">
 			<button class="primary" disabled={busy} onclick={() => all(false)}
@@ -219,6 +307,8 @@
 			layout="list"
 			columns={1}
 			{inventory}
+			cacheOnly={deviceOnly}
+			showOnlineOnly={showAvailability}
 			localOnly={offline}
 			open={play}
 		/>
@@ -227,12 +317,14 @@
 				disabled={reading}
 				use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
 				onclick={() => readPage(true)}>More songs</button
-			>{:else if !remoteGenre && limit < tracks.length}<button
+			>{:else if !remoteGenre && limit < filteredTracks.length}<button
 				class="secondary"
 				use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
 				onclick={() => (limit += 48)}>More songs</button
 			>{/if}
 	{:else if !reading && !pageError}<p>No matching tracks.</p>{/if}
+	{#if smartError}<p role="alert">{smartError}</p>
+		<button class="secondary" onclick={() => smartRevision++}>Retry smart playlist</button>{/if}
 	{#if pageError}<p role="alert">{pageError}</p>
 		<button class="secondary" onclick={() => readPage(!!serverTracks.length)}>Retry</button>{/if}
 	{#if reading}<p role="status">Loading genre tracks…</p>{/if}

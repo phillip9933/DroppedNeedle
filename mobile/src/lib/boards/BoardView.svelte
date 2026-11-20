@@ -75,6 +75,7 @@
 	let root: HTMLElement;
 	let group = $state.raw<{ row: BrowseItem; section: Section; device: boolean } | null>(null),
 		groupScroll = 0;
+	let groupView = $state<LibraryGroup>();
 	const source = catalogSource(
 		() => session,
 		() => active,
@@ -116,7 +117,8 @@
 		detailError = '';
 		scroll(0);
 	}
-	export function getPlaybackAvailability(): 'offline' | undefined {
+	export function getPlaybackAvailability() {
+		if (groupView) return groupView.getPlaybackAvailability();
 		return source.useDevice || group?.device ? 'offline' : undefined;
 	}
 
@@ -260,6 +262,8 @@
 				>{/if}
 			{#key group.row.id + localDetail}
 				<LibraryGroup
+					bind:this={groupView}
+					source={localDetail ? source : undefined}
 					{session}
 					{active}
 					{onplay}

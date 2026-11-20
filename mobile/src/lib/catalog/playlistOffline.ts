@@ -60,11 +60,12 @@ export function forgetPlaylist(session: Session, id: string) {
 			read(k).filter((p) => p.id !== id)
 		);
 }
-export function offlinePlaylists(session: Session, tracks: PlayerTrack[]) {
+export function offlinePlaylists(session: Session, tracks: PlayerTrack[], onlyId?: string) {
 	const k = key(session);
 	if (!k) return [];
 	const byId = new Map(tracks.map((t) => [t.id, t]));
 	return read(k).flatMap((p) => {
+		if (onlyId && 'playlist:' + p.id !== onlyId) return [];
 		const available = (p.ids ?? []).flatMap((id) => byId.get(id) ?? []);
 		return available.length
 			? [
@@ -72,6 +73,7 @@ export function offlinePlaylists(session: Session, tracks: PlayerTrack[]) {
 						id: 'playlist:' + p.id,
 						title: p.name,
 						count: available.length,
+						knownPlayable: p.ids?.length,
 						subtitle: available.length + ' available offline',
 						covers: p.covers,
 						localTracks: available

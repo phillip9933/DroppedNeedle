@@ -15,6 +15,7 @@
 		label,
 		vertical = false,
 		localOnly = false,
+		deviceAvailable,
 		favorite
 	}: {
 		session: Session;
@@ -22,6 +23,7 @@
 		label: string;
 		vertical?: boolean;
 		localOnly?: boolean;
+		deviceAvailable?: boolean;
 		favorite?: boolean;
 	} = $props();
 	let menu = $state<'actions' | 'playlist' | null>(null),
@@ -34,8 +36,15 @@
 		const current = session,
 			id = tracks.length === 1 ? tracks[0].id : undefined;
 		let live = true;
-		onDevice = localOnly;
-		if (menu === 'actions' && !localOnly && id && offlineSupported && current.userId)
+		onDevice = deviceAvailable ?? localOnly;
+		if (
+			deviceAvailable === undefined &&
+			menu === 'actions' &&
+			!localOnly &&
+			id &&
+			offlineSupported &&
+			current.userId
+		)
 			void offlineInventory(current)
 				.then((data) => {
 					if (live) onDevice = data.byId.has(id);
