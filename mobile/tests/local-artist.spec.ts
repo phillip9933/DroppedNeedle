@@ -101,7 +101,7 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await page.getByRole('button', { name: 'Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Artists', exact: true }).click();
-	await page.getByRole('button', { name: /Guest Artist 1 album/ }).click();
+	await page.getByRole('button', { name: 'Guest Artist', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Solo sessions Guest Artist' })).toBeVisible();
 	expect(read).toEqual(['albums']);
 	await page.getByRole('button', { name: 'Favorite artist', exact: true }).click();

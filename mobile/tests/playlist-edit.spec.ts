@@ -202,6 +202,7 @@ test('an owner creates, renames, shares and confirms deletion of a playlist', as
 	const state = await connect(page);
 	await page.getByRole('button', { name: 'Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
+	await page.getByRole('button', { name: 'Category settings' }).click();
 	await page.getByRole('button', { name: 'New playlist' }).click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog.getByRole('button', { name: 'Create playlist' })).toBeDisabled();
@@ -229,7 +230,7 @@ test('an owner creates, renames, shares and confirms deletion of a playlist', as
 	expect(state.writes).not.toContain('DELETE /playlists/created');
 	await page.getByRole('button', { name: 'Delete playlist' }).click();
 	await dialog.getByRole('button', { name: 'Delete playlist' }).click();
-	await expect(page.getByRole('button', { name: /My mix/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'My mix', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: /Sunday/ })).toHaveCount(0);
 });
 
@@ -254,7 +255,7 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await page.getByRole('button', { name: 'Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
-	await page.getByRole('button', { name: /Shared mix/ }).click();
+	await page.getByRole('button', { name: 'Shared mix', exact: true }).click();
 	await page.getByRole('button', { name: 'Edit playlist' }).click();
 	await expect(
 		page.getByRole('button', { name: /Rename|Share playlist|Delete playlist/ })
@@ -274,7 +275,7 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	expect(state.lists[1].tracks[1].album_name).toBe('Unknown album');
 	expect(state.writes).toContain('DELETE /playlists/shared/tracks/entry-2');
 	await page.getByRole('button', { name: 'Back to playlists' }).click();
-	await page.getByRole('button', { name: /Listening room/ }).click();
+	await page.getByRole('button', { name: 'Listening room', exact: true }).click();
 	await expect(page.getByText('This playlist is empty.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit playlist' })).toHaveCount(0);
 });
@@ -306,6 +307,6 @@ test('a listener names an imported playlist and reviews unmatched local entries'
 	await dialog.getByText('Unmatched entries (1)').click();
 	await expect(dialog.getByText(/No matching local file/)).toBeVisible();
 	await dialog.getByRole('button', { name: 'Done' }).click();
-	await expect(page.getByRole('button', { name: /Train ride/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Train ride', exact: true })).toBeVisible();
 	expect(state.writes).toEqual(['POST /playlists/import']);
 });

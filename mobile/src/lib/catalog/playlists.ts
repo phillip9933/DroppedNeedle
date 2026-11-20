@@ -2,13 +2,20 @@ import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import type { PlayerTrack } from '../player';
 import { DnError, getJson, mutateJson, postJson, type Session } from '../connection';
 import { cover, path, playerTrack } from './catalog';
+import { forgetPlaylist, rememberPlaylistList, rememberPlaylistTracks } from './playlistOffline';
 
 type Schema = components['schemas'];
 export type Playlist = Schema['PlaylistSummary'];
 
-export async function playlists(session: Session) {
-	const list = await getJson<Schema['PlaylistListResponse']>(session, path('/api/v3/playlists'));
-	return list.playlists.filter((p): p is Playlist => !p.is_redacted && 'name' in p);
+export async function playlists(session: Session, signal?: AbortSignal) {
+	const list = await getJson<Schema['PlaylistListResponse']>(
+		session,
+		path('/api/v3/playlists'),
+		signal
+	);
+	const visible = list.playlists.filter((p): p is Playlist => !p.is_redacted && 'name' in p);
+	rememberPlaylistList(session, visible, playlistArtwork);
+	return visible;
 }
 
 // Playlist imports may include an external artwork URL. Keep media on this DN server.
@@ -19,10 +26,15 @@ function localCover(raw?: string | null) {
 	return group ? cover(group[1]) : undefined;
 }
 
-export function playlistCover(p: Playlist) {
+export function playlistArtwork(p: Playlist): string[] {
 	if (p.custom_cover_url)
-		return path('/api/v3/playlists/{playlist_id}/cover', { playlist_id: p.id });
-	return p.cover_urls.map(localCover).find(Boolean);
+		return [path('/api/v3/playlists/{playlist_id}/cover', { playlist_id: p.id })];
+	return [
+		...new Set((p.cover_urls ?? []).map((url) => localCover(url)).filter((s): s is string => !!s))
+	].slice(0, 4);
+}
+export function playlistCover(p: Playlist) {
+	return playlistArtwork(p)[0];
 }
 
 export async function readPlaylist(session: Session, playlist: Playlist, signal?: AbortSignal) {
@@ -70,6 +82,7 @@ export async function readPlaylist(session: Session, playlist: Playlist, signal?
 			);
 		return { entry, index };
 	});
+	if (!resolutionFailed) rememberPlaylistTracks(session, detail, tracks, playlistArtwork(detail));
 	return { playlist: detail as Playlist, rows, tracks, resolutionFailed };
 }
 
@@ -124,12 +137,14 @@ export function removePlaylistEntry(session: Session, id: string, entry: string)
 	);
 }
 
-export function deletePlaylist(session: Session, id: string) {
-	return mutateJson<Schema['StatusResponse']>(
+export async function deletePlaylist(session: Session, id: string) {
+	const result = await mutateJson<Schema['StatusResponse']>(
 		session,
 		path('/api/v3/playlists/{playlist_id}', { playlist_id: id }),
 		'DELETE'
 	);
+	forgetPlaylist(session, id);
+	return result;
 }
 
 export function playlistVisibility(session: Session, id: string, isPublic: boolean) {

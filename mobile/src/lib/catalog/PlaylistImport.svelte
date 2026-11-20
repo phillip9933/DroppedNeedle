@@ -5,7 +5,11 @@
 	import { errorMessage, path } from './catalog';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	type S = components['schemas'];
-	let { session, onimport }: { session: Session; onimport: () => void } = $props();
+	let {
+		session,
+		onimport,
+		compact = false
+	}: { session: Session; onimport: () => void; compact?: boolean } = $props();
 	let open = $state(false),
 		file = $state<File>(),
 		name = $state(''),
@@ -59,7 +63,9 @@
 	}
 </script>
 
-<button class="text-button" onclick={start}><Upload size={16} />Import playlist</button>
+<button class="text-button" class:import-pill={compact} aria-label="Import playlist" onclick={start}
+	><Upload size={18} />{compact ? 'Import' : 'Import playlist'}</button
+>
 {#if open}
 	<PlaylistDialog
 		title={report ? 'Playlist imported' : 'Import playlist'}

@@ -76,6 +76,7 @@ test('browse a library artist, open their album and keep a favorite across views
 	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Back to Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Albums', exact: true }).click();
+	await page.getByRole('button', { name: 'Collection filters' }).click();
 	await page.getByRole('button', { name: 'Favorites only' }).click();
 	await expect(page.getByRole('button', { name: /Return Trip/ })).toBeVisible();
 	expect(favorite).toBe(true);
@@ -158,6 +159,7 @@ test('rating and format filters preserve the server cursor and stay off previews
 	await page.getByRole('button', { name: 'Browse Albums' }).click();
 	await expect(page.getByRole('button', { name: /Overture/ })).toBeVisible();
 	expect(formatReads).toBe(0);
+	await page.getByRole('button', { name: 'Collection filters' }).click();
 	await page.getByText('Rating and format', { exact: true }).click();
 	await page.getByRole('button', { name: 'Retry formats' }).click();
 	await page.getByLabel('Your rating').selectOption('4');
@@ -175,6 +177,7 @@ test('rating and format filters preserve the server cursor and stay off previews
 	await expect(page.getByRole('button', { name: /Overture/ })).toBeVisible();
 	await page.getByRole('button', { name: 'Back to Library' }).click();
 	await page.getByRole('button', { name: 'Browse Tracks' }).click();
+	await page.getByRole('button', { name: 'Collection filters' }).click();
 	await page.getByText('Rating and format', { exact: true }).click();
 	await expect(page.getByRole('checkbox', { name: 'FLAC' })).toHaveCount(0);
 	await page.getByRole('checkbox', { name: 'ALAC' }).check();
