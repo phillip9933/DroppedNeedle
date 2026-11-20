@@ -122,6 +122,58 @@ async function addFeature(page: Page, name: string) {
 		.click();
 	await page.getByRole('button', { name: 'Use ' + name, exact: true }).click();
 }
+test('timed lyrics follow playback inside their panel and let listeners read ahead until they resume', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 360, height: 720 });
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	await fixture(page);
+	await page.route('**/api/v3/library/tracks/*/lyrics', (route) =>
+		route.fulfill({
+			json: {
+				is_synced: true,
+				lines: Array.from({ length: 60 }, (_, i) => ({
+					start_seconds: i,
+					text: 'Line ' + i
+				}))
+			}
+		})
+	);
+	await play(page);
+	const lyrics = page.locator('[data-part=lyrics]');
+	await lyrics.locator('summary').click();
+	const lines = lyrics.getByRole('region', { name: 'Timed lyrics' });
+	await expect(lines).toBeVisible();
+	const seek = page.getByRole('slider', { name: 'Playback position' });
+	await seek.fill('28');
+	const centerError = () =>
+		lines.evaluate((box) => {
+			const line = box.querySelector('[aria-current=true]')!;
+			const row = line.getBoundingClientRect(),
+				panel = box.getBoundingClientRect();
+			return Math.abs(row.top + row.height / 2 - panel.top - panel.height / 2);
+		});
+	await expect(lines.locator('[aria-current=true]')).toHaveText('Line 28');
+	await expect.poll(centerError).toBeLessThan(3);
+	await lines.hover();
+	await page.mouse.wheel(0, 160);
+	const resume = lyrics.getByRole('button', { name: 'Follow current line' });
+	await expect(resume).toBeVisible();
+	await seek.fill('43');
+	await expect(lines.locator('[aria-current=true]')).toHaveText('Line 43');
+	await expect.poll(centerError).toBeGreaterThan(80);
+	await resume.click();
+	await expect(resume).toBeHidden();
+	await expect.poll(centerError).toBeLessThan(3);
+	const next = lines.getByRole('button', {
+		name: 'Seek to lyric Line 45',
+		exact: true
+	});
+	await next.click();
+	await expect(lines.locator('[aria-current=true]')).toHaveText('Line 45');
+	await expect.poll(centerError).toBeLessThan(3);
+});
+
 test('a listener saves, cancels and restores the Now Playing layout independently for each account and server', async ({
 	page
 }) => {
