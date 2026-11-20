@@ -12,17 +12,27 @@ For OIDC, including authentik, enter the public DroppedNeedle address served by 
 
 Server administrators can add browser sign-in by building the DN web frontend with the `feat/mobile-browser-pairing` change. It provides `/connect/mobile` and `/mobile-pairing.json`. The marker should return JSON containing `"droppedneedle_mobile_pairing": 1`. The phone must be able to reach the DN API and media endpoints using its DN device session. A proxy that requires a separate browser session on those routes needs a compatible access policy.
 
+## Arrange Home, Library and Discover
+
+Home opens after sign-in. It starts with recently added albums, your recent plays and a shortcut to your top picks. Tap a section heading to open the full collection. In Library or Discover, **Add to Home** copies that section to the end of Home.
+
+Choose **Edit** on any of the three screens. Under **Add sections**, choose an item to set its title, position and preview. Turn **Show a preview** off for a single browse row. Use the arrows to move an item, its sliders to change it, or the minus button to take it off that screen. Select **Save layout** when ready. **Cancel** discards the draft. **Restore default layout** sets up a new draft for the current screen.
+
+Home can use any Library or Discover section. Library and Discover each have their own order, visibility, titles and preview choices. The app saves these layouts on this phone for the signed-in DN account and server. DN still decides which recommendation data and integrations are available for that account.
+
 ## Listening and library coverage
 
 | Area | On the phone |
 | --- | --- |
-| Library | Browse albums, artists and songs. Filter, sort, or show favorites. Open a library artist to browse their albums. |
+| Library | Browse albums, artists and songs. Open a section to filter, sort, or show favorites. Open a library artist to browse their albums. |
 | Now Playing | Tap the mini-player for artwork, playback, seeking, lyrics and the queue. Synced lyrics highlight the current line when DN supplies timings. Android media controls work with the screen locked. |
 | Queue | Play next, append, move or remove individual entries, shuffle upcoming tracks, and repeat a song or the queue. Android restores the last queue and position paused when you reopen the app after the playback process exits. |
 | Playlists | Create, rename and delete playlists. Add a song or album, reorder tracks, remove one occurrence of a repeated song, and share with viewers or editors. Unavailable entries stay visible. |
 | Search and requests | Search for albums, artists and songs. Choose an album edition or request an individual recording. View active requests and history, withdraw eligible requests, and manage server downloads. Administrators can approve or reject requests. |
 | Discover | Browse recommendations, genres, popular albums, trending artists and personal charts. Open an artist for releases and top songs. Follow artists to see new releases and concerts. Library radio builds a queue from DN files related to an artist, album or genre. |
 | Account | In **Settings > Account on DroppedNeedle**, change your display name, listening visibility and scrobble preferences, or sign out another device. Administrators can check library health and start an incremental scan. |
+
+From **Requests > Downloads**, review eligible search candidates and choose a release. Advanced download and import tools open your server’s web app in the browser, which uses its own sign-in. The listener’s role and the server’s acquisition policy determine the available actions.
 
 The player streams your server’s local files and requires a connection. A download in **Requests > Downloads** is a transfer into the server library. Android reports playback to DN for listening history and linked scrobbling services. Playback reporting and queue restoration after process exit are currently Android features.
 
