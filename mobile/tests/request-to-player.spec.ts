@@ -20,6 +20,7 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	const played: string[] = [];
 	const unknown: string[] = [];
 	const common = {
+		user_id: 'user',
 		musicbrainz_id: group,
 		artist_name: artist,
 		album_title: album,
@@ -41,7 +42,8 @@ test('the requested edition arrives and both local tracks play in disc order', a
 			return json({ token: session });
 		}
 		expect(req.headers().authorization).toBe('Bearer ' + session);
-		if (operation === '/me') return json({ display_name: 'Listener', id: 'user' });
+		if (operation === '/me') return json({ display_name: 'Listener', id: 'user', role: 'user' });
+		if (operation === '/home') return json({ sections: [] });
 		if (operation === '/library/albums') return json({ items: [], total: 0, next: null });
 		if (operation === '/search')
 			return json({
@@ -159,15 +161,83 @@ test('the requested edition arrives and both local tracks play in disc order', a
 			expect(accepted).toBe(false);
 			accepted = true;
 			return json({
-				message: 'Waiting for approval',
+				message: 'Request queued',
 				success: true,
 				musicbrainz_id: group,
-				status: 'awaiting_approval'
+				status: 'queued'
 			} satisfies Schema['IntakeResponse']);
+		}
+		if (operation === '/downloads/tasks')
+			return json({
+				items:
+					accepted && !imported
+						? [
+								{
+									id: 'task',
+									user_id: 'user',
+									download_type: 'album',
+									source: 'soulseek',
+									origin: 'user',
+									release_group_mbid: group,
+									artist_name: artist,
+									album_title: album,
+									status: 'queued',
+									progress_percent: 0,
+									downloaded_bytes: 0,
+									files_total: 2,
+									files_completed: 0,
+									files_failed: 0,
+									retry_count: 0,
+									created_at: 1,
+									updated_at: 1,
+									retry_max: 0,
+									retry_ladder_minutes: [],
+									acquisition_cleanup_state: 'not_tracked',
+									remote_queued: false,
+									attempt_number: 1,
+									attempt_total: 1,
+									has_next_source: false,
+									held_for_review: false,
+									search_job_id: 'edition-job'
+								}
+							]
+						: [],
+				page: 1,
+				page_size: 30
+			} satisfies Schema['DownloadListResponse']);
+		if (operation === '/downloads/search/edition-job')
+			return json({
+				job_id: 'edition-job',
+				status: 'completed',
+				album_title: album,
+				artist_name: artist,
+				release_group_mbid: group,
+				release_mbid: release,
+				candidate_count: 1,
+				candidates: [
+					{
+						candidate_index: 0,
+						title: 'Matching edition',
+						source: 'soulseek',
+						tier: 'recommended',
+						file_count: 2,
+						files: [],
+						size_bytes: 2000,
+						note: { code: 'complete', text: 'Both tracks match the selected edition.' }
+					}
+				]
+			} satisfies Schema['SearchJobResponse']);
+		if (operation === '/downloads/search/edition-job/pick') {
+			expect(req.method()).toBe('POST');
+			expect(req.postDataJSON()).toEqual({ candidate_index: 0, confirm_policy_break: false });
+			expect(accepted).toBe(true);
+			expect(imported).toBe(false);
+			imported = true;
+			return json({ task_id: 'task' } satisfies Schema['PickResponse']);
 		}
 		if (operation === '/requests/active')
 			return json({
-				items: accepted && !imported ? [{ ...common, status: 'awaiting_approval' }] : [],
+				items: accepted && !imported ? [{ ...common, status: 'queued' }] : [],
 				count: accepted && !imported ? 1 : 0
 			} satisfies Schema['ActiveRequestsResponse']);
 		if (operation === '/requests/history')
@@ -193,7 +263,10 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await page.getByLabel('Username').fill('listener');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await page
+		.getByRole('navigation', { name: 'Music' })
+		.getByRole('button', { name: 'Search', exact: true })
+		.click();
 	await page.getByRole('searchbox').fill(album);
 	await page.getByRole('button', { name: album + ' ' + artist }).click();
 	await page.getByRole('combobox', { name: 'Edition' }).selectOption(release);
@@ -202,9 +275,14 @@ test('the requested edition arrives and both local tracks play in disc order', a
 	await expect(page.getByText('Awaiting approval', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Request album' }).click();
 	await page.getByRole('button', { name: 'View requests' }).click();
-	await expect(page.getByRole('button', { name: /After Dark.*Awaiting approval/ })).toBeVisible();
-	imported = true;
-	await page.getByRole('button', { name: 'Refresh requests' }).click();
+	await expect(page.getByRole('button', { name: /After Dark.*Queued/ })).toBeVisible();
+	await page.getByRole('button', { name: 'Downloads', exact: true }).click();
+	await page.getByRole('button', { name: 'Review matches for ' + album }).click();
+	const review = page.getByRole('dialog');
+	await review.getByRole('button', { name: /Matching edition/ }).click();
+	await review.getByRole('button', { name: 'Start download' }).click();
+	await expect(page.getByText('Download started from your selection.')).toBeVisible();
+	await page.getByRole('button', { name: 'Activity', exact: true }).click();
 	await page.getByRole('button', { name: /After Dark.*Imported/ }).click();
 	await page.getByRole('button', { name: 'Play album' }).click();
 	await expect(page.getByRole('heading', { name: 'Fading Light', exact: true })).toBeVisible();

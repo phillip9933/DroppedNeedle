@@ -99,7 +99,13 @@ export function taskStatus(task: Download) {
 	return task.status.charAt(0).toUpperCase() + task.status.slice(1);
 }
 
-export function taskActions(session: Session, viewer: Viewer | null, task: Download): Action[] {
+export function taskActions(
+	session: Session,
+	viewer: Viewer | null,
+	task: Download,
+	openSearch: (jobId: string) => void,
+	existingJob?: string
+): Action[] {
 	if (
 		!viewer?.id ||
 		(viewer.role !== 'admin' && task.user_id !== viewer.id) ||
@@ -153,6 +159,36 @@ export function taskActions(session: Session, viewer: Viewer | null, task: Downl
 				)
 			)
 		);
+		if (task.download_type !== 'track' && task.release_group_mbid) {
+			choices.push({
+				label: existingJob ? 'Review manual search' : 'Search manually',
+				effect: existingJob
+					? 'Return to this album’s search results.'
+					: 'Search this album’s sources again and choose a match.',
+				async run() {
+					if (existingJob) {
+						openSearch(existingJob);
+						return '';
+					}
+					const result = await postJson<Schema['SearchAlbumResponse']>(
+						session,
+						path('/api/v3/downloads/search/album'),
+						{
+							artist_name: task.artist_name,
+							album_title: task.album_title,
+							release_group_mbid: task.release_group_mbid,
+							release_mbid: task.release_mbid,
+							year: task.year
+						} satisfies Schema['SearchAlbumRequest']
+					);
+					if (result.status === 'already_in_library')
+						return 'This album is already in your library.';
+					if (!result.job_id) throw new Error('DN did not return a search to review.');
+					openSearch(result.job_id);
+					return '';
+				}
+			});
+		}
 		if (task.next_retry_at != null && task.status !== 'cancelled')
 			choices.push(
 				action(
@@ -204,4 +240,31 @@ export function taskActions(session: Session, viewer: Viewer | null, task: Downl
 			)
 		);
 	return choices;
+}
+
+export type SearchCandidate = Schema['SearchCandidateView'];
+
+export function getSearchJob(session: Session, jobId: string) {
+	return getJson<Schema['SearchJobResponse']>(
+		session,
+		path('/api/v3/downloads/search/{job_id}', { job_id: jobId })
+	);
+}
+
+export function chooseCandidate(session: Session, jobId: string, candidate: SearchCandidate) {
+	return postJson<Schema['PickResponse']>(
+		session,
+		path('/api/v3/downloads/search/{job_id}/pick', { job_id: jobId }),
+		{
+			candidate_index: candidate.candidate_index,
+			confirm_policy_break: !!candidate.refusal?.length
+		} satisfies Schema['PickRequest']
+	);
+}
+
+export function closeSearch(session: Session, jobId: string, watch: boolean) {
+	const endpoint = watch
+		? '/api/v3/downloads/search/{job_id}/dismiss'
+		: '/api/v3/downloads/search/{job_id}/cancel';
+	return postJson<Schema['DownloadActionResponse']>(session, path(endpoint, { job_id: jobId }));
 }

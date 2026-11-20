@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Browser } from '@capacitor/browser';
+	import { Capacitor } from '@capacitor/core';
+	import RequestCandidates from './RequestCandidates.svelte';
 	import { ChevronRight, Ellipsis, RefreshCw } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import {
@@ -41,6 +44,38 @@
 		moreDownloads = $state(false);
 	let menu = $state<{ title: string; options: Action[] } | null>(null),
 		selected = $state<Action | null>(null);
+	let reviewing = $state<{ jobId: string; title: string; taskId?: string } | null>(null);
+	let manualJobs = $state<Record<string, string>>({});
+	function closeReview(finished = false) {
+		if (finished && reviewing?.taskId) delete manualJobs[reviewing.taskId];
+		reviewing = null;
+	}
+	const serverTools = $derived([
+		{ label: 'Review held files and download history', route: '/downloads' },
+		{ label: 'Manage wanted watches', route: '/requests?tab=wanted' },
+		...(viewer?.role === 'admin' || viewer?.role === 'trusted'
+			? [
+					{ label: 'Import files into the library', route: '/downloads?tab=import' },
+					{ label: 'Review quality upgrades', route: '/requests?tab=upgrades' }
+				]
+			: []),
+		...(viewer?.role === 'admin'
+			? [
+					{ label: 'Manage auto-downloads', route: '/requests?tab=auto-download' },
+					{ label: 'Inspect quarantined downloads', route: '/downloads' }
+				]
+			: [])
+	]);
+	async function launchWeb(event: MouseEvent) {
+		if (!Capacitor.isNativePlatform()) return;
+		event.preventDefault();
+		const url = (event.currentTarget as HTMLAnchorElement).href;
+		try {
+			await Browser.open({ url });
+		} catch (e) {
+			actionError = errorMessage(e);
+		}
+	}
 	let actionError = $state(''),
 		sending = $state(false);
 	let mounted = true,
@@ -129,7 +164,7 @@
 		void profile();
 		void refresh();
 		const visible = () => {
-			if (!document.hidden && !busy && !menu) void refresh();
+			if (!document.hidden && !busy && !menu && !reviewing) void refresh();
 		};
 		const timer = setInterval(visible, 15000);
 		document.addEventListener('visibilitychange', visible);
@@ -249,7 +284,40 @@
 						>{/if}
 				</span>
 			</div>
-			{@render actions(title, taskActions(session, viewer, task))}
+			{#if task.held_for_review}
+				<a
+					class="text-button"
+					href={session.serverUrl + '/downloads'}
+					target="_blank"
+					rel="noopener noreferrer"
+					onclick={launchWeb}
+					aria-label={'Review held files for ' + title + ' in browser'}>Review held files</a
+				>
+			{:else if task.status === 'queued' && task.search_job_id && task.candidate_index == null && viewer?.id === task.user_id}
+				<button
+					class="secondary"
+					aria-label={'Review matches for ' + title}
+					onclick={() => {
+						reviewing = { jobId: task.search_job_id!, title };
+					}}>Review matches</button
+				>
+			{:else}
+				{@render actions(
+					title,
+					taskActions(
+						session,
+						viewer,
+						task,
+						(jobId) => {
+							if (mounted) {
+								manualJobs[task.id] = jobId;
+								reviewing = { jobId, title, taskId: task.id };
+							}
+						},
+						manualJobs[task.id]
+					)
+				)}
+			{/if}
 		</div>
 	{/each}
 	{#if !tasks.length && !error}<p role="status">
@@ -269,6 +337,33 @@
 			>
 		</div>
 	{/if}
+	<details class="server-tools">
+		<summary>More on your server</summary>
+		<p>These tools open DroppedNeedle in your browser. Sign in there if prompted.</p>
+		{#each serverTools as tool (tool.label)}
+			<a
+				class="text-button"
+				href={session.serverUrl + tool.route}
+				target="_blank"
+				rel="noopener noreferrer"
+				onclick={launchWeb}>{tool.label}</a
+			>
+		{/each}
+	</details>
+{/if}
+{#if reviewing}
+	<RequestCandidates
+		{session}
+		jobId={reviewing.jobId}
+		title={reviewing.title}
+		onclose={closeReview}
+		ondone={(message) => {
+			closeReview(true);
+			receipt = message;
+			actionError = '';
+			void refresh();
+		}}
+	/>
 {/if}
 {#if menu}
 	<PlaylistDialog title={menu.title} onclose={close} busy={sending}>
@@ -289,6 +384,19 @@
 {/if}
 
 <style>
+	.server-tools {
+		margin-block: var(--gap);
+	}
+	.server-tools summary {
+		cursor: pointer;
+	}
+	.server-tools a {
+		display: block;
+		width: fit-content;
+	}
+	.server-tools p {
+		color: var(--muted);
+	}
 	.views {
 		display: flex;
 		flex-wrap: wrap;
