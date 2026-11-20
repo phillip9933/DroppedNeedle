@@ -197,13 +197,13 @@ test('six live player columns fit 320px and action, alignment and text settings 
 		'26px'
 	);
 	await expect(at('player-artist').getByText('South', { exact: true })).toBeVisible();
-	for (const [id, name] of [
-		['player-album', album],
-		['player-text', 'Detail · South']
-	]) {
-		await expect(at(id).getByRole('img', { name, exact: true })).toBeVisible();
-		await expect(at(id).locator('.lines')).toHaveCount(0);
-	}
+	const albumLink = at('player-album').getByRole('button', { name: 'Open album ' + album });
+	await expect(albumLink).toBeVisible();
+	await expect(albumLink.locator('[data-player-icon="album"] svg')).toHaveCSS('height', '18px');
+	expect((await albumLink.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+	await expect(albumLink.locator('.lines')).toHaveCount(0);
+	await expect(at('player-text').getByRole('img', { name: 'Detail · South' })).toBeVisible();
+	await expect(at('player-text').locator('.lines')).toHaveCount(0);
 	const title = await at('player-title').boundingBox(),
 		artist = await at('player-artist').boundingBox();
 	expect(Math.abs(title!.y + title!.height - artist!.y)).toBeLessThan(1);
