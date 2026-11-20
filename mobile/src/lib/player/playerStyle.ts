@@ -1,6 +1,6 @@
 import type { Section } from '../boards/layout';
 import { isPlayerText } from './composition';
-import { playerFields, playerWidgets } from './layout';
+import { isNavigation, playerFields, playerWidgets } from './layout';
 
 const format = 'droppedneedle-player-layout';
 const keys = [
@@ -11,7 +11,10 @@ const keys = [
 	'width',
 	'align',
 	'textSize',
-	'template'
+	'template',
+	'minHeight',
+	'placement',
+	'contentWidth'
 ] as const satisfies readonly (keyof Section)[];
 const knownIds = new Set<string>([...playerFields, ...playerWidgets].map((item) => item.id));
 const maxBytes = 64 * 1024;
@@ -39,10 +42,22 @@ function record(value: unknown): value is Record<string, unknown> {
 function readSection(item: unknown, index: number): Section {
 	const label = `Element ${index + 1}`;
 	if (!record(item)) throw Error(`${label} must be an object.`);
-	const { id, title, preview, sameRow, width, align, textSize, template } = item;
+	const {
+		id,
+		title,
+		preview,
+		sameRow,
+		width,
+		align,
+		textSize,
+		template,
+		minHeight,
+		placement,
+		contentWidth
+	} = item;
 	if (typeof id !== 'string' || !(knownIds.has(id) || isPlayerText(id)))
 		throw Error(`${label} has an unknown player element ID.`);
-	if (Object.keys(item).some((key) => !keys.includes(key as keyof Section)))
+	if (Object.keys(item).some((key) => !keys.some((known) => known === key)))
 		throw Error(`${label} has an unknown option.`);
 	if (typeof title !== 'string' || title.length > 64)
 		throw Error(`${label} needs a title of up to 64 characters.`);
@@ -65,7 +80,32 @@ function readSection(item: unknown, index: number): Section {
 		(!isPlayerText(id) || typeof template !== 'string' || template.length > 512)
 	)
 		throw Error(`${label} has an invalid custom text template.`);
+	if (
+		contentWidth !== undefined &&
+		(typeof contentWidth !== 'number' ||
+			!Number.isInteger(contentWidth) ||
+			contentWidth < 20 ||
+			contentWidth > 100)
+	)
+		throw Error(`${label} has an invalid element width.`);
+	if (
+		minHeight !== undefined &&
+		(typeof minHeight !== 'number' ||
+			!Number.isInteger(minHeight) ||
+			minHeight < 0 ||
+			minHeight > 640)
+	)
+		throw Error(`${label} has an invalid row height.`);
+	if (
+		placement !== undefined &&
+		(!isNavigation(id) ||
+			(placement !== 'header-start' && placement !== 'header-end' && placement !== 'hidden'))
+	)
+		throw Error(`${label} has an invalid navigation placement.`);
 	return {
+		...(contentWidth === undefined ? {} : { contentWidth }),
+		...(minHeight === undefined ? {} : { minHeight }),
+		...(placement === undefined ? {} : { placement }),
 		id,
 		title,
 		preview,

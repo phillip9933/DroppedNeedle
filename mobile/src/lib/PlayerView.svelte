@@ -15,8 +15,13 @@
 		Settings2,
 		Shuffle
 	} from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
+	import { samplePlayer } from './player/samplePlayer';
+	import sampleArt from './player/tidal-memory.webp';
+	import PlayerHeader from './player/PlayerHeader.svelte';
+	import { isNavigation, trackToolFields, type NavigationId } from './player/layout';
 	import { player, type PlayerTrack } from './player';
-	import { accountId, defaults, loadLayout, sectionTitle } from './boards/layout';
+	import { accountId, defaults, loadLayout, sectionTitle, type Section } from './boards/layout';
 	import { formatPlayerText, isPlayerText, playerRows } from './player/composition';
 	import TrackTools from './player/TrackTools.svelte';
 	import AddToPlaylist from './catalog/AddToPlaylist.svelte';
@@ -31,7 +36,8 @@
 		onsettings,
 		onexpand,
 		oncollapse,
-		onerror
+		onerror,
+		editor
 	}: {
 		session: Session;
 		expanded: boolean;
@@ -41,21 +47,30 @@
 		onexpand: () => void;
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
+		editor?: {
+			sections: Section[];
+			selected: string;
+			selectNavigation: (id: NavigationId) => void;
+			overlay: Snippet<[Section, number, number]>;
+			inspector: Snippet<[number]>;
+		};
 	} = $props();
 	let editing = $state(false),
 		saveQueue = $state<PlayerTrack[] | null>(null);
-	let sections = $state(defaults('player'));
+	let loaded = $state(defaults('player'));
+	const sections = $derived(editor?.sections ?? loaded);
+	const store = $derived(editor ? samplePlayer : player);
 	$effect(() => {
-		if (!expanded) return;
+		if (!expanded || editor) return;
 		const current = session;
 		let live = true,
 			owner = '';
-		sections = defaults('player');
+		loaded = defaults('player');
 		accountId(current)
 			.then((id) => {
 				if (!live) return;
 				owner = id;
-				sections = loadLayout(current.serverUrl, id, 'player');
+				loaded = loadLayout(current.serverUrl, id, 'player');
 			})
 			.catch(() => {
 				/* The default controls stay available while the account is offline. */
@@ -63,7 +78,7 @@
 		function changed(event: Event) {
 			const scope = (event as CustomEvent).detail;
 			if (scope.board === 'player' && scope.user === owner && scope.server === current.serverUrl) {
-				sections = loadLayout(current.serverUrl, owner, 'player');
+				loaded = loadLayout(current.serverUrl, owner, 'player');
 			}
 		}
 		window.addEventListener('dn-layout-change', changed);
@@ -74,8 +89,8 @@
 	});
 	let pending = $state(false);
 	let preview = $state<number | null>(null);
-	const track = $derived($player.tracks[$player.index]);
-	const duration = $derived($player.duration || track?.duration || 0);
+	const track = $derived($store.tracks[$store.index]);
+	const duration = $derived($store.duration || track?.duration || 0);
 	const art = $derived(
 		track?.artworkUrl?.startsWith(session.serverUrl + '/')
 			? track.artworkUrl.slice(session.serverUrl.length)
@@ -84,7 +99,7 @@
 	const stamp = (s: number) =>
 		Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 	const rows = $derived(playerRows(sections));
-	const clock = $derived(preview ?? $player.position);
+	const clock = $derived(preview ?? $store.position);
 	const fields = $derived({
 		title: track?.title ?? '',
 		artist: track?.artist ?? '',
@@ -92,15 +107,15 @@
 		elapsed: stamp(clock),
 		duration: stamp(duration),
 		remaining: stamp(Math.max(0, duration - clock)),
-		position: String($player.index + 1),
-		count: String($player.tracks.length)
+		position: String($store.index + 1),
+		count: String($store.tracks.length)
 	});
 	async function edit(call: () => Promise<void>) {
-		if (pending) return;
+		if (pending || editor) return;
 		pending = true;
 		try {
 			await call();
-			if (!$player.tracks.length) oncollapse();
+			if (!$store.tracks.length) oncollapse();
 		} catch (error) {
 			onerror(error);
 		} finally {
@@ -108,7 +123,7 @@
 		}
 	}
 	function action(call: () => Promise<void>) {
-		void call().catch(onerror);
+		if (!editor) void call().catch(onerror);
 	}
 </script>
 
@@ -120,36 +135,36 @@
 {#snippet toggle()}
 	<button
 		class="play"
-		aria-label={$player.playing ? 'Pause' : 'Play'}
+		aria-label={$store.playing ? 'Pause' : 'Play'}
 		onclick={() => action(player.toggle)}
 	>
-		{#if $player.playing}<Pause fill="currentColor" />{:else}<Play fill="currentColor" />{/if}
+		{#if $store.playing}<Pause fill="currentColor" />{:else}<Play fill="currentColor" />{/if}
 	</button>
 {/snippet}
 {#snippet nextTrack()}
 	<button
 		class="skip"
 		aria-label="Next track"
-		disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
+		disabled={$store.index + 1 >= $store.tracks.length && $store.repeat !== 'all'}
 		onclick={() => action(player.next)}><SkipForward size={28} /></button
 	>
 {/snippet}
 {#snippet repeat(label: boolean)}
 	<button
 		class="repeat"
-		aria-label={'Repeat ' + $player.repeat + '. Change repeat mode'}
-		aria-pressed={$player.repeat !== 'off'}
+		aria-label={'Repeat ' + $store.repeat + '. Change repeat mode'}
+		aria-pressed={$store.repeat !== 'off'}
 		onclick={() => action(player.cycleRepeat)}
 	>
-		{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
-		{#if label}<span>Repeat {$player.repeat}</span>{/if}
+		{#if $store.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
+		{#if label}<span>Repeat {$store.repeat}</span>{/if}
 	</button>
 {/snippet}
 {#snippet shuffle(label: boolean)}
 	<button
 		class="repeat"
 		aria-label="Shuffle upcoming"
-		disabled={$player.tracks.length - $player.index <= 2 || pending}
+		disabled={$store.tracks.length - $store.index <= 2 || pending}
 		onclick={() => edit(player.shuffleUpcoming)}
 	>
 		<Shuffle size={18} />{#if label}<span>Shuffle upcoming</span>{/if}
@@ -157,46 +172,29 @@
 {/snippet}
 
 {#if track && expanded}
-	<section class="now" data-part="now-playing" aria-label="Now playing">
-		<header class="player-header">
-			<button class="icon-button" aria-label="Close player" onclick={oncollapse}
-				><ChevronDown /></button
-			>
-			<strong
-				>{queueOpen
-					? 'Now playing'
-					: !sections.some((s) => s.id === 'player-track' || s.id === 'player-title')
-						? track.title
-						: 'Now playing'}</strong
-			>
-			{#if !queueOpen && !sections.some((s) => s.id === 'player-transport' || s.id === 'player-toggle')}
-				<button
-					class="icon-button"
-					aria-label={$player.playing ? 'Pause' : 'Play'}
-					onclick={() => action(player.toggle)}
-				>
-					{#if $player.playing}<Pause />{:else}<Play />{/if}
-				</button>
-			{/if}
-			<div class="header-actions">
-				{#if onsettings}<button
-						class="icon-button"
-						aria-label="Player settings"
-						onclick={onsettings}><Settings2 size={20} /></button
-					>{/if}
-				<button
-					class="icon-button"
-					aria-label={queueOpen ? 'Hide play queue' : 'Show play queue'}
-					aria-pressed={queueOpen}
-					onclick={ontogglequeue}><ListMusic /></button
-				>
-			</div>
-		</header>
+	<section
+		class="now"
+		class:sample={!!editor}
+		data-part={editor ? 'sample-player' : 'now-playing'}
+		aria-label="Now playing"
+	>
+		<PlayerHeader
+			{sections}
+			title={track.title}
+			playing={$store.playing}
+			{queueOpen}
+			onclose={oncollapse}
+			onqueue={ontogglequeue}
+			{onsettings}
+			ontoggle={() => action(player.toggle)}
+			onselect={editor?.selectNavigation}
+		/>
+
 		{#if queueOpen}
 			<div class="queue-tools">
 				<button
 					class="secondary"
-					disabled={$player.tracks.length - $player.index <= 2 || pending}
+					disabled={$store.tracks.length - $store.index <= 2 || pending}
 					onclick={() => edit(player.shuffleUpcoming)}
 					><Shuffle size={16} /> Shuffle upcoming</button
 				>
@@ -205,26 +203,26 @@
 				>
 			</div>
 			{#if editing}<div class="queue-options">
-					<button class="text-button" onclick={() => (saveQueue = [...$player.tracks])}
+					<button class="text-button" onclick={() => (saveQueue = [...$store.tracks])}
 						>Save queue to playlist</button
 					>
 					<button
 						class="text-button"
-						disabled={pending || $player.index + 1 >= $player.tracks.length}
+						disabled={pending || $store.index + 1 >= $store.tracks.length}
 						onclick={() => edit(player.clearUpcoming)}>Clear upcoming</button
 					>
 				</div>{/if}
 			<div class="queue" data-part="play-queue">
 				<h1>Play queue</h1>
 				<ol>
-					{#each $player.tracks as item, i (item.id + ':' + i)}
+					{#each $store.tracks as item, i (item.id + ':' + i)}
 						<li>
 							<button
-								class:current={i === $player.index}
-								aria-current={i === $player.index ? 'true' : undefined}
+								class:current={i === $store.index}
+								aria-current={i === $store.index ? 'true' : undefined}
 								onclick={() => action(() => player.skipTo(i))}
 							>
-								{#if i === $player.index}<AudioLines size={18} />{:else}<span>{i + 1}</span>{/if}
+								{#if i === $store.index}<AudioLines size={18} />{:else}<span>{i + 1}</span>{/if}
 								<span><strong>{item.title}</strong><small>{item.artist}</small></span>
 							</button>
 							{#if editing}
@@ -235,7 +233,7 @@
 										onclick={() => edit(() => player.move(i, i - 1))}><ArrowUp size={18} /></button
 									>
 									<button
-										disabled={pending || i + 1 === $player.tracks.length}
+										disabled={pending || i + 1 === $store.tracks.length}
 										aria-label={'Move ' + item.title + ' down'}
 										onclick={() => edit(() => player.move(i, i + 1))}
 										><ArrowDown size={18} /></button
@@ -252,138 +250,190 @@
 				</ol>
 			</div>
 		{:else}
-			{#each rows as row (row[0].id)}
+			{#each rows as row, r (row[0].id)}
 				<div
 					class="player-row"
 					class:composed={row.length > 1}
+					class:editing-row={!!editor && row.some((cell) => cell.id === editor.selected)}
 					data-part="player-row"
+					data-player-row={editor ? r : undefined}
+					style:min-height={Math.max(0, ...row.map((s) => s.minHeight ?? 0)) + 'px'}
 					style:grid-template-columns={row
 						.map((cell) => 'minmax(44px, ' + (cell.width ?? 1) + 'fr)')
 						.join(' ')}
 				>
-					{#each row as section (section.id)}
+					{#each row as section, c (section.id)}
 						<div
 							class="player-section"
+							class:editing-field={!!editor}
+							class:active-field={editor?.selected === section.id}
 							data-section-id={section.id}
 							data-align={section.align}
 							data-text-size={section.textSize}
 						>
-							{#if section.title && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
-								>
-									{section.title}
-								</h2>{/if}
-							{#if section.id === 'player-artwork'}
-								<div class="hero" class:compact={!section.preview}>
-									<Cover {session} path={art} seed={track.album || track.id} />
-								</div>
-							{:else if section.id === 'player-track'}
-								<div class="track-meta">
-									<h1>{track.title}</h1>
-									<p>{track.artist}</p>
-									{#if section.preview && track.album}<small>{track.album}</small>{/if}
-								</div>
-							{:else if section.id === 'player-timeline'}
-								<div class="timeline">
-									<input
-										type="range"
-										aria-label="Playback position"
-										aria-valuetext={stamp(preview ?? $player.position)}
-										min="0"
-										max={duration || 1}
-										step="1"
-										value={preview ?? $player.position}
-										disabled={!duration}
-										oninput={(e) => (preview = Number(e.currentTarget.value))}
-										onpointercancel={() => (preview = null)}
-										onchange={(e) => {
-											const position = Number(e.currentTarget.value);
-											preview = null;
-											action(() => player.seek(position));
-										}}
-									/>
-									{#if section.preview}<div>
-											<span>{stamp(preview ?? $player.position)}</span><span>{stamp(duration)}</span
-											>
-										</div>{/if}
-								</div>
-							{:else if section.id === 'player-transport'}
-								<div class="transport" data-part="transport" class:compact={!section.preview}>
-									{@render previous()}
-									{@render toggle()}
-									{@render nextTrack()}
-								</div>
-							{:else if section.id === 'player-modes'}
-								<div class="modes">
-									{@render repeat(section.preview)}
-									{@render shuffle(section.preview)}
-								</div>
-							{:else if section.id === 'player-title'}
-								<h1 class="field-title">{fields.title}</h1>
-							{:else if section.id === 'player-artist'}
-								<p class="field-artist">{fields.artist}</p>
-							{:else if section.id === 'player-album'}
-								<p class="field-album">{fields.album}</p>
-							{:else if isPlayerText(section.id)}
-								<p class="field-text">{formatPlayerText(section.template, fields)}</p>
-							{:else if section.id === 'player-elapsed' || section.id === 'player-duration' || section.id === 'player-remaining'}
-								<p class="field-time">
-									{section.id === 'player-elapsed'
-										? fields.elapsed
-										: section.id === 'player-duration'
-											? fields.duration
-											: fields.remaining}
-								</p>
-							{:else if section.id === 'player-previous' || section.id === 'player-next' || section.id === 'player-toggle' || section.id === 'player-repeat' || section.id === 'player-shuffle'}
-								<div class="field-controls" class:compact={!section.preview}>
-									{#if section.id === 'player-previous'}{@render previous()}
-									{:else if section.id === 'player-next'}{@render nextTrack()}
-									{:else if section.id === 'player-toggle'}{@render toggle()}
-									{:else if section.id === 'player-repeat'}{@render repeat(false)}
-									{:else}{@render shuffle(false)}{/if}
-								</div>
-							{:else if section.id === 'player-lyrics'}
-								{#key section.preview}<PlayerLyrics
-										{session}
-										trackId={track.id}
-										position={$player.position}
-										title={sectionTitle(section)}
-										startOpen={section.preview}
-										onseek={(p) => action(() => player.seek(p))}
-									/>{/key}
-							{:else if section.id === 'player-tools'}
-								{#key JSON.stringify([track.id, section.preview])}<TrackTools
-										{session}
-										{track}
-										title={sectionTitle(section)}
-										startOpen={section.preview}
-									/>{/key}
-							{:else if section.id === 'player-up-next'}
-								<div class="up-next">
-									<button
-										class="text-button"
-										onclick={ontogglequeue}
-										aria-label={'Open play queue from ' + sectionTitle(section)}
+							<div
+								class="content"
+								style:width={section.contentWidth
+									? 'max(44px, ' + section.contentWidth + '%)'
+									: undefined}
+								inert={!!editor}
+							>
+								{#if section.title && !['player-tools', 'player-lyrics', 'player-up-next'].includes(section.id)}<h2
 									>
-										{sectionTitle(section)} <ListMusic size={18} /></button
-									>
-									{#if section.preview}
-										{#each $player.tracks.slice($player.index + 1, $player.index + 4) as next, offset (next.id + ':' + offset)}
-											<button
-												class="up-track"
-												onclick={() => action(() => player.skipTo($player.index + offset + 1))}
-											>
-												<strong>{next.title}</strong><small>{next.artist}</small>
-											</button>
-										{:else}<p>End of the queue.</p>{/each}
-									{/if}
-								</div>
-							{/if}
+										{section.title}
+									</h2>{/if}
+								{#if section.id === 'player-artwork'}
+									<div class="hero" class:compact={!section.preview}>
+										{#if editor}<img
+												class="sample-art"
+												alt="Tidal Memory album cover"
+												src={sampleArt}
+											/>{:else}<Cover {session} path={art} seed={track.album || track.id} />{/if}
+									</div>
+								{:else if section.id === 'player-track'}
+									<div class="track-meta">
+										<h1>{track.title}</h1>
+										<p>{track.artist}</p>
+										{#if section.preview && track.album}<small>{track.album}</small>{/if}
+									</div>
+								{:else if section.id === 'player-timeline' || section.id === 'player-seek'}
+									<div class="timeline">
+										<input
+											type="range"
+											aria-label="Playback position"
+											aria-valuetext={stamp(preview ?? $store.position)}
+											min="0"
+											max={duration || 1}
+											step="1"
+											value={preview ?? $store.position}
+											disabled={!duration}
+											oninput={(e) => (preview = Number(e.currentTarget.value))}
+											onpointercancel={() => (preview = null)}
+											onchange={(e) => {
+												const position = Number(e.currentTarget.value);
+												preview = null;
+												action(() => player.seek(position));
+											}}
+										/>
+										{#if section.id === 'player-timeline' && section.preview}<div>
+												<span>{stamp(preview ?? $store.position)}</span><span
+													>{stamp(duration)}</span
+												>
+											</div>{/if}
+									</div>
+								{:else if section.id === 'player-transport'}
+									<div class="transport" data-part="transport" class:compact={!section.preview}>
+										{@render previous()}
+										{@render toggle()}
+										{@render nextTrack()}
+									</div>
+								{:else if section.id === 'player-modes'}
+									<div class="modes">
+										{@render repeat(section.preview)}
+										{@render shuffle(section.preview)}
+									</div>
+								{:else if section.id === 'player-title'}
+									<h1 class="field-title">{fields.title}</h1>
+								{:else if section.id === 'player-artist'}
+									<p class="field-artist">{fields.artist}</p>
+								{:else if section.id === 'player-album'}
+									<p class="field-album">{fields.album}</p>
+								{:else if isPlayerText(section.id)}
+									<p class="field-text">{formatPlayerText(section.template, fields)}</p>
+								{:else if section.id === 'player-elapsed' || section.id === 'player-duration' || section.id === 'player-remaining'}
+									<p class="field-time">
+										{section.id === 'player-elapsed'
+											? fields.elapsed
+											: section.id === 'player-duration'
+												? fields.duration
+												: fields.remaining}
+									</p>
+								{:else if section.id === 'player-previous' || section.id === 'player-next' || section.id === 'player-toggle' || section.id === 'player-repeat' || section.id === 'player-shuffle'}
+									<div class="field-controls" class:compact={!section.preview}>
+										{#if section.id === 'player-previous'}{@render previous()}
+										{:else if section.id === 'player-next'}{@render nextTrack()}
+										{:else if section.id === 'player-toggle'}{@render toggle()}
+										{:else if section.id === 'player-repeat'}{@render repeat(false)}
+										{:else}{@render shuffle(false)}{/if}
+									</div>
+								{:else if isNavigation(section.id)}<div class="field-controls">
+										<button
+											class="icon-button"
+											aria-label={section.id === 'player-close'
+												? 'Close player'
+												: section.id === 'player-settings'
+													? 'Player settings'
+													: 'Show play queue'}
+											onclick={section.id === 'player-close'
+												? oncollapse
+												: section.id === 'player-settings'
+													? onsettings
+													: ontogglequeue}
+											>{#if section.id === 'player-close'}<ChevronDown
+												/>{:else if section.id === 'player-settings'}<Settings2 />{:else}<ListMusic
+												/>{/if}</button
+										>
+									</div>
+								{:else if trackToolFields.some((f) => f.id === section.id)}{#key section.id + track.id}<TrackTools
+											{session}
+											{track}
+											title={sectionTitle(section)}
+											startOpen={true}
+											sample={!!editor}
+											mode="field"
+											fields={[section.id]}
+										/>{/key}
+								{:else if section.id === 'player-lyrics'}
+									{#key section.preview}<PlayerLyrics
+											{session}
+											trackId={track.id}
+											sample={!!editor}
+											position={$store.position}
+											title={sectionTitle(section)}
+											startOpen={section.preview}
+											onseek={(p) => action(() => player.seek(p))}
+										/>{/key}
+								{:else if section.id === 'player-tools'}
+									{#key JSON.stringify([track.id, section.preview])}<TrackTools
+											{session}
+											{track}
+											title={sectionTitle(section)}
+											startOpen={section.preview}
+											sample={!!editor}
+											fields={trackToolFields
+												.map((a) => a.id)
+												.filter((id) => !sections.some((s) => s.id === id))}
+										/>{/key}
+								{:else if section.id === 'player-up-next'}
+									<div class="up-next">
+										<button
+											class="text-button"
+											onclick={ontogglequeue}
+											aria-label={'Open play queue from ' + sectionTitle(section)}
+										>
+											{sectionTitle(section)} <ListMusic size={18} /></button
+										>
+										{#if section.preview}
+											{#each $store.tracks.slice($store.index + 1, $store.index + 4) as next, offset (next.id + ':' + offset)}
+												<button
+													class="up-track"
+													onclick={() => action(() => player.skipTo($store.index + offset + 1))}
+												>
+													<strong>{next.title}</strong><small>{next.artist}</small>
+												</button>
+											{:else}<p>End of the queue.</p>{/each}
+										{/if}
+									</div>
+								{/if}
+							</div>
+							{#if editor}{@render editor.overlay(section, r, c)}{/if}
 						</div>
 					{/each}
 				</div>
+				{#if editor}{@render editor.inspector(r)}{/if}
 			{/each}
 		{/if}
-		{#if $player.error}<p role="alert">{$player.error}</p>{/if}
+		{#if $store.error}<p role="alert">{$store.error}</p>{/if}
 	</section>
 	{#if saveQueue}<AddToPlaylist
 			{session}
@@ -411,36 +461,61 @@
 		</button>
 		<button
 			class="mini-control"
-			aria-label={$player.playing ? 'Pause' : 'Play'}
+			aria-label={$store.playing ? 'Pause' : 'Play'}
 			onclick={() => action(player.toggle)}
-			>{#if $player.playing}<Pause />{:else}<Play />{/if}</button
+			>{#if $store.playing}<Pause />{:else}<Play />{/if}</button
 		>
 		<button
 			class="mini-control"
 			aria-label="Next track"
-			disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
+			disabled={$store.index + 1 >= $store.tracks.length && $store.repeat !== 'all'}
 			onclick={() => action(player.next)}><SkipForward /></button
 		>
 	</section>
 {/if}
 
 <style>
+	.content {
+		max-width: 100%;
+		margin-inline: var(--art-start, auto) var(--art-end, auto);
+	}
+	.editing-row {
+		margin-bottom: 44px;
+	}
+	.editing-field {
+		container-type: inline-size;
+		position: relative;
+		min-height: 44px;
+		align-self: stretch;
+		align-content: center;
+		outline: 1px dashed var(--line);
+		outline-offset: 2px;
+		border-radius: var(--radius);
+	}
+	.active-field {
+		outline: 2px solid var(--accent);
+	}
+	.sample-art {
+		display: block;
+		width: 100%;
+		aspect-ratio: 1;
+		border-radius: var(--radius);
+	}
+	.now.sample {
+		padding-inline: min(2vw, 0.5rem);
+	}
+	.sample :global(.player-header) {
+		position: relative;
+		top: auto;
+		z-index: 0;
+	}
+
 	.queue-options {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--gap);
 		flex-wrap: wrap;
-	}
-	.header-actions {
-		display: flex;
-		align-items: center;
-	}
-	.player-header {
-		position: sticky;
-		top: 0;
-		z-index: 1;
-		background: var(--bg);
 	}
 	.player-row {
 		display: grid;
@@ -574,12 +649,6 @@
 	.up-next p {
 		color: var(--muted);
 	}
-	.player-header strong {
-		min-width: 0;
-		text-overflow: ellipsis;
-		overflow: hidden;
-		white-space: nowrap;
-	}
 	.now {
 		max-width: 32rem;
 		width: 100%;
@@ -595,10 +664,6 @@
 		justify-content: space-between;
 		align-items: center;
 		min-height: 3.8rem;
-	}
-	.player-header strong {
-		font-size: 0.87rem;
-		letter-spacing: 0.03em;
 	}
 	.hero {
 		width: min(100%, 52dvh);
