@@ -182,10 +182,10 @@
 				>
 					{#if category === 'Genres'}<Tags size={23} />
 					{:else if item.covers?.length}{#each item.covers.length === 1 ? item.covers : Array.from({ length: 4 }, (_, i) => item.covers![i % item.covers!.length]) as art, i (i)}
-							<Cover {session} path={art} seed={art} />
+							<Cover {session} cacheOnly={localOnly} path={art} seed={art} />
 						{/each}
 					{:else if category === 'Playlists'}<ListMusic strokeWidth={1.3} size="48%" />
-					{:else}<Cover {session} path={item.art} seed={item.id} />{/if}
+					{:else}<Cover {session} cacheOnly={localOnly} path={item.art} seed={item.id} />{/if}
 				</span>
 				<span class="meta"
 					><strong>{item.title}</strong

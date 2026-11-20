@@ -33,6 +33,7 @@
 	const dismissSelection = librarySelectionBack();
 	let boardView = $state<{ goBack: () => boolean }>();
 	let hub = $state<LibraryHub>();
+	let searchView = $state<Search>();
 	export function getHeader() {
 		return tab === 'library' && !inside ? hub?.getHeader() : undefined;
 	}
@@ -93,7 +94,8 @@
 		else if (inside) {
 			event.preventDefault();
 			back();
-		} else if (tab === 'library' && hub?.goBack()) event.preventDefault();
+		} else if ((tab === 'library' && hub?.goBack()) || (tab === 'search' && searchView?.goBack()))
+			event.preventDefault();
 	}
 
 	onMount(() => {
@@ -135,18 +137,20 @@
 				ongenre={openGenre}
 				{onplay}
 			/>
-		{:else if tab === 'search'}<Search
-				{session}
-				onopen={open}
-				onartist={(a) => {
-					if (a.mbid) openArtist({ id: a.mbid, name: a.name });
-					else if (a.localId) openLocal({ id: a.localId, name: a.name });
-				}}
-				{onplay}
-				onplaylist={openPlaylist}
-				ongenre={openGenre}
-				bind:term
-			/>
+		{:else if tab === 'search'}{#key session}<Search
+					bind:this={searchView}
+					active={active && !inside}
+					{session}
+					onopen={open}
+					onartist={(a) => {
+						if (a.mbid) openArtist({ id: a.mbid, name: a.name });
+						else if (a.localId) openLocal({ id: a.localId, name: a.name });
+					}}
+					{onplay}
+					onplaylist={openPlaylist}
+					ongenre={openGenre}
+					bind:term
+				/>{/key}
 		{:else}<Requests {session} onopen={open} />{/if}
 	</div>
 	{#if genre}<div hidden={!!(album || artist || localArtist)}>

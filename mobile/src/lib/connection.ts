@@ -18,6 +18,24 @@ export class DnError extends Error {
 	}
 }
 
+export class DnTransportError extends Error {}
+async function overNetwork<T>(read: Promise<T>, signal?: AbortSignal) {
+	try {
+		return await read;
+	} catch (cause) {
+		signal?.throwIfAborted();
+		throw new DnTransportError(
+			cause instanceof Error ? cause.message : 'Could not reach DroppedNeedle.'
+		);
+	}
+}
+export function unreachableDn(cause: unknown) {
+	return (
+		cause instanceof DnTransportError ||
+		(cause instanceof DnError && [0, 502, 503, 504].includes(cause.status))
+	);
+}
+
 export function serverAddress(value: string): string {
 	const input = value.trim();
 	if (!input) throw new Error('Enter your DroppedNeedle server address.');
@@ -92,33 +110,39 @@ async function request<T>(
 	let data: unknown;
 	let contentType: string;
 	if (Capacitor.isNativePlatform()) {
-		const result = await CapacitorHttp.request({
-			method,
-			url,
-			headers,
-			data: body,
-			disableRedirects: true,
-			responseType: artwork ? 'arraybuffer' : 'json',
-			connectTimeout: 10_000,
-			readTimeout: 30_000
-		});
+		const result = await overNetwork(
+			CapacitorHttp.request({
+				method,
+				url,
+				headers,
+				data: body,
+				disableRedirects: true,
+				responseType: artwork ? 'arraybuffer' : 'json',
+				connectTimeout: 10_000,
+				readTimeout: 30_000
+			}),
+			signal
+		);
 		signal?.throwIfAborted();
 		status = result.status;
 		data = result.data;
 		contentType =
 			Object.entries(result.headers).find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
 	} else {
-		const response = await fetch(url, {
-			method,
-			headers,
-			body: body === undefined ? undefined : JSON.stringify(body),
-			credentials: 'omit',
-			redirect: 'error',
-			cache: 'no-store',
-			signal: signal
-				? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
-				: AbortSignal.timeout(30_000)
-		});
+		const response = await overNetwork(
+			fetch(url, {
+				method,
+				headers,
+				body: body === undefined ? undefined : JSON.stringify(body),
+				credentials: 'omit',
+				redirect: 'error',
+				cache: 'no-store',
+				signal: signal
+					? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+					: AbortSignal.timeout(30_000)
+			}),
+			signal
+		);
 		status = response.status;
 		contentType = response.headers.get('content-type') ?? '';
 		if (response.ok && artwork) {

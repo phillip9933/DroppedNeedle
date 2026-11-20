@@ -1,5 +1,18 @@
 <script lang="ts">
-	import type { Session } from '../connection';
+	import { tick, untrack } from 'svelte';
+	import { unreachableDn, type Session } from '../connection';
+	import {
+		offlineSupported,
+		preferredOffline,
+		offlineInventory,
+		watchOfflineMedia
+	} from '../offline/media';
+	import type { OfflineInventory } from '../offline/library';
+	import { DeviceSearchIndex } from './deviceSearch';
+	import DeviceSearchResults from './DeviceSearchResults.svelte';
+	import LibraryGroup from './LibraryGroup.svelte';
+	import type { BrowseItem, Category } from './libraryBrowse';
+	import { ChevronLeft } from '@lucide/svelte';
 	import { search, errorMessage, type Album, type OnPlay, type SearchScope } from './catalog';
 	import type { Playlist } from './playlists';
 	import SearchCollection from './SearchCollection.svelte';
@@ -13,6 +26,7 @@
 		onartist,
 		ongenre,
 		onplaylist,
+		active = true,
 		term = $bindable('')
 	}: {
 		session: Session;
@@ -22,6 +36,7 @@
 		ongenre: (name: string) => void;
 		onplaylist: (p: Playlist) => void;
 		term?: string;
+		active?: boolean;
 	} = $props();
 	const scopes = [
 		{ id: 'top', label: 'Top results' },
@@ -37,109 +52,411 @@
 	let error = $state(''),
 		busy = $state(false),
 		retry = $state(0);
+	let root: HTMLElement,
+		localResults = $state<DeviceSearchResults>(),
+		detail = $state.raw<{ category: Category; row: BrowseItem } | null>(null);
+	let ready = $state(false),
+		policyIssue = $state(''),
+		forced = $state(false),
+		connected = $state(navigator.onLine),
+		failedConnection = $state(false),
+		policyRetry = $state(0);
+	let inventory = $state.raw<OfflineInventory>(),
+		storageError = $state(''),
+		storageBusy = $state(false),
+		storageRetry = $state(0),
+		ruleRevision = $state(0);
+	const useDevice = $derived(forced || !connected || failedConnection);
+	const localModel = $derived.by(() => {
+		void ruleRevision;
+		return inventory ? new DeviceSearchIndex(session, inventory) : undefined;
+	});
+	let freshDetail = $state.raw<BrowseItem>(),
+		detailError = $state('');
+	let deviceLimit = $state(48);
+	const positions: Partial<Record<'device' | 'dn', number>> = {};
+	let previousMode: boolean | undefined,
+		detailOffset = 0,
+		pendingOffset: number | undefined,
+		returnId = '',
+		restoration = 0;
+	const query = $derived({ account: session, q: term.trim(), kind: scope, start: offset, retry });
+	let completed: typeof query | undefined;
 	$effect(() => {
-		const q = term.trim(),
-			account = session,
-			kind = scope,
-			start = offset;
-		void retry;
+		const account = session;
+		void policyRetry;
+		let live = true,
+			version = 0;
+		ready = false;
+		policyIssue = '';
+		failedConnection = false;
+		inventory = undefined;
+		async function policy() {
+			const current = ++version;
+			ready = false;
+			try {
+				const value = offlineSupported && account.userId ? await preferredOffline(account) : false;
+				if (live && version === current) {
+					forced = value;
+					ready = true;
+					policyIssue = '';
+				}
+			} catch (cause) {
+				if (live && version === current) {
+					policyIssue = errorMessage(cause);
+					ready = false;
+				}
+			}
+		}
+		const network = () => {
+			connected = navigator.onLine;
+			if (connected) failedConnection = false;
+		};
+		window.addEventListener('online', network);
+		window.addEventListener('offline', network);
+		window.addEventListener('dn-offline-policy', policy);
+		void policy();
+		return () => {
+			live = false;
+			window.removeEventListener('online', network);
+			window.removeEventListener('offline', network);
+			window.removeEventListener('dn-offline-policy', policy);
+		};
+	});
+	$effect(() => {
+		const account = session,
+			needs = useDevice || !!detail;
+		void storageRetry;
+		if (!ready || !needs || !active) return;
+		let live = true,
+			version = 0;
+		async function read() {
+			const n = ++version;
+			if (!account.userId) {
+				storageError = 'Reconnect to DroppedNeedle once to identify this device library.';
+				storageBusy = false;
+				return;
+			}
+			if (!offlineSupported) {
+				storageError = 'Offline music is unavailable on this platform.';
+				storageBusy = false;
+				return;
+			}
+			storageBusy = true;
+			storageError = '';
+			try {
+				const state = await offlineInventory(account);
+				if (live && n === version) inventory = state;
+			} catch (cause) {
+				if (live && n === version) storageError = errorMessage(cause);
+			} finally {
+				if (live && n === version) storageBusy = false;
+			}
+		}
+		const stop = watchOfflineMedia(read);
+		void read();
+		return () => {
+			live = false;
+			stop();
+		};
+	});
+	$effect(() => {
+		const selected = detail,
+			model = localModel;
+		if (!selected) return;
+		let live = true;
+		detailError = '';
+		if (!model) {
+			freshDetail = undefined;
+			return;
+		}
+		void model.find(selected.category, selected.row.id).then(
+			(row) => {
+				if (live) freshDetail = row;
+			},
+			(cause) => {
+				if (live) detailError = errorMessage(cause);
+			}
+		);
+		return () => {
+			live = false;
+		};
+	});
+	$effect.pre(() => {
+		const local = useDevice;
+		if (previousMode !== undefined && previousMode !== local && root && active && !detail) {
+			const y = root.closest('main')?.scrollTop ?? 0;
+			positions[previousMode ? 'device' : 'dn'] = y;
+			pendingOffset = positions[local ? 'device' : 'dn'] ?? y;
+		}
+		previousMode = local;
+	});
+	function restore() {
+		if (pendingOffset === undefined || detail || !active) return;
+		const generation = ++restoration;
+		void tick().then(() =>
+			requestAnimationFrame(() => {
+				if (generation !== restoration || pendingOffset === undefined || detail || !active) return;
+				root.closest('main')?.scrollTo(0, pendingOffset);
+				pendingOffset = undefined;
+				if (useDevice && returnId) {
+					const id = returnId;
+					void tick().then(() => requestAnimationFrame(() => localResults?.focusResult(id)));
+				}
+				returnId = '';
+			})
+		);
+	}
+	function changedQuery() {
+		offset = 0;
+		deviceLimit = 48;
+		pendingOffset = undefined;
+		returnId = '';
+		delete positions.device;
+		delete positions.dn;
+	}
+	function choose(next: SearchScope) {
+		if (next !== scope) {
+			scope = next;
+			changedQuery();
+		}
+	}
+	export function getPlaybackAvailability(): 'offline' | undefined {
+		return useDevice || detail ? 'offline' : undefined;
+	}
+	function enterDevice(category: Category, row: BrowseItem) {
+		detailOffset = root.closest('main')?.scrollTop ?? 0;
+		positions.device = detailOffset;
+		freshDetail = row;
+		detail = { category, row };
+		void tick().then(() => {
+			const main = root.closest('main');
+			main?.scrollTo(0, 0);
+			main?.focus({ preventScroll: true });
+		});
+	}
+	export function goBack() {
+		if (!detail) return false;
+		pendingOffset = detailOffset;
+		returnId = detail.row.id;
+		detail = null;
+		freshDetail = undefined;
+		void tick().then(() => {
+			if (!useDevice && completed === query) restore();
+		});
+		return true;
+	}
+	function connectionFailed(cause: unknown) {
+		if (unreachableDn(cause)) {
+			failedConnection = true;
+			return true;
+		}
+		return false;
+	}
+	$effect(() => {
+		const spec = query,
+			can = active && ready && !detail;
+		if (useDevice) {
+			completed = undefined;
+			return;
+		}
+		if (!can) return;
+		const { account, q, kind, start } = spec;
+		if (completed === spec) {
+			untrack(restore);
+			return;
+		}
 		result = null;
 		error = '';
-		busy = q.length >= 2 && kind !== 'genres' && kind !== 'playlists';
-		if (kind === 'genres' || kind === 'playlists' || q.length < 2) return;
+		const searchable = q.length >= 2 && kind !== 'genres' && kind !== 'playlists';
+		busy = searchable;
+		if (!searchable) {
+			if (kind !== 'genres' && kind !== 'playlists') untrack(restore);
+			return;
+		}
 		const controller = new AbortController();
-		let active = true;
 		const timer = setTimeout(async () => {
 			try {
-				const found = await search(account, q, kind, start, controller.signal);
-				if (active) result = found;
-			} catch (e) {
-				if (active) error = errorMessage(e);
+				const found = await search(
+					account,
+					q,
+					kind as 'top' | 'albums' | 'artists' | 'tracks',
+					start,
+					controller.signal
+				);
+				if (!controller.signal.aborted) {
+					result = found;
+					completed = spec;
+				}
+			} catch (cause) {
+				if (!controller.signal.aborted && !connectionFailed(cause)) error = errorMessage(cause);
 			} finally {
-				if (active) busy = false;
+				if (!controller.signal.aborted) {
+					busy = false;
+					if (!useDevice) restore();
+				}
 			}
 		}, 300);
 		return () => {
-			active = false;
 			clearTimeout(timer);
 			controller.abort();
 		};
 	});
 </script>
 
-<h1>Search</h1>
-<input
-	type="search"
-	bind:value={term}
-	oninput={() => (offset = 0)}
-	aria-label="Search music"
-	placeholder={scope === 'top'
-		? 'Search music'
-		: 'Search ' + scopes.find((s) => s.id === scope)?.label.toLowerCase()}
-	autocomplete="off"
-/>
-<div class="scopes" role="group" aria-label="Search category">
-	{#each scopes as item (item.id)}<button
-			aria-pressed={scope === item.id}
-			onclick={() => {
-				scope = item.id;
-				offset = 0;
-			}}>{item.label}</button
-		>{/each}
-</div>
-{#if scope === 'genres' || scope === 'playlists'}
-	<SearchCollection {session} {scope} {term} {ongenre} {onplaylist} />
-{:else if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={() => retry++}>Try again</button>
-{:else if busy}<p role="status">Searching…</p>
-{:else if result}
-	{#if result.tracks.length}<h2>Songs in your library</h2>
-		<TrackList {session} tracks={result.tracks} {onplay} />{/if}
-	{#if result.artists.length}<h2>Artists</h2>
-		<div class="artists">
-			{#each result.artists as artist (artist.mbid || artist.localId)}<button
-					class="secondary"
-					onclick={() => onartist(artist)}>{artist.name}</button
+<div bind:this={root}>
+	<div hidden={!!detail}>
+		<h1>Search</h1>
+		<input
+			type="search"
+			bind:value={term}
+			oninput={changedQuery}
+			aria-label="Search music"
+			placeholder={scope === 'top'
+				? 'Search music'
+				: 'Search ' + scopes.find((s) => s.id === scope)?.label.toLowerCase()}
+			autocomplete="off"
+		/>
+		<div class="scopes" role="group" aria-label="Search category">
+			{#each scopes as item (item.id)}<button
+					aria-pressed={scope === item.id}
+					onclick={() => choose(item.id)}>{item.label}</button
 				>{/each}
-		</div>{/if}
-	{#if result.albums.length}<h2>Albums</h2>
-		<Albums {session} albums={result.albums} {onopen} />{/if}
-	{#if result.recordings.length}<h2>Songs to request</h2>
-		{#each result.recordings as row (row.song.recording_mbid + '-' + row.song.release_mbid)}<div
-				class="recording"
-			>
-				<span
-					><strong>{row.song.track_title}</strong><small
-						>{row.song.artist_name} · {row.song.album_title}</small
-					></span
-				><RequestSong {session} song={row.song} requested={row.requested} />
-			</div>{/each}{/if}
-	{#if result.partial}<p role="status">Some MusicBrainz results are unavailable.</p>
-		<button class="secondary" onclick={() => retry++}>Retry search</button>{/if}
-	{#if !result.albums.length && !result.tracks.length && !result.artists.length && !result.recordings.length}<p
-		>
-			{offset ? 'No more matches.' : 'No matches for “' + term.trim() + '”.'}
-		</p>{/if}
-	{#if scope !== 'top' && (offset > 0 || result.next !== null)}
-		<div class="pages">
-			<button
-				class="secondary"
-				disabled={!offset}
-				onclick={() => {
-					if (result) offset = result.previous;
-				}}>Previous results</button
-			><button
-				class="secondary"
-				disabled={result.next === null}
-				onclick={() => {
-					if (result?.next != null) offset = result.next;
-				}}>Next results</button
-			>
 		</div>
+		{#if policyIssue}<p role="alert">{policyIssue}</p>
+			<button class="secondary" onclick={() => policyRetry++}>Retry search settings</button>
+		{:else if !ready}<p role="status">Opening search…</p>
+		{:else if useDevice}
+			<p class="device-source" role="status">
+				{failedConnection && connected && !forced
+					? 'DN is unavailable. Searching music on this device.'
+					: 'Searching music on this device.'}
+				{#if failedConnection && connected && !forced}<button
+						class="text-button"
+						onclick={() => {
+							failedConnection = false;
+							retry++;
+						}}>Retry DN</button
+					>{/if}
+			</p>
+			{#if storageError}<p role="alert">{storageError}</p>
+				{#if session.userId}<button class="secondary" onclick={() => storageRetry++}
+						>Retry device library</button
+					>{/if}
+			{:else if inventory && !inventory.items.length}<p>
+					No music is saved or cached for this account on this device.
+				</p>
+			{:else if inventory && localModel}<DeviceSearchResults
+					bind:this={localResults}
+					bind:limit={deviceLimit}
+					{session}
+					{inventory}
+					model={localModel}
+					{term}
+					{scope}
+					active={active && !detail}
+					{choose}
+					onopen={enterDevice}
+					{onplay}
+					onready={restore}
+					onrules={() => ruleRevision++}
+				/>
+			{:else if storageBusy}<p role="status">Opening saved music…</p>{/if}
+		{:else if scope === 'genres' || scope === 'playlists'}
+			<SearchCollection
+				{session}
+				{scope}
+				{term}
+				{ongenre}
+				{onplaylist}
+				active={active && !detail}
+				onerror={connectionFailed}
+				onready={restore}
+			/>
+		{:else if error}<p role="alert">{error}</p>
+			<button class="secondary" onclick={() => retry++}>Try again</button>
+		{:else if busy}<p role="status">Searching…</p>
+		{:else if result}
+			{#if result.tracks.length}<h2>Songs in your library</h2>
+				<TrackList {session} tracks={result.tracks} {onplay} />{/if}
+			{#if result.artists.length}<h2>Artists</h2>
+				<div class="artists">
+					{#each result.artists as artist (artist.mbid || artist.localId)}<button
+							class="secondary"
+							onclick={() => onartist(artist)}>{artist.name}</button
+						>{/each}
+				</div>{/if}
+			{#if result.albums.length}<h2>Albums</h2>
+				<Albums {session} albums={result.albums} {onopen} />{/if}
+			{#if result.recordings.length}<h2>Songs to request</h2>
+				{#each result.recordings as row (row.song.recording_mbid + '-' + row.song.release_mbid)}<div
+						class="recording"
+					>
+						<span
+							><strong>{row.song.track_title}</strong><small
+								>{row.song.artist_name} · {row.song.album_title}</small
+							></span
+						><RequestSong {session} song={row.song} requested={row.requested} />
+					</div>{/each}{/if}
+			{#if result.partial}<p role="status">Some MusicBrainz results are unavailable.</p>
+				<button class="secondary" onclick={() => retry++}>Retry search</button>{/if}
+			{#if !result.albums.length && !result.tracks.length && !result.artists.length && !result.recordings.length}<p
+				>
+					{offset ? 'No more matches.' : 'No matches for “' + term.trim() + '”.'}
+				</p>{/if}
+			{#if scope !== 'top' && (offset > 0 || result.next !== null)}
+				<div class="pages">
+					<button
+						class="secondary"
+						disabled={!offset}
+						onclick={() => {
+							if (result) offset = result.previous;
+						}}>Previous results</button
+					><button
+						class="secondary"
+						disabled={result.next === null}
+						onclick={() => {
+							if (result?.next != null) offset = result.next;
+						}}>Next results</button
+					>
+				</div>
+			{/if}
+		{:else if term.length}<p>Enter at least two characters.</p>{/if}
+	</div>
+	{#if detail}
+		<button class="text-button device-back" aria-label="Back to search" onclick={goBack}
+			><ChevronLeft size={18} />Back to search</button
+		>
+		{#if detailError}<p role="alert">{detailError}</p>
+			<button class="secondary" onclick={() => storageRetry++}>Retry device library</button>
+		{:else}
+			{#key detail.row.id}<LibraryGroup
+					{session}
+					{active}
+					offline
+					item={freshDetail ?? detail.row}
+					tracks={freshDetail?.localTracks ?? []}
+					{onplay}
+				/>{/key}
+		{/if}
 	{/if}
-{:else if term.length}<p>Enter at least two characters.</p>{/if}
+</div>
 
 <style>
+	.device-source,
+	.device-back {
+		display: flex;
+		gap: 0.45rem;
+		align-items: center;
+	}
+	.device-source {
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	.device-source button,
+	.device-back {
+		min-height: 44px;
+	}
 	.scopes,
 	.pages {
 		display: flex;

@@ -3,7 +3,12 @@
 	import type { Session } from '../connection';
 	import { observeCover } from './coverRequests';
 
-	let { session, path, seed }: { session: Session; path?: string; seed: string } = $props();
+	let {
+		session,
+		path,
+		seed,
+		cacheOnly = false
+	}: { session: Session; path?: string; seed: string; cacheOnly?: boolean } = $props();
 	let element: HTMLSpanElement;
 	let source = $state('');
 	let hue = $derived(
@@ -12,6 +17,7 @@
 
 	$effect(() => {
 		const src = path,
+			local = cacheOnly,
 			account = session;
 		let unsubscribe: (() => void) | undefined;
 		source = '';
@@ -20,7 +26,7 @@
 			(entries) => {
 				if (!entries.some((e) => e.isIntersecting)) return;
 				observer.disconnect();
-				unsubscribe = observeCover(account, src, (data) => (source = data));
+				unsubscribe = observeCover(account, src, (data) => (source = data), local);
 			},
 			{ rootMargin: '100px' }
 		);

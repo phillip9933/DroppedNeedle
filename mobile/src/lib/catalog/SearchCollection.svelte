@@ -2,7 +2,7 @@
 	import { ChevronRight, ListMusic, Tags } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
-	import { readWidget } from './discoveryWidgets';
+	import { searchGenres } from './discoveryWidgets';
 	import { playlists, type Playlist } from './playlists';
 
 	let {
@@ -10,13 +10,19 @@
 		scope,
 		term,
 		ongenre,
-		onplaylist
+		onplaylist,
+		active = true,
+		onerror,
+		onready
 	}: {
 		session: Session;
 		scope: 'genres' | 'playlists';
 		term: string;
 		ongenre: (name: string) => void;
 		onplaylist: (p: Playlist) => void;
+		active?: boolean;
+		onerror?: (e: unknown) => boolean;
+		onready?: () => void;
 	} = $props();
 	let genres = $state<string[]>([]),
 		lists = $state<Playlist[]>([]);
@@ -30,6 +36,8 @@
 		const account = session,
 			kind = scope;
 		void retry;
+		if (!active) return;
+		const controller = new AbortController();
 		let current = true;
 		busy = true;
 		error = '';
@@ -38,21 +46,25 @@
 		async function read() {
 			try {
 				if (kind === 'playlists') {
-					const found = await playlists(account);
+					const found = await playlists(account, controller.signal);
 					if (current) lists = found;
 				} else {
-					const page = await readWidget(account, 'discover-genre_list', 'this_month', 0, '');
-					if (current) genres = Array.from(new Set(page.shelves.flatMap((s) => s.genres)));
+					const labels = await searchGenres(account, controller.signal);
+					if (current) genres = labels;
 				}
 			} catch (e) {
-				if (current) error = errorMessage(e);
+				if (current && !onerror?.(e)) error = errorMessage(e);
 			} finally {
-				if (current) busy = false;
+				if (current) {
+					busy = false;
+					onready?.();
+				}
 			}
 		}
 		void read();
 		return () => {
 			current = false;
+			controller.abort();
 		};
 	});
 </script>
