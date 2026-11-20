@@ -8,8 +8,8 @@
 	box-sizing: border-box;
 }
 html {
-	background: var(--bg, #131c20);
-	color: var(--text, #f3f6f1);
+	background: var(--bg, #090e0b);
+	color: var(--text, #f3f5ef);
 	font: 100%/1.5 var(--font, system-ui);
 	-webkit-text-size-adjust: 100%;
 }
@@ -45,7 +45,7 @@ button:disabled {
 	cursor: default;
 }
 :focus-visible {
-	outline: 3px solid var(--accent);
+	outline: 3px solid var(--dn-focus);
 	outline-offset: 3px;
 }
 input,
@@ -53,7 +53,7 @@ textarea,
 select {
 	padding: 0.72rem;
 	background: var(--surface);
-	border: 1px solid var(--line);
+	border: 1px solid var(--dn-edge);
 	border-radius: var(--radius);
 }
 input[type='range'] {
@@ -76,8 +76,9 @@ input[type='range'] {
 	border-radius: var(--radius);
 }
 .primary {
-	background: var(--accent);
-	color: var(--on-accent);
+	background: var(--dn-action);
+	color: var(--dn-action-content);
+	border: 1px solid var(--dn-action-edge);
 }
 .secondary,
 .icon-button {
@@ -93,7 +94,7 @@ input[type='range'] {
 	color: var(--accent);
 }
 p[role='alert'] {
-	border-inline-start: 3px solid var(--accent);
+	border-inline-start: 3px solid var(--color-error);
 	padding-inline-start: var(--gap);
 }
 svg {
@@ -117,4 +118,23 @@ svg {
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
+}
+
+/* The same paper sheet as the web album track list, with the page's outer edge. */
+[data-paper-sheet='on'] [data-part='album-detail'] ~ [data-part='track-list'] {
+	--bg: var(--dn-paper);
+	--surface: var(--sheet-surface);
+	--raised: var(--sheet-raised);
+	--text: var(--sheet-text);
+	--muted: var(--sheet-muted);
+	--accent: var(--sheet-accent);
+	--on-accent: var(--sheet-on-accent);
+	--line: var(--sheet-line);
+	--dn-focus: var(--sheet-focus);
+	margin-block: var(--gap);
+	padding-inline: calc(var(--gap) * 0.7);
+	border: 1px solid var(--dn-paper-border);
+	border-radius: var(--radius);
+	background: var(--bg);
+	color: var(--text);
 }
