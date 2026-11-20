@@ -21,6 +21,7 @@ test('browse a library artist, open their album and keep a favorite across views
 			favorite,
 			art_missing: true
 		};
+		if (path === '/home') return json({ sections: [], refreshing: false });
 		if (path === '/library/albums')
 			return json({
 				items: url.searchParams.get('favorites') === 'true' && !favorite ? [] : [album],
@@ -59,7 +60,8 @@ test('browse a library artist, open their album and keep a favorite across views
 	await page.getByLabel('Username').fill('listener');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await page.getByRole('button', { name: 'Artists', exact: true }).click({ timeout: 2500 });
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Artists', exact: true }).click({ timeout: 2500 });
 	await page.getByRole('button', { name: /Night Train/ }).click();
 	await page.getByRole('button', { name: /Return Trip/ }).click();
 	await page.getByRole('button', { name: 'Favorite album', exact: true }).click();
@@ -67,7 +69,8 @@ test('browse a library artist, open their album and keep a favorite across views
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('heading', { name: 'Night Train', exact: true })).toBeVisible();
 	await page.keyboard.press('Escape');
-	await page.getByRole('button', { name: 'Albums', exact: true }).click();
+	await page.getByRole('button', { name: 'Back to Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Albums', exact: true }).click();
 	await page.getByRole('button', { name: 'Favorites only' }).click();
 	await expect(page.getByRole('button', { name: /Return Trip/ })).toBeVisible();
 	expect(favorite).toBe(true);

@@ -72,6 +72,7 @@ async function connect(page: Page) {
 					{ id: 'sam', display_name: 'Sam' }
 				]
 			});
+		if (path === '/home') return json({ sections: [], refreshing: false });
 		if (path === '/library/albums')
 			return json({
 				items: [
@@ -174,13 +175,14 @@ async function connect(page: Page) {
 	await page.getByLabel('Username').fill('listener');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-	await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	return { lists, writes, members: () => members };
 }
 
 test('an owner creates, renames, shares and confirms deletion of a playlist', async ({ page }) => {
 	const state = await connect(page);
-	await page.getByRole('button', { name: 'Playlists', exact: true }).click();
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
 	await page.getByRole('button', { name: 'New playlist' }).click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog.getByRole('button', { name: 'Create playlist' })).toBeDisabled();
@@ -231,7 +233,8 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	await dialog.getByRole('button', { name: 'Add track', exact: true }).click();
 	await dialog.getByRole('button', { name: 'Done' }).click();
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
-	await page.getByRole('button', { name: 'Playlists', exact: true }).click();
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
 	await page.getByRole('button', { name: /Shared mix/ }).click();
 	await page.getByRole('button', { name: 'Edit playlist' }).click();
 	await expect(

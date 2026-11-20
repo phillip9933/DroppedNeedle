@@ -12,6 +12,8 @@
 		session,
 		kind,
 		artist,
+		preview = false,
+		recent = false,
 		onopen,
 		onartist,
 		onplay
@@ -19,6 +21,8 @@
 		session: Session;
 		kind: 'albums' | 'artists' | 'songs';
 		artist?: Artist;
+		preview?: boolean;
+		recent?: boolean;
 		onopen: (a: Album) => void;
 		onartist: (a: Artist) => void;
 		onplay: OnPlay;
@@ -58,8 +62,8 @@
 	});
 	const sorts = {
 		albums: [
-			['date_added', 'Recently added'],
 			['name', 'Album title'],
+			['date_added', 'Recently added'],
 			['artist', 'Artist'],
 			['year', 'Release year']
 		],
@@ -78,9 +82,10 @@
 	async function load(cursor: string | null, version: number) {
 		busy = true;
 		error = '';
-		const by = sort || sorts[kind][0][0];
+		const by = recent ? 'date_added' : sort || sorts[kind][0][0];
+		const limit = preview ? (kind === 'albums' ? 6 : 3) : 30;
 		const params = {
-			limit: 30,
+			limit,
 			after: cursor ?? undefined,
 			sort: by,
 			order: ['album_count', 'date_added', 'year'].includes(by) ? 'desc' : 'asc',
@@ -93,7 +98,7 @@
 					? path(
 							'/api/v3/library/artists/{id}/albums',
 							{ id: artist.id },
-							{ limit: 30, after: cursor ?? undefined }
+							{ limit, after: cursor ?? undefined }
 						)
 					: path('/api/v3/library/albums', {}, params);
 				const result = await getJson<Schema['AlbumPage']>(session, url);
@@ -136,6 +141,8 @@
 		void sort;
 		void favorites;
 		void kind;
+		void preview;
+		void recent;
 		const version = ++generation;
 		albums = [];
 		artists = [];
@@ -151,7 +158,7 @@
 	});
 </script>
 
-{#if !artist}
+{#if !artist && !preview}
 	<div class="filters">
 		<input
 			type="search"
@@ -159,11 +166,11 @@
 			placeholder={'Filter ' + kind}
 			bind:value={query}
 		/>
-		<select aria-label={'Sort ' + kind} bind:value={sort}
-			>{#each sorts[kind] as [value, label], i (value)}<option value={i === 0 ? '' : value}
-					>{label}</option
-				>{/each}</select
-		>
+		{#if !recent}<select aria-label={'Sort ' + kind} bind:value={sort}
+				>{#each sorts[kind] as [value, label], i (value)}<option value={i === 0 ? '' : value}
+						>{label}</option
+					>{/each}</select
+			>{/if}
 		<button
 			class="icon-button"
 			aria-label="Favorites only"
@@ -174,7 +181,7 @@
 		>
 	</div>
 {/if}
-{#if albums.length}<Albums {session} {albums} {onopen} />{/if}
+{#if albums.length}<Albums {session} {albums} {onopen} strip={preview} />{/if}
 {#if artists.length}<div class="artists">
 		{#each artists as a (a.id)}<button onclick={() => onartist(a)}
 				><strong>{a.name}</strong><small
@@ -186,7 +193,7 @@
 {#if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => load(next, generation)}>Try again</button>
 {:else if busy}<p role="status">Loading {kind}…</p>
-{:else if next}<button class="secondary more" onclick={() => load(next, generation)}
+{:else if next && !preview}<button class="secondary more" onclick={() => load(next, generation)}
 		>More {kind}</button
 	>
 {:else if !albums.length && !songs.length && !artists.length}<p>

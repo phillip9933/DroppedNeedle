@@ -5,11 +5,17 @@
 	let {
 		session,
 		albums,
+		strip = false,
 		onopen
-	}: { session: Session; albums: Album[]; onopen: (album: Album) => void } = $props();
+	}: {
+		session: Session;
+		albums: Album[];
+		strip?: boolean;
+		onopen: (album: Album) => void;
+	} = $props();
 </script>
 
-<div class="albums" data-part="album-grid">
+<div class="albums" class:strip data-part="album-grid">
 	{#each albums as album (album.localId || album.group)}
 		<button class="album" data-part="album-card" onclick={() => onopen(album)}>
 			<Cover {session} path={album.art} seed={album.group || album.localId || album.title} />
@@ -23,6 +29,19 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr));
 		gap: calc(var(--gap) * 1.4) var(--gap);
+	}
+	.strip {
+		display: grid;
+		grid-template-columns: none;
+		grid-auto-flow: column;
+		grid-auto-columns: clamp(7.5rem, 36%, 10rem);
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		scroll-snap-type: x proximity;
+		padding: 0.15rem 0.1rem 0.5rem;
+	}
+	.strip button {
+		scroll-snap-align: start;
 	}
 	.album {
 		display: flex;

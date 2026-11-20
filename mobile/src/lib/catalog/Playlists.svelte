@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { ChevronRight } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -9,28 +8,48 @@
 	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	let creating = $state(false),
 		saving = $state(false);
-	let { session, onopen }: { session: Session; onopen: (playlist: Playlist) => void } = $props();
+	let {
+		session,
+		preview = false,
+		active = true,
+		onopen
+	}: {
+		session: Session;
+		preview?: boolean;
+		active?: boolean;
+		onopen: (playlist: Playlist) => void;
+	} = $props();
 	let items = $state<Playlist[]>([]);
 	let count = $state(40);
 	let busy = $state(true),
 		error = $state('');
-	async function load() {
-		busy = true;
-		error = '';
-		try {
-			items = await playlists(session);
-		} catch (e) {
-			error = errorMessage(e);
-		} finally {
-			busy = false;
+	let retry = $state(0);
+	$effect(() => {
+		const account = session;
+		void retry;
+		if (!active) return;
+		let valid = true;
+		async function load() {
+			busy = true;
+			error = '';
+			try {
+				const fresh = await playlists(account);
+				if (valid) items = fresh;
+			} catch (e) {
+				if (valid) error = errorMessage(e);
+			} finally {
+				if (valid) busy = false;
+			}
 		}
-	}
-	onMount(() => {
 		void load();
+		return () => {
+			valid = false;
+		};
 	});
 </script>
 
-<button class="text-button" onclick={() => (creating = true)}>New playlist</button>
+{#if !preview}<button class="text-button" onclick={() => (creating = true)}>New playlist</button
+	>{/if}
 {#if creating}
 	<PlaylistDialog title="New playlist" onclose={() => (creating = false)} busy={saving}>
 		<PlaylistNameForm
@@ -47,11 +66,11 @@
 {/if}
 {#if busy}<p role="status">Loading playlists…</p>
 {:else if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={load}>Try again</button>
+	<button class="secondary" onclick={() => retry++}>Try again</button>
 {:else if !items.length}<p>No playlists yet.</p>
 {:else}
 	<div data-part="playlist-list">
-		{#each items.slice(0, count) as item (item.id)}
+		{#each items.slice(0, preview ? 3 : count) as item (item.id)}
 			<button class="row" onclick={() => onopen(item)}>
 				<span class="art"><Cover {session} path={playlistCover(item)} seed={item.id} /></span>
 				<span class="info"
@@ -63,7 +82,7 @@
 			</button>
 		{/each}
 	</div>
-	{#if count < items.length}<button class="secondary more" onclick={() => (count += 40)}
+	{#if !preview && count < items.length}<button class="secondary more" onclick={() => (count += 40)}
 			>More playlists</button
 		>{/if}
 {/if}
