@@ -32,6 +32,7 @@
 		onlocal,
 		onplaylist,
 		onplay,
+		onrootback,
 		onoffline
 	}: {
 		board: Board;
@@ -44,6 +45,7 @@
 		onplaylist: (p: Playlist) => void;
 		onplay: OnPlay;
 		onoffline?: () => void;
+		onrootback?: () => void;
 	} = $props();
 	let owner = $state(''),
 		sections = $state<Section[]>([]),
@@ -178,6 +180,9 @@
 		</SelectionHost>
 	{/if}
 	<div hidden={!!expanded}>
+		{#if onrootback}<button class="text-button" onclick={onrootback}
+				><ArrowLeft size={17} />Back to Library</button
+			>{/if}
 		<SelectionHost
 			{session}
 			{onplay}

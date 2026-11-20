@@ -80,8 +80,11 @@ for (const shuffle of [false, true]) {
 						: { items: [song('One'), song('Two')], total: 3, next: 'opaque-seeded-cursor' }
 				});
 			});
+			await button(page, 'Search tracks').click();
 			await page.getByRole('searchbox', { name: 'Filter songs' }).fill('Hear');
+			await button(page, 'Choose sort order').click();
 			await page.getByLabel('Sort songs').selectOption('date_added');
+			await button(page, 'Collection filters').click();
 			await button(page, 'Favorites only').click();
 			await page.getByText('Rating and format', { exact: true }).click();
 			await page.getByLabel('Your rating').selectOption('4');
@@ -103,7 +106,7 @@ for (const issue of [
 	'incomplete',
 	'cursor loop',
 	'changed total',
-	'oversized',
+	'empty first window',
 	'large metadata',
 	'network error',
 	'cancel',
@@ -114,7 +117,7 @@ for (const issue of [
 		let held: Route | undefined;
 		const played = await connect(page, async (route, url) => {
 			const next = url.searchParams.has('after');
-			if (issue === 'oversized')
+			if (issue === 'empty first window')
 				return route.fulfill({ json: { items: [], total: 2001, next: 'next' } });
 			if (issue === 'large metadata')
 				return route.fulfill({
@@ -146,7 +149,7 @@ for (const issue of [
 		} else {
 			const alert = page.getByRole('alert');
 			await expect(alert).toBeVisible();
-			if (issue === 'oversized') await expect(alert).toContainText('2,000');
+			if (issue === 'empty first window') await expect(alert).toContainText(/changed|incomplete/i);
 			if (issue === 'large metadata') await expect(alert).toContainText('1 MiB');
 		}
 		if (issue !== 'later play') await button(page, 'Open player for Existing').click();

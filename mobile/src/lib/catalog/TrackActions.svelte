@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { saveOfflineTracks, offlineSupported } from '../offline/media';
-	import { Ellipsis } from '@lucide/svelte';
+	import { Ellipsis, EllipsisVertical } from '@lucide/svelte';
 	import { player, type PlayerTrack } from '../player';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -12,8 +12,17 @@
 		session,
 		tracks,
 		label,
+		vertical = false,
+		localOnly = false,
 		favorite
-	}: { session: Session; tracks: PlayerTrack[]; label: string; favorite?: boolean } = $props();
+	}: {
+		session: Session;
+		tracks: PlayerTrack[];
+		label: string;
+		vertical?: boolean;
+		localOnly?: boolean;
+		favorite?: boolean;
+	} = $props();
 	let menu = $state<'actions' | 'playlist' | null>(null),
 		busy = $state(false),
 		error = $state(''),
@@ -68,13 +77,15 @@
 </script>
 
 <button
-	class="icon-button"
+	class:icon-button={!vertical}
+	class:bare-dots={vertical}
 	aria-label={label}
 	title={label}
 	onclick={() => {
 		menu = 'actions';
 		message = error = '';
-	}}><Ellipsis size={18} /></button
+	}}
+	>{#if vertical}<EllipsisVertical size={18} />{:else}<Ellipsis size={18} />{/if}</button
 >
 {#if !menu}<span class="sr-only" role="status">{message}</span>{/if}
 {#if menu === 'actions'}
@@ -86,9 +97,13 @@
 		<div class="choices">
 			<button disabled={busy} onclick={() => enqueue('next')}>Play next</button>
 			<button disabled={busy} onclick={() => enqueue('end')}>Add to queue</button>
-			<button disabled={busy} onclick={() => (menu = 'playlist')}>Add to playlist</button>
-			{#if offlineSupported}<button disabled={busy} onclick={download}>Save offline</button>{/if}
-			{#if favorite !== undefined && tracks.length === 1}<Favorite
+			{#if !localOnly}<button disabled={busy} onclick={() => (menu = 'playlist')}
+					>Add to playlist</button
+				>{/if}
+			{#if offlineSupported && !localOnly}<button disabled={busy} onclick={download}
+					>Save offline</button
+				>{/if}
+			{#if !localOnly && favorite !== undefined && tracks.length === 1}<Favorite
 					{session}
 					kind="track"
 					id={tracks[0].id}
@@ -113,6 +128,16 @@
 	/>{/if}
 
 <style>
+	.bare-dots {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		color: var(--muted);
+	}
 	.choices {
 		display: grid;
 		gap: 0.3rem;

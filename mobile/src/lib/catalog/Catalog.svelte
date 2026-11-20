@@ -4,6 +4,7 @@
 	import type { Session } from '../connection';
 	import type { Album, CatalogTab, OnPlay } from './catalog';
 	import BoardView from '../boards/BoardView.svelte';
+	import LibraryHub from './LibraryHub.svelte';
 	import DiscoverArtist from './DiscoverArtist.svelte';
 	import LocalArtistDetail, { type LocalArtist } from './LocalArtistDetail.svelte';
 	import type { DiscoverArtistRef } from './discovery';
@@ -31,8 +32,12 @@
 	} = $props();
 	const dismissSelection = librarySelectionBack();
 	let boardView = $state<{ goBack: () => boolean }>();
+	let hub = $state<LibraryHub>();
+	export function getHeader() {
+		return tab === 'library' && !inside ? hub?.getHeader() : undefined;
+	}
 	export function backToBoard() {
-		return boardView?.goBack() ?? false;
+		return tab === 'library' ? (hub?.goBack() ?? false) : (boardView?.goBack() ?? false);
 	}
 	let playlist = $state<Playlist | null>(null),
 		album = $state<Album | null>(null);
@@ -88,7 +93,7 @@
 		else if (inside) {
 			event.preventDefault();
 			back();
-		}
+		} else if (tab === 'library' && hub?.goBack()) event.preventDefault();
 	}
 
 	onMount(() => {
@@ -103,7 +108,20 @@
 
 <section bind:this={root} class="catalog" data-part="catalog">
 	<div hidden={inside}>
-		{#if tab === 'home' || tab === 'library' || tab === 'discover'}
+		{#if tab === 'library'}
+			<LibraryHub
+				bind:this={hub}
+				{session}
+				active={active && !inside}
+				{onoffline}
+				onopen={open}
+				onartist={openArtist}
+				onlocal={openLocal}
+				onplaylist={openPlaylist}
+				ongenre={openGenre}
+				{onplay}
+			/>
+		{:else if tab === 'home' || tab === 'discover'}
 			<BoardView
 				bind:this={boardView}
 				board={tab}

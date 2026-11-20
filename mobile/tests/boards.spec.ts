@@ -88,6 +88,7 @@ test('a listener arranges sections independently and keeps the layout after sign
 	await expect(button(page, 'Browse Artists')).toBeVisible();
 	await expect(button(page, 'Edit Home layout')).toHaveCount(0);
 	await button(page, 'Library').click();
+	await button(page, 'Library sections').click();
 	await expect(button(page, 'Browse Artists')).toBeVisible();
 	await edit(page, 'Library');
 	await button(page, 'Remove Artists').click();
@@ -112,6 +113,7 @@ test('a listener arranges sections independently and keeps the layout after sign
 	await expect(button(page, 'Browse Artists')).toHaveCount(0);
 	await expect(button(page, 'Browse Recently played')).toBeVisible();
 	await button(page, 'Library').click();
+	await button(page, 'Library sections').click();
 	await expect(button(page, 'Browse Artists')).toBeVisible();
 });
 test('an empty layout remains editable and Discover selections can be shared with Home', async ({
@@ -266,6 +268,7 @@ test('Top picks and library entries honor the chosen columns and density on a 32
 	const discoverPicks = shelf('discover-top_picks');
 	await expect(discoverPicks.locator('[data-preview]')).toHaveAttribute('data-preview', 'grid');
 	await button(page, 'Library').click();
+	await button(page, 'Library sections').click();
 	await edit(page, 'Library');
 	await button(page, 'Customize Tracks').click();
 	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
@@ -513,6 +516,7 @@ test('a saved five-star filter can appear on both boards and shared edits commit
 	await page.goto('/');
 	await login(page);
 	await button(page, 'Library').click();
+	await button(page, 'Library sections').click();
 	await button(page, 'Browse Tracks').click();
 	await page.getByText('Rating and format', { exact: true }).click();
 	await page.getByLabel('Your rating').selectOption('5');
@@ -548,6 +552,7 @@ test('a saved five-star filter can appear on both boards and shared edits commit
 	await modal.getByRole('button', { name: 'Apply filters' }).click();
 	await save(page);
 	await button(page, 'Library').click();
+	await button(page, 'Library sections').click();
 	await button(page, 'Browse Favorite artists').click();
 	await expect(button(page, 'Southerly 1 album')).toBeVisible();
 	await page.reload();
@@ -661,6 +666,7 @@ test('selection applies playlist actions to chosen items across library shelves 
 	await page.goto('/');
 	await login(page);
 	await button(page, 'Library').click();
+	await button(page, 'Library sections').click();
 	const board = page.locator('[data-board=library]');
 	await board
 		.locator('[data-widget=library-albums]')

@@ -26,7 +26,9 @@
 		active = true,
 		scope = '',
 		enabled = true,
-		tools
+		tools,
+		externalToggle = false,
+		localOnly = false
 	}: {
 		session: Session;
 		onplay: OnPlay;
@@ -36,8 +38,17 @@
 		scope?: string;
 		enabled?: boolean;
 		tools?: Snippet;
+		externalToggle?: boolean;
+		localOnly?: boolean;
 	} = $props();
 	const group = new LibrarySelection(() => active && enabled);
+	export function beginSelection() {
+		if (!group.listed().length) return;
+		group.selecting = true;
+		group.message = '';
+		error = '';
+	}
+
 	let root: HTMLElement;
 	const available = $derived(active && enabled && group.buttons.size > 0);
 	let progress = $state('');
@@ -132,7 +143,7 @@
 <div bind:this={root} class="collection" class:choosing={group.selecting}>
 	<div class="heading">
 		{#if heading}<h1>{heading}</h1>{/if}
-		{#if available && !group.selecting}<button
+		{#if available && !group.selecting && !externalToggle}<button
 				class="select secondary"
 				onclick={() => {
 					group.selecting = true;
@@ -186,17 +197,17 @@
 						class="short-label">Queue</span
 					></button
 				>
-				<button
-					class="secondary"
-					disabled={group.busy || !group.selected.size}
-					aria-label="Add to playlist"
-					title="Add to playlist"
-					onclick={() => apply('playlist')}
-					><ListMusic size={17} /><span class="full-label">Add to playlist</span><span
-						class="short-label">Playlist</span
-					></button
-				>
-				{#if offlineSupported}<button
+				{#if !localOnly}<button
+						class="secondary"
+						disabled={group.busy || !group.selected.size}
+						aria-label="Add to playlist"
+						title="Add to playlist"
+						onclick={() => apply('playlist')}
+						><ListMusic size={17} /><span class="full-label">Add to playlist</span><span
+							class="short-label">Playlist</span
+						></button
+					>
+				{/if}{#if offlineSupported && !localOnly}<button
 						class="secondary"
 						disabled={group.busy || !group.selected.size}
 						aria-label="Save offline"

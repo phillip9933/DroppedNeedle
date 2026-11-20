@@ -116,7 +116,7 @@ test('a mixed playlist plays all local entries in saved order, including repeats
 	await page
 		.getByRole('button', { name: 'Browse Playlists', exact: true })
 		.click({ timeout: 4000 });
-	await page.getByRole('button', { name: /Night drive/ }).click();
+	await page.getByRole('button', { name: 'Night drive', exact: true }).click();
 	await expect(page.getByRole('button', { name: /Across Town/ })).toBeDisabled();
 	await expect(page.getByText('Slow Train', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Play playlist', exact: true }).click();

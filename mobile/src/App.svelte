@@ -44,7 +44,8 @@
 		menuButton = $state<HTMLButtonElement>();
 	let footerHeight = $state(0);
 	let settings = $state<{ goBack: () => boolean }>();
-	let catalog = $state<{ backToBoard: () => boolean }>();
+	let catalog = $state<Catalog>();
+	const catalogHeader = $derived(panel === 'catalog' && session ? catalog?.getHeader() : undefined);
 	function report(error: unknown) {
 		issue = error instanceof Error ? error.message : 'The app could not finish that action.';
 	}
@@ -261,14 +262,16 @@
 	{#if !inPlayer}
 		<header class="mast">
 			{#if session}{@render menuToggle()}{/if}
-			<span class="wordmark"><img src={brand} alt="" /> DroppedNeedle</span>
-			{#if panel !== 'settings' && (!session || $interfacePreferences.headerSettings)}
-				<button
-					class="icon-button"
-					aria-label="Settings"
-					data-screen-link
-					onclick={() => openPanel('settings')}><Settings2 size={19} /></button
-				>
+			{#if catalogHeader}{@render catalogHeader()}{:else}
+				<span class="wordmark"><img src={brand} alt="" /> DroppedNeedle</span>
+				{#if panel !== 'settings' && (!session || $interfacePreferences.headerSettings)}
+					<button
+						class="icon-button"
+						aria-label="Settings"
+						data-screen-link
+						onclick={() => openPanel('settings')}><Settings2 size={19} /></button
+					>
+				{/if}
 			{/if}
 		</header>
 	{/if}
