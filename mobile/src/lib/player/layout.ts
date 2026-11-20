@@ -19,6 +19,21 @@ export const playerWidgets = [
 	{ id: 'player-up-next', label: 'Up next', option: 'Show upcoming tracks', enabled: true }
 ] as const;
 
+export const playerFields = [
+	{ id: 'player-title', label: 'Track title' },
+	{ id: 'player-artist', label: 'Artist' },
+	{ id: 'player-album', label: 'Album' },
+	{ id: 'player-text', label: 'Custom text' },
+	{ id: 'player-elapsed', label: 'Elapsed time' },
+	{ id: 'player-duration', label: 'Duration' },
+	{ id: 'player-remaining', label: 'Remaining time' },
+	{ id: 'player-previous', label: 'Previous track' },
+	{ id: 'player-toggle', label: 'Play or pause' },
+	{ id: 'player-next', label: 'Next track' },
+	{ id: 'player-repeat', label: 'Repeat' },
+	{ id: 'player-shuffle', label: 'Shuffle upcoming' }
+] as const;
+
 export function playerDefaults() {
 	return playerWidgets
 		.filter((w) => w.id !== 'player-up-next')

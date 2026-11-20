@@ -1,11 +1,21 @@
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
-import { playerWidgets, playerDefaults } from '../player/layout';
+import { isPlayerText } from '../player/composition';
+import { playerWidgets, playerDefaults, playerFields } from '../player/layout';
 
 export type Board = 'home' | 'library' | 'discover';
 export type LayoutTarget = Board | 'player';
-export type Section = { id: string; title: string; preview: boolean };
+export type Section = {
+	id: string;
+	title: string;
+	preview: boolean;
+	sameRow?: boolean;
+	width?: 1 | 2 | 3;
+	align?: 'start' | 'center' | 'end';
+	textSize?: 'small' | 'normal' | 'large';
+	template?: string;
+};
 export const boardNames = {
 	home: 'Home',
 	library: 'Library',
@@ -15,7 +25,8 @@ export const boardNames = {
 const widgets: readonly { id: string; label: string }[] = [
 	...libraryWidgets,
 	...discoveryWidgets,
-	...playerWidgets
+	...playerWidgets,
+	...playerFields
 ];
 
 export function available(board: LayoutTarget) {
@@ -25,7 +36,11 @@ export function available(board: LayoutTarget) {
 }
 
 export function sectionTitle(section: Section) {
-	return section.title || widgets.find((w) => w.id === section.id)?.label || section.id;
+	return (
+		section.title ||
+		widgets.find((w) => w.id === section.id)?.label ||
+		(isPlayerText(section.id) ? 'Custom text' : section.id)
+	);
 }
 
 export function defaults(board: LayoutTarget): Section[] {
@@ -79,13 +94,25 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 	if (!Array.isArray(entries)) return defaults(board);
 	const allowed = new Set(available(board).map((w) => w.id));
 	const sections: Section[] = [];
+	const seen = new Set<string>();
 	for (const item of entries) {
-		if (!item || !allowed.delete(item.id)) continue;
-		sections.push({
+		if (!item || typeof item.id !== 'string' || seen.has(item.id)) continue;
+		if (!allowed.has(item.id) && !(board === 'player' && isPlayerText(item.id))) continue;
+		seen.add(item.id);
+		const section: Section = {
 			id: item.id,
 			title: typeof item.title === 'string' ? item.title.trim().slice(0, 64) : '',
 			preview: item.preview !== false
-		});
+		};
+		if (board === 'player') {
+			if (item.sameRow === true) section.sameRow = true;
+			if ([1, 2, 3].includes(item.width)) section.width = item.width;
+			if (['start', 'center', 'end'].includes(item.align)) section.align = item.align;
+			if (['small', 'normal', 'large'].includes(item.textSize)) section.textSize = item.textSize;
+			if (isPlayerText(item.id) && typeof item.template === 'string')
+				section.template = item.template.slice(0, 512);
+		}
+		sections.push(section);
 	}
 	return sections;
 }
