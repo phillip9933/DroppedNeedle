@@ -5,6 +5,7 @@
 	import { playlists, createPlaylist, playlistCover, type Playlist } from './playlists';
 	import Cover from './Cover.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
+	import PlaylistImport from './PlaylistImport.svelte';
 	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	let creating = $state(false),
 		saving = $state(false);
@@ -49,7 +50,7 @@
 </script>
 
 {#if !preview}<button class="text-button" onclick={() => (creating = true)}>New playlist</button
-	>{/if}
+	><PlaylistImport {session} onimport={() => retry++} />{/if}
 {#if creating}
 	<PlaylistDialog title="New playlist" onclose={() => (creating = false)} busy={saving}>
 		<PlaylistNameForm

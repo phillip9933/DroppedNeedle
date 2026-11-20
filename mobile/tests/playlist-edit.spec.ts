@@ -97,6 +97,22 @@ async function connect(page: Page) {
 			});
 		if (path === '/library/albums/match/album')
 			return json({ items: local, total: 2, offset: 0, limit: 200 } satisfies Schema['TrackPage']);
+		if (path === '/playlists/import') {
+			expect(method).toBe('POST');
+			expect(req.postDataJSON()).toEqual({
+				name: 'Train ride',
+				format: 'm3u8',
+				content: '#EXTM3U\ntrack.flac\nmissing.flac'
+			});
+			lists.push(playlist('imported', 'Train ride', true, true));
+			return json({
+				playlist_id: 'imported',
+				name: 'Train ride',
+				matched: 1,
+				unmatched: [{ title: 'missing.flac', artist: '', reason: 'no_match' }],
+				over_limit: 0
+			} satisfies Schema['ImportPlaylistResponse']);
+		}
 		if (path === '/playlists') {
 			if (method === 'GET') return json({ playlists: lists });
 			expect(method).toBe('POST');
@@ -259,4 +275,39 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	await page.getByRole('button', { name: /Listening room/ }).click();
 	await expect(page.getByText('This playlist is empty.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit playlist' })).toHaveCount(0);
+});
+
+test('a listener names an imported playlist and reviews unmatched local entries', async ({
+	page
+}) => {
+	const state = await connect(page);
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
+	await page.getByRole('button', { name: 'Import playlist', exact: true }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog
+		.getByLabel('Playlist file')
+		.setInputFiles({
+			name: 'mix.zip',
+			mimeType: 'application/zip',
+			buffer: Buffer.from('unsupported')
+		});
+	await expect(dialog.getByRole('alert')).toHaveText('Choose an M3U, M3U8 or CSV file.');
+	await dialog
+		.getByLabel('Playlist file')
+		.setInputFiles({
+			name: 'trip.M3U8',
+			mimeType: 'audio/x-mpegurl',
+			buffer: Buffer.from('#EXTM3U\ntrack.flac\nmissing.flac')
+		});
+	await expect(dialog.getByLabel('Playlist name')).toHaveValue('trip');
+	await dialog.getByLabel('Playlist name').fill('Train ride');
+	expect(state.writes).toHaveLength(0);
+	await dialog.getByRole('button', { name: 'Create from file' }).click();
+	await expect(dialog).toHaveAccessibleName('Playlist imported');
+	await dialog.getByText('Unmatched entries (1)').click();
+	await expect(dialog.getByText(/No matching local file/)).toBeVisible();
+	await dialog.getByRole('button', { name: 'Done' }).click();
+	await expect(page.getByRole('button', { name: /Train ride/ })).toBeVisible();
+	expect(state.writes).toEqual(['POST /playlists/import']);
 });
