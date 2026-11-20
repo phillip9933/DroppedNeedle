@@ -285,21 +285,17 @@ test('a listener names an imported playlist and reviews unmatched local entries'
 	await page.getByRole('button', { name: 'Browse Playlists', exact: true }).click();
 	await page.getByRole('button', { name: 'Import playlist', exact: true }).click();
 	const dialog = page.getByRole('dialog');
-	await dialog
-		.getByLabel('Playlist file')
-		.setInputFiles({
-			name: 'mix.zip',
-			mimeType: 'application/zip',
-			buffer: Buffer.from('unsupported')
-		});
+	await dialog.getByLabel('Playlist file').setInputFiles({
+		name: 'mix.zip',
+		mimeType: 'application/zip',
+		buffer: Buffer.from('unsupported')
+	});
 	await expect(dialog.getByRole('alert')).toHaveText('Choose an M3U, M3U8 or CSV file.');
-	await dialog
-		.getByLabel('Playlist file')
-		.setInputFiles({
-			name: 'trip.M3U8',
-			mimeType: 'audio/x-mpegurl',
-			buffer: Buffer.from('#EXTM3U\ntrack.flac\nmissing.flac')
-		});
+	await dialog.getByLabel('Playlist file').setInputFiles({
+		name: 'trip.M3U8',
+		mimeType: 'audio/x-mpegurl',
+		buffer: Buffer.from('#EXTM3U\ntrack.flac\nmissing.flac')
+	});
 	await expect(dialog.getByLabel('Playlist name')).toHaveValue('trip');
 	await dialog.getByLabel('Playlist name').fill('Train ride');
 	expect(state.writes).toHaveLength(0);

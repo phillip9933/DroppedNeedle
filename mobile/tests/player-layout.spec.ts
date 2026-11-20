@@ -232,3 +232,116 @@ test('current track tools rate, favorite and inspect DN audio and save songs whi
 		page.locator('[data-part=transport]').getByRole('button', { name: 'Play', exact: true })
 	).toBeVisible();
 });
+
+test('a listener arranges independent player fields in columns and saves a live text template', async ({
+	page
+}) => {
+	await fixture(page);
+	await play(page);
+	const player = page.getByRole('region', { name: 'Now playing' });
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	await player.getByRole('button', { name: 'Player settings' }).click();
+	await button('Customize Track details').click();
+	await button('Split Track details').click();
+	const edit = async (name: string) => {
+		const toggle = button('Customize ' + name);
+		if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+	};
+	const rowIndex = async (id: string) =>
+		page
+			.locator('[data-player-row]')
+			.evaluateAll(
+				(rows, id) => rows.findIndex((row) => row.querySelector('[data-section-id="' + id + '"]')),
+				id
+			);
+	await edit('Artist');
+	const titleRow = await rowIndex('player-title');
+	expect(titleRow).toBeGreaterThanOrEqual(0);
+	await page
+		.getByRole('combobox', { name: 'Move to row', exact: true })
+		.selectOption(String(titleRow));
+	await edit('Artist');
+	await button('Move Artist left').click();
+	await edit('Track title');
+	await page.getByRole('combobox', { name: 'Column width', exact: true }).selectOption('2');
+	await page.getByRole('combobox', { name: 'Alignment', exact: true }).selectOption('end');
+	await page.getByRole('combobox', { name: 'Text size', exact: true }).selectOption('large');
+	await button('Add Custom text').click();
+	await edit('Custom text');
+	await page
+		.getByLabel('Text template', { exact: true })
+		.fill('{position}/{count} · {title} — {duration}');
+	await button('Save layout').click();
+	await button('Back').click();
+	const artist = player.locator('[data-section-id="player-artist"]'),
+		title = player.locator('[data-section-id="player-title"]');
+	await expect(artist).toHaveText('The Lines');
+	await expect(title).toHaveText('Night Train');
+	const row = player
+		.locator('[data-part="player-row"]')
+		.filter({ has: page.locator('[data-section-id="player-title"]') });
+	await expect(row.locator('[data-section-id]')).toHaveCount(2);
+	const a = await artist.boundingBox(),
+		b = await title.boundingBox();
+	expect(a!.x).toBeLessThan(b!.x);
+	expect(Math.abs(a!.y - b!.y)).toBeLessThan(20);
+	expect(b!.width).toBeGreaterThan(a!.width * 1.6);
+	await expect(player.getByText('1/2 · Night Train — 1:00', { exact: true })).toBeVisible();
+	await player.getByRole('button', { name: 'Next track', exact: true }).click();
+	await expect(player.getByText('2/2 · Day Train — 1:00', { exact: true })).toBeVisible();
+	await page.setViewportSize({ width: 320, height: 694 });
+	await expect
+		.poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+		.toBeLessThanOrEqual(320);
+	await player.getByRole('button', { name: 'Player settings' }).click();
+	await edit('Artist');
+	await page.getByRole('combobox', { name: 'Move to row', exact: true }).selectOption('new');
+	await button('Cancel').click();
+	await button('Back').click();
+	await expect(row.locator('[data-section-id]')).toHaveCount(2);
+});
+
+test('older vertical layouts retain their settings and individual transport buttons remain usable in a narrow row', async ({
+	page
+}) => {
+	await fixture(page);
+	const legacy = [
+		{ id: 'player-track', title: 'Record sleeve', preview: false },
+		{ id: 'player-transport', title: '', preview: true },
+		{ id: 'player-timeline', title: '', preview: true }
+	];
+	await page.addInitScript(
+		({ server, legacy }) => {
+			const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
+			if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(legacy));
+		},
+		{ server, legacy }
+	);
+	await play(page);
+	const player = page.getByRole('region', { name: 'Now playing' });
+	await expect(player.locator('[data-part=player-row]')).toHaveCount(3);
+	await expect(player.getByRole('heading', { name: 'Record sleeve' })).toBeVisible();
+	await expect(player.locator('[data-section-id=player-track]')).not.toContainText('Railway');
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	await button('Player settings').click();
+	await button('Customize Playback controls').click();
+	await button('Split Playback controls').click();
+	await button('Save layout').click();
+	await button('Back').click();
+	await page.setViewportSize({ width: 320, height: 694 });
+	const controls = player
+		.locator('[data-part=player-row]')
+		.filter({ has: page.locator('[data-section-id=player-toggle]') });
+	const playButton = controls.getByRole('button', { name: 'Play', exact: true });
+	const previous = controls.getByRole('button', { name: 'Previous track' }),
+		next = controls.getByRole('button', { name: 'Next track' });
+	for (const control of [previous, playButton, next]) {
+		const rect = await control.boundingBox();
+		expect(rect!.width).toBeGreaterThanOrEqual(44);
+		expect(rect!.height).toBeGreaterThanOrEqual(44);
+	}
+	await playButton.click();
+	await expect(controls.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+	await next.click();
+	await expect(player.getByRole('heading', { name: 'Day Train' })).toBeVisible();
+});
