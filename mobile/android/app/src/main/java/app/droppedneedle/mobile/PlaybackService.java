@@ -21,6 +21,7 @@ import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -59,7 +60,6 @@ public final class PlaybackService extends MediaSessionService {
     private volatile Access access;
     private ExoPlayer player;
     private MediaSession session;
-    private JSArray tracks = new JSArray();
 
     @Override public void onCreate() {
         super.onCreate();
@@ -85,6 +85,7 @@ public final class PlaybackService extends MediaSessionService {
             @Override public MediaSession.ConnectionResult onConnect(
                     MediaSession mediaSession, MediaSession.ControllerInfo controller) {
                 Player.Commands commands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                        .remove(Player.COMMAND_SET_SHUFFLE_MODE)
                         .remove(Player.COMMAND_CHANGE_MEDIA_ITEMS)
                         .remove(Player.COMMAND_SET_MEDIA_ITEM)
                         .build();
@@ -107,7 +108,7 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return session; }
 
-    void setQueue(String address, String token, JSArray queue, int index) throws JSONException {
+    void setQueue(String address, String token, JSArray queue, int index, @Nullable String placement) throws JSONException {
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
@@ -125,28 +126,59 @@ public final class PlaybackService extends MediaSessionService {
             String art = track.optString("artworkUrl", "");
             if (!art.isEmpty() && next.permits(HttpUrl.parse(art), "")) metadata.setArtworkUri(Uri.parse(art));
             items.add(new MediaItem.Builder().setMediaId(track.getString("id"))
-                    .setUri(stream).setMediaMetadata(metadata.build()).build());
+                    .setUri(stream).setTag(track).setMediaMetadata(metadata.build()).build());
+        }
+        if (placement != null && player.getMediaItemCount() > 0) {
+            if (access == null || !access.base.equals(next.base) || !access.token.equals(token)) {
+                throw new IllegalArgumentException("This queue belongs to a different session.");
+            }
+            int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
+            player.addMediaItems(at, items);
+            return;
         }
         player.stop();
         access = next;
-        tracks = queue;
         player.setMediaItems(items, index, 0);
         player.prepare();
         player.play();
     }
 
-    void command(String action, double value) {
-        if ("clear".equals(action)) {
+    void command(String action, double value, int to) {
+        int count = player.getMediaItemCount();
+        int item = (int) value;
+        if ("clear".equals(action) || ("remove".equals(action) && count == 1 && item == 0)) {
             player.pause();
             player.stop();
             player.clearMediaItems();
             access = null;
-            tracks = new JSArray();
+            player.setRepeatMode(Player.REPEAT_MODE_OFF);
             stopSelf();
             return;
         }
-        if (tracks.length() == 0) return;
+        if (count == 0) return;
         switch (action) {
+            case "cycleRepeat":
+                int repeat = player.getRepeatMode();
+                player.setRepeatMode(repeat == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL
+                        : repeat == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+                break;
+            case "shuffleUpcoming":
+                int start = player.getCurrentMediaItemIndex() + 1;
+                if (start + 1 >= count) break;
+                ArrayList<MediaItem> upcoming = new ArrayList<>();
+                for (int i = start; i < count; i++) upcoming.add(player.getMediaItemAt(i));
+                Collections.shuffle(upcoming);
+                player.replaceMediaItems(start, count, upcoming);
+                break;
+            case "move":
+                if (item >= 0 && item < count && to >= 0 && to < count) player.moveMediaItem(item, to);
+                break;
+            case "remove":
+                if (item >= 0 && item < count) {
+                    if (item == count - 1 && item == player.getCurrentMediaItemIndex()) player.seekTo(item - 1, 0);
+                    player.removeMediaItem(item);
+                }
+                break;
             case "toggle":
                 if (showsPauseControl()) {
                     player.pause();
@@ -166,7 +198,7 @@ public final class PlaybackService extends MediaSessionService {
                 if (Double.isFinite(value)) player.seekTo((long) (Math.max(0, value) * 1000));
                 break;
             case "skipTo":
-                if (value != (int) value || value < 0 || value >= tracks.length()) {
+                if (value != (int) value || value < 0 || value >= count) {
                     throw new IllegalArgumentException("Choose a track in the queue.");
                 }
                 player.seekTo((int) value, 0);
@@ -186,11 +218,18 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     JSObject snapshot() {
+        JSArray tracks = new JSArray();
+        for (int i = 0; i < player.getMediaItemCount(); i++) {
+            MediaItem item = player.getMediaItemAt(i);
+            tracks.put(item.localConfiguration.tag);
+        }
         int index = tracks.length() == 0 ? -1 : player.getCurrentMediaItemIndex();
         JSONObject track = tracks.optJSONObject(index);
         double duration = player.getDuration() == C.TIME_UNSET
                 ? (track == null ? 0 : track.optDouble("duration", 0)) : player.getDuration() / 1000.0;
         JSObject result = new JSObject();
+        int repeat = player.getRepeatMode();
+        result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
         result.put("tracks", tracks);
         result.put("index", index);
         result.put("playing", index >= 0 && showsPauseControl());

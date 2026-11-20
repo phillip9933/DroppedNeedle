@@ -6,7 +6,13 @@
 		Play,
 		SkipBack,
 		SkipForward,
-		AudioLines
+		AudioLines,
+		ArrowUp,
+		ArrowDown,
+		Minus,
+		Repeat,
+		Repeat1,
+		Shuffle
 	} from '@lucide/svelte';
 	import { player } from './player';
 	import type { Session } from './connection';
@@ -28,6 +34,8 @@
 		oncollapse: () => void;
 		onerror: (error: unknown) => void;
 	} = $props();
+	let editing = $state(false);
+	let pending = $state(false);
 	let preview = $state<number | null>(null);
 	const track = $derived($player.tracks[$player.index]);
 	const duration = $derived($player.duration || track?.duration || 0);
@@ -38,6 +46,18 @@
 	);
 	const stamp = (s: number) =>
 		Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+	async function edit(call: () => Promise<void>) {
+		if (pending) return;
+		pending = true;
+		try {
+			await call();
+			if (!$player.tracks.length) oncollapse();
+		} catch (error) {
+			onerror(error);
+		} finally {
+			pending = false;
+		}
+	}
 	function action(call: () => Promise<void>) {
 		void call().catch(onerror);
 	}
@@ -58,6 +78,17 @@
 			>
 		</header>
 		{#if queueOpen}
+			<div class="queue-tools">
+				<button
+					class="secondary"
+					disabled={$player.tracks.length - $player.index <= 2 || pending}
+					onclick={() => edit(player.shuffleUpcoming)}
+					><Shuffle size={16} /> Shuffle upcoming</button
+				>
+				<button class="text-button" aria-pressed={editing} onclick={() => (editing = !editing)}
+					>{editing ? 'Done' : 'Edit queue'}</button
+				>
+			</div>
 			<div class="queue" data-part="play-queue">
 				<h1>Play queue</h1>
 				<ol>
@@ -71,6 +102,26 @@
 								{#if i === $player.index}<AudioLines size={18} />{:else}<span>{i + 1}</span>{/if}
 								<span><strong>{item.title}</strong><small>{item.artist}</small></span>
 							</button>
+							{#if editing}
+								<div class="edit-tools">
+									<button
+										disabled={pending || i === 0}
+										aria-label={'Move ' + item.title + ' up'}
+										onclick={() => edit(() => player.move(i, i - 1))}><ArrowUp size={18} /></button
+									>
+									<button
+										disabled={pending || i + 1 === $player.tracks.length}
+										aria-label={'Move ' + item.title + ' down'}
+										onclick={() => edit(() => player.move(i, i + 1))}
+										><ArrowDown size={18} /></button
+									>
+									<button
+										disabled={pending}
+										aria-label={'Remove ' + item.title + ' from queue'}
+										onclick={() => edit(() => player.remove(i))}><Minus size={18} /></button
+									>
+								</div>
+							{/if}
 						</li>
 					{/each}
 				</ol>
@@ -117,10 +168,19 @@
 				<button
 					class="skip"
 					aria-label="Next track"
-					disabled={$player.index + 1 >= $player.tracks.length}
+					disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
 					onclick={() => action(player.next)}><SkipForward size={28} /></button
 				>
 			</div>
+			<button
+				class="repeat"
+				aria-label={'Repeat ' + $player.repeat + '. Change repeat mode'}
+				aria-pressed={$player.repeat !== 'off'}
+				onclick={() => action(player.cycleRepeat)}
+			>
+				{#if $player.repeat === 'one'}<Repeat1 size={18} />{:else}<Repeat size={18} />{/if}
+				Repeat {$player.repeat}
+			</button>
 		{/if}
 		{#if $player.error}<p role="alert">{$player.error}</p>{/if}
 	</section>
@@ -139,7 +199,7 @@
 		<button
 			class="mini-control"
 			aria-label="Next track"
-			disabled={$player.index + 1 >= $player.tracks.length}
+			disabled={$player.index + 1 >= $player.tracks.length && $player.repeat !== 'all'}
 			onclick={() => action(player.next)}><SkipForward /></button
 		>
 	</section>
@@ -222,7 +282,38 @@
 		list-style: none;
 		padding: 0;
 	}
-	.queue li button {
+	.queue-tools,
+	.edit-tools,
+	.queue li,
+	.queue-tools .secondary,
+	.repeat {
+		display: flex;
+		align-items: center;
+	}
+	.queue-tools {
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+	.queue-tools .secondary,
+	.repeat {
+		gap: 0.4rem;
+	}
+	.repeat {
+		justify-self: center;
+		color: var(--muted);
+		min-height: 44px;
+	}
+	.repeat[aria-pressed='true'] {
+		color: var(--accent);
+	}
+	.edit-tools button {
+		min-width: 44px;
+		min-height: 44px;
+	}
+	.queue li {
+		border-bottom: 1px solid var(--line);
+	}
+	.queue li > button {
 		display: flex;
 		width: 100%;
 		gap: var(--gap);
@@ -230,9 +321,11 @@
 		text-align: start;
 		padding: 0.5rem 0;
 		min-height: 3.6rem;
-		border-bottom: 1px solid var(--line);
+		flex: 1;
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
-	.queue li button > span:first-child {
+	.queue li > button > span:first-child {
 		min-width: 1.1rem;
 		text-align: center;
 	}

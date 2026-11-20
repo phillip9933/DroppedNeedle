@@ -70,11 +70,11 @@ public final class DNPlayerPlugin extends Plugin {
 
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> p.setQueue(call.getString("serverUrl"), call.getString("token"),
-                call.getArray("tracks"), call.getInt("index", -1)));
+                call.getArray("tracks"), call.getInt("index", -1), call.getString("placement")));
     }
 
     @PluginMethod public void command(PluginCall call) {
-        execute(call, p -> p.command(call.getString("action", ""), call.getDouble("value", 0d)));
+        execute(call, p -> p.command(call.getString("action", ""), call.getDouble("value", -1d), call.getInt("to", -1)));
     }
 
     @PluginMethod public void getState(PluginCall call) { execute(call, p -> {}); }
