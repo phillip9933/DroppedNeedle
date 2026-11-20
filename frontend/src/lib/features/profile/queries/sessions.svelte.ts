@@ -30,6 +30,15 @@ export const getSessionsQuery = () =>
 		enabled: Boolean(authStore.user?.id)
 	}));
 
+export const createDeviceSessionMutation = () =>
+	createAppMutation(() => ({
+		mutationFn: (label: string) => api.v3.POST(v3('/api/v3/auth/device-sessions'), { label }),
+		effects: () => {
+			const userId = authStore.user?.id;
+			return userId ? [sessionsChanged(userId)] : [];
+		}
+	}));
+
 export interface RevokeSessionVars {
 	id: string;
 	label: string;

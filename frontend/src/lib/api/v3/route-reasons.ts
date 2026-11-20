@@ -5,11 +5,6 @@
 export const ROUTE_REASONS: readonly { method: string; path: string; reason: string }[] = [
 	{ method: 'GET', path: '/health', reason: 'container health check' },
 	{ method: 'GET', path: '/openapi.json', reason: 'the served API document' },
-	{
-		method: 'POST',
-		path: '/api/v3/auth/device-sessions',
-		reason: 'sign-in for devices and scripts'
-	},
 	{ method: 'GET', path: '/api/v3/wrapped/server', reason: 'key-gated API for outside tools' },
 	{ method: 'GET', path: '/api/v3/wrapped/users', reason: 'key-gated API for outside tools' },
 	{
