@@ -6,13 +6,17 @@ The Android and iOS apps connect to your DroppedNeedle v3 server. Browse your li
 
 1. Enter the HTTPS address that opens DroppedNeedle. Include the path if your server uses one.
 2. Choose **Continue in browser** if your server offers it. Sign in to DroppedNeedle as usual and select **Connect this phone**. If the browser stays open, select **Return to the app**.
-3. On a server without the mobile pairing page, use the available server password, Jellyfin sign-in, or an existing v3 device session token.
+3. If your server offers OIDC but still needs the mobile pairing page, **Open web player** takes you to its existing browser player. To use the native player on that server, you can also use an existing DN v3 device session token or a server password if your account has one.
 
-Browser sign-in uses the pairing page in this branch's web frontend. It works with the identity provider already configured in DroppedNeedle. The provider returns to the server's usual callback. You can revoke phone access from **Profile > Sessions** on the server.
+For OIDC, including authentik, enter the public DroppedNeedle address served by your reverse proxy. The browser uses the provider and callback already configured in DroppedNeedle. After you approve the phone, the app verifies its own device session with your server. If the connection drops during that step, reopen the app or select **Retry connection** within ten minutes. You can revoke phone access from **Profile > Sessions** in the web app.
+
+Server administrators can add browser sign-in by building the DN web frontend with the `feat/mobile-browser-pairing` change. It provides `/connect/mobile` and `/mobile-pairing.json`. The marker should return JSON containing `"droppedneedle_mobile_pairing": 1`. The phone must be able to reach the DN API and media endpoints using its DN device session. A proxy that requires a separate browser session on those routes needs a compatible access policy.
 
 ## Find and play an album
 
-**Library** shows recently added albums. Open a cover and select **Play album** or an individual track. Tap the mini-player to open the artwork, seek bar, playback controls, and queue. You can switch tracks from the queue or use the phone's media controls with the screen locked.
+**Library** shows recently added albums. Open a cover and select **Play album** or an individual track. Tap the mini-player to open the artwork, seek bar, playback controls, and queue. You can switch tracks from the queue or use the phone's media controls with the screen locked. On Android, Back closes the queue first, then returns you to your place in the library. Playback controls also reflect temporary interruptions when another app takes audio focus.
+
+Choose **Library > Playlists** to open a saved DN playlist. **Play playlist** queues the tracks available in your DN library in their saved order, including repeats. Unavailable entries stay visible in the list.
 
 In **Search**, enter an artist, album, or song. For an album you do not own, open it, choose an edition, and select **Request album**. **Requests** shows the status and refreshes while open. When the album is imported, open the request and play the local copy. The server applies the same request permissions and approval settings as it does on the web.
 
