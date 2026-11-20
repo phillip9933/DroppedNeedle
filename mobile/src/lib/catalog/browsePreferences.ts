@@ -45,7 +45,7 @@ export function readBrowsePreferences(session: Session, category: Category): Bro
 			layout:
 				stored.layout === 'list' || stored.layout === 'grid' ? stored.layout : defaults.layout,
 			columns:
-				Number.isInteger(stored.columns) && stored.columns >= 2 && stored.columns <= 5
+				Number.isInteger(stored.columns) && stored.columns >= 1 && stored.columns <= 6
 					? stored.columns
 					: defaults.columns,
 			compact: stored.compact === true,

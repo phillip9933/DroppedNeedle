@@ -689,16 +689,16 @@
 					>Grid columns<select
 						value={settings.columns}
 						onchange={(e) => preferences({ columns: Number(e.currentTarget.value) })}
-						>{#each [2, 3, 4, 5] as n (n)}<option value={n}>{n}</option>{/each}</select
+						>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option>{/each}</select
 					></label
 				>
-			{:else}<label class="check"
-					><input
-						type="checkbox"
-						checked={settings.compact}
-						onchange={(e) => preferences({ compact: e.currentTarget.checked })}
-					/>Compact rows</label
-				>{/if}
+			{/if}<label class="check"
+				><input
+					type="checkbox"
+					checked={settings.compact}
+					onchange={(e) => preferences({ compact: e.currentTarget.checked })}
+				/>Compact rows</label
+			>
 			{#if category === 'Genres' && !available}<p class="index-note">
 					The directory lists each track’s primary genre. Opening a genre includes other tracks DN
 					has tagged with it.
