@@ -40,6 +40,10 @@ Open **Discover → Mix Builder** to build a mix from up to eight artists or up 
 
 Open **Library** for Playlists, Artists, Albums, Tracks and Genres. Albums and playlists start as two-column grids, artists as three-column portraits, and tracks and genres as lists. Use the toolbar to sort, filter, search, select items, or switch views. **Collection options** controls the number of columns and spacing for that category. More items load as you scroll. Opening a detail and going back keeps your place. **Library sections** opens your custom shelves.
 
+Search results can use a list or artwork grid. Use the display control beside the results to set the layout, grid columns and row spacing for each search category. The same choices apply to music saved on your device.
+
+Album artwork fills the top of the album page. Shuffle or play from the action row, or tap a numbered track to start there. The **⋮** to the left of Shuffle opens album actions. On an artist page, **⋮** also holds the Home shortcuts for opening the artist and starting their radio station.
+
 Under an artist’s **Songs**, the popularity sort orders matching recordings by ListenBrainz listens from DN. Unranked songs follow in title order. Open an artist in Library or Discover to filter their discography to albums, EPs or singles. In Library, the artist’s releases use the same list or grid, columns and row density as Albums. You can also change how each of the five Library categories looks from **Settings → Edit Library layout**. The Library view lets you find other release types and records for which DN has no release type.
 
 Use **Library → Library sections → New filtered section**, or set filters while browsing and choose **Save filters as section**. For a five-star songs shelf, choose Songs, set the minimum rating to five and give it a name. Add the saved section to Home or Library in either screen’s layout editor. The two placements share the saved criteria and can use different row counts and display styles.
@@ -204,7 +208,7 @@ From `mobile/`, set `ANDROID_HOME` to your SDK directory and run the following w
 pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
 ```
 
-The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.21.0` uses tag `android-v0.21.0` and asset `droppedneedle-android-0.21.0.apk`. For `0.21.0-beta.1`, use `android-v0.21.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.22.0` uses tag `android-v0.22.0` and asset `droppedneedle-android-0.22.0.apk`. For `0.22.0-beta.1`, use `android-v0.22.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
 
 ## How the clients fit together
 
