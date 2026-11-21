@@ -4,6 +4,7 @@ type Allowed = boolean | PullDirection;
 
 export type VerticalDragOptions = {
 	canStart: (target: Element, direction: PullDirection, origin: PullOrigin) => Allowed;
+	catchOnStart?: () => boolean;
 	start?: (direction: PullDirection, target: Element, origin: PullOrigin) => number | false | void;
 	move: (direction: PullDirection, distance: number) => void;
 	release: (direction: PullDirection, committed: boolean) => void;
@@ -40,6 +41,22 @@ export function bindVerticalDrag(node: HTMLElement, options: VerticalDragOptions
 		options.release(last.direction, committed);
 	}
 
+	function claim(drag: Contact, physical: PullDirection) {
+		const allowed = drag.allowed[physical] && options.canStart(drag.target, physical, drag.origin);
+		if (!allowed) return false;
+		const direction = allowed === true ? physical : allowed;
+		const length = options.travel(direction);
+		if (!(length > 0)) return false;
+		const offset = options.start?.(direction, drag.target, drag.origin);
+		if (offset === false) return false;
+		drag.direction = direction;
+		drag.length = length;
+		drag.offset = offset ?? 0;
+		drag.distance = drag.offset;
+		suppressClick = true;
+		return direction;
+	}
+
 	function begin(
 		event: Event,
 		source: Contact['source'],
@@ -47,6 +64,18 @@ export function bindVerticalDrag(node: HTMLElement, options: VerticalDragOptions
 		point: Pick<Touch, 'clientX' | 'clientY'>,
 		pointerType: PullOrigin['pointerType']
 	) {
+		// Chromium sends pointerdown and then touchstart for the same finger. Keep a caught
+		// panel frozen while switching to the touch stream used for native scroll arbitration.
+		if (
+			source === 'touch' &&
+			contact?.source === 'pointer' &&
+			contact.origin.pointerType === 'touch'
+		) {
+			if (event.defaultPrevented) return finish();
+			contact.source = 'touch';
+			contact.id = id;
+			return;
+		}
 		finish();
 		suppressClick = false;
 		const target = event.target;
@@ -69,6 +98,10 @@ export function bindVerticalDrag(node: HTMLElement, options: VerticalDragOptions
 			length: 0,
 			distance: 0
 		};
+		if (options.catchOnStart?.() && claim(contact, allowed.down ? 'down' : 'up')) {
+			if (source === 'pointer' && pointerType !== 'touch' && event.isTrusted && node.isConnected)
+				node.setPointerCapture(id);
+		}
 	}
 
 	function move(event: Event, x: number, y: number, ending = false) {
@@ -80,28 +113,20 @@ export function bindVerticalDrag(node: HTMLElement, options: VerticalDragOptions
 		)
 			return finish();
 		const dy = y - drag.origin.y;
-		if (!drag.direction) {
+		let direction = drag.direction;
+		if (!direction) {
 			const dx = Math.abs(x - drag.origin.x);
 			if (Math.max(dx, Math.abs(dy)) < 7) return;
 			if (Math.abs(dy) < dx * 1.18) return finish();
 			const physical = dy < 0 ? 'up' : 'down';
-			const allowed =
-				drag.allowed[physical] && options.canStart(drag.target, physical, drag.origin);
-			if (!allowed) return finish();
-			const direction = allowed === true ? physical : allowed;
-			const length = options.travel(direction);
-			if (!(length > 0)) return finish();
-			const offset = options.start?.(direction, drag.target, drag.origin);
-			if (offset === false) return finish();
-			drag.direction = direction;
-			drag.length = length;
-			drag.offset = offset ?? 0;
-			suppressClick = true;
+			const claimed = claim(drag, physical);
+			if (!claimed) return finish();
+			direction = claimed;
 			if (drag.source === 'pointer' && event.isTrusted && !ending && node.isConnected)
 				node.setPointerCapture(drag.id);
 		}
 		if (event.cancelable) event.preventDefault();
-		const sign = drag.direction === 'down' ? 1 : -1;
+		const sign = direction === 'down' ? 1 : -1;
 		const distance = Math.max(0, Math.min(drag.length, drag.offset + dy * sign));
 		const samples = drag.samples;
 		const last = samples.at(-1)!;
@@ -112,7 +137,7 @@ export function bindVerticalDrag(node: HTMLElement, options: VerticalDragOptions
 		samples.push({ y, time });
 		if (distance !== drag.distance || samples.length === 1) {
 			drag.distance = distance;
-			options.move(drag.direction, distance);
+			options.move(direction, distance);
 		}
 		if (ending) {
 			const recent = (y - samples[0].y) * sign;

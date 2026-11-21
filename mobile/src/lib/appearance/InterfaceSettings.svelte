@@ -120,8 +120,8 @@
 				value={$interfacePreferences.motion}
 				onchange={(e) =>
 					setInterface({ motion: e.currentTarget.value as InterfacePreferences['motion'] })}
-				><option value="off">Off</option><option value="quick">Quick fade</option><option
-					value="gentle">Gentle fade</option
+				><option value="off">Off</option><option value="quick">Quick</option><option value="gentle"
+					>Gentle</option
 				></select
 			></InlineChoice
 		></label

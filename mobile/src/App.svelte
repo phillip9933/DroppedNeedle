@@ -85,6 +85,7 @@
 	);
 	const peekingCatalog = $derived(surface !== 'base' && pull.includes('base'));
 	const baseVisible = $derived(surface === 'base' || peekingCatalog);
+	const miniLift = $derived(pull.includes('base') ? pull.exposure : 0);
 	const layers = ['player', 'queue'] as const;
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<Catalog>();
@@ -107,16 +108,22 @@
 	function report(error: unknown) {
 		issue = error instanceof Error ? error.message : 'The app could not finish that action.';
 	}
-	function switchPanel(update: () => void) {
-		const animate = !pull.route;
-		pull.clear();
-		changeScreen(() => {
-			update();
-			if (!inPlayer) {
-				artworkLyrics = false;
-				editingQueue = false;
-			}
-		}, animate);
+	function switchPanel(update: () => void, to?: PlayerSurface) {
+		const apply = () => {
+			const animate = !pull.route;
+			pull.clear();
+			changeScreen(() => {
+				update();
+				if (!inPlayer) {
+					artworkLyrics = false;
+					editingQueue = false;
+				}
+			}, animate);
+		};
+		if (to && to !== surface && !pull.route && session) {
+			beginPull(to, to === 'base' || surface === 'queue' ? 'down' : 'up');
+			pull.settle(true, apply);
+		} else apply();
 	}
 	function destination(direction: PullDirection): PlayerSurface | undefined {
 		if (surface === 'base') return direction === 'up' ? 'player' : undefined;
@@ -132,6 +139,16 @@
 				(parseFloat(getComputedStyle(shell).paddingTop) || 0) -
 				(issue ? noticeHeight : 0)
 		);
+	}
+	function beginPull(to: PlayerSurface, direction: PullDirection) {
+		const restoreScroll = !pull.route && to === 'base';
+		cancelScreenMotion();
+		const offset = pull.start(surface, to, direction, panelHeight());
+		if (restoreScroll)
+			void tick().then(() => {
+				if (peekingCatalog) main.scrollTo(0, catalogScroll);
+			});
+		return offset;
 	}
 	const gestures: PlayerGestureActions = {
 		up() {
@@ -162,18 +179,11 @@
 					main.scrollHeight - main.clientHeight - main.scrollTop < 2)
 			);
 		},
+		catchOnStart: () => !!pull.route,
 		travel: () => pull.route?.height ?? panelHeight(),
 		start(direction) {
 			const to = pull.route?.to ?? destination(direction);
-			if (!to) return false;
-			const restoreScroll = !pull.route && to === 'base';
-			cancelScreenMotion();
-			const offset = pull.start(surface, to, direction, panelHeight());
-			if (restoreScroll)
-				void tick().then(() => {
-					if (peekingCatalog) main.scrollTo(0, catalogScroll);
-				});
-			return offset;
+			return to ? beginPull(to, direction) : false;
 		},
 		move(_direction, pixels) {
 			if (pull.route) pull.distance = pixels;
@@ -268,29 +278,32 @@
 					preventScroll: true
 				});
 			});
-		});
+		}, 'player');
 	}
 	function openPanel(
 		next: 'player' | 'queue' | 'settings',
 		fromMini = false,
 		returnOffset?: number
 	) {
-		switchPanel(() => {
-			if (next !== 'settings') clearRelated();
-			fromPlayer = false;
-			if (panel === 'catalog') {
-				catalogScroll = returnOffset ?? main?.scrollTop ?? 0;
-				miniReturn = fromMini && next !== 'settings' ? next : undefined;
-				queueFromMini = miniReturn === 'queue';
-			}
-			if (next === 'player') queueFromMini = false;
-			if (next === 'settings') {
-				settingsOrigin = panel === 'player' || panel === 'queue' ? panel : 'catalog';
-				if (settingsOrigin !== 'catalog') playerScroll = main?.scrollTop ?? 0;
-			}
-			panel = next;
-			focusMain();
-		});
+		switchPanel(
+			() => {
+				if (next !== 'settings') clearRelated();
+				fromPlayer = false;
+				if (panel === 'catalog') {
+					catalogScroll = returnOffset ?? main?.scrollTop ?? 0;
+					miniReturn = fromMini && next !== 'settings' ? next : undefined;
+					queueFromMini = miniReturn === 'queue';
+				}
+				if (next === 'player') queueFromMini = false;
+				if (next === 'settings') {
+					settingsOrigin = panel === 'player' || panel === 'queue' ? panel : 'catalog';
+					if (settingsOrigin !== 'catalog') playerScroll = main?.scrollTop ?? 0;
+				}
+				panel = next;
+				focusMain();
+			},
+			next === 'settings' ? undefined : next
+		);
 	}
 	function playerSettings() {
 		switchPanel(() => {
@@ -310,6 +323,7 @@
 		});
 	}
 	function closePanel() {
+		const to = inPlayer && !related ? 'base' : undefined;
 		switchPanel(() => {
 			const closingSettings = panel === 'settings';
 			const target = closingSettings ? settingsOrigin : 'catalog';
@@ -325,20 +339,23 @@
 				miniReturn = undefined;
 				queueFromMini = false;
 			}
-		});
+		}, to);
 	}
 	function toggleQueue() {
 		if (panel === 'queue' && queueFromMini) {
 			closePanel();
 			return;
 		}
-		switchPanel(() => {
-			panel = panel === 'queue' ? 'player' : 'queue';
-			focusMain();
-		});
+		switchPanel(
+			() => {
+				panel = panel === 'queue' ? 'player' : 'queue';
+				focusMain();
+			},
+			panel === 'queue' ? 'player' : 'queue'
+		);
 	}
 	function back() {
-		if (pull.route) {
+		if (pull.route && !pull.finishCommitted()) {
 			pull.clear();
 			return true;
 		}
@@ -519,11 +536,12 @@
 	bind:this={shell}
 	use:playerGestures={gestures}
 	class:pulling={!!pull.route}
+	style:--base-lift={-miniLift + 'px'}
 	style:--footer-height={footerHeight + 'px'}
 	style:--notice-height={(issue ? noticeHeight : 0) + 'px'}
 >
 	{#if baseVisible}
-		<header class="mast" inert={peekingCatalog}>
+		<header class="mast" inert={peekingCatalog} aria-hidden={peekingCatalog || undefined}>
 			{#if catalogHeader}{@render catalogHeader()}{:else}
 				<span
 					class="brand-mark"
@@ -552,7 +570,12 @@
 		{#if loading}<p role="status" class="pad">Opening DroppedNeedle…</p>
 		{:else}
 			{#if session}
-				<div hidden={panel !== 'catalog' && !peekingCatalog} inert={peekingCatalog} class="pad">
+				<div
+					hidden={panel !== 'catalog' && !peekingCatalog}
+					inert={peekingCatalog}
+					aria-hidden={peekingCatalog || undefined}
+					class="pad base-page"
+				>
 					{#key catalogVisit}{#if tab === 'offline'}<OfflineLibrary
 								bind:this={offlineLibrary}
 								{session}
@@ -572,7 +595,7 @@
 				<div class="pad"><Connect onconnected={connected} /></div>
 			{/if}
 			{#if panel === 'settings'}
-				<div class="pad">
+				<div class="pad base-page">
 					{#key settingsVisit}<Appearance
 							bind:this={settings}
 							onnavigate={choose}
@@ -585,35 +608,38 @@
 				</div>
 			{/if}
 			{#if session}
-				{#each layers as layer (layer)}
-					{#if panel === layer || pull.includes(layer)}
-						<div
-							class="panel-layer"
-							data-panel-layer={layer}
-							hidden={!!related && !pull.includes(layer)}
-							inert={surface !== layer}
-							style:transform={pull.route
-								? 'translate3d(0,' + pull.top(layer) + 'px,0)'
-								: undefined}
-						>
-							<PlayerView
-								oncredit={openCredit}
-								{session}
-								expanded
-								bind:artworkLyrics
-								bind:editing={editingQueue}
-								transient={surface !== layer && surface !== 'base'}
-								queueOpen={layer === 'queue'}
-								ontogglequeue={toggleQueue}
-								onsettings={playerSettings}
-								onexpand={() => {}}
-								oncollapse={closePanel}
-								onerror={report}
-							/>
-						</div>
-					{/if}
-				{/each}
-				{#if inPlayer && related}<div class="pad">
+				<div class="panel-viewport">
+					{#each layers as layer (layer)}
+						{#if panel === layer || pull.includes(layer)}
+							<div
+								class="panel-layer"
+								data-panel-layer={layer}
+								hidden={!!related && !pull.includes(layer)}
+								inert={surface !== layer}
+								aria-hidden={surface !== layer || undefined}
+								style:transform={pull.route
+									? 'translate3d(0,' + pull.top(layer) + 'px,0)'
+									: undefined}
+							>
+								<PlayerView
+									oncredit={openCredit}
+									{session}
+									expanded
+									bind:artworkLyrics
+									bind:editing={editingQueue}
+									transient={surface !== layer}
+									queueOpen={layer === 'queue'}
+									ontogglequeue={toggleQueue}
+									onsettings={playerSettings}
+									onexpand={() => {}}
+									oncollapse={closePanel}
+									onerror={report}
+								/>
+							</div>
+						{/if}
+					{/each}
+				</div>
+				{#if inPlayer && related}<div class="pad base-page">
 						<PlayerLibraryDetail
 							{session}
 							credit={related}
@@ -626,7 +652,12 @@
 		{/if}
 	</main>
 	{#if session && (panel === 'catalog' || peekingCatalog || (inPlayer && related) || (panel === 'settings' && !fromPlayer && $interfacePreferences.tabs.includes('settings')))}
-		<footer bind:clientHeight={footerHeight} inert={peekingCatalog}>
+		<footer
+			bind:clientHeight={footerHeight}
+			inert={peekingCatalog}
+			aria-hidden={peekingCatalog || undefined}
+			style:--mini-opacity={Math.max(0, 1 - miniLift / Math.max(1, footerHeight))}
+		>
 			<PlayerView
 				{session}
 				expanded={false}
@@ -653,28 +684,52 @@
 		margin: auto;
 		padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 	}
+	.panel-viewport {
+		display: contents;
+	}
 	.panel-layer {
 		height: 100%;
 		background: var(--bg);
 		transition-property: none;
 	}
-	.pulling .panel-layer {
+	.pulling .panel-viewport {
+		display: block;
 		position: absolute;
 		inset: calc(env(safe-area-inset-top) + var(--notice-height)) env(safe-area-inset-right) 0
 			env(safe-area-inset-left);
-		height: auto;
 		z-index: 2;
+		overflow: clip;
+		clip-path: inset(0 0 env(safe-area-inset-bottom));
+	}
+	.pulling .panel-layer {
+		position: absolute;
+		inset: 0;
+		height: auto;
 		overflow: clip;
 		will-change: transform;
 	}
 	.pulling .panel-layer[data-panel-layer='queue'] {
 		z-index: 3;
 	}
+	.pulling .base-page,
+	.pulling footer :global(.mini) {
+		translate: 0 var(--base-lift);
+		will-change: transform;
+	}
+	.pulling footer :global(.mini) {
+		opacity: var(--mini-opacity);
+		will-change: transform, opacity;
+	}
+	footer :global(.mini),
+	.panel-layer :global(.player-section:not(:has([data-gesture-scroll], input, [role='slider']))) {
+		touch-action: pinch-zoom;
+	}
 	/* A second touch can catch a moving screen without tapping a control underneath it. */
 	.pull-guard {
 		position: absolute;
 		inset: 0;
 		z-index: 4;
+		touch-action: none;
 	}
 	.mast {
 		display: flex;
