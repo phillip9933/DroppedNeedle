@@ -144,7 +144,11 @@
 		--sheet-duration: 0ms;
 		--sheet-easing: cubic-bezier(0.2, 0.75, 0.25, 1);
 		transform: translateY(calc(var(--sheet-progress) * 100%));
-		transition: transform var(--sheet-duration) var(--sheet-easing);
+		/* As the sheet travels, keep its visible bottom at the system navigation bar. */
+		clip-path: inset(0 0 calc(var(--sheet-progress) * 100% + env(safe-area-inset-bottom, 0px)));
+		transition:
+			transform var(--sheet-duration) var(--sheet-easing),
+			clip-path var(--sheet-duration) var(--sheet-easing);
 		inset: auto 0 0;
 		width: min(100%, 36rem);
 		max-width: none;
@@ -169,6 +173,7 @@
 	}
 	dialog::backdrop {
 		background: color-mix(in srgb, var(--bg) 62%, transparent);
+		clip-path: inset(env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px));
 		opacity: calc(1 - var(--sheet-progress, 0));
 		transition: opacity var(--sheet-duration, 0ms) var(--sheet-easing, ease-out);
 	}

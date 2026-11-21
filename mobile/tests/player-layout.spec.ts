@@ -1680,6 +1680,48 @@ test('a finger can catch a closing sheet, hold it still, and pull it open again'
 	}
 });
 
+test('a dragged bottom sheet leaves both system bars clear', async ({ page }) => {
+	const top = 32,
+		bottom = 40;
+	const device = await page.context().newCDPSession(page);
+	const touch = await touchRange(page);
+	try {
+		await fixture(page);
+		await play(page);
+		await device.send('Emulation.setSafeAreaInsetsOverride', { insets: { top, bottom } });
+		await page.addStyleTag({
+			content: `
+			body::before, body::after { content: ''; position: fixed; left: 0; right: 0; z-index: 10;
+				pointer-events: none; background: #f8aa6b; }
+			body::before { top: 0; height: env(safe-area-inset-top); }
+			body::after { bottom: 0; height: env(safe-area-inset-bottom); }
+			html dialog[open][data-part="player-sheet"] { background: #3689dc; }
+		`
+		});
+		await expect
+			.poll(() => page.evaluate(() => getComputedStyle(document.body, '::after').height))
+			.toBe(bottom + 'px');
+		const before = await page.screenshot();
+		await page.locator('[data-section-id=player-title] button').tap();
+		const sheet = page.getByRole('dialog', { name: 'Track details' });
+		await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+		const grip = sheet.locator('[data-sheet-grip]');
+		const { x, y } = await touch.point(grip);
+		await touch.holdAt(x, y);
+		await touch.moveTo(x, y + 120);
+		const held = await page.screenshot();
+		const h = page.viewportSize()!.height;
+		const sample = (y: number) => patchDifference(page, before, { x: 6, y }, held, { x: 6, y });
+		expect(await sample(6)).toBeLessThan(1);
+		expect(await sample(h - 24)).toBeLessThan(1);
+		expect(await sample(h - bottom - 18)).toBeGreaterThan(20);
+		await touch.cancel();
+	} finally {
+		await touch.close();
+		await device.detach();
+	}
+});
+
 test('a saved full-screen lyrics field opens an accessible sheet and preserves the artwork', async ({
 	page
 }) => {
