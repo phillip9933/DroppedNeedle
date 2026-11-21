@@ -120,16 +120,13 @@ public final class DNPlayerPlugin extends Plugin {
     }
 
     @PluginMethod public void getTrackFade(PluginCall call) {
-        execute(call, p -> {
-            JSObject result = new JSObject();
-            result.put("milliseconds", p.fades().length());
-            call.resolve(result);
-        });
+        execute(call, p -> call.resolve(p.fades().settings()));
     }
 
     @PluginMethod public void setTrackFade(PluginCall call) {
         execute(call, p -> {
-            p.fades().configure(call.getInt("milliseconds", 0));
+            Integer legacy = call.getInt("milliseconds");
+            p.fades().configure(call.getInt("fadeInMs", legacy), call.getInt("fadeOutMs", legacy), call.getBoolean("smart"));
             call.resolve();
         });
     }

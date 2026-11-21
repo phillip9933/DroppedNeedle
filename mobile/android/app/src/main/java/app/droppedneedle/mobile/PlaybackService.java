@@ -3,6 +3,9 @@ package app.droppedneedle.mobile;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.media.AudioManager;
 import android.os.Binder;
 import android.os.IBinder;
@@ -92,6 +95,22 @@ public final class PlaybackService extends MediaSessionService {
     private final TrackWaveform waveforms = new TrackWaveform();
     private OkHttpClient playbackHttp;
     private ExoPlayer localPlayback;
+    private Runnable stopFadeProfileWatch, stopFadeOfflineWatch;
+    private ConnectivityManager connectivity;
+    private StreamProfiles.Path fadeNetwork;
+    private final ConnectivityManager.NetworkCallback fadeConnectivity = new ConnectivityManager.NetworkCallback() {
+        @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) { networkChanged(); }
+        @Override public void onLost(Network network) { networkChanged(); }
+        private void networkChanged() {
+            main.post(() -> {
+                StreamProfiles.Path now = StreamProfiles.active(PlaybackService.this);
+                if (fadeNetwork != now) {
+                    fadeNetwork = now;
+                    fades.sourceChanged();
+                }
+            });
+        }
+    };
     private LibraryQueuePager pager;
     private boolean changingWindow, repeatLibrary, wasPlaying;
     private SavedQueue saved;
@@ -197,6 +216,7 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void pauseAtEnd(boolean enabled) {
                 local.setPauseAtEndOfMediaItems(enabled);
                 player.pauseRemoteAtEnd(enabled);
+                if (fades != null) fades.refresh();
             }
             @Override public Object playingTrack() {
                 return showsPauseControl() ? trackIdentity(player.getCurrentMediaItem()) : null;
@@ -217,7 +237,11 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void later(Runnable task, long delay) { main.postDelayed(task, delay); }
             @Override public void cancel(Runnable task) { main.removeCallbacks(task); }
         }, http);
-        fades = new PlaybackFades(this, local);
+        fades = new PlaybackFades(this, local, () -> SmartFadeAudio.library(access, http),
+                () -> player.destination().isEmpty() && !sleep.active());
+        connectivity = getSystemService(ConnectivityManager.class);
+        fadeNetwork = StreamProfiles.active(this);
+        if (connectivity != null) connectivity.registerDefaultNetworkCallback(fadeConnectivity);
         equalizer = new PlaybackEqualizer(this);
         int audioSession = local.getAudioSessionId();
         if (audioSession <= 0) {
@@ -245,7 +269,7 @@ public final class PlaybackService extends MediaSessionService {
             }
             @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
                 sleep.changedTrack(trackIdentity(item), reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
-                        || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT);
+                        || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT || fades.automaticAdvance(item));
             }
             @Override public void onAudioSessionIdChanged(int id) { equalizer.setSession(id); }
         });
@@ -439,6 +463,20 @@ public final class PlaybackService extends MediaSessionService {
         queueKey = SavedQueue.key(next.base.toString(), next.token);
         authorizeReports(next);
         access = next;
+        stopFadeWatches();
+        stopFadeProfileWatch = next.profiles.watch(fades::sourceChanged);
+        if (next.offline != null) {
+            boolean[] online = {next.allowsOnlineMedia()};
+            stopFadeOfflineWatch = next.offline.watchOfflineMode(() -> {
+                boolean enabled = next.allowsOnlineMedia();
+                if (enabled != online[0]) { online[0] = enabled; fades.sourceChanged(); }
+            });
+        }
+        fades.sourceChanged();
+    }
+    private void stopFadeWatches() {
+        if (stopFadeProfileWatch != null) { stopFadeProfileWatch.run(); stopFadeProfileWatch = null; }
+        if (stopFadeOfflineWatch != null) { stopFadeOfflineWatch.run(); stopFadeOfflineWatch = null; }
     }
     private void authorizeReports(Access account) {
         reporter.connect(account.base.newBuilder().encodedPath(account.apiPath + "playback").build(),
@@ -565,16 +603,18 @@ public final class PlaybackService extends MediaSessionService {
             player.pause();
             player.stop();
             player.clearMediaItems();
+            stopFadeWatches();
             access = null;
             player.setRepeatMode(Player.REPEAT_MODE_OFF);
             stopSelf();
             return;
         }
-        if ("cancelSleepTimer".equals(action)) { sleep.cancel(); return; }
+        if ("cancelSleepTimer".equals(action)) { sleep.cancel(); fades.refresh(); return; }
         if ("setSleepMinutes".equals(action) || "sleepAfterTrack".equals(action)) {
             if (count == 0) throw new IllegalStateException("Choose a track first.");
             if ("setSleepMinutes".equals(action)) sleep.minutes(value, to == 1);
             else sleep.afterTracks(trackIdentity(player.getCurrentMediaItem()), value < 1 ? 1 : value);
+            fades.refresh();
             return;
         }
         if (count == 0) return;
@@ -744,6 +784,8 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        if (connectivity != null) connectivity.unregisterNetworkCallback(fadeConnectivity);
+        stopFadeWatches();
         waveforms.close();
         cancelHeadset();
         generation++;

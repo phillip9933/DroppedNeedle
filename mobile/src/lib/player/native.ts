@@ -1,6 +1,6 @@
 import { registerPlugin } from '@capacitor/core';
 import type { PlaybackBridge, PlayerAccess, PlayerState } from '../player';
-import type { Network, Profiles } from './streaming';
+import type { Network, Profiles, TrackFades } from './streaming';
 import type { EqualizerBridge } from './equalizer';
 
 export type OutputDevice = { id: string; name: string };
@@ -14,8 +14,8 @@ interface OutputBridge {
 	castScreen(): Promise<void>;
 }
 interface FadeBridge {
-	getTrackFade(): Promise<{ milliseconds: number }>;
-	setTrackFade(options: { milliseconds: number }): Promise<void>;
+	getTrackFade(): Promise<Partial<TrackFades> & { milliseconds?: number }>;
+	setTrackFade(options: TrackFades): Promise<void>;
 }
 export const nativePlayer = registerPlugin<
 	PlaybackBridge &

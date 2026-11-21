@@ -57,7 +57,10 @@ export async function saveProfiles(account: Account, profiles: Profiles) {
 	const key = storageKey(account, 2);
 	const previous = localStorage.getItem(key);
 	localStorage.setItem(key, JSON.stringify(profiles));
-	if (!Capacitor.isNativePlatform()) return;
+	if (!Capacitor.isNativePlatform()) {
+		window.dispatchEvent(new Event('dn-stream-profiles'));
+		return;
+	}
 	try {
 		await nativePlayer.setStreamProfiles({
 			serverUrl: account.serverUrl,
@@ -104,23 +107,39 @@ export function streamAddress(address: string, quality: Quality) {
 }
 
 export const fadeLengths = [0, 500, 2000, 4000, 8000] as const;
-const fadeKey = 'dn.mobile.track-fades.v1';
-function validFade(value: number) {
-	return fadeLengths.some((ms) => ms === value) ? value : 0;
+export type TrackFades = { fadeInMs: number; fadeOutMs: number; smart: boolean };
+export const defaultFades: TrackFades = { fadeInMs: 0, fadeOutMs: 0, smart: false };
+const fadeKey = 'dn.mobile.track-fades.v2';
+function validFade(value: unknown) {
+	return fadeLengths.find((ms) => ms === value) ?? 0;
 }
-export function browserFade() {
-	return validFade(Number(localStorage.getItem(fadeKey)));
+function normalizeFades(value: Partial<TrackFades> & { milliseconds?: number }): TrackFades {
+	return {
+		fadeInMs: validFade(value.fadeInMs ?? value.milliseconds),
+		fadeOutMs: validFade(value.fadeOutMs ?? value.milliseconds),
+		smart: value.smart === true
+	};
 }
-export async function readTrackFade() {
+export function browserFade(): TrackFades {
+	const stored = read(fadeKey);
+	return normalizeFades(
+		stored && typeof stored === 'object'
+			? stored
+			: {
+					milliseconds: Number(localStorage.getItem('dn.mobile.track-fades.v1'))
+				}
+	);
+}
+export async function readTrackFade(): Promise<TrackFades> {
 	return Capacitor.isNativePlatform()
-		? validFade((await nativeFades.getTrackFade()).milliseconds)
+		? normalizeFades(await nativeFades.getTrackFade())
 		: browserFade();
 }
-export async function setTrackFade(milliseconds: number) {
-	const value = validFade(milliseconds);
-	if (Capacitor.isNativePlatform()) await nativeFades.setTrackFade({ milliseconds: value });
+export async function setTrackFade(fades: TrackFades) {
+	const value = normalizeFades(fades);
+	if (Capacitor.isNativePlatform()) await nativeFades.setTrackFade(value);
 	else {
-		localStorage.setItem(fadeKey, String(value));
+		localStorage.setItem(fadeKey, JSON.stringify(value));
 		window.dispatchEvent(new Event('dn-track-fade'));
 	}
 }

@@ -50,6 +50,7 @@ final class PlaybackSleepTimer {
     }
     void finishedTrack() { if (track != null) cancel(); }
     boolean afterTrack() { return remainingTracks == 1; }
+    boolean active() { return deadline != 0 || remainingTracks != 0; }
     int tracks() { return remainingTracks; }
     boolean finishLast() { return finishLast; }
     long remaining() { return deadline == 0 ? 0 : Math.max(0, deadline - host.elapsed()); }

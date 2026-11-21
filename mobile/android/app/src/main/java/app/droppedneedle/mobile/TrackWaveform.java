@@ -28,13 +28,19 @@ final class TrackWaveform {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private Job active;
 
-    private static final class Job {
+    static final class Job {
         final String request;
+        final long deadline;
         volatile boolean cancelled;
         volatile Call network;
-        Job(String request) { this.request = request; }
+        Job(String request) { this(request, 0); }
+        Job(String request, long timeoutMs) {
+            this.request = request;
+            deadline = timeoutMs == 0 ? 0 : System.nanoTime() + timeoutMs * 1_000_000;
+        }
         void check() throws IOException {
-            if (cancelled || Thread.currentThread().isInterrupted()) throw new IOException("Waveform canceled.");
+            if (cancelled || Thread.currentThread().isInterrupted() || deadline != 0 && System.nanoTime() >= deadline)
+                throw new IOException("Waveform canceled.");
         }
         void cancel() {
             cancelled = true;
@@ -88,13 +94,21 @@ final class TrackWaveform {
         });
     }
 
-    private static Response open(Job job, PlaybackService.Access owner, Uri uri, OkHttpClient http) throws IOException {
-        Request request = new Request.Builder().url(uri.toString())
-                .tag(PlaybackService.Access.class, owner).header("Authorization", "Bearer " + owner.token).build();
+    static Response open(Job job, PlaybackService.Access owner, Uri uri, OkHttpClient http, String range) throws IOException {
+        if (!owner.allowsOnlineMedia()) throw new IOException("Online media is unavailable.");
+        Request.Builder builder = new Request.Builder().url(uri.toString())
+                .tag(PlaybackService.Access.class, owner).header("Authorization", "Bearer " + owner.token);
+        if (range != null) builder.header("Range", range);
+        Request request = builder.build();
         if (!owner.permits(request.url(), "stream/local/")) throw new IOException("Invalid track address.");
         job.network = http.newCall(request);
+        if (job.deadline != 0) job.network.timeout().deadlineNanoTime(job.deadline);
         job.check();
         return job.network.execute();
+    }
+
+    private static Response open(Job job, PlaybackService.Access owner, Uri uri, OkHttpClient http) throws IOException {
+        return open(job, owner, uri, http, null);
     }
 
     private static void copy(Response response, File file, Job job, PlaybackService.Access owner) throws IOException {
@@ -128,28 +142,35 @@ final class TrackWaveform {
                 if (duration <= 0) return new float[0];
                 source.selectTrack(i);
                 float[] peaks = new float[BINS];
-                boolean sampled = false;
-                if ("audio/raw".equals(mime)) {
-                    int max = format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE) ? format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) : 0;
-                    ByteBuffer buffer = ByteBuffer.allocateDirect(Math.max(65536, Math.min(4 * 1024 * 1024, max)));
-                    for (;;) {
-                        job.check();
-                        buffer.clear();
-                        int size = source.readSampleData(buffer, 0);
-                        if (size < 0) break;
-                        buffer.position(0).limit(size);
-                        sampled |= sample(buffer, format, source.getSampleTime(), duration, peaks);
-                        source.advance();
-                    }
-                } else sampled = decodeFrames(source, format, mime, duration, peaks, job);
+                boolean sampled = readPcm(source, format, mime, Long.MAX_VALUE, job,
+                        (data, decoded, timeUs) -> sample(data, decoded, timeUs, duration, peaks));
                 return sampled ? peaks : new float[0];
             }
             return new float[0];
         } finally { source.release(); }
     }
 
-    private static boolean decodeFrames(MediaExtractor source, MediaFormat format, String mime, long duration,
-                                        float[] peaks, Job job) throws IOException {
+    interface PcmSink {
+        boolean accept(ByteBuffer data, MediaFormat decoded, long timeUs) throws IOException;
+    }
+
+    static boolean readPcm(MediaExtractor source, MediaFormat format, String mime, long endUs, Job job,
+                           PcmSink sink) throws IOException {
+        if ("audio/raw".equals(mime)) {
+            int max = format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE) ? format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) : 0;
+            ByteBuffer buffer = ByteBuffer.allocateDirect(Math.max(65536, Math.min(4 * 1024 * 1024, max)));
+            boolean sampled = false;
+            while (source.getSampleTime() >= 0 && source.getSampleTime() < endUs) {
+                job.check();
+                buffer.clear();
+                int size = source.readSampleData(buffer, 0);
+                if (size < 0) break;
+                buffer.position(0).limit(size);
+                sampled |= sink.accept(buffer, format, source.getSampleTime());
+                source.advance();
+            }
+            return sampled;
+        }
         MediaCodec codec = MediaCodec.createDecoderByType(mime);
         try {
             codec.configure(format, null, null, 0);
@@ -164,7 +185,7 @@ final class TrackWaveform {
                     if (index >= 0) {
                         ByteBuffer in = codec.getInputBuffer(index);
                         if (in == null) throw new IOException("Decoder input unavailable.");
-                        int size = source.readSampleData(in, 0);
+                        int size = source.getSampleTime() >= endUs ? -1 : source.readSampleData(in, 0);
                         inputDone = size < 0;
                         codec.queueInputBuffer(index, 0, Math.max(size, 0), inputDone ? 0 : source.getSampleTime(),
                                 inputDone ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0);
@@ -176,7 +197,7 @@ final class TrackWaveform {
                     ByteBuffer pcm = codec.getOutputBuffer(out);
                     if (pcm != null && info.size > 0) {
                         pcm.position(info.offset).limit(info.offset + info.size);
-                        sampled |= sample(pcm, codec.getOutputFormat(out), info.presentationTimeUs, duration, peaks);
+                        sampled |= sink.accept(pcm, codec.getOutputFormat(out), info.presentationTimeUs);
                     }
                     codec.releaseOutputBuffer(out, false);
                     if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) return sampled;
@@ -189,8 +210,7 @@ final class TrackWaveform {
                                   float[] peaks) throws IOException {
         int encoding = format.containsKey(MediaFormat.KEY_PCM_ENCODING) ? format.getInteger(MediaFormat.KEY_PCM_ENCODING) : AudioFormat.ENCODING_PCM_16BIT;
         int channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT), rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
-        int bytes = encoding == AudioFormat.ENCODING_PCM_8BIT ? 1 : encoding == AudioFormat.ENCODING_PCM_16BIT ? 2 :
-                encoding == AudioFormat.ENCODING_PCM_24BIT_PACKED ? 3 : 4;
+        int bytes = sampleBytes(encoding);
         if (rate <= 0 || channels <= 0 || channels > 64) throw new IOException("Invalid PCM format.");
         data.order(ByteOrder.LITTLE_ENDIAN);
         int frames = data.remaining() / (bytes * channels);
@@ -198,20 +218,27 @@ final class TrackWaveform {
             long timestamp = startUs + f * 1_000_000L / rate;
             int bin = (int) Math.max(0, Math.min(peaks.length - 1, timestamp * peaks.length / duration));
             for (int c = 0; c < channels; c++) {
-                float value;
-                switch (encoding) {
-                    case AudioFormat.ENCODING_PCM_8BIT: value = ((data.get() & 255) - 128) / 128f; break;
-                    case AudioFormat.ENCODING_PCM_16BIT: value = data.getShort() / 32768f; break;
-                    case AudioFormat.ENCODING_PCM_24BIT_PACKED:
-                        value = ((data.get() & 255) | ((data.get() & 255) << 8) | (data.get() << 16)) / 8388608f;
-                        break;
-                    case AudioFormat.ENCODING_PCM_32BIT: value = data.getInt() / 2147483648f; break;
-                    case AudioFormat.ENCODING_PCM_FLOAT: value = data.getFloat(); break;
-                    default: throw new IOException("Unsupported PCM format.");
-                }
+                float value = sampleValue(data, encoding);
                 if (Float.isFinite(value)) peaks[bin] = Math.max(peaks[bin], Math.abs(value));
             }
         }
         return frames > 0;
+    }
+
+    static int sampleBytes(int encoding) {
+        return encoding == AudioFormat.ENCODING_PCM_8BIT ? 1 : encoding == AudioFormat.ENCODING_PCM_16BIT ? 2
+                : encoding == AudioFormat.ENCODING_PCM_24BIT_PACKED ? 3 : 4;
+    }
+
+    static float sampleValue(ByteBuffer data, int encoding) throws IOException {
+        switch (encoding) {
+            case AudioFormat.ENCODING_PCM_8BIT: return ((data.get() & 255) - 128) / 128f;
+            case AudioFormat.ENCODING_PCM_16BIT: return data.getShort() / 32768f;
+            case AudioFormat.ENCODING_PCM_24BIT_PACKED:
+                return ((data.get() & 255) | ((data.get() & 255) << 8) | (data.get() << 16)) / 8388608f;
+            case AudioFormat.ENCODING_PCM_32BIT: return data.getInt() / 2147483648f;
+            case AudioFormat.ENCODING_PCM_FLOAT: return data.getFloat();
+            default: throw new IOException("Unsupported PCM format.");
+        }
     }
 }

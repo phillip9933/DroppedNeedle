@@ -164,6 +164,118 @@ public final class PlaybackInterruptionTest {
         }
     }
 
+    @Test public void smartFadeOverlapsTwoSavedTracksOnceAndHonorsAnEndOfTrackTimer() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        String address = "https://127.0.0.1:1", user = "fade-" + java.util.UUID.randomUUID();
+        OfflineStore files = OfflineStore.forUser(app, address, user);
+        files.configure(files.options().put("offlineOnly", true));
+        files.recordHistory(false);
+        JSArray queue = new JSArray();
+        int frames = 8000 * 4;
+        byte[] audio = java.util.Arrays.copyOf(OfflinePlaybackTest.wav(), 44 + 2 * frames);
+        java.nio.ByteBuffer pcm = java.nio.ByteBuffer.wrap(audio).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        pcm.putInt(4, 36 + 2 * frames).putInt(40, 2 * frames);
+        for (String id : new String[]{"outgoing", "incoming"}) {
+            JSObject track = new JSObject();
+            track.put("id", id); track.put("title", id); track.put("artist", "Fixture artist");
+            track.put("album", id); track.put("duration", 4);
+            track.put("streamUrl", address + "/api/v3/stream/local/" + id);
+            int period = "outgoing".equals(id) ? 32 : 50;
+            for (int i = 0; i < frames; i++) pcm.putShort(44 + i * 2, (short) ((i % period < period / 2) ? 1 : -1));
+            try (OfflineStore.Capture file = files.begin(track, true, audio.length)) {
+                file.write(audio, 0, audio.length);
+                file.finish();
+            }
+            queue.put(track);
+        }
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
+        JSObject[] previous = new JSObject[1];
+        java.util.concurrent.atomic.AtomicInteger transitions = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicLong lastBoundary = new java.util.concurrent.atomic.AtomicLong();
+        CompletableFuture<Long> outgoingEnd = new CompletableFuture<>();
+        JSArray album = new JSArray(queue.toString());
+        album.getJSONObject(0).put("albumId", "record").put("trackNumber", 1);
+        album.getJSONObject(1).put("albumId", "record").put("trackNumber", 2);
+        try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
+            assertTrue(app.bindService(new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND),
+                    binding, Context.BIND_AUTO_CREATE));
+            try {
+                assertTrue(connected.await(10, TimeUnit.SECONDS));
+                instrumentation.runOnMainSync(() -> {
+                    previous[0] = playback.fades().settings();
+                    playback.fades().configure(0, 0, true);
+                    player.addListener(new Player.Listener() {
+                        @Override public void onPositionDiscontinuity(Player.PositionInfo old, Player.PositionInfo current, int reason) {
+                            if (old.mediaItem != null && current.mediaItem != null && old.mediaItem.mediaId.equals("outgoing")
+                                    && current.mediaItem.mediaId.equals("incoming")) {
+                                transitions.incrementAndGet();
+                                lastBoundary.set(old.positionMs);
+                                outgoingEnd.complete(old.positionMs);
+                            }
+                        }
+                    });
+                    try { playback.setQueue(address, "fixture", user, queue, 0, null, null); }
+                    catch (org.json.JSONException malformed) { throw new AssertionError(malformed); }
+                });
+                activity.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+                // Both 4 s sources are quiet: the two-second cap starts song two halfway through song one.
+                long handoff = outgoingEnd.get(8, TimeUnit.SECONDS);
+                assertTrue("Overlap starts near 2000 ms, got " + handoff, handoff > 1800 && handoff < 2300);
+                await("Incoming source is audible while the outgoing PCM deck is still running",
+                        () -> player.isPlaying() && player.getCurrentMediaItemIndex() == 1
+                                && player.getVolume() > .12f && player.getVolume() < .7f);
+                await("The second source finishes its equal-power transition",
+                        () -> player.getVolume() > .96f && player.getCurrentPosition() < 2600);
+                instrumentation.runOnMainSync(() -> {
+                    assertEquals(1, transitions.get());
+                    assertEquals(2, playback.snapshot().optJSONArray("tracks").length());
+                    try { playback.setQueue(address, "fixture", user, queue, 0, null, null); }
+                    catch (org.json.JSONException malformed) { throw new AssertionError(malformed); }
+                    playback.command("sleepAfterTrack", 1, -1);
+                });
+                await("Sleep reaches the outgoing song's own end",
+                        () -> !player.getPlayWhenReady() && playback.snapshot().isNull("sleepTimer"));
+                assertEquals("Sleep prevented an early handoff", 1, transitions.get());
+                instrumentation.runOnMainSync(() -> {
+                    playback.fades().configure(500, 8000, true);
+                    try { playback.setQueue(address, "fixture", user, album, 0, null, null); }
+                    catch (org.json.JSONException malformed) { throw new AssertionError(malformed); }
+                });
+                await("The album's outgoing tail keeps full level", () -> player.getCurrentMediaItemIndex() == 0
+                        && player.getCurrentPosition() > 3200 && player.getVolume() > .99f);
+                await("The next album track starts at full level", () -> player.getCurrentMediaItemIndex() == 1
+                        && player.isPlaying() && player.getCurrentPosition() < 180 && player.getVolume() > .95f);
+                assertTrue("Album tracks advance at the end", lastBoundary.get() > 3800);
+                instrumentation.runOnMainSync(() -> {
+                    playback.fades().configure(0, 0, true);
+                    try { playback.setQueue(address, "fixture", user, queue, 0, null, null); }
+                    catch (org.json.JSONException malformed) { throw new AssertionError(malformed); }
+                });
+                await("Both decks are running before a manual seek", () -> player.getCurrentMediaItemIndex() == 1
+                        && player.getVolume() > .1f && player.getVolume() < .75f);
+                instrumentation.runOnMainSync(() -> playback.command("seek", 3, -1));
+                await("Seeking dismisses the outgoing tail", () -> player.getCurrentPosition() >= 3000 && player.getVolume() == 1);
+                instrumentation.runOnMainSync(() -> {
+                    try { playback.setQueue(address, "fixture", user, queue, 0, null, null); }
+                    catch (org.json.JSONException malformed) { throw new AssertionError(malformed); }
+                });
+                await("The last queue is playing", () -> player.getCurrentMediaItemIndex() == 0 && player.getCurrentPosition() > 350);
+                instrumentation.runOnMainSync(() -> playback.command("clearUpcoming", 0, -1));
+                await("Removing the upcoming song cancels its planned transition", () -> player.getCurrentMediaItemIndex() == 0
+                        && player.getMediaItemCount() == 1 && player.getCurrentPosition() > 2700 && player.getVolume() == 1);
+            } finally {
+                if (playback != null) instrumentation.runOnMainSync(() -> {
+                    playback.command("clear", 0, -1);
+                    if (previous[0] != null) playback.fades().configure(previous[0].optInt("fadeInMs"),
+                            previous[0].optInt("fadeOutMs"), previous[0].optBoolean("smart"));
+                });
+                app.unbindService(binding);
+            }
+        } finally { files.remove(new org.json.JSONArray().put("outgoing").put("incoming")); }
+    }
+
     @Test public void libraryRefillReachesExoPlayerAndAnExplicitAppendPreservesDuplicates() throws Exception {
         Context app = instrumentation.getTargetContext();
         String address = "https://127.0.0.1:1";
