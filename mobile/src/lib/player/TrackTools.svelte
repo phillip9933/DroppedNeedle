@@ -428,7 +428,7 @@
 		defaultLabel={mode === 'actions'}
 	/>{/snippet}
 {#snippet favorite()}{#if sample}<button
-			class="icon-button custom-action"
+			class="icon-button player-control"
 			aria-label="Favorite track">{@render heart(false)}</button
 		>
 	{:else if favoriteValue !== undefined}<Favorite
@@ -439,12 +439,12 @@
 			face={heart}
 		/>
 	{:else if !libraryError}<button
-			class="icon-button custom-action"
+			class="icon-button player-control"
 			disabled
 			aria-label="Loading favorite">{@render heart(false)}</button
 		>{/if}{/snippet}
 {#snippet addPlaylist()}<button
-		class="secondary custom-action"
+		class="secondary player-control"
 		aria-label="Add to playlist"
 		onclick={() => {
 			if (!sample) playlist = true;
@@ -465,7 +465,7 @@
 		>
 			{#if fields.includes('player-favorite')}{@render favorite()}{/if}{#if fields.includes('player-playlist')}{@render addPlaylist()}{/if}
 			{#if fields.includes('player-download') && offlineSupported}<button
-					class="secondary custom-action"
+					class="secondary player-control"
 					aria-label={origin === 'downloaded' ? 'Manage track download' : downloadLabel}
 					title={downloadLabel}
 					disabled={!sample &&
@@ -654,7 +654,7 @@
 		color: var(--text);
 		gap: 0.8rem;
 	}
-	button.custom-action {
+	button.player-control {
 		width: auto;
 		min-width: min(44px, 100%);
 		height: auto;

@@ -197,6 +197,10 @@ test('compact player controls fit at 320px and return from the real queue to the
 	const now = page.getByRole('region', { name: 'Now playing' });
 	await now.getByRole('button', { name: 'Close player' }).click();
 	const mini = page.getByRole('region', { name: 'Current track' });
+	const dock = page.getByRole('navigation', { name: 'Music' });
+	await expect(mini).toHaveCSS('box-shadow', 'none');
+	await expect(dock).toHaveCSS('box-shadow', 'none');
+	await expect(dock).toHaveCSS('border-top-width', '1px');
 	await expect(mini.getByRole('button')).toHaveCount(3);
 	await expect(mini.getByText('Strings', { exact: true })).toBeVisible();
 	await expect(mini.locator('[data-part=cover]')).toBeVisible();
@@ -251,6 +255,7 @@ test('compact player controls fit at 320px and return from the real queue to the
 	await expect(now.getByRole('heading', { name: 'Play queue' })).toHaveCount(0);
 	await page.keyboard.press('Escape');
 	await expect(open).toBeFocused();
+	await expect(open).toHaveCSS('outline-width', '3px');
 	await settings(page, 'Interface and navigation');
 	await chooseOption(form.getByLabel('Secondary text'), 'album');
 	await chooseOption(form.getByLabel('Before Play/Pause'), 'previous');

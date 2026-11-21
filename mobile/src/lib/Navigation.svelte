@@ -65,9 +65,8 @@
 	}
 	:global(html[data-navigation='floating']) nav {
 		margin: 0.28rem max(0.55rem, env(safe-area-inset-right)) 0.48rem;
-		border: 1px solid var(--dn-edge);
+		border: 0;
 		border-radius: calc(var(--radius) + 10px);
-		box-shadow: 0 4px 14px #0003;
 	}
 	:global(html[data-navigation='floating']) nav button {
 		border-radius: calc(var(--radius) + 5px);

@@ -136,6 +136,8 @@ During a slide, hold your finger still to pause it or move back to reverse it. A
 
 Under **Settings → Interface and navigation → Mini-player**, choose whether to show the cover and a track progress line. The second line can show the artist, album, both, or be hidden. The two positions beside Play/Pause can each hold Previous, Next or Queue, or be left empty. Opening Queue here and pressing Back takes you to the same place in your library. These choices are saved for this DN account on this device.
 
+Now Playing uses plain icons across all three surface styles. Active controls such as Lyrics and Repeat use the theme accent. The floating navigation bar and mini-player use a soft shadow over the content.
+
 Choose **Start screen** in the same settings to open Home, Library or Now Playing when the app launches. **Now Playing** opens the restored song at its saved position and takes you to Library when the queue is empty. **Automatic** opens Home when connected and Offline music when offline. Each listener can choose a start screen for their DN server on this device.
 
 Use **Import colors from a web style** to preview compatible colors and corner radius from your current account CSS or a saved version. Choose the palette and select **Apply palette to this device**. The preview lists web rules that the phone does not support. Under **Edit or share theme**, copy or paste a custom theme as JSON and select **Apply theme**. Existing custom themes and the original Studio and Paper presets remain available. Custom JSON applies on this device. DN’s web CSS editor is available under **Settings → Web tools → Custom CSS and saved styles**.

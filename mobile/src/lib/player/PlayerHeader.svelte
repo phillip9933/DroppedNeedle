@@ -38,20 +38,23 @@
 
 {#if missingClose || queueExit || missingPlay}
 	<div class="fallback" inert={readOnly}>
-		{#if missingClose}<button class="icon-button" aria-label="Close player" onclick={onclose}
-				><ChevronDown /></button
+		{#if missingClose}<button
+				class="icon-button player-control"
+				aria-label="Close player"
+				onclick={onclose}><ChevronDown /></button
 			>{/if}
 		{#if missingPlay}<button
-				class="icon-button"
+				class="icon-button player-control"
 				inert={readOnly}
 				aria-label={playing ? 'Pause' : 'Play'}
 				onclick={ontoggle}
 				>{#if playing}<Pause />{:else}<Play />{/if}</button
 			>{/if}
 		{#if queueExit}<button
-				class="icon-button"
+				class="icon-button player-control"
 				inert={readOnly}
 				aria-label="Hide play queue"
+				aria-expanded={true}
 				onclick={onqueue}><ListMusic /></button
 			>{/if}
 	</div>{/if}
