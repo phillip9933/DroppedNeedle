@@ -11,6 +11,8 @@ import {
 	playerWidgets
 } from './layout';
 
+import { isPlayerGrid, toPlayerGrid, validGridRect } from './grid';
+
 const format = 'droppedneedle-player-layout';
 const keys = [
 	...playerOptionKeys,
@@ -51,9 +53,19 @@ export function exportPlayerStyle(
 ) {
 	// A layout can cross devices or accounts. Serialize only the composition fields.
 	const fields = sections.map((s) =>
-		Object.fromEntries(keys.filter((key) => s[key] !== undefined).map((key) => [key, s[key]]))
+		Object.fromEntries(
+			keys
+				.filter((key) => s[key] !== undefined)
+				.map((key) => {
+					if (key === 'grid' && s.grid) {
+						const { x, y, w, h } = s.grid;
+						return [key, { x, y, w, h }];
+					}
+					return [key, s[key]];
+				})
+		)
 	);
-	const layout = { format, version: 1, sections: fields };
+	const layout = { format, version: sections.some((s) => s.grid) ? 2 : 1, sections: fields };
 	if (spacing === 'readable') {
 		const readable = JSON.stringify(layout, null, 2);
 		if (fits(readable)) return readable;
@@ -65,7 +77,7 @@ export function exportPlayerStyle(
 function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-function readSection(item: unknown, index: number): Section {
+function readSection(item: unknown, index: number, version: number): Section {
 	const label = `Element ${index + 1}`;
 	if (!record(item)) throw Error(`${label} must be an object.`);
 	const {
@@ -100,6 +112,14 @@ function readSection(item: unknown, index: number): Section {
 	if (typeof preview !== 'boolean') throw Error(`${label} needs a true or false preview option.`);
 	if (sameRow !== undefined && typeof sameRow !== 'boolean')
 		throw Error(`${label} has an invalid row setting.`);
+	const { grid } = item;
+	if (
+		grid !== undefined &&
+		(version === 1 ||
+			!validGridRect(grid) ||
+			Object.keys(grid).some((key) => !['x', 'y', 'w', 'h'].includes(key)))
+	)
+		throw Error(`${label} has an invalid grid position or size.`);
 	const measurements: Partial<Pick<Section, (typeof playerMeasurements)[number]>> = {};
 	for (const name of playerMeasurements) {
 		const value = item[name];
@@ -163,17 +183,25 @@ export function importPlayerStyle(text: string): Section[] {
 	if (
 		!record(value) ||
 		value.format !== format ||
-		value.version !== 1 ||
+		(value.version !== 1 && value.version !== 2) ||
 		!Array.isArray(value.sections)
 	)
-		throw Error('Use a DroppedNeedle player layout in version 1 format.');
+		throw Error('Use a DroppedNeedle player layout in version 1 or 2 format.');
 	if (Object.keys(value).some((key) => !['format', 'version', 'sections'].includes(key)))
 		throw Error('The layout includes an unknown field.');
-	const sections = value.sections.map(readSection);
+	const version = value.version;
+	const sections = value.sections.map((item, index) => readSection(item, index, version));
 	const seen = new Set<string>();
 	for (const item of sections) {
 		if (seen.has(item.id)) throw Error('Each player element needs its own ID.');
 		seen.add(item.id);
 	}
-	return expandLegacyTrack(sections);
+	if (version === 2) {
+		if (!isPlayerGrid(sections))
+			throw Error('Each element needs its own space inside the player grid.');
+		return sections;
+	}
+	const migrated = expandLegacyTrack(sections);
+	toPlayerGrid(migrated); // Reject old files too large to fit before offering to load them.
+	return migrated;
 }

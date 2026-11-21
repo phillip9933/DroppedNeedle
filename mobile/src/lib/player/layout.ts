@@ -1,3 +1,4 @@
+import { validGridRect } from './grid';
 import type { Section } from '../boards/layout';
 export const playerWidgets = [
 	{ id: 'player-artwork', label: 'Artwork', option: 'Use large artwork', enabled: true },
@@ -178,6 +179,8 @@ export function playerDefaults(): Section[] {
 }
 
 export const playerOptionKeys = [
+	'grid',
+	'iconMode',
 	'stack',
 	'labelName',
 	'labelPosition',
@@ -192,7 +195,12 @@ export function playerOptions(item: Record<string, unknown>, strict = false): Pa
 	for (const key of playerOptionKeys) {
 		const value = item[key];
 		if (value === undefined) continue;
-		if (key === 'labelName' && typeof value === 'string' && value.length <= 64)
+		if (key === 'grid' && validGridRect(value)) {
+			const { x, y, w, h } = value;
+			options.grid = { x, y, w, h };
+		} else if (key === 'iconMode' && (value === 'fixed' || value === 'fill'))
+			options.iconMode = value;
+		else if (key === 'labelName' && typeof value === 'string' && value.length <= 64)
 			options.labelName = value;
 		else if (key === 'labelPosition' && (value === 'above' || value === 'below'))
 			options.labelPosition = value;

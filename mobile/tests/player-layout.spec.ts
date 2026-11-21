@@ -3,7 +3,6 @@ import { verticalSwipe } from './fixtures/verticalSwipe';
 import { touchRange } from './fixtures/touchRange';
 import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { silentWav } from './fixtures/silentWav';
-import { openPlayerPlacement } from './fixtures/playerEditor';
 import { localSignIn } from './fixtures/localSignIn';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
@@ -119,7 +118,7 @@ async function play(page: Page, user = 'alex', address = server) {
 	await page.getByRole('button', { name: 'Play album' }).click();
 	await expect(page.getByRole('heading', { name: 'Night Train' })).toBeVisible();
 	await page
-		.locator('[data-part=transport]')
+		.locator('[data-part=now-playing]')
 		.getByRole('button', { name: 'Pause', exact: true })
 		.click();
 }
@@ -197,14 +196,49 @@ test('signal path shows the library source separately from the observed stream, 
 	expect(plans).toBe(1);
 });
 
-async function addFeature(page: Page, name: string) {
-	await page.getByRole('button', { name: 'Add row', exact: true }).click();
-	await page
-		.getByRole('button', { name: /^Add feature to row [0-9]+, column 1$/ })
-		.last()
-		.click();
-	await page.getByRole('button', { name: 'Use ' + name, exact: true }).click();
+const editorButton = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
+
+async function customize(page: Page, name: string) {
+	await editorButton(page, 'Customize ' + name).click();
+	await expect(page.getByRole('dialog')).toBeVisible();
 }
+
+async function addFeature(page: Page, name: string) {
+	await editorButton(page, 'Add item').click();
+	await page.getByRole('dialog').getByRole('button', { name, exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Customize ' + name, exact: true })).toBeAttached();
+	if (await editorButton(page, 'Done').isVisible()) await editorButton(page, 'Done').click();
+}
+
+async function removeField(page: Page, name: string) {
+	await customize(page, name);
+	await editorButton(page, 'Remove item').click();
+}
+
+async function openEditor(page: Page) {
+	const shortcut = page
+		.locator('[data-part=now-playing]')
+		.getByRole('button', { name: 'Player settings', exact: true });
+	if (await shortcut.isVisible()) await shortcut.click();
+	else {
+		const grid = page.locator('[data-part=now-playing]');
+		const area = (await grid.boundingBox())!;
+		await verticalSwipe(
+			page,
+			area.x + area.width / 2,
+			area.y + area.height * 0.18,
+			area.height * 0.45
+		);
+		await page
+			.getByRole('navigation', { name: 'Music' })
+			.getByRole('button', { name: 'Home', exact: true })
+			.click();
+		await editorButton(page, 'Settings').click();
+		await editorButton(page, 'Edit Now Playing layout').click();
+	}
+	await expect(page.locator('[data-part=layout-editor] [data-player-grid]')).toBeVisible();
+}
+
 for (const [surface, palette] of [
 	['solid', 'light'],
 	['glass', 'dark'],
@@ -390,64 +424,66 @@ test('timed lyrics follow playback inside their panel and let listeners read ahe
 	await expect.poll(centerError).toBeLessThan(3);
 });
 
-test('a listener saves, cancels and restores the Now Playing layout independently for each account and server', async ({
+test('a listener saves, cancels and restores the Now Playing grid independently for each account and server', async ({
 	page
 }) => {
 	await fixture(page);
 	await play(page);
-	const playing = page.getByRole('region', { name: 'Now playing' });
-	async function edit() {
-		await playing.getByRole('button', { name: 'Player settings' }).click();
-		await expect(page.getByRole('heading', { name: 'Edit Now Playing' })).toBeVisible();
-	}
-	await edit();
-	await page.getByRole('button', { name: 'Customize Artwork', exact: true }).click();
-	await page.getByRole('button', { name: 'Remove Artwork' }).click();
-	await page.getByRole('button', { name: 'Customize Track title' }).click();
-	await openPlayerPlacement(page);
+	const player = page.locator('[data-part=now-playing]');
+	const art = player.locator('[data-section-id=player-artwork]');
+	const button = (name: string) => editorButton(page, name);
+	await openEditor(page);
+	await removeField(page, 'Artwork');
+	await removeField(page, 'Album');
+	await customize(page, 'Track title');
 	await page.getByLabel('Section title').fill('On the turntable');
-	await page.getByRole('button', { name: 'Customize Album', exact: true }).click();
-	await page.getByRole('button', { name: 'Remove Album', exact: true }).click();
+	await button('Done').click();
 	await addFeature(page, 'Up next');
-	await page.getByRole('button', { name: 'Customize Up next' }).click();
-	await openPlayerPlacement(page);
-	await chooseOption(page.getByRole('combobox', { name: 'Position', exact: true }), '0');
-	await page.getByRole('button', { name: 'Save layout' }).click();
-	await expect(playing).toBeVisible();
-	await expect(playing.locator('[data-part=player-row] [data-section-id]').first()).toHaveAttribute(
-		'data-section-id',
-		'player-up-next'
-	);
-	await expect(playing.getByRole('heading', { name: 'On the turntable' })).toBeVisible();
-	await expect(playing.getByText('Railway', { exact: true })).toHaveCount(0);
-	await expect(playing.locator('[data-section-id=player-artwork]')).toHaveCount(0);
-	await edit();
-	await page.getByRole('button', { name: 'Restore default layout' }).click();
-	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-	await expect(playing).toBeVisible();
-	await expect(playing.locator('[data-section-id=player-artwork]')).toHaveCount(0);
+	await button('Save layout').click();
+	await expect(player.locator('[data-section-id=player-up-next]')).toBeVisible();
+	await expect(player.getByRole('heading', { name: 'On the turntable' })).toBeVisible();
+	await expect(player.getByText('Railway', { exact: true })).toHaveCount(0);
+	await expect(art).toHaveCount(0);
+	await openEditor(page);
+	await button('Restore default layout').click();
+	await button('Cancel').click();
+	await expect(player).toBeVisible();
+	await expect(art).toHaveCount(0);
 	await play(page, 'sam');
-	await expect(playing.locator('[data-section-id=player-artwork]')).toBeVisible();
+	await expect(art).toBeVisible();
 	await play(page, 'alex', otherServer);
-	await expect(playing.locator('[data-section-id=player-artwork]')).toBeVisible();
+	await expect(art).toBeVisible();
 	await play(page, 'alex');
-	await expect(playing.getByRole('heading', { name: 'On the turntable' })).toBeVisible();
-	await edit();
-	const fields = page.locator('.canvas [data-player-row] [data-section-id] button.field');
-	await expect(fields.first()).toBeVisible();
-	while (await fields.count()) {
-		await fields.last().click();
-		await page.getByRole('button', { name: /^Remove / }).click();
+	await expect(player.getByRole('heading', { name: 'On the turntable' })).toBeVisible();
+	await openEditor(page);
+	await button('Restore default layout').click();
+	await button('Save layout').click();
+	await expect(art).toBeVisible();
+	await expect(player.getByRole('heading', { name: 'On the turntable' })).toHaveCount(0);
+});
+
+test('clearing the grid keeps playback and queue reachable and the listener can restore the layout', async ({
+	page
+}) => {
+	await fixture(page);
+	await play(page);
+	await openEditor(page);
+	const tiles = page.locator('[data-part=layout-editor] [data-grid-handle=move]');
+	await expect(tiles.first()).toBeVisible();
+	while (await tiles.count()) {
+		await tiles.last().click();
+		await editorButton(page, 'Remove item').click();
 	}
-	await page.getByRole('button', { name: 'Save layout' }).click();
-	await expect(playing).toBeVisible();
-	await expect(playing.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
-	await expect(playing.getByRole('button', { name: 'Show play queue' })).toBeVisible();
-	await edit();
-	await page.getByRole('button', { name: 'Restore default layout' }).click();
-	await page.getByRole('button', { name: 'Save layout' }).click();
-	await expect(playing).toBeVisible();
-	await expect(playing.locator('[data-section-id=player-artwork]')).toBeVisible();
+	await editorButton(page, 'Save layout').click();
+	const player = page.locator('[data-part=now-playing]');
+	await expect(player.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+	await player.getByRole('button', { name: 'Show play queue' }).click();
+	await expect(player.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+	await player.getByRole('button', { name: 'Hide play queue' }).click();
+	await openEditor(page);
+	await editorButton(page, 'Restore default layout').click();
+	await editorButton(page, 'Save layout').click();
+	await expect(player.locator('[data-section-id=player-artwork]')).toBeVisible();
 });
 
 test('current track tools rate, favorite and inspect DN audio and save songs while synced lyrics seek within the track', async ({
@@ -509,80 +545,55 @@ test('current track tools rate, favorite and inspect DN audio and save songs whi
 	).toBeVisible();
 });
 
-test('a listener arranges independent player fields in columns and saves a live text template', async ({
+test('a listener sizes independent metadata tiles and saves a live text template', async ({
 	page
 }) => {
 	await fixture(page);
 	await play(page);
-	const player = page.getByRole('region', { name: 'Now playing' });
-	const button = (name: string) => page.getByRole('button', { name, exact: true });
-	await player.getByRole('button', { name: 'Player settings' }).click();
-	const edit = async (name: string) => {
-		const toggle = button('Customize ' + name);
-		if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-	};
-	const rowIndex = async (id: string) =>
-		page
-			.locator('[data-player-row]')
-			.evaluateAll(
-				(rows, id) => rows.findIndex((row) => row.querySelector('[data-section-id="' + id + '"]')),
-				id
-			);
-	await edit('Artist');
-	const titleRow = await rowIndex('player-title');
-	expect(titleRow).toBeGreaterThanOrEqual(0);
-	await openPlayerPlacement(page);
-	await chooseOption(
-		page.getByRole('combobox', { name: 'Move to row', exact: true }),
-		String(titleRow)
-	);
-	await edit('Artist');
-	await openPlayerPlacement(page);
-	await button('Move Artist left').click();
-	await edit('Track title');
-	await expect(page.getByRole('combobox', { name: 'Column width', exact: true })).toHaveCount(0);
-	await chooseOption(
-		page.getByRole('combobox', { name: 'Horizontal alignment', exact: true }),
-		'end'
-	);
-	await chooseOption(page.getByRole('combobox', { name: 'Text size', exact: true }), 'large');
-	await button('Edit row ' + ((await rowIndex('player-title')) + 1)).click();
-	await page.getByRole('slider', { name: 'Column 2 width' }).fill('2');
-	await button('Finish editing row').click();
+	const player = page.locator('[data-part=now-playing]');
+	const button = (name: string) => editorButton(page, name);
+	await openEditor(page);
+	// Free adjacent cells so the title and artist can be laid out on one line.
+	await removeField(page, 'Artwork');
+	await customize(page, 'Track title');
+	await page.getByText('Position and size', { exact: true }).click();
+	await page.getByLabel('Width in cells').fill('9');
+	await page.getByLabel('Row', { exact: true }).fill('2');
+	await button('Done').click();
+	await customize(page, 'Artist');
+	await page.getByText('Position and size', { exact: true }).click();
+	await page.getByLabel('Width in cells').fill('5');
+	await page.getByLabel('Row', { exact: true }).fill('1');
+	await page.getByLabel('Column', { exact: true }).fill('10');
+	await page.getByLabel('Row', { exact: true }).fill('2');
+	await button('Done').click();
+	await customize(page, 'Track title');
+	await chooseOption(page.getByRole('combobox', { name: 'Horizontal alignment' }), 'end');
+	await chooseOption(page.getByRole('combobox', { name: 'Text size' }), 'large');
+	await button('Done').click();
 	await addFeature(page, 'Custom text');
-	await edit('Custom text');
-	await page
-		.getByLabel('Text template', { exact: true })
-		.fill('{position}/{count} · {title} — {duration}');
+	await customize(page, 'Custom text');
+	await page.getByLabel('Text template').fill('{position}/{count} · {title} — {duration}');
+	await button('Done').click();
 	await button('Save layout').click();
-	await expect(player).toBeVisible();
-	const artist = player.locator('[data-section-id="player-artist"]'),
-		title = player.locator('[data-section-id="player-title"]');
+	const artist = player.locator('[data-section-id=player-artist]'),
+		title = player.locator('[data-section-id=player-title]');
 	await expect(artist).toHaveText('The Lines');
 	await expect(title).toHaveText('Night Train');
-	const row = player
-		.locator('[data-part="player-row"]')
-		.filter({ has: page.locator('[data-section-id="player-title"]') });
-	await expect(row.locator('[data-section-id]')).toHaveCount(2);
-	const a = await artist.boundingBox(),
-		b = await title.boundingBox();
-	expect(a!.x).toBeLessThan(b!.x);
-	expect(Math.abs(a!.y - b!.y)).toBeLessThan(20);
-	expect(b!.width).toBeGreaterThan(a!.width * 1.6);
+	const a = (await artist.boundingBox())!,
+		t = (await title.boundingBox())!;
+	expect(a.x).toBeGreaterThan(t.x);
+	expect(Math.abs(a.y - t.y)).toBeLessThan(1);
+	expect(t.width).toBeGreaterThan(a.width * 1.6);
 	await expect(player.getByText('1/2 · Night Train — 1:00', { exact: true })).toBeVisible();
 	await player.getByRole('button', { name: 'Next track', exact: true }).click();
 	await expect(player.getByText('2/2 · Day Train — 1:00', { exact: true })).toBeVisible();
 	await page.setViewportSize({ width: 320, height: 694 });
-	await expect
-		.poll(() => page.evaluate(() => document.documentElement.scrollWidth))
-		.toBeLessThanOrEqual(320);
-	await player.getByRole('button', { name: 'Player settings' }).click();
-	await edit('Artist');
-	await openPlayerPlacement(page);
-	await chooseOption(page.getByRole('combobox', { name: 'Move to row', exact: true }), 'new');
+	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+	await openEditor(page);
+	await removeField(page, 'Artist');
 	await button('Cancel').click();
-	await expect(player).toBeVisible();
-	await expect(row.locator('[data-section-id]')).toHaveCount(2);
+	await expect(artist).toHaveText('The Lines');
 });
 
 test('older vertical layouts retain their settings and individual transport buttons remain usable in a narrow row', async ({
@@ -608,14 +619,12 @@ test('older vertical layouts retain their settings and individual transport butt
 	await expect(player.locator('[data-section-id=player-track]')).not.toContainText('Railway');
 	const button = (name: string) => page.getByRole('button', { name, exact: true });
 	await button('Player settings').click();
-	await button('Customize Playback controls').click();
-	await button('Split Playback controls').click();
+	await customize(page, 'Playback controls');
+	await button('Split into individual controls').click();
 	await button('Save layout').click();
 	await expect(player).toBeVisible();
 	await page.setViewportSize({ width: 320, height: 694 });
-	const controls = player
-		.locator('[data-part=player-row]')
-		.filter({ has: page.locator('[data-section-id=player-toggle]') });
+	const controls = player.locator('[data-player-grid]');
 	const playButton = controls.getByRole('button', { name: 'Play', exact: true });
 	const previous = controls.getByRole('button', { name: 'Previous track' }),
 		next = controls.getByRole('button', { name: 'Next track' });
@@ -638,15 +647,14 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	const region = page.locator('[data-part=now-playing]'),
 		button = (name: string) => page.getByRole('button', { name, exact: true });
 	await region.getByRole('button', { name: 'Player settings' }).click();
-	for (const name of ['Favorite', 'Add to playlist', 'Offline download', 'Track rating'])
+	await removeField(page, 'Artwork');
+	await addFeature(page, 'Track rating');
+	await customize(page, 'Track rating');
+	await page.getByText('Position and size', { exact: true }).click();
+	await page.getByLabel('Width in cells').fill('15');
+	await button('Done').click();
+	for (const name of ['Add to playlist', 'Offline download', 'Seek bar', 'Duration'])
 		await addFeature(page, name);
-	await button('Customize Playback position').click();
-	await button('Split Playback position').click();
-	await button('Customize Play queue').click();
-	await openPlayerPlacement(page);
-	await chooseOption(page.getByLabel('Move to row', { exact: true }), 'new');
-	await button('Customize Close player').click();
-	await button('Remove Close player').click();
 	await button('Save layout').click();
 	await expect(region.locator('[data-section-id=player-quality]')).toHaveText(
 		'Lossless · PCM · 16-bit · 8 kHz · 128 kbps'
@@ -685,7 +693,9 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	await expect(region.getByRole('heading', { name: 'Play queue' })).toBeVisible();
 	await region.getByRole('button', { name: 'Hide play queue' }).click();
 	await expect(region.getByRole('button', { name: 'Player menu' })).toHaveCount(0);
-	await region.getByRole('button', { name: 'Close player' }).click();
+	await expect(page.locator('.shell.pulling')).toHaveCount(0);
+	const area = (await region.boundingBox())!;
+	await verticalSwipe(page, area.x + area.width / 2, area.y + area.height * 0.2, area.height * 0.5);
 	await expect(page.locator('[data-part=mini-player]')).toBeVisible();
 });
 
@@ -703,8 +713,7 @@ test('Android Back discards a sample layout and returns to the empty player from
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'Edit Now Playing layout' }).click();
 	const player = page.getByRole('region', { name: 'Now playing', exact: true });
-	await page.getByRole('button', { name: 'Customize Artwork', exact: true }).click();
-	await page.getByRole('button', { name: 'Remove Artwork', exact: true }).click();
+	await removeField(page, 'Artwork');
 	await page.keyboard.press('Escape');
 	await expect(player.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
 	await player.getByRole('button', { name: 'Player settings' }).click();
@@ -715,53 +724,41 @@ test('Android Back discards a sample layout and returns to the empty player from
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 });
 
-test('a resized control grows its face and keeps its custom label above or below in preview and playback', async ({
+test('a playback tile can fill its container or use a fixed icon and keep a custom label during playback', async ({
 	page
 }) => {
 	await fixture(page);
 	await play(page);
-	const b = (name: string) => page.getByRole('button', { name, exact: true });
-	const originalViewport = (await page.locator('[data-part=now-playing]').boundingBox())!;
-	await b('Player settings').click();
-	await b('Customize Playback controls').click();
-	await b('Split Playback controls').click();
-	await b('Customize Play or pause').click();
-	const sample = page.locator('[data-part=sample-player]'),
-		cell = sample.locator('[data-section-id=player-toggle]');
-	const viewport = (await sample.boundingBox())!;
-	expect(Math.abs(viewport.height - originalViewport.height)).toBeLessThan(1);
-	expect(Math.abs(viewport.width - originalViewport.width)).toBeLessThan(1);
-	const before = (await cell.locator('.glyph').boundingBox())!.height;
+	const button = (name: string) => editorButton(page, name);
+	await openEditor(page);
+	await customize(page, 'Play or pause');
+	await chooseOption(page.getByLabel('Icon sizing'), 'fixed');
+	await page.getByLabel('Icon size').fill('16');
+	await button('Done').click();
+	const tile = page.locator('[data-part=sample-player] [data-section-id=player-toggle]');
+	const original = (await tile.locator('.glyph').boundingBox())!.height;
+	await customize(page, 'Play or pause');
+	await chooseOption(page.getByLabel('Icon sizing'), 'fill');
 	await chooseOption(page.getByLabel('Label', { exact: true }), 'show');
 	await page.getByLabel('Label name').fill('Listen');
 	await chooseOption(page.getByLabel('Label position'), 'above');
-	await openPlayerPlacement(page);
-	await page.getByLabel('Minimum row height', { exact: true }).fill('96');
-	await expect(cell.locator('.caption')).toHaveText('Listen');
-	expect((await cell.locator('.glyph').boundingBox())!.height).toBeGreaterThan(before);
-	const fillsRow = async (element: typeof cell) => {
-		const size = await element.locator('button.play').evaluate((el) => {
-			const box = el.getBoundingClientRect(),
-				cell = el.closest('[data-section-id]')!.getBoundingClientRect();
-			const fit = Number(getComputedStyle(el).getPropertyValue('--player-fit')) || 1;
-			return {
-				width: box.width / fit,
-				height: box.height / fit,
-				max: Math.min(96, cell.width / fit)
-			};
-		});
-		expect(Math.abs(size.max - size.width)).toBeLessThan(1);
-		expect(Math.abs(size.max - size.height)).toBeLessThan(1);
-	};
-	await fillsRow(cell);
-	await b('Save layout').click();
+	await button('Done').click();
+	await button('Preview current draft').click();
+	const preview = page.locator('[data-part=draft-player] [data-section-id=player-toggle]');
+	await expect(preview.locator('.caption')).toHaveText('Listen');
+	expect((await preview.locator('.glyph').boundingBox())!.height).toBeGreaterThan(original + 1);
+	await button('Back to editing').click();
+	await button('Save layout').click();
 	const live = page.locator('[data-part=now-playing] [data-section-id=player-toggle]');
 	await expect(live.locator('.caption')).toHaveText('Listen');
 	await expect(live.locator('.face')).toHaveAttribute('data-label-position', 'above');
-	await fillsRow(live);
 	await expect(live.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+	const box = (await live.locator('.glyph').boundingBox())!;
+	expect(Math.abs(box.height - box.width)).toBeLessThan(1);
+	expect(box.height).toBeGreaterThan(original + 1);
 });
-test('an older header becomes an editable grid with square controls on the header, in a body row and in the queue', async ({
+
+test('an older header keeps its control sizes and accessible inspector focus when saved as a grid', async ({
 	page
 }) => {
 	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
@@ -812,60 +809,38 @@ test('an older header becomes an editable grid with square controls on the heade
 	await geometry(live, 'player-close', 32);
 	await geometry(live, 'player-queue', 36);
 	await button('Player settings').click();
-	await expect(sample).toBeVisible();
-	expect(await ids(sample)).toEqual(order);
+	await expect(sample.locator('[data-player-grid]')).toBeVisible();
 	await geometry(sample, 'player-queue', 36);
-	await button('Edit header').click();
-	const panel = page.getByRole('group', { name: 'Edit header', exact: true });
-	await chooseOption(panel.getByLabel('Number of columns'), '5');
-	await panel.getByLabel('Column spacing (px)').fill('4');
-	await panel.getByLabel('Minimum row height').fill('72');
-	await panel.getByLabel('Column 2 width').fill('4');
-	const empty = button('Open column 5, Empty column');
-	await empty.click();
-	await expect(page.getByRole('group', { name: 'Choose a player feature' })).toBeFocused();
+	const field = button('Customize Close player');
+	await field.focus();
+	await field.press('Enter');
+	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(empty).toBeFocused();
+	await expect(field).toBeFocused();
+	await customize(page, 'Player heading');
+	await page.getByText('Position and size', { exact: true }).click();
+	await page.getByLabel('Width in cells').fill('1');
+	await button('Done').click();
+	await button('Add item').click();
+	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(button('Edit header')).toBeFocused();
-	await button('Add feature to header, column 5').click();
-	await button('Use Remaining time').click();
-	await button('Customize Close player').click();
-	await openPlayerPlacement(page);
-	await chooseOption(page.getByLabel('Move to row', { exact: true }), 'new');
-	await geometry(sample, 'player-close', 32);
+	await expect(button('Add item')).toBeFocused();
 	await button('Save layout').click();
-	expect(await ids(live)).toEqual([
-		'player-queue',
-		'player-heading',
-		'player-settings',
-		'player-remaining'
-	]);
+	for (const id of order)
+		await expect(live.locator('[data-player-grid] [data-section-id="' + id + '"]')).toBeVisible();
 	await geometry(live, 'player-close', 32);
 	await geometry(live, 'player-queue', 36);
-	const grid = live.locator('[data-part=player-header-row]');
-	expect(
-		await grid
-			.locator(':scope [data-section-id]')
-			.evaluateAll(
-				(nodes) => nodes[1].getBoundingClientRect().left - nodes[0].getBoundingClientRect().right
-			)
-	).toBeCloseTo(4, 0);
-	await expect(grid).toHaveCSS('min-height', '72px');
 	await button('Show play queue').click();
 	await expect(live.getByRole('heading', { name: 'Play queue' })).toBeVisible();
-	await expect(grid.locator('[data-section-id=player-remaining]')).toBeVisible();
-	await geometry(live, 'player-queue', 36);
 	await button('Hide play queue').click();
+	await expect(live.locator('[data-player-grid]')).toBeVisible();
 	await geometry(live, 'player-close', 32);
 	const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
-	expect(stored.find((s: { id: string }) => s.id === 'player-output')).toMatchObject({
-		placement: 'hidden'
-	});
 	expect(stored.find((s: { id: string }) => s.id === 'player-close')).toMatchObject({
 		icon: 'circle-play',
 		iconSize: 32
 	});
+	await expect(live.locator('[data-section-id="player-output"]')).toHaveCount(0);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -1022,7 +997,7 @@ test('sleep timers pause the browser queue at a wall-clock deadline and before a
 	await expect(page.getByText('The sleep timer is off.')).toBeVisible();
 });
 
-test('a clean draft preview preserves the inspector and scroll while the real track keeps playing', async ({
+test('a clean grid preview preserves the draft, editor scroll and keyboard focus while the real track keeps playing', async ({
 	page
 }) => {
 	await page.setViewportSize({ width: 320, height: 720 });
@@ -1043,65 +1018,40 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	await fixture(page);
 	await play(page);
 	const b = (name: string) => page.getByRole('button', { name, exact: true });
-	const main = page.locator('main'),
-		live = page.locator('[data-part=now-playing]');
+	const live = page.locator('[data-part=now-playing]');
 	await live.getByRole('slider', { name: 'Playback position' }).fill('15');
-	await live
-		.locator('[data-part=transport]')
-		.getByRole('button', { name: 'Play', exact: true })
-		.click();
-	await b('Player settings').click();
+	await live.getByRole('button', { name: 'Play', exact: true }).click();
+	await openEditor(page);
 	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']);
 	const saved = () => page.evaluate((k) => localStorage.getItem(k), key),
 		original = await saved();
-	const editor = page.locator('[data-part=layout-editor]'),
-		preview = b('Preview current draft');
-	await b('Add row').click();
-	await b('Customize Track title').click();
-	await openPlayerPlacement(page);
+	const editor = page.locator('[data-part=layout-editor]');
+	const preview = b('Preview current draft');
+	await customize(page, 'Track title');
 	await page.getByLabel('Section title').fill('Draft sleeve');
-	const scroll = await main.evaluate((el) => el.scrollTop);
-	expect(scroll).toBeGreaterThan(50);
-	const toolbar = await editor.locator('.bar button:visible').evaluateAll((nodes) =>
-		nodes.map((el) => {
-			const { x, y, width, height } = el.getBoundingClientRect();
-			return { x, y, width, height };
-		})
-	);
-	for (const box of toolbar) {
-		expect(box.x).toBeGreaterThanOrEqual(0);
-		expect(box.x + box.width).toBeLessThanOrEqual(320);
-		expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
-	}
+	await b('Done').click();
+	const scroll = await page.locator('main').evaluate((el) => el.scrollTop);
 	await preview.tap();
-	const sample = page.getByRole('region', { name: 'Now Playing layout preview' });
+	const sample = page.locator('[data-part=draft-player]');
 	const back = b('Back to editing');
 	await expect(back).toBeFocused();
-	await expect(editor).toBeHidden();
 	await expect(sample.getByRole('heading', { name: 'Draft sleeve' })).toBeVisible();
 	await expect(sample.getByRole('heading', { name: 'Track Title' })).toBeVisible();
 	await expect(sample.getByRole('img', { name: 'Album artwork' })).toBeVisible();
 	await expect(
 		sample.locator('[data-layout-drag], .editing-field, .active-field, [data-inspector], .field')
 	).toHaveCount(0);
-	await expect(sample.locator('[data-slot=true]')).toHaveCount(1);
 	await expect(sample.getByRole('button')).toHaveCount(0);
-	await expect(sample.getByRole('button', { name: 'Open navigation menu' })).toHaveCount(0);
-	await expect(page.locator('.mast')).toBeHidden();
-	const title = sample.locator('[data-section-id=player-heading] .lines');
-	expect(await title.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
-	await page.screenshot({ path: test.info().outputPath('now-playing-draft-preview-320.png') });
-	const next = sample.locator('[data-part=transport] button[aria-label="Next track"]');
-	await next.scrollIntoViewIfNeeded();
+	const next = sample.locator('[data-section-id=player-next] button');
 	const box = (await next.boundingBox())!;
 	await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 	await expect(back).toBeInViewport();
-
 	await page.keyboard.press('Escape');
 	await expect(preview).toBeFocused();
-	await expect(page.getByLabel('Section title')).toHaveValue('Draft sleeve');
-	await expect(editor.locator('.canvas details.advanced')).toHaveAttribute('open', '');
-	expect(Math.abs((await main.evaluate((el) => el.scrollTop)) - scroll)).toBeLessThan(2);
+	await expect(editor).toBeVisible();
+	expect(
+		Math.abs((await page.locator('main').evaluate((el) => el.scrollTop)) - scroll)
+	).toBeLessThan(2);
 	await preview.tap();
 	await back.tap();
 	await expect(preview).toBeFocused();
@@ -1112,6 +1062,9 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 		)
 	).toBe(false);
 	await expect(preview).toBeFocused();
+	await customize(page, 'Draft sleeve');
+	await expect(page.getByLabel('Section title')).toHaveValue('Draft sleeve');
+	await b('Done').click();
 	expect(await saved()).toBe(original);
 	await b('Cancel').click();
 	await expect(live.getByRole('heading', { name: 'Night Train' })).toBeVisible();
@@ -1127,22 +1080,20 @@ test('a clean draft preview preserves the inspector and scroll while the real tr
 	expect(await saved()).toBe(original);
 });
 
-test('the clean preview keeps every player row and Back inside the screen in both orientations', async ({
+test('the clean preview keeps every player tile and Back inside the screen in both orientations', async ({
 	page
 }) => {
 	await fixture(page);
 	await play(page);
 	const button = (name: string) => page.getByRole('button', { name, exact: true });
 	await button('Player settings').click();
-	await button('Edit header').click();
-	await button('Add subrow to column 1').click();
-	await button('Use Artist').click();
-	await button('Customize Playback position').click();
+	await customize(page, 'Playback position');
 	await chooseOption(page.getByLabel('Seek bar style'), 'waveform');
+	await button('Done').click();
 	await button('Preview current draft').click();
-	const dialog = page.getByRole('dialog', { name: 'Player layout preview' }),
+	const dialog = page.getByRole('dialog'),
 		preview = dialog.locator('[data-part=draft-player]'),
-		rows = preview.locator('[data-part=player-header-row], [data-part=player-row]'),
+		rows = preview.locator('[data-player-grid] > [data-section-id]'),
 		back = dialog.getByRole('button', { name: 'Back to editing' });
 	await expect(preview.locator('[data-seek-style=waveform] svg')).toBeVisible();
 	for (const size of [
@@ -1155,7 +1106,8 @@ test('the clean preview keeps every player row and Back inside the screen in bot
 		await expect
 			.poll(() =>
 				rows.evaluateAll((els) => {
-					const frame = els[0].closest('dialog')!;
+					if (!els.length) return false;
+					const frame = els[0].closest('dialog,[role=dialog]')!;
 					const button = frame.querySelector('button')!.getBoundingClientRect();
 					return els.every((el) => {
 						const r = el.getBoundingClientRect();
@@ -1197,14 +1149,15 @@ test('old menu and Track tools layouts migrate to More actions without adding ei
 	const b = (name: string) => page.getByRole('button', { name, exact: true });
 	await b('Settings').click();
 	await b('Edit Now Playing layout').click();
-	await expect(b('Customize More actions')).toBeVisible();
-	await b('Add row').click();
-	await page
-		.getByRole('button', { name: /^Add feature to row/ })
-		.last()
-		.click();
-	await expect(b('Use Track tools')).toHaveCount(0);
-	await expect(b('Use Navigation menu')).toHaveCount(0);
+	await customize(page, 'More actions');
+	await page.getByText('Position and size', { exact: true }).click();
+	await page.getByLabel('Width in cells').fill('1');
+	await b('Done').click();
+	await b('Add item').click();
+	const picker = page.getByRole('dialog');
+	await expect(picker.getByRole('button', { name: 'Track tools', exact: true })).toHaveCount(0);
+	await expect(picker.getByRole('button', { name: 'Navigation menu', exact: true })).toHaveCount(0);
+	await page.keyboard.press('Escape');
 	await b('Save layout').click();
 	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
 	expect(saved.some((s: { id: string }) => s.id === 'player-more')).toBe(true);
@@ -1212,7 +1165,9 @@ test('old menu and Track tools layouts migrate to More actions without adding ei
 		false
 	);
 });
-test('an explicit six-column header keeps all columns after menu migration', async ({ page }) => {
+test('a migrated six-column header keeps its five controls and the empty column remains available', async ({
+	page
+}) => {
 	const ids = [
 		'player-close',
 		'player-heading',
@@ -1241,14 +1196,18 @@ test('an explicit six-column header keeps all columns after menu migration', asy
 	await b('Sign in').click();
 	await b('Settings').click();
 	await b('Edit Now Playing layout').click();
-	const fields = () =>
+	const fields = (grid: boolean) =>
 		page
-			.locator('[data-part=player-header-row]:visible [data-section-id]')
+			.locator(
+				grid
+					? '[data-part=sample-player] [data-player-grid] [data-section-id]'
+					: '[data-part=player-header-row]:visible [data-section-id]'
+			)
 			.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-section-id')));
-	await expect.poll(fields).toEqual(ids);
+	await expect.poll(() => fields(true)).toEqual(ids.filter((id) => id !== 'player-slot-1'));
 	await b('Cancel').click();
 	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeVisible();
-	await expect.poll(fields).toEqual(ids);
+	await expect.poll(() => fields(false)).toEqual(ids);
 	await expect(b('Open navigation menu')).toHaveCount(0);
 	await expect(b('Player menu')).toHaveCount(0);
 	await b('Close player').click();
@@ -2096,4 +2055,79 @@ test('enhanced lyrics highlight timestamped words on seek and leave untimed line
 	await expect(first.locator('[data-active-word]')).toHaveCount(0);
 	await lines.getByRole('button', { name: 'Seek to lyric 普通の歌詞 <3' }).click();
 	await expect(lines.locator('[aria-current=true]')).toHaveText('普通の歌詞 <3');
+});
+
+test('the saved player grid keeps proportional tiles, fixed and fill icons, lyrics and queue navigation', async ({
+	page
+}) => {
+	const { defaultGridLayout } = await import('../src/lib/player/grid');
+	const gridLayout = defaultGridLayout();
+	gridLayout.push({
+		id: 'player-rating',
+		title: '',
+		preview: true,
+		grid: { x: 6, y: 18, w: 3, h: 2 }
+	});
+	const fill = gridLayout.find((s) => s.id === 'player-next')!;
+	fill.iconMode = 'fill';
+	fill.padding = 5;
+	const feedback = await fixture(page);
+	await play(page);
+	await page.evaluate(
+		({ server, layout }) => {
+			localStorage.setItem(
+				'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']),
+				JSON.stringify(layout)
+			);
+			window.dispatchEvent(
+				new CustomEvent('dn-layout-change', { detail: { board: 'player', user: 'alex', server } })
+			);
+		},
+		{ server, layout: gridLayout }
+	);
+	const live = page.locator('[data-part=now-playing]');
+	const grid = live.locator('[data-player-grid]');
+	await expect(grid).toBeVisible();
+	await expect(live.locator('[data-part=player-header-row]')).toHaveCount(0);
+	for (const viewport of [
+		{ width: 390, height: 844 },
+		{ width: 320, height: 568 },
+		{ width: 844, height: 390 }
+	]) {
+		await page.setViewportSize(viewport);
+		await expect
+			.poll(async () => grid.evaluate((el) => el.getBoundingClientRect().width))
+			.toBeLessThanOrEqual(viewport.width);
+		await expect
+			.poll(() =>
+				grid.evaluate((el) => {
+					function measure(id: string) {
+						const item = el.querySelector('[data-section-id="player-' + id + '"]')!;
+						const region = item.getBoundingClientRect();
+						const glyph = item.querySelector('.glyph')!.getBoundingClientRect();
+						return { width: region.width, height: region.height, icon: glyph.width };
+					}
+					const next = measure('next'),
+						play = measure('toggle');
+					return Math.max(
+						Math.abs(next.width - play.width),
+						Math.abs(next.icon - (Math.min(next.width, next.height) - 10)),
+						Math.abs(play.icon - 34)
+					);
+				})
+			)
+			.toBeLessThan(1);
+	}
+	for (const value of [3, 5]) {
+		await grid.getByRole('button', { name: 'Rate ' + value + ' stars' }).click();
+		await expect.poll(() => feedback.ratings.t0).toBe(value);
+	}
+	await grid.getByRole('button', { name: 'Lyrics', exact: true }).click();
+	await expect(grid.getByText('First line', { exact: true })).toBeVisible();
+	await grid.getByRole('button', { name: 'Lyrics', exact: true }).click();
+	await expect(grid.getByText('First line', { exact: true })).toHaveCount(0);
+	await grid.getByRole('button', { name: 'Show play queue' }).click();
+	await expect(live.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+	await live.getByRole('button', { name: 'Hide play queue' }).click();
+	await expect(grid).toBeVisible();
 });

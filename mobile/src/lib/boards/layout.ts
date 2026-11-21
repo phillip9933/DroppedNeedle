@@ -4,6 +4,7 @@ import { boardDisplay, type BoardDisplay } from './display';
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
+import { isPlayerGrid, type GridRect } from '../player/grid';
 import { expandLegacyTrack, isPlayerSlot, isPlayerText } from '../player/composition';
 import {
 	playerMeasurements,
@@ -19,6 +20,8 @@ import {
 export type Board = 'home' | 'library' | 'discover';
 export type LayoutTarget = Board | 'player';
 export type Section = {
+	grid?: GridRect;
+	iconMode?: 'fixed' | 'fill';
 	id: string;
 	title: string;
 	preview: boolean;
@@ -232,7 +235,12 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 		}
 		sections.push(section);
 	}
-	return board === 'player' ? expandLegacyTrack(sections) : sections;
+	if (board !== 'player') return sections;
+	// A partially written or hand-edited local layout can still supply usable field settings.
+	if (sections.some((section) => section.grid) && !isPlayerGrid(sections)) {
+		for (const section of sections) delete section.grid;
+	}
+	return expandLegacyTrack(sections);
 }
 
 export function saveLayout(

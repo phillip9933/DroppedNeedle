@@ -1,4 +1,5 @@
 import { hasSavedPlayerLayout, type Section } from '../boards/layout';
+import { defaultGridLayout, isPlayerGrid, editablePlayerGrid, emptyPlayerTile } from './grid';
 import { previousPlayerDefaults } from './layout';
 import { packPlayerCanvas, playerCanvas } from './composition';
 import { exportPlayerStyle, importPlayerStyle } from './playerStyle';
@@ -29,23 +30,40 @@ function database() {
 
 export type PlayerDraft = Awaited<ReturnType<typeof openPlayerDraft>>;
 
-export async function openPlayerDraft(server: string, user: string, saved: Section[]) {
-	let initial = saved;
+export async function openPlayerDraft(
+	server: string,
+	user: string,
+	saved: Section[],
+	useStarter = false
+) {
+	function asDraft(sections: Section[]) {
+		const visible = editablePlayerGrid(sections);
+		return visible.length ? visible : [emptyPlayerTile()];
+	}
+	const explicit = hasSavedPlayerLayout(server, user);
+	const baseGrid = explicit && !useStarter ? asDraft(saved) : defaultGridLayout();
+	let initial = baseGrid;
+	let initialFingerprint = '';
+	function snapshot(items: Section[]) {
+		if (isPlayerGrid(items)) return exportPlayerStyle(items, 'compact');
+		const hidden = items.filter((s) => s.placement === 'hidden');
+		return exportPlayerStyle(packPlayerCanvas(playerCanvas(items), hidden), 'compact');
+	}
 	let baseline = '';
 	let previous = '';
 	let newest = 0;
 	let db: IDBDatabase | undefined;
 	const owned = new Set<IDBValidKey>();
 	try {
-		const hidden = saved.filter((section) => section.placement === 'hidden');
-		baseline = exportPlayerStyle(packPlayerCanvas(playerCanvas(saved), hidden), 'compact');
-		previous = baseline;
+		baseline = snapshot(saved);
+		initialFingerprint = exportPlayerStyle(baseGrid, 'compact');
+		previous = initialFingerprint;
 		db = await database();
 		const store = db.transaction('layouts', 'readwrite').objectStore('layouts');
 		const range = IDBKeyRange.bound([server, user], [server, user, []]);
 		const cursor = store.openCursor(range, 'prev');
 		const formerBaselines = new Map<string, boolean>();
-		const formerDefault = hasSavedPlayerLayout(server, user)
+		const formerDefault = explicit
 			? ''
 			: exportPlayerStyle(packPlayerCanvas(playerCanvas(previousPlayerDefaults()), []), 'compact');
 		await new Promise<void>((resolve, reject) => {
@@ -63,13 +81,7 @@ export async function openPlayerDraft(server: string, user: string, saved: Secti
 					let same = false;
 					try {
 						const old = importPlayerStyle(record.baseline);
-						const normalized = exportPlayerStyle(
-							packPlayerCanvas(
-								playerCanvas(old),
-								old.filter((s) => s.placement === 'hidden')
-							),
-							'compact'
-						);
+						const normalized = snapshot(old);
 						same = normalized === baseline || normalized === formerDefault;
 					} catch {
 						/* An unreadable baseline cannot identify this draft. */
@@ -81,8 +93,8 @@ export async function openPlayerDraft(server: string, user: string, saved: Secti
 					typeof record.layout === 'string'
 				) {
 					try {
-						initial = importPlayerStyle(record.layout);
-						previous = record.layout;
+						initial = asDraft(importPlayerStyle(record.layout));
+						previous = exportPlayerStyle(initial, 'compact');
 						newest = Number((item.primaryKey as IDBValidKey[])[2]) || 0;
 						owned.add(item.primaryKey);
 						return resolve();
@@ -130,7 +142,7 @@ export async function openPlayerDraft(server: string, user: string, saved: Secti
 			if (layout === previous) return currentWrite;
 			if (!baseline) return Promise.resolve(issue);
 			previous = layout;
-			currentWrite = replace(layout === baseline ? undefined : layout).then(
+			currentWrite = replace(layout === initialFingerprint ? undefined : layout).then(
 				() => '',
 				() => issue
 			);
@@ -139,5 +151,10 @@ export async function openPlayerDraft(server: string, user: string, saved: Secti
 			return Promise.resolve(issue);
 		}
 	}
-	return { initial, recovered: initial !== saved, remember, clear: async () => replace() };
+	return {
+		initial,
+		recovered: initial !== baseGrid,
+		remember,
+		clear: async () => replace()
+	};
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Play, Pause, CirclePause, SquarePause } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
+	import { gridIconSize } from './grid';
 	import { explicitPlayerGlyph } from './glyphs';
 	let {
 		section,
@@ -35,6 +36,16 @@
 							: Pause
 					: (explicitPlayerGlyph(icon) ?? glyph)
 	);
+	const gridRoom = $derived(
+		`max(0px,min(calc((100cqw - 2 * var(--field-padding, 0px)) / var(--grid-group-count, 1)), calc(100cqh - 2 * var(--field-padding, 0px) - ${displayLabel ? '1.6em' : '0px'})))`
+	);
+	const glyphSize = $derived(
+		section?.grid
+			? section.iconMode === 'fill'
+				? gridRoom
+				: `min(${section.iconSize ?? gridIconSize(section.id)}px, ${gridRoom})`
+			: `max(${section?.iconSize ?? size}px, var(--player-face-size, 0px))`
+	);
 	const Mark = $derived(playback === 'pause' ? Pause : Play);
 </script>
 
@@ -45,13 +56,7 @@
 		data-player-icon={icon}
 		data-playback={playback}
 	>
-		{#if Glyph}<span
-				class="glyph"
-				style:--glyph-size={'max(' +
-					(section?.iconSize ?? size) +
-					'px,var(--player-face-size, 0px))'}
-				aria-hidden="true"
-			>
+		{#if Glyph}<span class="glyph" style:--glyph-size={glyphSize} aria-hidden="true">
 				<Glyph size="100%" fill={fill ? 'currentColor' : 'none'} />
 				{#if playback && icon !== 'default' && !paired}<span class="state"
 						><Mark size="100%" fill="currentColor" /></span

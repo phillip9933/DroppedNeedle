@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import { playerCanvas, packPlayerCanvas, playerColumns } from '../src/lib/player/composition';
 
+import { toPlayerGrid } from '../src/lib/player/grid';
 import type { Section } from '../src/lib/boards/layout';
 import { exportPlayerStyle, importPlayerStyle } from '../src/lib/player/playerStyle';
 
@@ -64,6 +65,28 @@ test('versioned player layout JSON round trips supported options and rejects mal
 		expect(() => importPlayerStyle(JSON.stringify(value))).toThrow();
 	expect(() => importPlayerStyle('x'.repeat(65537))).toThrow(/64 KiB/);
 	expect(() => importPlayerStyle('界'.repeat(25000))).toThrow(/64 KiB/);
+});
+
+test('fixed grid JSON keeps positions and icon sizing and rejects overlaps or invalid coordinates', () => {
+	const tiles: Section[] = [
+		{ ...layout[0], grid: { x: 0, y: 2, w: 6, h: 3 } },
+		{ ...layout[1], grid: { x: 6, y: 2, w: 3, h: 3 }, iconMode: 'fill' }
+	];
+	const exported = exportPlayerStyle(tiles);
+	expect(JSON.parse(exported).version).toBe(2);
+	expect(importPlayerStyle(exported)).toEqual(tiles);
+	for (const grid of [
+		{ x: 5, y: 2, w: 3, h: 3 },
+		{ x: 14, y: 0, w: 2, h: 1 },
+		{ x: 0, y: 19.5, w: 1, h: 1 },
+		{ x: 0, y: 0, w: 1, h: 1, unexpected: 'x' },
+		undefined
+	]) {
+		const sections = [tiles[0], { ...tiles[1], grid }];
+		expect(() =>
+			importPlayerStyle(JSON.stringify({ ...JSON.parse(exported), sections }))
+		).toThrow();
+	}
 });
 
 test('version 1 layouts migrate removed controls and preserve nested header and body fields', () => {
@@ -197,8 +220,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 		await load.click();
 		await page.getByRole('button', { name: 'Export', exact: true }).click();
 		const draft = importPlayerStyle(await output.inputValue());
-		expect(draft.map((s) => s.id)).toEqual(layout.map((s) => s.id));
-		expect(draft[0]).toMatchObject(layout[0]);
+		expect(draft).toEqual(toPlayerGrid(layout));
 	}
 	await importDraft();
 	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
@@ -209,7 +231,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 	await importDraft();
 	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
 	const saved = await page.evaluate((k) => localStorage.getItem(k), key);
-	expect(JSON.parse(saved || '[]')[0]).toMatchObject(layout[0]);
+	expect(JSON.parse(saved || '[]')).toEqual(toPlayerGrid(layout));
 });
 
 test('layout files round trip offline through review, cancellation and an explicit save', async ({
@@ -254,7 +276,7 @@ test('layout files round trip offline through review, cancellation and an explic
 	expect(download.suggestedFilename()).toBe('droppedneedle-player-layout.json');
 	const bytes = await readFile((await download.path())!);
 	expect(bytes.toString('utf8')).toEqual(exported);
-	expect(importPlayerStyle(exported)[0]).toMatchObject(layout[0]);
+	expect(importPlayerStyle(exported)).toEqual(toPlayerGrid(layout));
 	await button('Cancel').click();
 	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
 
@@ -264,10 +286,12 @@ test('layout files round trip offline through review, cancellation and an explic
 	await button('Import').click();
 	await choose(bytes);
 	await expect(input).toHaveValue(exported);
-	await expect(page.getByText('1 row · 2 elements')).toBeVisible();
+	await expect(
+		page.getByText('15 × 20 · ' + toPlayerGrid(layout).length + ' elements')
+	).toBeVisible();
 	await load.click();
 	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
 	await button('Save layout').click();
 	const saved = await page.evaluate((k) => localStorage.getItem(k), key);
-	expect(JSON.parse(saved || '[]')[0]).toMatchObject(layout[0]);
+	expect(JSON.parse(saved || '[]')).toEqual(toPlayerGrid(layout));
 });

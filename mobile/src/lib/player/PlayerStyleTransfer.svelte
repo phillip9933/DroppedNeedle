@@ -2,6 +2,7 @@
 	import { uiText } from '../i18n';
 	import { sectionTitle, type Section } from '../boards/layout';
 	import { readLayoutFile, saveLayoutFile } from './layoutFiles';
+	import { isPlayerGrid, GRID_COLUMNS, GRID_ROWS } from './grid';
 	import { playerCanvas } from './composition';
 	import { exportPlayerStyle, importPlayerStyle } from './playerStyle';
 	let { sections, onload }: { sections: Section[]; onload: (sections: Section[]) => void } =
@@ -177,17 +178,31 @@
 					playerCanvas(review)}{@const rows = hasHeader ? canvas : canvas.slice(1)}{@const count =
 					rows.flat().length}
 				<div class="review">
-					<p>
-						{rows.length}
-						{rows.length === 1 ? uiText('row') : uiText('rows')} · {count}
-						{count === 1 ? uiText('element') : uiText('elements')}
-					</p>
-					{#if rows.length}<ol>
-							{#each rows as row, i (row[0].id)}<li>
-									{#if i === 0 && hasHeader}<strong>{uiText('Header')}</strong> ·
-									{/if}{row.map(sectionTitle).join(' · ')}
-								</li>{/each}
-						</ol>{:else}<p>{uiText('This layout has no player elements.')}</p>{/if}<button
+					{#if isPlayerGrid(review)}
+						<p>
+							{GRID_COLUMNS} × {GRID_ROWS} · {review.length}
+							{uiText(review.length === 1 ? 'element' : 'elements')}
+						</p>
+						<ol>
+							{#each [...review].sort((a, b) => a.grid!.y - b.grid!.y || a.grid!.x - b.grid!.x) as tile (tile.id)}
+								<li>
+									{sectionTitle(tile)} · {uiText('Column')}
+									{tile.grid!.x + 1}, {uiText('Row')}
+									{tile.grid!.y + 1} · {tile.grid!.w} × {tile.grid!.h}
+								</li>
+							{/each}
+						</ol>
+					{:else}<p>
+							{rows.length}
+							{rows.length === 1 ? uiText('row') : uiText('rows')} · {count}
+							{count === 1 ? uiText('element') : uiText('elements')}
+						</p>
+						{#if rows.length}<ol>
+								{#each rows as row, i (row[0].id)}<li>
+										{#if i === 0 && hasHeader}<strong>{uiText('Header')}</strong> ·
+										{/if}{row.map(sectionTitle).join(' · ')}
+									</li>{/each}
+							</ol>{:else}<p>{uiText('This layout has no player elements.')}</p>{/if}{/if}<button
 						type="button"
 						class="secondary"
 						onclick={load}>{uiText('Load into editor')}</button

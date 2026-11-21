@@ -228,6 +228,7 @@ export function splitPlayerSection(section: Section): Section[] {
 /** Keep explicitly grouped, titled or already composed layouts intact. Plain legacy metadata
  * can become independent rows without losing adjacent columns, duplicate fields or a custom heading. */
 export function expandLegacyTrack(sections: Section[]): Section[] {
+	if (sections.some((s) => s.grid)) return sections;
 	sections = migratePlayerFields(sections).map((field) =>
 		field.id === 'player-timeline' && !field.preview
 			? {

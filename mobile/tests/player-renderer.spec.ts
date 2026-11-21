@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import type { Section } from '../src/lib/boards/layout';
+import { GRID_ROWS, gridFits, toPlayerGrid } from '../src/lib/player/grid';
 import { playerDefaults } from '../src/lib/player/layout';
 import {
 	expandLegacyTrack,
@@ -244,7 +245,17 @@ test('six live player columns fit 320px and action, alignment and text settings 
 		'aria-label',
 		'Detail · Artist Name'
 	);
-	await expect(sample.locator('[data-section-id="player-slot-2"]')).toBeVisible();
+	// Old spacer fields become unoccupied cells. The artist's custom placement and the
+	// empty region survive the conversion without putting a placeholder on the canvas.
+	await expect(sample.locator('[data-section-id="player-slot-2"]')).toHaveCount(0);
+	const migrated = toPlayerGrid(sections);
+	const spacer = migrated.find((s) => s.id === 'player-slot-2')!.grid;
+	expect(
+		gridFits(
+			spacer,
+			migrated.filter((s) => !isPlayerSlot(s.id))
+		)
+	).toBe(true);
 	await expect(sample.locator('[data-section-id="player-title"] .lines')).toHaveCSS(
 		'-webkit-line-clamp',
 		'1'
@@ -257,10 +268,9 @@ test('six live player columns fit 320px and action, alignment and text settings 
 		'padding',
 		'8px'
 	);
-	const sampleFit = await sample
-		.locator('.player-frame')
-		.evaluate((el) => Number(getComputedStyle(el).getPropertyValue('--player-fit')) || 1);
-	expect(
-		(await sample.locator('[data-section-id="player-slot-2"]').boundingBox())!.height / sampleFit
-	).toBeCloseTo(26, 0);
+	const editorGrid = (await sample.locator('[data-player-grid]').boundingBox())!;
+	const last = (await sample.locator('[data-section-id="player-repeat"]').boundingBox())!;
+	expect(last.y + last.height).toBeLessThanOrEqual(
+		editorGrid.y + (editorGrid.height * spacer.y) / GRID_ROWS + 1
+	);
 });
