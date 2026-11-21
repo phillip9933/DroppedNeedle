@@ -81,14 +81,25 @@ input[type='range'] {
 	color: var(--dn-action-content);
 	border: 1px solid var(--dn-action-edge);
 }
-.secondary,
-.icon-button {
+:is(.secondary, .icon-button):where(:not(.player-control)) {
 	background: var(--raised);
 }
 .icon-button {
 	width: 44px;
 	min-width: 44px;
 	border-radius: 50%;
+}
+.player-control {
+	min-width: min(44px, 100%);
+	min-height: 44px;
+	padding: 0;
+}
+.player-control[aria-pressed='true'],
+.player-control[aria-expanded='true'] {
+	color: var(--accent);
+}
+.player-control:active:not(:disabled) {
+	opacity: 0.72;
 }
 .text-button {
 	justify-content: flex-start;
@@ -178,14 +189,15 @@ svg {
 	--material-edge: color-mix(in srgb, var(--text) 13%, transparent);
 	--material-shadow: inset 0 0 0 1px var(--material-edge), 0 4px 16px rgb(0 0 0 / 12%);
 }
-html[data-material] :is(.secondary, .icon-button, [data-surface='control']) {
+html[data-material]
+	:is(.secondary, .icon-button, [data-surface='control']):where(:not(.player-control)) {
 	background-color: var(--button-fill);
 	background-image: var(--material-overlay);
 	-webkit-backdrop-filter: var(--material-filter);
 	backdrop-filter: var(--material-filter);
 	box-shadow: var(--material-shadow);
 }
-html[data-material] :is(.primary, .play) {
+html[data-material] .primary {
 	background-color: var(--action-fill);
 	background-image: var(--material-overlay);
 	-webkit-backdrop-filter: var(--material-filter);
@@ -209,6 +221,12 @@ html[data-material]
 	backdrop-filter: var(--material-filter);
 	border-color: var(--material-edge);
 	box-shadow: var(--material-shadow);
+}
+html[data-material] :is([data-part='bottom-bar'], [data-part='mini-player']) {
+	box-shadow: none;
+}
+html[data-navigation='floating'] :is([data-part='bottom-bar'], [data-part='mini-player']) {
+	box-shadow: 0 3px 12px rgb(0 0 0 / 16%);
 }
 @media (prefers-reduced-transparency: reduce) {
 	[data-material] {

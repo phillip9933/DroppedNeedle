@@ -67,7 +67,7 @@
 
 <button
 	class="icon-button"
-	class:custom-face={!!face}
+	class:player-control={!!face}
 	disabled={busy}
 	aria-pressed={active}
 	aria-label={active ? 'Remove ' + kind + ' from favorites' : 'Favorite ' + kind}
@@ -81,7 +81,7 @@
 {#if error}<p role="alert">{error}</p>{/if}
 
 <style>
-	button.custom-face {
+	button.player-control {
 		width: auto;
 		min-width: min(44px, 100%);
 		height: auto;

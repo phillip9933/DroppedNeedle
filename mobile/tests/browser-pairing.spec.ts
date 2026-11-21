@@ -623,7 +623,11 @@ test('queued Android downloads survive navigation and expose waiting, retry and 
 test('an Android listener chooses and disconnects a network output after browser sign-in', async ({
 	page
 }) => {
-	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await page.addInitScript(() => {
+		sessionStorage.setItem('reconnected', '1');
+		sessionStorage.setItem('restored-song', 'Night service');
+		localStorage.setItem('dn.mobile.interface.v2', JSON.stringify({ surface: 'glass' }));
+	});
 	await deliverApproval(page);
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -653,6 +657,19 @@ test('an Android listener chooses and disconnects a network output after browser
 	await androidBack();
 	await expect(menu).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
+	await page.getByRole('button', { name: 'Open player for Night service' }).click();
+	await expect(output).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+	await expect(output).toHaveCSS('background-image', 'none');
+	await expect(output).toHaveCSS('box-shadow', 'none');
+	await page.keyboard.press('Tab');
+	await output.focus();
+	await expect(output).toHaveCSS('outline-width', '3px');
+	await output.click();
+	await expect(output).toHaveAttribute('aria-expanded', 'true');
+	await expect(sheet.getByRole('button', { name: 'Find network speakers' })).toHaveCSS(
+		'background-image',
+		/linear-gradient/
+	);
 });
 
 test('Android can finish a returned browser sign-in after the network and app restart', async ({

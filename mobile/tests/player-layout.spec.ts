@@ -132,6 +132,74 @@ async function addFeature(page: Page, name: string) {
 		.click();
 	await page.getByRole('button', { name: 'Use ' + name, exact: true }).click();
 }
+for (const [surface, palette] of [
+	['solid', 'light'],
+	['glass', 'dark'],
+	['blur', 'midnight']
+] as const) {
+	test(
+		'player icons and the floating dock respect the ' + surface + ' surface',
+		async ({ page }) => {
+			await page.addInitScript(
+				({ surface, palette }) => {
+					localStorage.setItem(
+						'dn.mobile.interface.v2',
+						JSON.stringify({ surface, bar: 'floating' })
+					);
+					localStorage.setItem('dn.mobile.appearance.mode.v2', palette);
+				},
+				{ surface, palette }
+			);
+			await fixture(page);
+			await play(page);
+			const live = page.locator('[data-part="now-playing"]');
+			const checkIcons = async (player: Locator) => {
+				const painted = await player
+					.locator('.content button:has(.face), .fallback > button')
+					.evaluateAll((buttons) =>
+						buttons
+							.filter((button) => {
+								const style = getComputedStyle(button);
+								return (
+									style.backgroundColor !== 'rgba(0, 0, 0, 0)' ||
+									style.backgroundImage !== 'none' ||
+									style.boxShadow !== 'none' ||
+									style.backdropFilter !== 'none' ||
+									style.borderTopWidth !== '0px'
+								);
+							})
+							.map((button) => button.getAttribute('aria-label'))
+					);
+				expect(painted).toEqual([]);
+			};
+			const lyrics = live.getByRole('button', { name: 'Lyrics', exact: true });
+			await expect(lyrics).toBeVisible();
+			await checkIcons(live);
+			for (const name of ['Lyrics', 'Sleep timer', 'More actions']) {
+				const target = (await live.getByRole('button', { name, exact: true }).boundingBox())!;
+				expect(Math.min(target.width, target.height)).toBeGreaterThanOrEqual(44);
+			}
+			const idleColor = await lyrics.evaluate((el) => getComputedStyle(el).color);
+			await lyrics.click();
+			await expect(lyrics).toHaveAttribute('aria-pressed', 'true');
+			await expect(lyrics).not.toHaveCSS('color', idleColor);
+			await checkIcons(live);
+			await live.getByRole('button', { name: 'Close player' }).click();
+			const dock = page.getByRole('navigation', { name: 'Music' });
+			await expect(dock).toHaveCSS('border-top-width', '0px');
+			await expect(dock).not.toHaveCSS('box-shadow', /inset/);
+			await expect(page.locator('[data-part="mini-player"]')).not.toHaveCSS('box-shadow', /inset/);
+			await expect(dock).toHaveCSS('background-image', surface === 'solid' ? 'none' : /gradient/);
+			await expect(dock).toHaveCSS('backdrop-filter', surface === 'blur' ? 'blur(14px)' : 'none');
+			await page.getByRole('button', { name: 'Open player for Night Train' }).click();
+			await live.getByRole('button', { name: 'Player settings' }).click();
+			const sample = page.locator('[data-part="sample-player"]');
+			await expect(sample.locator('button[aria-label="Cast and audio output"]')).toBeVisible();
+			await checkIcons(sample);
+		}
+	);
+}
+
 test('the queue editor restores the album order and saves similar music for the listener', async ({
 	page
 }) => {

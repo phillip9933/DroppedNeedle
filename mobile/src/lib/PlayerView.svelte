@@ -243,13 +243,17 @@
 	{:else}{value}{/if}
 {/snippet}
 {#snippet previous(section?: Section)}
-	<button class="skip" aria-label="Previous track" onclick={() => action(player.previous)}>
+	<button
+		class="skip player-control"
+		aria-label="Previous track"
+		onclick={() => action(player.previous)}
+	>
 		<PlayerActionFace {section} glyph={SkipBack} size={28} label="Previous" />
 	</button>
 {/snippet}
 {#snippet toggle(section?: Section)}
 	<button
-		class="play"
+		class="play player-control"
 		aria-label={$store.playing ? 'Pause' : 'Play'}
 		onclick={() => action(player.toggle)}
 	>
@@ -257,6 +261,7 @@
 			{section}
 			glyph={$store.playing ? Pause : Play}
 			label={$store.playing ? 'Pause' : 'Play'}
+			size={36}
 			fill
 			playback={$store.playing ? 'pause' : 'play'}
 		/>
@@ -264,7 +269,7 @@
 {/snippet}
 {#snippet nextTrack(section?: Section)}
 	<button
-		class="skip"
+		class="skip player-control"
 		aria-label="Next track"
 		disabled={!canGoNext}
 		onclick={() => action(player.next)}
@@ -274,7 +279,7 @@
 {/snippet}
 {#snippet repeat(label: boolean, section?: Section)}
 	<button
-		class="repeat"
+		class="repeat player-control"
 		aria-label={'Repeat ' + $store.repeat + '. Change repeat mode'}
 		aria-pressed={$store.repeat !== 'off'}
 		onclick={() => action(player.cycleRepeat)}
@@ -290,7 +295,7 @@
 {/snippet}
 {#snippet shuffle(label: boolean, section?: Section)}
 	<button
-		class="repeat"
+		class="repeat player-control"
 		aria-label={shuffleLabel}
 		aria-pressed={$store.shuffled}
 		disabled={(!$store.shuffled && $store.tracks.length - $store.index <= 2) || pending}
@@ -630,7 +635,7 @@
 																/>{/key}
 														{:else if section.id === 'player-lyrics'}<div class="field-controls">
 																<button
-																	class="icon-button player-action"
+																	class="icon-button player-action player-control"
 																	aria-label="Lyrics"
 																	aria-pressed={artworkLyrics || sheet === 'lyrics'}
 																	onclick={() => toggleLyrics(section)}
@@ -643,7 +648,7 @@
 															</div>
 														{:else if section.id === 'player-more'}<div class="field-controls">
 																<button
-																	class="icon-button player-action"
+																	class="icon-button player-action player-control"
 																	aria-haspopup="dialog"
 																	aria-label="More actions"
 																	onclick={() => openSheet('more')}
@@ -1416,9 +1421,6 @@
 		aspect-ratio: 1;
 		min-width: 44px;
 		min-height: 44px;
-		color: var(--dn-action-content, var(--on-accent));
-		background: var(--dn-action, var(--accent));
-		border: 1px solid var(--dn-action-edge, transparent);
 	}
 	.queue ol {
 		list-style: none;
@@ -1444,11 +1446,7 @@
 	.repeat {
 		justify-self: center;
 		min-width: 44px;
-		color: var(--muted);
 		min-height: 44px;
-	}
-	.repeat[aria-pressed='true'] {
-		color: var(--accent);
 	}
 	.edit-tools button {
 		min-width: 44px;

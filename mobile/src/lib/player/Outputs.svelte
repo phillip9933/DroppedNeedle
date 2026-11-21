@@ -86,7 +86,10 @@
 {#if android || ios}
 	<button
 		class={settingsEntry ? 'settings-entry' : compact ? 'icon-button' : 'secondary'}
+		class:player-control={compact}
 		aria-label="Cast and audio output"
+		aria-haspopup="dialog"
+		aria-expanded={open}
 		bind:this={opener}
 		onclick={show}
 	>

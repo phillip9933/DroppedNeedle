@@ -42,10 +42,11 @@
 			{section}
 		/>
 	{:else}<button
-			class="icon-button"
+			class="icon-button player-control"
 			data-screen-link={id === 'player-settings' && !editing ? true : undefined}
 			{disabled}
 			aria-label={accessible}
+			aria-expanded={id === 'player-queue' ? queueOpen : undefined}
 			onclick={() => onactivate(id)}
 		>
 			<PlayerActionFace

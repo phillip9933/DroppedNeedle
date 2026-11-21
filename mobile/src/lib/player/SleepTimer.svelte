@@ -103,6 +103,7 @@
 
 {#if !hideTrigger}<button
 		class="secondary sleep"
+		class:player-control={!!section}
 		class:active={!!timer}
 		aria-label="Sleep timer"
 		aria-haspopup="dialog"
