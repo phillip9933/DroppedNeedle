@@ -8,7 +8,7 @@ The Android and iOS apps connect to your DroppedNeedle v3 server. Play music fro
 2. Choose **Continue in browser** if your server offers it. Sign in to DroppedNeedle as usual and select **Connect this phone**. If the browser stays open, select **Return to the app**.
 3. If your server offers OIDC but still needs the mobile pairing page, **Open web player** takes you to its existing browser player. To use the native player on that server, you can also use an existing DN v3 device session token or a server password if your account has one.
 
-For OIDC, including authentik, enter the public DroppedNeedle address served by your reverse proxy. The browser uses the provider and callback already configured in DroppedNeedle. After you approve the phone, the app verifies its own device session with your server. If the connection drops during that step, reopen the app or select **Retry connection** within ten minutes. You can revoke phone access from **Profile > Sessions** in the web app.
+For OIDC, including authentik, enter the public DroppedNeedle address served by your reverse proxy. The browser uses the provider and callback already configured in DroppedNeedle. After you approve the phone, the app verifies its own device session with your server. If the connection drops during that step, reopen the app or select **Retry connection** within ten minutes. A temporary proxy denial during verification also supports retry. Signing out closes the local session immediately. If DN is unreachable the app securely retains the pending revocation and retries when you reconnect or reopen it. You can revoke phone access from **Profile > Sessions** in the web app.
 
 Server administrators can add browser sign-in by building the DN web frontend with the `feat/mobile-browser-pairing` change. It provides `/connect/mobile` and `/mobile-pairing.json`. The marker should return JSON containing `"droppedneedle_mobile_pairing": 1`. The phone must be able to reach the DN API and media endpoints using its DN device session. A proxy that requires a separate browser session on those routes needs a compatible access policy.
 
@@ -202,13 +202,13 @@ For Android, install JDK 21 and Android SDK Platform 36. Run `./gradlew assemble
 
 Set the mobile package version and Android `versionName` to the same version, and increase the Android `versionCode` for every release, including betas. After `pnpm sync`, generate a signed, standalone **release APK** in Android Studio using the same signing identity as the builds distributed to users. Android requires that identity for an in-place upgrade. Ordinary `assembleDebug` builds are for USB testing.
 
-From `mobile/`, set `ANDROID_HOME` to your SDK directory and run the following with the signed APK and an output directory of your choice.
+From `mobile/`, set `ANDROID_HOME` to your SDK directory. Set `DN_ANDROID_RELEASE_CERT_SHA256` to the trusted public distribution certificate’s SHA-256 fingerprint from your release configuration. The stable and beta channels use the same signing identity. Then run the following with the signed APK and an output directory of your choice.
 
 ```sh
 pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
 ```
 
-The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.23.0` uses tag `android-v0.23.0` and asset `droppedneedle-android-0.23.0.apk`. For `0.23.0-beta.1`, use `android-v0.23.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+The command verifies the signing fingerprint, package, version and release build type. It reads the mobile fork’s public release history and downloads the most recently published Android APK, including betas, to check its actual version code. The new code must match the Gradle build and exceed that published code. After these checks it copies the APK under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.23.0` uses tag `android-v0.23.0` and asset `droppedneedle-android-0.23.0.apk`. For `0.23.0-beta.1`, use `android-v0.23.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
 
 ## How the clients fit together
 

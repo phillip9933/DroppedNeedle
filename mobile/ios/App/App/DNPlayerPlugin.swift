@@ -28,7 +28,10 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private enum RepeatMode: String { case off, all, one }
     private var repeatMode: RepeatMode = .off
-    private var queue: [Track] = []
+    private var queueVersion = UUID().uuidString
+    private var queue: [Track] = [] {
+        didSet { queueVersion = UUID().uuidString }
+    }
     private var serverAddress = ""
     private var userID: String?
     private var profiles = StreamProfiles()
@@ -384,12 +387,14 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func getState(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { call.resolve(self.snapshot()) }
+        DispatchQueue.main.async { call.resolve(self.snapshot(knownQueue: call.getString("knownQueue"))) }
     }
 
-    private func snapshot() -> [String: Any] {
-        return ["tracks": queue.map(\.data), "repeat": repeatMode.rawValue, "index": index, "playing": player.timeControlStatus != .paused,
+    private func snapshot(knownQueue: String? = nil) -> [String: Any] {
+        var result: [String: Any] = ["queueVersion": queueVersion, "repeat": repeatMode.rawValue, "index": index, "playing": player.timeControlStatus != .paused,
                 "position": position, "duration": duration, "error": error as Any? ?? NSNull()]
+        if knownQueue != queueVersion { result["tracks"] = queue.map(\.data) }
+        return result
     }
 
     @objc func setQueue(_ call: CAPPluginCall) {

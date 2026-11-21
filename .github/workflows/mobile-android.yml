@@ -1,0 +1,50 @@
+name: Android release checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/mobile-android, main]
+    paths:
+      - 'mobile/**'
+      - 'frontend/src/**'
+      - 'frontend/pnpm-lock.yaml'
+      - '.github/workflows/mobile-android.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'frontend/src/**'
+      - 'frontend/pnpm-lock.yaml'
+      - '.github/workflows/mobile-android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .github/node-version
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: mobile/package.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npx --yes pnpm@10.33.0 install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/prepare-android-update.test.mjs
+      - run: pnpm build && pnpm exec cap sync android
+      - run: ./gradlew :app:assembleRelease :app:assembleDebugAndroidTest :app:testReleaseUnitTest :app:lintRelease
+        working-directory: mobile/android

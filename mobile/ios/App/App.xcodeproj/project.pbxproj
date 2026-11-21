@@ -10,6 +10,7 @@
 		BC40000B00000000000000A2 /* StreamProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000A2 /* StreamProfile.swift */; };
 		BC40000B00000000000000A3 /* ConvertedTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000A3 /* ConvertedTrack.swift */; };
 		BC40000B00000000000000A1 /* DNOutputsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000A1 /* DNOutputsPlugin.swift */; };
+		BC40000B00000000000000F9 /* DNReadPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A00000000000000F9 /* DNReadPlugin.swift */; };
 		BC40000B0000000000000001 /* LibraryStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A0000000000000001 /* LibraryStream.swift */; };
 		BC40000B0000000000000000 /* DNPlayerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC40000A0000000000000000 /* DNPlayerPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
@@ -27,6 +28,7 @@
 		BC40000A00000000000000A2 /* StreamProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamProfile.swift; sourceTree = "<group>"; };
 		BC40000A00000000000000A3 /* ConvertedTrack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvertedTrack.swift; sourceTree = "<group>"; };
 		BC40000A00000000000000A1 /* DNOutputsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DNOutputsPlugin.swift; sourceTree = "<group>"; };
+		BC40000A00000000000000F9 /* DNReadPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DNReadPlugin.swift; sourceTree = "<group>"; };
 		BC40000A0000000000000001 /* LibraryStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStream.swift; sourceTree = "<group>"; };
 		BC40000A0000000000000000 /* DNPlayerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DNPlayerPlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -76,6 +78,7 @@
 			children = (
 				BC40000A0000000000000000 /* DNPlayerPlugin.swift */,
 				BC40000A00000000000000A1 /* DNOutputsPlugin.swift */,
+				BC40000A00000000000000F9 /* DNReadPlugin.swift */,
 				BC40000A0000000000000001 /* LibraryStream.swift */,
 				BC40000A00000000000000A2 /* StreamProfile.swift */,
 				BC40000A00000000000000A3 /* ConvertedTrack.swift */,
@@ -176,6 +179,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				BC40000B0000000000000000 /* DNPlayerPlugin.swift in Sources */,
 				BC40000B00000000000000A1 /* DNOutputsPlugin.swift in Sources */,
+				BC40000B00000000000000F9 /* DNReadPlugin.swift in Sources */,
 				BC40000B0000000000000001 /* LibraryStream.swift in Sources */,
 				BC40000B00000000000000A2 /* StreamProfile.swift in Sources */,
 				BC40000B00000000000000A3 /* ConvertedTrack.swift in Sources */,
