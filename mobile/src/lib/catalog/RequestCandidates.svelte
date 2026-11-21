@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import { DnError, type Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -152,7 +153,8 @@
 				<details class="settings-disclosure" data-surface="panel">
 					<summary
 						><span class="file-heading"
-							><ListMusic size={18} aria-hidden="true" />View files ({selected.files.length})</span
+							><ListMusic size={18} aria-hidden="true" />{uiText('View files (')}{selected.files
+								.length})</span
 						></summary
 					>
 					<ul class="review-files">
@@ -174,23 +176,23 @@
 		{:else}
 			<p>
 				{selected === 'watch'
-					? 'Pass on these matches and add the album to the wanted watchlist?'
-					: 'Stop this search without starting a download?'}
+					? uiText('Pass on these matches and add the album to the wanted watchlist?')
+					: uiText('Stop this search without starting a download?')}
 			</p>
 		{/if}
 		<div class="confirm">
 			<button class="primary" disabled={submitting} onclick={confirm}
 				>{selected === 'watch'
-					? 'Keep watching'
+					? uiText('Keep watching')
 					: selected === 'stop'
-						? 'Stop search'
+						? uiText('Stop search')
 						: outsideSettings
-							? 'Download anyway'
-							: 'Start download'}</button
+							? uiText('Download anyway')
+							: uiText('Start download')}</button
 			>
 		</div>
 	{:else}
-		{#if loading}<p role="status">Checking search…</p>
+		{#if loading}<p role="status">{uiText('Checking search…')}</p>
 		{:else if job}
 			{#if job.reason}<p>{job.reason.text} {job.reason.action}</p>{/if}
 			{#if job.status === 'completed'}
@@ -224,15 +226,15 @@
 						</section>
 					{/if}
 				{/each}
-				{#if !job.candidates.length}<p>No matches found.</p>{/if}
+				{#if !job.candidates.length}<p>{uiText('No matches found.')}</p>{/if}
 			{:else}<p role="status">
 					{job.status === 'searching'
-						? 'The search is running.'
+						? uiText('The search is running.')
 						: job.status === 'matched'
-							? 'A download has already started.'
+							? uiText('A download has already started.')
 							: job.status === 'failed'
-								? 'The search failed.'
-								: 'The search has closed.'}
+								? uiText('The search failed.')
+								: uiText('The search has closed.')}
 				</p>{/if}
 		{/if}
 		{#if !loading && (!job || ['searching', 'completed', 'failed'].includes(job.status))}
@@ -242,19 +244,19 @@
 						onclick={() => {
 							error = '';
 							void load();
-						}}><RefreshCw size={18} aria-hidden="true" /><span>Check again</span></button
+						}}
+						><RefreshCw size={18} aria-hidden="true" /><span>{uiText('Check again')}</span></button
 					>{/if}
 				{#if job?.status === 'completed' && job.release_group_mbid}<button
 						class="settings-entry"
 						onclick={() => (selected = 'watch')}
-						><Eye size={18} aria-hidden="true" /><span>None of these, keep watching</span
+						><Eye size={18} aria-hidden="true" /><span
+							>{uiText('None of these, keep watching')}</span
 						><ChevronRight size={16} aria-hidden="true" /></button
 					>{/if}
 				{#if job}<button class="settings-entry" onclick={() => (selected = 'stop')}
-						><Square size={16} aria-hidden="true" /><span>Stop search</span><ChevronRight
-							size={16}
-							aria-hidden="true"
-						/></button
+						><Square size={16} aria-hidden="true" /><span>{uiText('Stop search')}</span
+						><ChevronRight size={16} aria-hidden="true" /></button
 					>{/if}
 			</div>
 		{/if}

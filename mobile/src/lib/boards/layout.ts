@@ -1,3 +1,4 @@
+import { uiText } from '../i18n';
 import { isFilteredSection, libraryFilter, type FilterSection } from './filteredSections';
 import { boardDisplay, type BoardDisplay } from './display';
 import { getJson, type Session } from '../connection';
@@ -71,11 +72,11 @@ export function sectionTitle(section: Section) {
 	return (
 		section.filter?.name ||
 		section.title ||
-		widgets.find((w) => w.id === section.id)?.label ||
+		uiText(widgets.find((w) => w.id === section.id)?.label ?? '') ||
 		(isPlayerSlot(section.id)
-			? 'Empty column'
+			? uiText('Empty column')
 			: isPlayerText(section.id)
-				? 'Custom text'
+				? uiText('Custom text')
 				: section.id)
 	);
 }

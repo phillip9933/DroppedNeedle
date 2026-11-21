@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
@@ -115,23 +116,23 @@
 	}
 </script>
 
-<PlaylistDialog title="Share playlist" {onclose} busy={saving}>
-	{#if loading}<p role="status">Loading sharing…</p>
+<PlaylistDialog title={uiText('Share playlist')} {onclose} busy={saving}>
+	{#if loading}<p role="status">{uiText('Loading sharing…')}</p>
 	{:else if ready}
 		<label
-			>Who can listen<InlineChoice selected={everyone}
+			>{uiText('Who can listen')}<InlineChoice selected={everyone}
 				><select bind:value={everyone} disabled={saving}>
-					<option value={false}>You and selected listeners</option>
-					<option value={true}>Everyone on this server</option>
+					<option value={false}>{uiText('You and selected listeners')}</option>
+					<option value={true}>{uiText('Everyone on this server')}</option>
 				</select></InlineChoice
 			></label
 		>
 		<button
 			class="secondary"
 			disabled={saving || everyone === playlist.is_public}
-			onclick={saveAccess}>Save visibility</button
+			onclick={saveAccess}>{uiText('Save visibility')}</button
 		>
-		<h3>Selected listeners</h3>
+		<h3>{uiText('Selected listeners')}</h3>
 		{#each members as person (person.user_id)}
 			<div class="person">
 				<label
@@ -139,7 +140,9 @@
 						selected={person.can_edit}
 						label={'Access for ' + person.display_name}
 						><select bind:value={person.can_edit} disabled={saving}>
-							<option value={false}>Can listen</option><option value={true}>Can edit tracks</option>
+							<option value={false}>{uiText('Can listen')}</option><option value={true}
+								>{uiText('Can edit tracks')}</option
+							>
 						</select></InlineChoice
 					></label
 				>
@@ -150,11 +153,17 @@
 					onclick={() => {
 						members = members.filter((m) => m.user_id !== person.user_id);
 						receipt = '';
-					}}>Remove</button
+					}}>{uiText('Remove')}</button
 				>
 			</div>
 		{/each}
-		<label>Find a listener<input type="search" bind:value={query} disabled={saving} /></label>
+		<label
+			>{uiText('Find a listener')}<input
+				type="search"
+				bind:value={query}
+				disabled={saving}
+			/></label
+		>
 		{#each matches as user (user.id)}
 			<button
 				class="text-button"
@@ -166,22 +175,23 @@
 					];
 					query = '';
 					receipt = '';
-				}}>Add {user.display_name}</button
+				}}>{uiText('Add')} {user.display_name}</button
 			>
 		{:else}
-			{#if query.trim()}<p>No matching listeners.</p>{/if}
+			{#if query.trim()}<p>{uiText('No matching listeners.')}</p>{/if}
 		{/each}
 		<button
 			class="secondary"
 			disabled={saving || memberKey(members) === memberKey(saved)}
-			onclick={savePeople}>Save listeners</button
+			onclick={savePeople}>{uiText('Save listeners')}</button
 		>
 	{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if receipt}<p role="status">{receipt}</p>{/if}
 	<div class="actions">
-		{#if !ready && !loading}<button class="secondary" onclick={load}>Try again</button>{/if}
-		<button class="primary" disabled={saving} onclick={onclose}>Done</button>
+		{#if !ready && !loading}<button class="secondary" onclick={load}>{uiText('Try again')}</button
+			>{/if}
+		<button class="primary" disabled={saving} onclick={onclose}>{uiText('Done')}</button>
 	</div>
 </PlaylistDialog>
 

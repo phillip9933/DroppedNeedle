@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onDestroy } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, postJson, mutateJson, type Session } from '../connection';
@@ -130,13 +131,13 @@
 
 <div class="tools">
 	{#if queue}<button class="secondary" disabled={busy} onclick={() => run(refresh)}
-			>Refresh queue</button
+			>{uiText('Refresh queue')}</button
 		>{/if}<button
 		class="secondary"
 		disabled={busy}
 		aria-pressed={hidden}
 		onclick={() => (hidden ? (hidden = false) : run(showHidden))}
-		>{hidden ? 'Show recommendations' : 'Hidden albums'}</button
+		>{hidden ? uiText('Show recommendations') : uiText('Hidden albums')}</button
 	>
 </div>
 <div class="preview-items">
@@ -146,10 +147,10 @@
 						class="text-button"
 						disabled={busy}
 						onclick={() => run(() => restore(row.release_group_mbid))}
-						>Restore {row.release_name}</button
+						>{uiText('Restore')} {row.release_name}</button
 					>{/snippet}
 			</PreviewItem>
-		{:else}<p>No hidden albums.</p>{/each}
+		{:else}<p>{uiText('No hidden albums.')}</p>{/each}
 	{:else}{#each shown as card, i (`${i}-${card.album.group ?? card.album.title}`)}
 			<PreviewItem
 				{session}
@@ -164,10 +165,10 @@
 				{#snippet actions()}{#if card.album.group && card.artistId}<button
 							class="text-button"
 							disabled={busy}
-							onclick={() => run(() => hide(card))}>Hide {card.album.title}</button
+							onclick={() => run(() => hide(card))}>{uiText('Hide')} {card.album.title}</button
 						>{/if}{/snippet}
 			</PreviewItem>
-		{:else}<p>No recommended albums yet.</p>{/each}{/if}
+		{:else}<p>{uiText('No recommended albums yet.')}</p>{/each}{/if}
 </div>
 {#if message}<p role="status">{message}</p>{/if}{#if error}<p role="alert">{error}</p>{/if}
 

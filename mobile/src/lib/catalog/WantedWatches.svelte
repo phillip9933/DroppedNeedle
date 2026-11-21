@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import { ChevronRight, EllipsisVertical, ExternalLink, RefreshCw } from '@lucide/svelte';
 	import Cover from './Cover.svelte';
@@ -100,28 +101,33 @@
 	</span>
 {/snippet}
 
-<section class="watches" bind:this={target} aria-label="Wanted watchlist">
+<section class="watches" bind:this={target} aria-label={uiText('Wanted watchlist')}>
 	<header>
 		<span
 			>{viewer?.role === 'admin'
-				? 'All listeners’ watches'
+				? uiText('All listeners’ watches')
 				: viewer
-					? 'Your watches'
-					: 'Watches'}</span
+					? uiText('Your watches')
+					: uiText('Watches')}</span
 		>
-		<button class="icon-button" aria-label="Refresh wanted watches" disabled={busy} onclick={load}>
+		<button
+			class="icon-button"
+			aria-label={uiText('Refresh wanted watches')}
+			disabled={busy}
+			onclick={load}
+		>
 			<RefreshCw size={18} aria-hidden="true" />
 		</button>
 	</header>
 	{#if error}
 		<p role="alert">{error}</p>
-		<button class="secondary" onclick={load}>Retry watchlist</button>
+		<button class="secondary" onclick={load}>{uiText('Retry watchlist')}</button>
 	{:else if !data}
-		<p role="status">Loading wanted watches…</p>
+		<p role="status">{uiText('Loading wanted watches…')}</p>
 	{:else}
 		{#if data.retrying?.length}
 			<section>
-				<h3>Scheduled download retries</h3>
+				<h3>{uiText('Scheduled download retries')}</h3>
 				<ul>
 					{#each data.retrying.slice(0, count) as item (item.musicbrainz_id)}
 						<li>
@@ -142,13 +148,13 @@
 					{/each}
 				</ul>
 				<button class="text-button" onclick={ondownloads}>
-					Manage retries in Downloads<ChevronRight size={16} aria-hidden="true" />
+					{uiText('Manage retries in Downloads')}<ChevronRight size={16} aria-hidden="true" />
 				</button>
 			</section>
 		{/if}
 		{#if data.items.length}
 			<section>
-				<h3>Album watches</h3>
+				<h3>{uiText('Album watches')}</h3>
 				<ul>
 					{#each data.items.slice(0, count) as item (item.musicbrainz_id)}
 						{@const options = watchActions(session, viewer, item)}
@@ -195,8 +201,8 @@
 								<small
 									>{item.check_count}
 									{item.check_count === 1
-										? 'check'
-										: 'checks'}{#if item.next_check_at && item.state === 'watching'}
+										? uiText('check')
+										: uiText('checks')}{#if item.next_check_at && item.state === 'watching'}
 										{' · Next check ' + date.format(item.next_check_at * 1000)}{/if}</small
 								>
 							</div>
@@ -208,9 +214,11 @@
 									rel="noopener noreferrer"
 									onclick={launchWeb}
 								>
-									Review {item.new_candidate_count} new {item.new_candidate_count === 1
-										? 'match'
-										: 'matches'} in browser<ExternalLink size={15} aria-hidden="true" />
+									{uiText('Review')}
+									{item.new_candidate_count}
+									{uiText('new')}
+									{item.new_candidate_count === 1 ? uiText('match') : uiText('matches')}
+									{uiText('in browser')}<ExternalLink size={15} aria-hidden="true" />
 								</a>
 							{/if}
 						</li>
@@ -222,16 +230,16 @@
 						onclick={() =>
 							viewer && openActions('Clear finished watches', [clearFinished(session, viewer)])}
 					>
-						Clear finished watches
+						{uiText('Clear finished watches')}
 					</button>
 				{/if}
 			</section>
 		{/if}
 		{#if Math.max(data.items.length, data.retrying?.length || 0) > count}
-			<button class="secondary" onclick={() => (count += 30)}>Show more watches</button>
+			<button class="secondary" onclick={() => (count += 30)}>{uiText('Show more watches')}</button>
 		{/if}
 		{#if !data.items.length && !data.retrying?.length}<p role="status">
-				Nothing on the watchlist.
+				{uiText('Nothing on the watchlist.')}
 			</p>{/if}
 	{/if}
 </section>

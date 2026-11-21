@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { Browser } from '@capacitor/browser';
 	import { ExternalLink } from '@lucide/svelte';
 	import type { Session } from '../connection';
@@ -109,16 +110,16 @@
 	}
 </script>
 
-<p>These tools open on your DroppedNeedle server in the browser.</p>
+<p>{uiText('These tools open on your DroppedNeedle server in the browser.')}</p>
 <input
 	type="search"
-	aria-label="Find a web tool"
-	placeholder="Find a web tool"
+	aria-label={uiText('Find a web tool')}
+	placeholder={uiText('Find a web tool')}
 	bind:value={filter}
 />
 {#if error}<p role="alert">{error}</p>{/if}
 {#each groups as group (group.title)}
-	<h2>{group.title}</h2>
+	<h2>{uiText(group.title)}</h2>
 	<div class="settings-list" data-surface="panel">
 		{#each group.links as link (link.route)}<a
 				class="settings-entry"
@@ -126,11 +127,11 @@
 				target="_blank"
 				rel="noopener noreferrer"
 				onclick={(e) => open(e, session.serverUrl + link.route)}
-				><span>{link.label}</span><ExternalLink size={15} /></a
+				><span>{uiText(link.label)}</span><ExternalLink size={15} /></a
 			>{/each}
 	</div>
 {/each}
-{#if !groups.length}<p>No matching tools.</p>{/if}
+{#if !groups.length}<p>{uiText('No matching tools.')}</p>{/if}
 
 <style>
 	input {

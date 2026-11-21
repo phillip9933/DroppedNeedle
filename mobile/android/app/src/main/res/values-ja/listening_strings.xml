@@ -1,0 +1,20 @@
+<resources>
+    <string name="car_home_pins">ホームに固定</string>
+    <string name="car_library">ライブラリ</string>
+    <string name="car_playlists">プレイリスト</string>
+    <string name="car_favorites">お気に入りの曲</string>
+    <string name="car_device">この端末</string>
+    <string name="car_albums">アルバム</string>
+    <string name="car_artists">アーティスト</string>
+    <string name="car_recent">最近追加した項目</string>
+    <string name="car_more">さらに表示</string>
+    <string name="offline_downloads">オフライン用のダウンロード</string>
+    <string name="saving_offline">オフライン用に保存中</string>
+    <string name="download_progress">%2$d 曲中 %1$d 曲を処理しました</string>
+    <string name="widget_name">DroppedNeedle プレーヤー</string>
+    <string name="widget_resume">再生を再開</string>
+    <string name="widget_previous">前の曲</string>
+    <string name="widget_play">再生</string>
+    <string name="widget_pause">一時停止</string>
+    <string name="widget_next">次の曲</string>
+</resources>

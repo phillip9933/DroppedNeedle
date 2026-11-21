@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { untrack } from 'svelte';
 	import PlaylistDialog from '../catalog/PlaylistDialog.svelte';
 	import LibraryFilterFields from './LibraryFilterFields.svelte';
@@ -51,16 +52,18 @@
 		? 'Delete filtered section?'
 		: initial.id
 			? 'Edit filtered section'
-			: 'New filtered section'}
+			: uiText('New filtered section')}
 	{onclose}
 >
 	{#if removing}
-		<p>Remove “{initial.name}” from your Home and Library layouts on this device?</p>
+		<p>
+			{uiText('Remove “')}{initial.name}{uiText(
+				'” from your Home and Library layouts on this device?'
+			)}
+		</p>
 		<div class="actions">
-			<button class="secondary" onclick={() => (removing = false)}>Cancel</button><button
-				class="primary"
-				onclick={ondelete}>Delete section</button
-			>
+			<button class="secondary" onclick={() => (removing = false)}>{uiText('Cancel')}</button
+			><button class="primary" onclick={ondelete}>{uiText('Delete section')}</button>
 		</div>
 	{:else}
 		<form
@@ -70,23 +73,23 @@
 			}}
 		>
 			<label
-				>Section name<input
+				>{uiText('Section name')}<input
 					required
 					maxlength="64"
-					placeholder="Five-star songs"
+					placeholder={uiText('Five-star songs')}
 					bind:value={name}
 				/></label
 			>
 			<LibraryFilterFields bind:config bind:formats />
 			{#if error}<p role="alert">{error}</p>{/if}
 			<div class="actions">
-				<button type="button" class="secondary" onclick={onclose}>Cancel</button><button
+				<button type="button" class="secondary" onclick={onclose}>{uiText('Cancel')}</button><button
 					class="primary"
-					type="submit">{initial.id ? 'Apply filters' : 'Create section'}</button
+					type="submit">{initial.id ? uiText('Apply filters') : uiText('Create section')}</button
 				>
 			</div>
 			{#if ondelete}<button type="button" class="text-button" onclick={() => (removing = true)}
-					>Delete saved section</button
+					>{uiText('Delete saved section')}</button
 				>{/if}
 		</form>
 	{/if}

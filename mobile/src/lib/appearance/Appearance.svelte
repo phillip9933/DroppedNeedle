@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
+	import { uiText, tr, languageChoice, setLanguage, type LanguageChoice, uiFormat } from '../i18n';
+	import InlineChoice from '../controls/InlineChoice.svelte';
+	import { findSettings, pageTitles, type SettingsPage as Page } from './settingsSearch';
 	import InterfaceSettings from './InterfaceSettings.svelte';
 	import './settings.css';
 	import { shortcuts, changeScreen, type Destination } from './interface';
@@ -32,7 +35,6 @@
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
 	import { errorMessage, path } from '../catalog/catalog';
-	import { type Board } from '../boards/layout';
 	import BoardSettings from '../boards/BoardSettings.svelte';
 	import ThemeSettings from './ThemeSettings.svelte';
 	import Account from './Account.svelte';
@@ -42,26 +44,6 @@
 	import Statistics from './Statistics.svelte';
 	import ServerSections from './ServerSections.svelte';
 	import pkg from '../../../package.json';
-	type Page =
-		| Board
-		| 'player'
-		| 'themes'
-		| 'interface'
-		| 'offline'
-		| 'playback'
-		| 'handoff'
-		| 'equalizer'
-		| 'account'
-		| 'content'
-		| 'tools'
-		| 'editions'
-		| 'releases'
-		| 'stats'
-		| 'diagnostics'
-		| 'scans'
-		| 'about'
-		| 'updates'
-		| 'menu';
 	let {
 		session,
 		onnavigate,
@@ -107,20 +89,28 @@
 		{ id: 'releases', label: 'Release types', icon: Music2 },
 		{ id: 'editions', label: 'Edition preferences', icon: Layers }
 	] as const;
-	const title = $derived(
-		[
-			...personal,
-			...administration,
-			{ id: 'themes', label: 'Themes' },
-			{ id: 'interface', label: 'Interface and navigation' },
-			{ id: 'offline', label: 'Offline and cache' },
-			{ id: 'playback', label: 'Streaming and fades' },
-			{ id: 'handoff', label: 'Player handoff' },
-			{ id: 'equalizer', label: 'Equalizer' },
-			{ id: 'updates', label: 'App updates' },
-			{ id: 'about', label: 'About' }
-		].find((i) => i.id === page)?.label ?? 'Settings'
+	let searchAnchor = $state('');
+	let query = $state(''),
+		languageIssue = $state('');
+	async function chooseLanguage(value: LanguageChoice) {
+		languageIssue = '';
+		try {
+			await setLanguage(value);
+		} catch {
+			languageIssue = tr('Could not change the device language.', '言語を変更できませんでした。');
+		}
+	}
+	const matches = $derived(
+		findSettings(query, {
+			signedIn: !!session,
+			account: !!session?.userId,
+			admin,
+			android,
+			ios: Capacitor.getPlatform() === 'ios',
+			offline: offlineSupported
+		})
 	);
+	const title = $derived(page === 'menu' ? 'Settings' : pageTitles[page]);
 	async function readRole() {
 		if (
 			!session ||
@@ -155,14 +145,43 @@
 			m?.focus({ preventScroll: true });
 		});
 	}
-	function open(next: Page) {
+	function open(next: Page, anchor?: string) {
 		changeScreen(() => {
 			offset = root?.closest('main')?.scrollTop ?? 0;
 			page = next;
 			focus();
 			if (next === 'about') void readVersion();
+			searchAnchor = anchor ?? '';
 		});
 	}
+	$effect(() => {
+		const anchor = searchAnchor;
+		if (!anchor || page === 'menu') return;
+		let watching = true;
+		const events = new AbortController();
+		const observer = new MutationObserver(reveal);
+		function stop() {
+			watching = false;
+			observer.disconnect();
+			events.abort();
+		}
+		function reveal() {
+			if (!watching) return;
+			const element = document.getElementById(anchor);
+			if (!element || !root?.contains(element)) return;
+			stop();
+			if (element instanceof HTMLDetailsElement) element.open = true;
+			element.tabIndex = -1;
+			element.focus({ preventScroll: true });
+			element.scrollIntoView({ block: 'start' });
+		}
+		// Some settings appear once Android has returned their stored values.
+		observer.observe(root, { childList: true, subtree: true });
+		root.addEventListener('pointerdown', stop, { signal: events.signal, once: true });
+		root.addEventListener('keydown', stop, { signal: events.signal, once: true });
+		void tick().then(reveal);
+		return stop;
+	});
 	export function goBack() {
 		if (page === 'menu') return false;
 		if (page === 'player') {
@@ -207,7 +226,7 @@
 
 {#snippet groupHeading(label: string)}
 	<svelte:element this={session ? 'h3' : 'h2'} class="settings-group-heading"
-		>{label}</svelte:element
+		>{uiText(label)}</svelte:element
 	>
 {/snippet}
 
@@ -215,117 +234,189 @@
 	{#if session && (page === 'home' || page === 'discover' || page === 'library' || page === 'player')}
 		{#key page}<BoardSettings {session} board={page} onback={back} />{/key}
 	{:else}
-		<button aria-label="Back" class="text-button back" data-screen-link onclick={back}
-			><ChevronLeft size={18} />{page === 'menu' ? 'Back' : 'Settings'}</button
+		<button aria-label={uiText('Back')} class="text-button back" data-screen-link onclick={back}
+			><ChevronLeft size={18} />{page === 'menu' ? uiText('Back') : uiText('Settings')}</button
 		>
 		<h1 class="settings-title">
-			{page === 'menu' ? (session ? 'Navigation' : 'Settings') : title}
+			{page === 'menu' ? (session ? uiText('Navigation') : uiText('Settings')) : uiText(title)}
 		</h1>
 		{#if page === 'menu'}
 			{#if session}
-				<nav class="shortcuts" aria-label="Navigation shortcuts">
+				<nav class="shortcuts" aria-label={uiText('Navigation shortcuts')}>
 					{#each shortcuts as item (item.id)}<button
 							class="shortcut"
 							data-surface="panel"
 							data-screen-link
 							onclick={() => onnavigate(item.id)}
-							><item.icon size={21} /><span>{item.label}</span></button
+							><item.icon size={21} /><span>{uiText(item.label)}</span></button
 						>{/each}
 				</nav>
-				<h2 class="settings-heading">Settings</h2>
-				{@render groupHeading('Screen layouts')}
-				<div class="settings-list" data-surface="panel">
-					{#each layouts as item (item.id)}<button
-							class="settings-entry"
-							data-screen-link
-							aria-label={'Edit ' + item.label + ' layout'}
-							onclick={() => open(item.id)}
-							><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
-						>{/each}
-				</div>{/if}
-			{@render groupHeading('Appearance')}
-			<div class="settings-list" data-surface="panel">
-				<button class="settings-entry" data-screen-link onclick={() => open('themes')}
-					><Palette size={19} /><span>Themes</span><ChevronRight size={16} /></button
-				>
-				<button class="settings-entry" data-screen-link onclick={() => open('interface')}
-					><SlidersHorizontal size={19} /><span>Interface and navigation</span><ChevronRight
-						size={16}
-					/></button
-				>
-			</div>
-			{#if session}
-				{@render groupHeading('Playback')}
-				<div class="settings-list" data-surface="panel">
-					<Outputs settingsEntry />
-					{#if session.userId && Capacitor.getPlatform() !== 'ios'}<button
-							class="settings-entry"
-							data-screen-link
-							onclick={() => open('handoff')}
-							><Disc3 size={19} /><span>Player handoff</span><ChevronRight size={16} /></button
-						>{/if}
-					<button class="settings-entry" data-screen-link onclick={() => open('playback')}
-						><Music2 size={19} /><span>Streaming and fades</span><ChevronRight size={16} /></button
+				<h2 class="settings-heading">{uiText('Settings')}</h2>
+			{/if}
+			<input
+				type="search"
+				aria-label={tr('Search settings', '設定を検索')}
+				placeholder={tr('Search settings', '設定を検索')}
+				bind:value={query}
+			/>
+			{#if query.trim()}
+				{#if matches.length}
+					<div
+						class="settings-list settings-results"
+						data-surface="panel"
+						aria-label={tr('Matching settings', '検索結果')}
 					>
-					{#if offlineSupported}<button
-							class="settings-entry"
-							data-screen-link
-							onclick={() => open('offline')}
-							><Layers size={19} /><span>Offline and cache</span><ChevronRight size={16} /></button
-						>{/if}
-					{#if Capacitor.getPlatform() === 'android'}<button
-							class="settings-entry"
-							data-screen-link
-							onclick={() => open('equalizer')}
-							><SlidersHorizontal size={19} /><span>Equalizer</span><ChevronRight
+						{#each matches as result (result.page + (result.anchor ?? ''))}
+							{#if result.page === 'outputs'}<Outputs settingsEntry />
+							{:else}<button
+									class="settings-entry"
+									data-screen-link
+									aria-label={uiText(result.label)}
+									onclick={() => {
+										if (result.page !== 'outputs') open(result.page, result.anchor);
+									}}
+								>
+									<span
+										>{uiText(result.label)}{#if result.anchor}<small
+												>{uiText(pageTitles[result.page])}</small
+											>{/if}</span
+									><ChevronRight size={16} />
+								</button>{/if}
+						{/each}
+					</div>
+				{:else}<p role="status">{tr('No matching settings.', '該当する設定はありません。')}</p>{/if}
+			{:else}
+				{#if session}
+					{@render groupHeading('Screen layouts')}
+					<div class="settings-list" data-surface="panel">
+						{#each layouts as item (item.id)}<button
+								class="settings-entry"
+								data-screen-link
+								aria-label={uiFormat('Edit {name} layout', { name: uiText(item.label) })}
+								onclick={() => open(item.id)}
+								><item.icon size={19} /><span>{uiText(item.label)}</span><ChevronRight
+									size={16}
+								/></button
+							>{/each}
+					</div>{/if}
+				{@render groupHeading('Appearance')}
+				<div class="settings-list" data-surface="panel">
+					<button class="settings-entry" data-screen-link onclick={() => open('language')}
+						><Globe size={19} /><span>{uiText('App language')}</span><ChevronRight
+							size={16}
+						/></button
+					>
+					<button class="settings-entry" data-screen-link onclick={() => open('themes')}
+						><Palette size={19} /><span>{uiText('Themes')}</span><ChevronRight size={16} /></button
+					>
+					<button class="settings-entry" data-screen-link onclick={() => open('interface')}
+						><SlidersHorizontal size={19} /><span>{uiText('Interface and navigation')}</span
+						><ChevronRight size={16} /></button
+					>
+				</div>
+				{#if session}
+					{@render groupHeading('Playback')}
+					<div class="settings-list" data-surface="panel">
+						<Outputs settingsEntry />
+						{#if session.userId && Capacitor.getPlatform() !== 'ios'}<button
+								class="settings-entry"
+								data-screen-link
+								onclick={() => open('handoff')}
+								><Disc3 size={19} /><span>{uiText('Player handoff')}</span><ChevronRight
+									size={16}
+								/></button
+							>{/if}
+						<button class="settings-entry" data-screen-link onclick={() => open('playback')}
+							><Music2 size={19} /><span>{uiText('Streaming and fades')}</span><ChevronRight
 								size={16}
 							/></button
-						>{/if}
-				</div>
-			{/if}
-			{#if session}
-				{@render groupHeading('Your account')}
-				<div class="settings-list" data-surface="panel">
-					{#each personal as item (item.id)}<button
-							class="settings-entry"
-							data-screen-link
-							onclick={() => open(item.id)}
-							><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
-						>{/each}
-				</div>
-				{#if admin}{@render groupHeading('Server administration')}
+						>
+						{#if offlineSupported}<button
+								class="settings-entry"
+								data-screen-link
+								onclick={() => open('offline')}
+								><Layers size={19} /><span>{uiText('Offline and cache')}</span><ChevronRight
+									size={16}
+								/></button
+							>{/if}
+						{#if Capacitor.getPlatform() === 'android'}<button
+								class="settings-entry"
+								data-screen-link
+								onclick={() => open('equalizer')}
+								><SlidersHorizontal size={19} /><span>{uiText('Equalizer')}</span><ChevronRight
+									size={16}
+								/></button
+							>{/if}
+					</div>
+				{/if}
+				{#if session}
+					{@render groupHeading('Your account')}
 					<div class="settings-list" data-surface="panel">
-						{#each administration as item (item.id)}<button
+						{#each personal as item (item.id)}<button
 								class="settings-entry"
 								data-screen-link
 								onclick={() => open(item.id)}
-								><item.icon size={19} /><span>{item.label}</span><ChevronRight size={16} /></button
+								><item.icon size={19} /><span>{uiText(item.label)}</span><ChevronRight
+									size={16}
+								/></button
 							>{/each}
-					</div>{/if}
-				{#if roleError}<p role="alert">{roleError}</p>
-					<button class="text-button" onclick={readRole}>Reload permissions</button>{/if}
-			{/if}
-			{@render groupHeading('App')}
-			<div class="settings-list" data-surface="panel">
-				{#if android}
-					<button class="settings-entry" data-screen-link onclick={() => open('updates')}
-						><Download size={19} /><span
-							>App updates{#if updateState?.offer && updateState.available}
-								<small class="update-available">{updateState.available.version} available</small>
-							{/if}</span
-						><ChevronRight size={16} /></button
-					>
+					</div>
+					{#if admin}{@render groupHeading('Server administration')}
+						<div class="settings-list" data-surface="panel">
+							{#each administration as item (item.id)}<button
+									class="settings-entry"
+									data-screen-link
+									onclick={() => open(item.id)}
+									><item.icon size={19} /><span>{uiText(item.label)}</span><ChevronRight
+										size={16}
+									/></button
+								>{/each}
+						</div>{/if}
+					{#if roleError}<p role="alert">{roleError}</p>
+						<button class="text-button" onclick={readRole}>{uiText('Reload permissions')}</button
+						>{/if}
 				{/if}
-				<button class="settings-entry" data-screen-link onclick={() => open('about')}
-					><Info size={19} /><span>About</span><ChevronRight size={16} /></button
-				>
-			</div>
-			{#if session}<p class="server">{session.serverUrl}</p>
-				<button class="secondary" disabled={busy} onclick={signOut}>Sign out</button>{/if}
+				{@render groupHeading('App')}
+				<div class="settings-list" data-surface="panel">
+					{#if android}
+						<button class="settings-entry" data-screen-link onclick={() => open('updates')}
+							><Download size={19} /><span
+								>{uiText('App updates')}{#if updateState?.offer && updateState.available}
+									<small class="update-available"
+										>{updateState.available.version} {uiText('available')}</small
+									>
+								{/if}</span
+							><ChevronRight size={16} /></button
+						>
+					{/if}
+					<button class="settings-entry" data-screen-link onclick={() => open('about')}
+						><Info size={19} /><span>{uiText('About')}</span><ChevronRight size={16} /></button
+					>
+				</div>
+				{#if session}<p class="server">{session.serverUrl}</p>
+					<button class="secondary" disabled={busy} onclick={signOut}>{uiText('Sign out')}</button
+					>{/if}
+			{/if}
 		{:else}
 			<div class="settings-content">
 				{#if page === 'equalizer' && session && Capacitor.getPlatform() === 'android'}<EqualizerSettings
 					/>
+				{:else if page === 'language'}
+					<label class="language-choice"
+						>{uiText('App language')}
+						<InlineChoice selected={$languageChoice} label={uiText('App language')}
+							><select
+								value={$languageChoice}
+								onchange={(e) => void chooseLanguage(e.currentTarget.value as LanguageChoice)}
+							>
+								<option value="system">{tr('Device language', '端末の言語に合わせる')}</option
+								><option value="en" lang="en">English</option><option value="ja" lang="ja"
+									>日本語</option
+								>
+							</select></InlineChoice
+						>
+					</label>
+					{#if languageIssue}<p role="alert">{languageIssue}</p>{/if}
 				{:else if page === 'interface'}<InterfaceSettings {session} offline={offlineSupported} />
 				{:else if page === 'offline' && session && offlineSupported}<OfflineSettings {session} />
 				{:else if page === 'playback' && session}<PlaybackSettings {session} />
@@ -350,20 +441,22 @@
 					/>
 				{:else if page === 'about'}<dl class="settings-facts" data-surface="panel">
 						<div>
-							<dt>Mobile app</dt>
+							<dt>{uiText('Mobile app')}</dt>
 							<dd>{pkg.version}</dd>
 						</div>
 						{#if session}<div>
-								<dt>Connected server</dt>
+								<dt>{uiText('Connected server')}</dt>
 								<dd>{session.serverUrl}</dd>
 							</div>
 							<div>
-								<dt>DN version</dt>
+								<dt>{uiText('DN version')}</dt>
 								<dd>{version || '—'}</dd>
 							</div>{/if}
 					</dl>
 					{#if versionError}<p role="alert">{versionError}</p>
-						<button class="text-button" onclick={readVersion}>Reload server version</button>{/if}
+						<button class="text-button" onclick={readVersion}
+							>{uiText('Reload server version')}</button
+						>{/if}
 				{/if}
 			</div>
 		{/if}
@@ -371,6 +464,19 @@
 </section>
 
 <style>
+	.settings > input[type='search'] {
+		margin-block: 0.7rem;
+		width: 100%;
+	}
+	.settings-results small {
+		display: block;
+		font-weight: 400;
+		color: var(--muted);
+	}
+	.language-choice {
+		display: grid;
+		gap: 0.4rem;
+	}
 	.settings {
 		max-width: 42rem;
 		margin: auto;

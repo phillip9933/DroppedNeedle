@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import {
@@ -809,38 +810,40 @@
 	onpointerdowncapture={resetEditGroup}
 >
 	<div class="bar">
-		<button class="text-button" onclick={cancel}>Cancel</button>
+		<button class="text-button" onclick={cancel}>{uiText('Cancel')}</button>
 		{#if selected || editingRow >= 0}<button
 				class="text-button inspector-done"
 				onclick={finishInspector}
-				><ArrowLeft size={16} /> {prior?.row ? 'Back to row' : 'Back to layout'}</button
+				><ArrowLeft size={16} />
+				{prior?.row ? uiText('Back to row') : uiText('Back to layout')}</button
 			>{/if}
-		<button class="add-row secondary" onclick={addRow}><Plus size={17} />Add row</button>
+		<button class="add-row secondary" onclick={addRow}><Plus size={17} />{uiText('Add row')}</button
+		>
 		<button
 			class="secondary preview-action"
-			aria-label="Preview current draft"
+			aria-label={uiText('Preview current draft')}
 			onclick={showPreview}
-			bind:this={previewButton}><Eye size={17} aria-hidden="true" /> Preview</button
+			bind:this={previewButton}><Eye size={17} aria-hidden="true" /> {uiText('Preview')}</button
 		>
-		<button class="primary" aria-label="Save layout" onclick={save}
-			>Save<span class="save-suffix"> layout</span></button
+		<button class="primary" aria-label={uiText('Save layout')} onclick={save}
+			>{uiText('Save')}<span class="save-suffix"> {uiText('layout')}</span></button
 		>
 	</div>
 	<div class="editor-heading">
-		<h1>Edit Now Playing</h1>
+		<h1>{uiText('Edit Now Playing')}</h1>
 		{#if snapshots.length > 1}
-			<div class="history" role="group" aria-label="Layout history">
+			<div class="history" role="group" aria-label={uiText('Layout history')}>
 				<button
 					class="icon-button"
-					title="Undo"
-					aria-label="Undo layout edit"
+					title={uiText('Undo')}
+					aria-label={uiText('Undo layout edit')}
 					disabled={cursor < 1}
 					onclick={() => travel(-1)}><Undo2 size={19} /></button
 				>
 				<button
 					class="icon-button"
-					title="Redo"
-					aria-label="Redo layout edit"
+					title={uiText('Redo')}
+					aria-label={uiText('Redo layout edit')}
 					disabled={cursor >= snapshots.length - 1}
 					onclick={() => travel(1)}><Redo2 size={19} /></button
 				>
@@ -849,11 +852,13 @@
 	</div>
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if recoveryIssue}<p role="status">{recoveryIssue}</p>
-	{:else if recovery.recovered}<p class="hint" role="status">Recovered your unsaved layout.</p>{/if}
+	{:else if recovery.recovered}<p class="hint" role="status">
+			{uiText('Recovered your unsaved layout.')}
+		</p>{/if}
 	<p class="sr-only" role="status">{status}</p>
-	<p class="hint">Tap a field to edit it. Press and hold to move a row or field.</p>
+	<p class="hint">{uiText('Tap a field to edit it. Press and hold to move a row or field.')}</p>
 
-	<div class="canvas" bind:this={list} aria-label="Sample player layout">
+	<div class="canvas" bind:this={list} aria-label={uiText('Sample player layout')}>
 		{#snippet rowControls(r: number)}
 			<button
 				class="row-marker"
@@ -872,7 +877,7 @@
 			>
 				<GripVertical size={15} /><strong>{rowName(r)}</strong><span
 					>{playerColumns(rows[r]).length}
-					{playerColumns(rows[r]).length === 1 ? 'column' : 'columns'}</span
+					{playerColumns(rows[r]).length === 1 ? uiText('column') : uiText('columns')}</span
 				>
 			</button>
 		{/snippet}
@@ -906,7 +911,7 @@
 					onclick={() => openField(item.id)}
 					ontouchstart={(e) => startGesture(e, item.id, 'move')}
 					onpointerdown={(e) => startGesture(e, item.id, 'move')}
-					><span class="grip" data-layout-drag aria-hidden="true" title="Drag to move"
+					><span class="grip" data-layout-drag aria-hidden="true" title={uiText('Drag to move')}
 						><GripVertical size={16} /></span
 					></button
 				>
@@ -915,7 +920,7 @@
 					class="resize-corner"
 					data-layout-drag
 					aria-label={'Resize ' + sectionTitle(item)}
-					title="Resize field"
+					title={uiText('Resize field')}
 					ontouchstart={(e) => startGesture(e, item.id, 'resize')}
 					onpointerdown={(e) => startGesture(e, item.id, 'resize')}><Scaling size={17} /></button
 				>{/if}
@@ -969,8 +974,8 @@
 					<div class="inspector-bar">
 						<strong>{sectionTitle(field)}</strong><button
 							class="tool"
-							aria-label="Finish editing field"
-							onclick={finishField}>Done</button
+							aria-label={uiText('Finish editing field')}
+							onclick={finishField}>{uiText('Done')}</button
 						>
 					</div>
 					<PlayerCellAppearance
@@ -981,7 +986,7 @@
 					/>
 					{#if isPlayerText(field.id)}
 						<label
-							>Text template<textarea
+							>{uiText('Text template')}<textarea
 								bind:this={templateInput}
 								maxlength="512"
 								rows="2"
@@ -991,7 +996,7 @@
 								}}
 							></textarea></label
 						>
-						<div class="tokens" role="group" aria-label="Insert track information">
+						<div class="tokens" role="group" aria-label={uiText('Insert track information')}>
 							{#each playerTokens as token (token)}<button
 									aria-label={'Insert {' + token + '}'}
 									onclick={() => insertToken(token)}>{'{' + token + '}'}</button
@@ -1002,24 +1007,24 @@
 							><input type="checkbox" bind:checked={field.preview} />{widget.option}</label
 						>{/if}
 					<details class="advanced" bind:open={placementOpen}>
-						<summary>Placement and sizing</summary>
+						<summary>{uiText('Placement and sizing')}</summary>
 						<div>
 							<label
-								>Section title<input
+								>{uiText('Section title')}<input
 									maxlength="64"
 									placeholder={sectionTitle({ ...field, title: '' })}
 									bind:value={field.title}
 								/></label
 							>
 							{#if rows.flat().length > 1}<label
-									>Stack below<InlineChoice selected="" label="Stack below"
+									>{uiText('Stack below')}<InlineChoice selected="" label={uiText('Stack below')}
 										><select
 											value=""
 											onchange={(e) => {
 												if (field && e.currentTarget.value)
 													rows = placeField(rows, field.id, e.currentTarget.value, 'below');
 											}}
-											><option value="">Choose a field</option
+											><option value="">{uiText('Choose a field')}</option
 											>{#each rows as group, ri (group[0].id)}{#each group.filter((s) => s.id !== field?.id && !isPlayerSlot(s.id)) as sibling (sibling.id)}<option
 														value={sibling.id}>{rowName(ri)} · {sectionTitle(sibling)}</option
 													>{/each}{/each}</select
@@ -1028,9 +1033,9 @@
 								>{/if}
 							<div class="pair">
 								<label
-									>Move to row<InlineChoice
+									>{uiText('Move to row')}<InlineChoice
 										selected={(swapTarget ?? rowIndex) - 1}
-										label="Move to row"
+										label={uiText('Move to row')}
 										><select
 											value={(swapTarget ?? rowIndex) - 1}
 											onchange={(e) => moveField(e.currentTarget.value)}
@@ -1038,15 +1043,17 @@
 											{#each rows as dest, i (i)}<option value={i - 1}
 													>{rowName(i)}{playerColumns(dest).length === maxPlayerColumns &&
 													i !== rowIndex
-														? ' (full)'
+														? uiText(' (full)')
 														: ''}</option
 												>{/each}
-											<option value="new">New row</option>
+											<option value="new">{uiText('New row')}</option>
 										</select></InlineChoice
 									></label
 								>
 								<label
-									>Row position<InlineChoice selected={rowIndex - 1} label="Position"
+									>{uiText('Row position')}<InlineChoice
+										selected={rowIndex - 1}
+										label={uiText('Position')}
 										><select
 											value={rowIndex - 1}
 											onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value) + 1)}
@@ -1058,9 +1065,10 @@
 							</div>
 							{#if swapTarget !== null && rows[swapTarget]}
 								<label
-									>Swap with<InlineChoice selected="" label="Swap with"
+									>{uiText('Swap with')}<InlineChoice selected="" label={uiText('Swap with')}
 										><select value="" onchange={(e) => swapWith(Number(e.currentTarget.value))}
-											><option value="" disabled>Choose a field in {rowName(swapTarget)}</option
+											><option value="" disabled
+												>{uiText('Choose a field in')} {rowName(swapTarget)}</option
 											>{#each rows[swapTarget] as partner, i (partner.id)}<option value={i}
 													>{sectionTitle(partner)}</option
 												>{/each}</select
@@ -1074,13 +1082,13 @@
 										class="secondary"
 										aria-label={'Move ' + sectionTitle(field) + ' left'}
 										disabled={indexInRow === 0}
-										onclick={() => shift(-1)}><ArrowLeft size={16} />Left</button
+										onclick={() => shift(-1)}><ArrowLeft size={16} />{uiText('Left')}</button
 									>
 									<button
 										class="secondary"
 										aria-label={'Move ' + sectionTitle(field) + ' right'}
 										disabled={indexInRow === fieldColumns.length - 1}
-										onclick={() => shift(1)}>Right<ArrowRight size={16} /></button
+										onclick={() => shift(1)}>{uiText('Right')}<ArrowRight size={16} /></button
 									>
 								</div>
 							{/if}
@@ -1090,20 +1098,20 @@
 										class="secondary"
 										aria-label={'Move ' + sectionTitle(field) + ' up'}
 										disabled={indexInColumn === 0}
-										onclick={() => shift(-1, true)}>Move up</button
+										onclick={() => shift(-1, true)}>{uiText('Move up')}</button
 									>
 									<button
 										class="secondary"
 										aria-label={'Move ' + sectionTitle(field) + ' down'}
 										disabled={indexInColumn === fieldColumn.length - 1}
-										onclick={() => shift(1, true)}>Move down</button
+										onclick={() => shift(1, true)}>{uiText('Move down')}</button
 									>
 								</div>
 							{/if}
 							<div class="size-tools">
 								<label
-									>Minimum row height (px)<input
-										aria-label="Minimum row height"
+									>{uiText('Minimum row height (px)')}<input
+										aria-label={uiText('Minimum row height')}
 										type="number"
 										min="0"
 										max="640"
@@ -1116,7 +1124,7 @@
 									aria-label={'Drag to resize ' + sectionTitle(field)}
 									ontouchstart={(e) => startGesture(e, field!.id, 'resize')}
 									onpointerdown={(e) => startGesture(e, field!.id, 'resize')}
-									><Scaling size={17} />Drag to resize</button
+									><Scaling size={17} />{uiText('Drag to resize')}</button
 								>
 							</div>
 						</div>
@@ -1124,11 +1132,11 @@
 					{#if splitAvailable(field.id)}<button
 							class="secondary split"
 							aria-label={'Split ' + sectionTitle(field)}
-							onclick={split}>Split into separate fields</button
+							onclick={split}>{uiText('Split into separate fields')}</button
 						>{/if}
 					<div class="field-actions">
 						<button class="secondary" onclick={() => clearColumn(rowIndex, column)}
-							>{fieldColumn.length > 1 ? 'Clear field' : 'Clear column'}</button
+							>{fieldColumn.length > 1 ? uiText('Clear field') : uiText('Clear column')}</button
 						>
 						<button
 							class="text-button remove"
@@ -1136,14 +1144,14 @@
 							onclick={() => remove(rowIndex, column)}
 						>
 							{fieldColumn.length > 1
-								? 'Remove field'
+								? uiText('Remove field')
 								: rows[r].length === 1
-									? 'Remove row'
-									: 'Remove column'}
+									? uiText('Remove row')
+									: uiText('Remove column')}
 						</button>
 					</div>
 				</div>{/if}{/snippet}
-		<div class="row-strip" aria-label="Edit player rows">
+		<div class="row-strip" aria-label={uiText('Edit player rows')}>
 			{#each rows as group, r (group[0].id)}{@render rowControls(r)}{/each}
 		</div>
 		<div class="preview-frame">
@@ -1163,7 +1171,7 @@
 		{#if editingRow >= 0}{@render inspector(editingRow)}{:else if rowIndex >= 0}{@render inspector(
 				rowIndex
 			)}{/if}
-		{#if !rows.length}<p>Add a row to start your layout.</p>{/if}
+		{#if !rows.length}<p>{uiText('Add a row to start your layout.')}</p>{/if}
 	</div>
 	{#if ghost}<div class="ghost" style:left={ghost.x + 'px'} style:top={ghost.y + 'px'}>
 			{ghost.name}
@@ -1173,7 +1181,7 @@
 		<button
 			class="text-button"
 			onclick={() => loadDraft(defaults('player'), 'Default layout restored to the draft.')}
-			>Restore default layout</button
+			>{uiText('Restore default layout')}</button
 		>
 	</div>
 	<PlayerStyleTransfer
@@ -1185,7 +1193,7 @@
 	<dialog
 		class="composer"
 		data-part="layout-preview"
-		aria-label="Player layout preview"
+		aria-label={uiText('Player layout preview')}
 		use:openDialog
 		oncancel={(event) => {
 			event.preventDefault();
@@ -1194,7 +1202,7 @@
 	>
 		<div class="bar">
 			<button class="text-button" onclick={closePreview} bind:this={returnButton}
-				><ArrowLeft size={18} aria-hidden="true" /> Back to editing</button
+				><ArrowLeft size={18} aria-hidden="true" /> {uiText('Back to editing')}</button
 			>
 		</div>
 		<div class="preview-body" use:fitPreview>

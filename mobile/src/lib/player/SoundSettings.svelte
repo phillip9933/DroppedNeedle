@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import InlineChoice from '../controls/InlineChoice.svelte';
@@ -27,7 +28,10 @@
 <div class:settings-panel={!speedOnly} data-surface={speedOnly ? undefined : 'panel'} class="sound">
 	{#if value}
 		<label
-			>Playback speed<InlineChoice selected={value.speed} label="Playback speed">
+			>{uiText('Playback speed')}<InlineChoice
+				selected={value.speed}
+				label={uiText('Playback speed')}
+			>
 				<select
 					value={value.speed}
 					disabled={busy}
@@ -39,26 +43,31 @@
 		>
 		{#if !speedOnly && Capacitor.getPlatform() === 'android'}
 			<label
-				>Volume normalization<InlineChoice selected={value.replayGain} label="Volume normalization">
+				>{uiText('Volume normalization')}<InlineChoice
+					selected={value.replayGain}
+					label={uiText('Volume normalization')}
+				>
 					<select
 						value={value.replayGain}
 						disabled={busy}
 						onchange={(e) => void update({ replayGain: e.currentTarget.value as ReplayGainMode })}
 					>
-						<option value="off">Off</option><option value="track">Track ReplayGain</option><option
-							value="album">Album ReplayGain</option
-						>
+						<option value="off">{uiText('Off')}</option><option value="track"
+							>{uiText('Track ReplayGain')}</option
+						><option value="album">{uiText('Album ReplayGain')}</option>
 					</select>
 				</InlineChoice></label
 			>
 			<p>
-				Track gain evens out individual songs. Album gain preserves the volume differences within an
-				album. Both use the ReplayGain tags in your DN library.
+				{uiText(
+					'Track gain evens out individual songs. Album gain preserves the volume differences within an album. Both use the ReplayGain tags in your DN library.'
+				)}
 			</p>
 		{/if}
-	{:else if !error}<p role="status">Reading audio settings…</p>{/if}
+	{:else if !error}<p role="status">{uiText('Reading audio settings…')}</p>{/if}
 	{#if error}<p role="alert">{error}</p>
-		<button class="secondary" disabled={busy} onclick={() => void update()}>Check again</button
+		<button class="secondary" disabled={busy} onclick={() => void update()}
+			>{uiText('Check again')}</button
 		>{/if}
 </div>
 

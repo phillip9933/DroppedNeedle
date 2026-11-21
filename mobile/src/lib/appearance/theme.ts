@@ -1,9 +1,7 @@
-import { Capacitor, registerPlugin, SystemBars, SystemBarsStyle } from '@capacitor/core';
+import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
 
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
-const androidAppearance = registerPlugin<{
-	setBackground(options: { color: string }): Promise<void>;
-}>('DNAppearance');
+import { androidAppearance } from './nativeAppearance';
 
 export type Mode = components['schemas']['ThemeChoice'];
 export type Palette = Exclude<Mode, 'system'>;

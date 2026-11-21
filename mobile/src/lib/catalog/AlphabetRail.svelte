@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	let {
 		descending,
 		onjump,
@@ -53,7 +54,7 @@
 		bind:this={bar}
 		role="slider"
 		tabindex="0"
-		aria-label="Jump to letter"
+		aria-label={uiText('Jump to letter')}
 		aria-orientation="vertical"
 		aria-valuemin="1"
 		aria-valuemax={letters.length}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import { Browser } from '@capacitor/browser';
 	import { Capacitor } from '@capacitor/core';
@@ -125,23 +126,23 @@
 			void submit();
 		}}
 	>
-		<h1>{methods || approvedServer ? 'Sign in' : 'Connect your server'}</h1>
+		<h1>{methods || approvedServer ? uiText('Sign in') : uiText('Connect your server')}</h1>
 		{#if approvedServer}
 			<div class="server">
 				<span>{approvedServer}</span><button
 					type="button"
 					class="text-button"
-					onclick={() => void changeServer()}>Change server</button
+					onclick={() => void changeServer()}>{uiText('Change server')}</button
 				>
 			</div>
 			<p>
 				{checking
-					? 'Connecting to your server…'
-					: 'Your browser sign-in is ready. Reconnect to your server to finish.'}
+					? uiText('Connecting to your server…')
+					: uiText('Your browser sign-in is ready. Reconnect to your server to finish.')}
 			</p>
 		{:else if !methods}
 			<label
-				>Server address<input
+				>{uiText('Server address')}<input
 					required
 					bind:value={address}
 					placeholder="https://music.example.com"
@@ -157,22 +158,25 @@
 					type="button"
 					class="text-button"
 					disabled={busy}
-					onclick={() => void changeServer()}>Change</button
+					onclick={() => void changeServer()}>{uiText('Change')}</button
 				>
 			</div>
 			{#if missingPairing}
 				<p>
-					To use {browserProvider} in this app, ask your administrator to install the DroppedNeedle web
-					frontend with mobile pairing. You can use your usual sign-in in the web player now.
+					{uiText('To use')}
+					{browserProvider}
+					{uiText(
+						'in this app, ask your administrator to install the DroppedNeedle web frontend with mobile pairing. You can use your usual sign-in in the web player now.'
+					)}
 				</p>
 			{/if}
 			{#if method && method !== 'token'}
 				<label
 					>{method === 'jellyfin'
-						? 'Jellyfin username'
+						? uiText('Jellyfin username')
 						: browserProvider
-							? 'DroppedNeedle username'
-							: 'Username'}<input
+							? uiText('DroppedNeedle username')
+							: uiText('Username')}<input
 						required
 						bind:value={username}
 						autocomplete="username"
@@ -181,10 +185,10 @@
 				>
 				<label
 					>{method === 'jellyfin'
-						? 'Jellyfin password'
+						? uiText('Jellyfin password')
 						: browserProvider
-							? 'DroppedNeedle password'
-							: 'Password'}<input
+							? uiText('DroppedNeedle password')
+							: uiText('Password')}<input
 						required
 						type="password"
 						bind:value={secret}
@@ -193,7 +197,7 @@
 				>
 			{:else if method === 'token'}
 				<label
-					>Device session token<input
+					>{uiText('Device session token')}<input
 						required
 						type="password"
 						bind:value={secret}
@@ -203,37 +207,42 @@
 					/></label
 				>
 				<p>
-					Use a DroppedNeedle v3 device session token. Music-app passwords work only with Subsonic
-					and Jellyfin.
+					{uiText(
+						'Use a DroppedNeedle v3 device session token. Music-app passwords work only with Subsonic and Jellyfin.'
+					)}
 				</p>
 			{:else if !missingPairing}
 				<p>
 					{waiting
-						? 'Finish signing in in your browser, then return to this app.'
-						: 'Your server will open in your browser so you can use your usual sign-in method.'}
+						? uiText('Finish signing in in your browser, then return to this app.')
+						: uiText(
+								'Your server will open in your browser so you can use your usual sign-in method.'
+							)}
 				</p>
 			{/if}
 		{/if}
 		{#if error}<p role="alert">{error}</p>{/if}
-		<button class="primary" type="submit" disabled={busy || checking}>{submitLabel}</button>
+		<button class="primary" type="submit" disabled={busy || checking}>{uiText(submitLabel)}</button>
 	</form>
 	{#if methods && !approvedServer}
 		<div class="methods">
 			{#if (methods.pairing || missingPairing) && method}<button
 					class="text-button"
 					onclick={() => select(null)}
-					>{missingPairing ? 'Back to sign-in options' : 'Use browser sign-in'}</button
+					>{missingPairing
+						? uiText('Back to sign-in options')
+						: uiText('Use browser sign-in')}</button
 				>{/if}
 			{#if methods.local && method !== 'password'}<button
 					class="text-button"
-					onclick={() => select('password')}>Use DroppedNeedle password</button
+					onclick={() => select('password')}>{uiText('Use DroppedNeedle password')}</button
 				>{/if}
 			{#if methods.jellyfin && method !== 'jellyfin'}<button
 					class="text-button"
-					onclick={() => select('jellyfin')}>Use Jellyfin sign-in</button
+					onclick={() => select('jellyfin')}>{uiText('Use Jellyfin sign-in')}</button
 				>{/if}
 			{#if method !== 'token'}<button class="text-button" onclick={() => select('token')}
-					>Use device session token</button
+					>{uiText('Use device session token')}</button
 				>{/if}
 		</div>
 	{/if}

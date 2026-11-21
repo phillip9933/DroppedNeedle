@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onDestroy } from 'svelte';
 	import { Headphones } from '@lucide/svelte';
 	import { combineSignals } from '../abortSignals';
@@ -84,8 +85,8 @@
 
 <button class="text-button" disabled={busy} aria-label={'Preview ' + name} onclick={listen}
 	><Headphones size={16} aria-hidden="true" />{busy
-		? 'Loading preview…'
-		: 'Preview opening audio'}</button
+		? uiText('Loading preview…')
+		: uiText('Preview opening audio')}</button
 >
 <audio
 	bind:this={audio}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import { nativeMedia as journal, type HistoryStatus } from './nativeMedia';
@@ -59,7 +60,7 @@
 	}
 </script>
 
-<h2 id="offline-listening">Offline listening history</h2>
+<h2 id="offline-listening">{uiText('Offline listening history')}</h2>
 <fieldset
 	class="settings-panel"
 	data-surface="panel"
@@ -72,31 +73,34 @@
 				type="checkbox"
 				checked={status.enabled}
 				onchange={(e) => change(e.currentTarget.checked)}
-			/>Record offline listens</label
+			/>{uiText('Record offline listens')}</label
 		>
 		<p>
-			Completed offline listens sync to your DN history when you reconnect within 14 days. Turning
-			this off also pauses pending submissions.
+			{uiText(
+				'Completed offline listens sync to your DN history when you reconnect within 14 days. Turning this off also pauses pending submissions.'
+			)}
 		</p>
 		{#if status.pending}
 			<p role="status">
 				{status.pending}
-				{status.pending === 1 ? 'listen waiting to sync.' : 'listens waiting to sync.'}
+				{status.pending === 1
+					? uiText('listen waiting to sync.')
+					: uiText('listens waiting to sync.')}
 			</p>
 			{#if confirming}
-				<p>Discard all pending listens for this DN account?</p>
+				<p>{uiText('Discard all pending listens for this DN account?')}</p>
 				<div class="settings-actions">
-					<button class="secondary" onclick={() => (confirming = false)}>Cancel</button>
-					<button class="primary" onclick={() => change()}>Confirm discard</button>
+					<button class="secondary" onclick={() => (confirming = false)}>{uiText('Cancel')}</button>
+					<button class="primary" onclick={() => change()}>{uiText('Confirm discard')}</button>
 				</div>
 			{:else}
 				<button class="text-button" onclick={() => (confirming = true)}
-					>Discard pending listens</button
+					>{uiText('Discard pending listens')}</button
 				>
 			{/if}
 		{/if}
 	{/if}
 	{#if error}<p role="alert">{error}</p>
-		<button class="text-button" onclick={read}>Try again</button>{/if}
+		<button class="text-button" onclick={read}>{uiText('Try again')}</button>{/if}
 	{#if notice}<p role="status">{notice}</p>{/if}
 </fieldset>

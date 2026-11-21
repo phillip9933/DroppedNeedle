@@ -123,6 +123,7 @@
 						{session}
 						seedType={item.radio.kind}
 						seedId={item.radio.id}
+						seedTitle={item.title}
 						{onplay}
 					/>{/if}{/snippet}
 		</PreviewItem>

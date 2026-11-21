@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { Upload } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { postJson, type Session } from '../connection';
@@ -63,35 +64,41 @@
 	}
 </script>
 
-<button class="text-button" class:import-pill={compact} aria-label="Import playlist" onclick={start}
-	><Upload size={18} />{compact ? 'Import' : 'Import playlist'}</button
+<button
+	class="text-button"
+	class:import-pill={compact}
+	aria-label={uiText('Import playlist')}
+	onclick={start}
+	><Upload size={18} />{compact ? uiText('Import') : uiText('Import playlist')}</button
 >
 {#if open}
 	<PlaylistDialog
-		title={report ? 'Playlist imported' : 'Import playlist'}
+		title={report ? 'Playlist imported' : uiText('Import playlist')}
 		onclose={() => (open = false)}
 		{busy}
 	>
 		{#if report}
 			<p>
 				<strong>{report.name}</strong> · {report.matched}
-				{report.matched === 1 ? 'track' : 'tracks'} added
+				{report.matched === 1 ? uiText('track') : uiText('tracks')}
+				{uiText('added')}
 			</p>
 			{#if report.unmatched.length}<details>
-					<summary>Unmatched entries ({report.unmatched.length})</summary>
+					<summary>{uiText('Unmatched entries (')}{report.unmatched.length})</summary>
 					<ul>
 						{#each report.unmatched.slice(0, 200) as row, i (i)}<li>
-								<strong>{row.title || 'Untitled'}</strong>{row.artist ? ' · ' + row.artist : ''} · {reasons[
-									row.reason
-								]}
+								<strong>{row.title || uiText('Untitled')}</strong>{row.artist
+									? ' · ' + row.artist
+									: ''} · {reasons[row.reason]}
 							</li>{/each}
 					</ul>
-					{#if report.unmatched.length > 200}<p>Showing the first 200 entries.</p>{/if}
+					{#if report.unmatched.length > 200}<p>{uiText('Showing the first 200 entries.')}</p>{/if}
 				</details>{/if}
 			{#if report.over_limit}<p>
-					{report.over_limit} entries exceeded DN’s 10,000-entry import limit.
+					{report.over_limit}
+					{uiText('entries exceeded DN’s 10,000-entry import limit.')}
 				</p>{/if}
-			<button class="secondary" onclick={() => (open = false)}>Done</button>
+			<button class="secondary" onclick={() => (open = false)}>{uiText('Done')}</button>
 		{:else}
 			<form
 				onsubmit={(e) => {
@@ -100,22 +107,23 @@
 				}}
 			>
 				<label
-					>Playlist file<input
+					>{uiText('Playlist file')}<input
 						type="file"
 						accept=".m3u,.m3u8,.csv"
 						disabled={busy}
 						onchange={pick}
 					/></label
 				>
-				{#if file}<label>Playlist name<input required bind:value={name} disabled={busy} /></label
+				{#if file}<label
+						>{uiText('Playlist name')}<input required bind:value={name} disabled={busy} /></label
 					>{/if}
-				<p>DN matches entries against files in your server’s library.</p>
+				<p>{uiText('DN matches entries against files in your server’s library.')}</p>
 				{#if error}<p role="alert">{error}</p>{/if}
 				<div class="actions">
 					<button class="secondary" type="button" disabled={busy} onclick={() => (open = false)}
-						>Cancel</button
+						>{uiText('Cancel')}</button
 					><button class="primary" disabled={busy || !file || !name.trim()}
-						>{busy ? 'Importing…' : 'Create from file'}</button
+						>{busy ? uiText('Importing…') : uiText('Create from file')}</button
 					>
 				</div>
 			</form>

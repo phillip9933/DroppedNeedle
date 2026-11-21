@@ -324,3 +324,28 @@ test('preview and import only supported account CSS colors from a current or his
 	await expect(root).toHaveCSS('--color-success', '#116644');
 	await expect(root).toHaveCSS('--heading', '#44aa77');
 });
+
+test('settings search matches both languages, respects sign-in and remembers the device language', async ({
+	page
+}) => {
+	await page.goto('/');
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	const search = page.getByRole('searchbox', { name: 'Search settings' });
+	await search.fill('イコライザー');
+	await expect(page.getByText('No matching settings.')).toBeVisible();
+	await search.fill('language');
+	await page.getByRole('button', { name: 'App language', exact: true }).click();
+	await chooseOption(page.getByRole('combobox', { name: 'App language' }), 'ja');
+	await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
+	await expect(page.getByRole('heading', { name: 'アプリの言語' })).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'サーバーに接続' })).toBeVisible();
+	await page.getByRole('button', { name: '設定', exact: true }).click();
+	await page.getByRole('searchbox', { name: '設定を検索' }).fill('mini-player');
+	await expect(page.getByRole('button', { name: 'ミニプレーヤー' })).toHaveCount(0);
+	await page.getByRole('searchbox', { name: '設定を検索' }).fill('Navigation bar');
+	await page.getByRole('button', { name: 'ナビゲーションバー', exact: true }).click();
+	await expect(
+		page.getByRole('heading', { name: 'ナビゲーションバー', exact: true })
+	).toBeInViewport();
+});

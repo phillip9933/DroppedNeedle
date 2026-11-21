@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { sorts, type LibraryFilter } from './filteredSections';
 	let {
@@ -16,61 +17,72 @@
 
 {#if selectKind}
 	<label
-		>Library collection<InlineChoice selected={config.kind} label="Library collection"
+		>{uiText('Library collection')}<InlineChoice
+			selected={config.kind}
+			label={uiText('Library collection')}
 			><select
 				bind:value={config.kind}
 				onchange={() => {
 					config.sort = '';
 				}}
-				><option value="songs">Songs</option><option value="albums">Albums</option><option
-					value="artists">Artists</option
-				></select
+				><option value="songs">{uiText('Songs')}</option><option value="albums"
+					>{uiText('Albums')}</option
+				><option value="artists">{uiText('Artists')}</option></select
 			></InlineChoice
 		></label
 	>
 {/if}
 <label
-	>Contains<input
+	>{uiText('Contains')}<input
 		type="search"
 		maxlength="150"
-		placeholder="Any name"
+		placeholder={uiText('Any name')}
 		bind:value={config.query}
 	/></label
 >
-<label class="check"><input type="checkbox" bind:checked={config.favorites} />Favorites only</label>
+<label class="check"
+	><input type="checkbox" bind:checked={config.favorites} />{uiText('Favorites only')}</label
+>
 {#if config.kind !== 'artists'}
 	<label
-		>Rating<InlineChoice selected={config.rating} label={prefix + ' rating'}
+		>{uiText('Rating')}<InlineChoice selected={config.rating} label={prefix + ' rating'}
 			><select bind:value={config.rating}
-				><option value={0}>Any rating</option>{#each [1, 2, 3, 4, 5] as n (n)}<option value={n}
-						>{n} {n === 1 ? 'star' : 'stars'}</option
+				><option value={0}>{uiText('Any rating')}</option>{#each [1, 2, 3, 4, 5] as n (n)}<option
+						value={n}>{n} {n === 1 ? uiText('star') : uiText('stars')}</option
 					>{/each}</select
 			></InlineChoice
 		></label
 	>
 	{#if config.rating}<label
-			>Rating range<InlineChoice selected={config.ratingMode} label={prefix + ' rating range'}
+			>{uiText('Rating range')}<InlineChoice
+				selected={config.ratingMode}
+				label={prefix + ' rating range'}
 				><select bind:value={config.ratingMode}
-					><option value="at_least">At least</option><option value="at_most">At most</option
+					><option value="at_least">{uiText('At least')}</option><option value="at_most"
+						>{uiText('At most')}</option
 					></select
 				></InlineChoice
 			></label
 		>{/if}
-	<label>Audio formats<input placeholder="flac, mp3" bind:value={formats} /></label>
+	<label>{uiText('Audio formats')}<input placeholder="flac, mp3" bind:value={formats} /></label>
 	{#if formats.trim()}<label
-			>Selected formats<InlineChoice selected={config.formatMode}
+			>{uiText('Selected formats')}<InlineChoice selected={config.formatMode}
 				><select bind:value={config.formatMode}
-					><option value="with">Include</option><option value="without">Exclude</option></select
+					><option value="with">{uiText('Include')}</option><option value="without"
+						>{uiText('Exclude')}</option
+					></select
 				></InlineChoice
 			></label
 		>{/if}
 {/if}
 <label
-	>Sort by<InlineChoice selected={config.sort || sorts[config.kind][0][0]} label={prefix + ' sort'}
+	>{uiText('Sort by')}<InlineChoice
+		selected={config.sort || sorts[config.kind][0][0]}
+		label={prefix + ' sort'}
 		><select
 			value={config.sort || sorts[config.kind][0][0]}
 			onchange={(e) => (config.sort = e.currentTarget.value)}
-			>{#each sorts[config.kind] as [key, label] (key)}<option value={key}>{label}</option
+			>{#each sorts[config.kind] as [key, label] (key)}<option value={key}>{uiText(label)}</option
 				>{/each}</select
 		></InlineChoice
 	></label

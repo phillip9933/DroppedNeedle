@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { ChevronRight, EllipsisVertical } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import type { Session } from '../connection';
@@ -38,7 +39,9 @@
 	<span class="art"><Cover {session} path={art} seed={art || title} /></span>
 	<span class="identity">
 		<strong>{title}</strong>
-		<span class="byline">{artist}{artist ? ' · ' : ''}{kind === 'track' ? 'Track' : 'Album'}</span>
+		<span class="byline"
+			>{artist}{artist ? ' · ' : ''}{kind === 'track' ? uiText('Track') : uiText('Album')}</span
+		>
 		<span class="state"><RequestStatus {state} {label} /></span>
 	</span>
 {/snippet}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { uiText, uiFormat } from '../i18n';
+
 	import { onMount } from 'svelte';
 	import WebPaletteImport from './WebPaletteImport.svelte';
 	import { Check } from '@lucide/svelte';
@@ -124,15 +126,15 @@
 	}
 </script>
 
-<section class="settings-stack" data-part="theme-settings" aria-label="Theme settings">
-	<h2>Device theme</h2>
-	<div class="modes" role="group" aria-label="Device theme">
+<section class="settings-stack" data-part="theme-settings" aria-label={uiText('Theme settings')}>
+	<h2>{uiText('Device theme')}</h2>
+	<div class="modes" role="group" aria-label={uiText('Device theme')}>
 		{#each modes as mode (mode)}{@const palette = asTheme({
 				mode: mode === 'system' ? (matchesLight ? 'light' : 'dark') : mode
 			})}
 			<button
 				class="choice"
-				aria-label={labels[mode]}
+				aria-label={uiText(labels[mode])}
 				aria-pressed={selected.mode === mode}
 				onclick={() => choose({ mode })}
 				><span
@@ -140,7 +142,7 @@
 					style:background={palette.colors.bg}
 					style:color={palette.colors.accent}
 					aria-hidden="true">Aa</span
-				>{labels[mode]}{#if selected.mode === mode}<Check
+				>{uiText(labels[mode])}{#if selected.mode === mode}<Check
 						size={16}
 						aria-hidden="true"
 					/>{/if}</button
@@ -148,29 +150,32 @@
 		{/each}
 	</div>
 	{#if selected.mode === 'system'}<p>
-			Following this device’s {matchesLight ? 'light' : 'dark'} setting.
+			{uiFormat('Following this device’s {mode} setting.', {
+				mode: uiText(matchesLight ? 'light' : 'dark')
+			})}
 		</p>{/if}
 	{#if selected.mode === 'custom'}<p>
-			Using custom theme <strong>{selected.theme.name}</strong>.
+			{uiText('Using custom theme')} <strong>{selected.theme.name}</strong>.
 		</p>{:else if lastCustom}<button
 			class="text-button"
 			onclick={() => {
 				if (lastCustom) choose({ mode: 'custom', theme: lastCustom });
-			}}>Use custom theme {lastCustom.name}</button
+			}}>{uiText('Use custom theme')} {lastCustom.name}</button
 		>{/if}
-	<details class="settings-disclosure" data-surface="panel">
-		<summary>Edit or share theme</summary>
+	<details id="theme-sharing" class="settings-disclosure" data-surface="panel">
+		<summary>{uiText('Edit or share theme')}</summary>
 		<p>
-			Copy the JSON to share your colors, spacing and typeface. Paste a theme here to use it on this
-			device.
+			{uiText(
+				'Copy the JSON to share your colors, spacing and typeface. Paste a theme here to use it on this device.'
+			)}
 		</p>
-		<label for="theme-json">Theme JSON</label><textarea
+		<label for="theme-json">{uiText('Theme JSON')}</label><textarea
 			id="theme-json"
 			rows="8"
 			spellcheck="false"
 			bind:value={draft}
-		></textarea><button class="secondary" onclick={importTheme}>Apply theme</button>
-		<div class="legacy" role="group" aria-label="Original mobile themes">
+		></textarea><button class="secondary" onclick={importTheme}>{uiText('Apply theme')}</button>
+		<div class="legacy" role="group" aria-label={uiText('Original mobile themes')}>
 			{#each presets as theme (theme.name)}<button
 					class="text-button"
 					onclick={() => choose({ mode: 'custom', theme })}>{theme.name}</button
@@ -178,26 +183,27 @@
 		</div>
 	</details>
 	{#if feedback}<p role="status">{feedback}</p>{/if}{#if error}<p role="alert">{error}</p>{/if}
-	{#if session}<h2>DroppedNeedle account</h2>
+	{#if session}<h2>{uiText('DroppedNeedle account')}</h2>
 		{#if account !== undefined}<p>
 				{account
 					? 'Account theme: ' + labels[account] + '.'
-					: 'Your account uses the default Dark theme.'}
+					: uiText('Your account uses the default Dark theme.')}
 			</p>
 			<div class="account-tools">
 				<button
 					class="secondary"
 					disabled={saving || selected.mode === (account || 'dark')}
 					onclick={() => choose({ mode: account ?? 'dark' })}
-					>Use account theme on this device</button
+					>{uiText('Use account theme on this device')}</button
 				>
 				{#if selected.mode !== 'custom'}<button
 						class="secondary"
 						disabled={saving || selected.mode === account}
-						onclick={saveAccount}>Save device theme to account</button
+						onclick={saveAccount}>{uiText('Save device theme to account')}</button
 					>{:else}<p>
-						Custom theme JSON is stored on this device. Choose a built-in theme to save it to your
-						account.
+						{uiText(
+							'Custom theme JSON is stored on this device. Choose a built-in theme to save it to your account.'
+						)}
 					</p>{/if}
 			</div>
 			<WebPaletteImport
@@ -205,10 +211,10 @@
 				css={currentCss}
 				mode={account ?? 'dark'}
 				onapply={(theme) => choose({ mode: 'custom', theme })}
-			/>{:else if !accountError}<p role="status">Loading account theme…</p>{/if}
+			/>{:else if !accountError}<p role="status">{uiText('Loading account theme…')}</p>{/if}
 		{#if accountError}<p role="alert">{accountError}</p>
 			<button class="text-button" disabled={saving} onclick={() => retry++}
-				>Reload account theme</button
+				>{uiText('Reload account theme')}</button
 			>{/if}
 		{#if accountMessage}<p role="status">{accountMessage}</p>{/if}
 	{/if}

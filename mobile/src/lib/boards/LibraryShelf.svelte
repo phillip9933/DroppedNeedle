@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { Play } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { PlayerTrack } from '../player';
@@ -84,10 +85,10 @@
 </script>
 
 {#if expanded && tracks && entityFilter(section.filter)}<p>
-		Showing saved music previously matched by DroppedNeedle.
+		{uiText('Showing saved music previously matched by DroppedNeedle.')}
 	</p>{/if}
 {#if expanded && songs.length}<button class="secondary action" onclick={() => play(0)}
-		><Play size={16} />Play from beginning</button
+		><Play size={16} />{uiText('Play from beginning')}</button
 	>{/if}
 {#if rows.length}<div class="preview-items">
 		{#each shown as row, index (row.id)}
@@ -116,18 +117,18 @@
 	</div>{/if}
 {#if actionError}<p role="alert">{actionError}</p>{/if}
 {#if error}<p role="alert">{error}</p>
-	<button class="text-button" onclick={() => retry++}>Try again</button>
-{:else if busy && !rows.length}<p role="status">{progress || 'Loading collection…'}</p>
+	<button class="text-button" onclick={() => retry++}>{uiText('Try again')}</button>
+{:else if busy && !rows.length}<p role="status">{progress || uiText('Loading collection…')}</p>
 {:else if !rows.length}<p>
 		{section.id === 'library-recently-added'
-			? 'No saved albums have a known library addition date.'
+			? uiText('No saved albums have a known library addition date.')
 			: tracks
-				? 'No matching music on this device.'
-				: 'No library genres found.'}
+				? uiText('No matching music on this device.')
+				: uiText('No library genres found.')}
 	</p>
 {:else if expanded && shown.length < rows.length}<button
 		class="secondary"
-		onclick={() => (limit += 48)}>More results</button
+		onclick={() => (limit += 48)}>{uiText('More results')}</button
 	>{/if}
 
 <style>

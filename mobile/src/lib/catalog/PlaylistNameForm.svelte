@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import { errorMessage } from './catalog';
 	let {
@@ -35,10 +36,12 @@
 </script>
 
 <form onsubmit={save}>
-	<label>Playlist name<input required bind:value={name} disabled={busy} /></label>
+	<label>{uiText('Playlist name')}<input required bind:value={name} disabled={busy} /></label>
 	{#if error}<p role="alert">{error}</p>{/if}
 	<div class="actions">
 		<button class="primary" disabled={busy || !name.trim()}>{action}</button>
-		<button type="button" class="secondary" disabled={busy} onclick={oncancel}>Cancel</button>
+		<button type="button" class="secondary" disabled={busy} onclick={oncancel}
+			>{uiText('Cancel')}</button
+		>
 	</div>
 </form>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import {
 		ArrowDownToLine,
@@ -319,10 +320,14 @@
 >
 	{#if receipt}<p role="status">{receipt}</p>{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
-	{#if loading}<p role="status">Loading held files…</p>
+	{#if loading}<p role="status">{uiText('Loading held files…')}</p>
 	{:else if step === 'bulk'}
-		<p>Ask DN to check up to 25 eligible files. Identified recordings can enter the library.</p>
-		<button class="primary" disabled={saving} onclick={bulk}>Confirm recheck</button>
+		<p>
+			{uiText(
+				'Ask DN to check up to 25 eligible files. Identified recordings can enter the library.'
+			)}
+		</p>
+		<button class="primary" disabled={saving} onclick={bulk}>{uiText('Confirm recheck')}</button>
 	{:else if !entry}
 		{#if entries.length}
 			<div class="settings-list" data-surface="panel">
@@ -345,17 +350,18 @@
 					</button>
 				{/each}
 			</div>
-		{:else if !error}<p>No held files to review.</p>{/if}
+		{:else if !error}<p>{uiText('No held files to review.')}</p>{/if}
 		<div class="settings-actions">
 			{#if !taskId && recheckIds.length}<button
 					class="secondary"
 					onclick={() => {
 						receipt = '';
 						step = 'bulk';
-					}}><Fingerprint size={18} aria-hidden="true" />Recheck held fingerprints</button
+					}}
+					><Fingerprint size={18} aria-hidden="true" />{uiText('Recheck held fingerprints')}</button
 				>{/if}
 			<button class="text-button" onclick={() => load(true)}
-				><RefreshCw size={17} aria-hidden="true" />Refresh held files</button
+				><RefreshCw size={17} aria-hidden="true" />{uiText('Refresh held files')}</button
 			>
 		</div>
 	{:else if step === 'edition'}
@@ -382,7 +388,7 @@
 			class:destructive={choice === 'discard'}
 			disabled={saving}
 			onclick={confirm}
-			>{saving ? 'Working…' : 'Confirm ' + actionNames[choice].toLowerCase()}</button
+			>{saving ? uiText('Working…') : 'Confirm ' + actionNames[choice].toLowerCase()}</button
 		>
 	{:else if step === 'match'}
 		<form
@@ -394,7 +400,7 @@
 			}}
 		>
 			<label
-				>Album or artist<input
+				>{uiText('Album or artist')}<input
 					type="search"
 					bind:value={term}
 					oninput={() => {
@@ -406,11 +412,11 @@
 				/></label
 			>
 			<button class="secondary" disabled={term.trim().length < 2}
-				><Search size={18} aria-hidden="true" />Search albums</button
+				><Search size={18} aria-hidden="true" />{uiText('Search albums')}</button
 			>
 		</form>
-		{#if searching}<p role="status">Searching albums…</p>
-		{:else if searched && !matches.length}<p>No albums found.</p>{/if}
+		{#if searching}<p role="status">{uiText('Searching albums…')}</p>
+		{:else if searched && !matches.length}<p>{uiText('No albums found.')}</p>{/if}
 		{#if matches.length}
 			<div class="settings-list" data-surface="panel">
 				{#each matches as album (album.musicbrainz_id)}
@@ -433,24 +439,28 @@
 			</div>
 		{/if}
 	{:else}
-		{#if entry.state !== 'held'}<p role="status">DN is already handling these files.</p>{/if}
+		{#if entry.state !== 'held'}<p role="status">
+				{uiText('DN is already handling these files.')}
+			</p>{/if}
 		{#if entry.expires_at || entry.next_retry_at}<div class="review-meta">
-				{#if entry.expires_at}Kept until {new Date(entry.expires_at).toLocaleString()}{/if}
+				{#if entry.expires_at}{uiText('Kept until')}
+					{new Date(entry.expires_at).toLocaleString()}{/if}
 				{#if entry.next_retry_at}<div>
-						Next automatic retry {new Date(entry.next_retry_at).toLocaleString()}
+						{uiText('Next automatic retry')}
+						{new Date(entry.next_retry_at).toLocaleString()}
 					</div>{/if}
 			</div>{/if}
-		<section class="review-section" aria-label="Files to review">
+		<section class="review-section" aria-label={uiText('Files to review')}>
 			<div class="files-heading">
-				<h3 class="review-heading">Files to review</h3>
+				<h3 class="review-heading">{uiText('Files to review')}</h3>
 				{#if entry.files.length > 1}<button
 						class="text-button"
 						onclick={() =>
 							(checked =
 								checked.length === entry!.files.length ? [] : entry!.files.map((f) => f.id))}
 						>{checked.length === entry.files.length
-							? 'Clear selection'
-							: 'Select all files'}</button
+							? uiText('Clear selection')
+							: uiText('Select all files')}</button
 					>{/if}
 			</div>
 			<div class="settings-list" data-surface="panel">
@@ -483,9 +493,8 @@
 							>{/if}
 						{#if file.reason_detail}<small>{file.reason_detail}</small>{/if}
 						{#if file.evidence_title || file.evidence_artist}<small
-								>Identified as {[file.evidence_title, file.evidence_artist]
-									.filter(Boolean)
-									.join(' · ')}</small
+								>{uiText('Identified as')}
+								{[file.evidence_title, file.evidence_artist].filter(Boolean).join(' · ')}</small
 							>{/if}
 						<HeldAudition
 							{session}
@@ -497,19 +506,17 @@
 			</div>
 		</section>
 		{#if entry.state === 'held'}
-			<section class="review-section" aria-label="File actions">
+			<section class="review-section" aria-label={uiText('File actions')}>
 				<h3 class="review-heading">
-					Actions for selected files <span class="review-count">{files.length}</span>
+					{uiText('Actions for selected files')} <span class="review-count">{files.length}</span>
 				</h3>
 				{#if files.length}
 					<div class="settings-list" data-surface="panel">
 						{#if curator(viewer) && entry.check_album_id && editionIds.length}<button
 								class="settings-entry"
 								onclick={() => (step = 'edition')}
-								><Disc3 size={18} aria-hidden="true" /><span>Check album edition</span><ChevronRight
-									size={16}
-									aria-hidden="true"
-								/></button
+								><Disc3 size={18} aria-hidden="true" /><span>{uiText('Check album edition')}</span
+								><ChevronRight size={16} aria-hidden="true" /></button
 							>{/if}
 						{#each Object.keys(actionNames) as key (key)}
 							{@const action = key as HeldAction}
@@ -527,7 +534,7 @@
 							{/if}
 						{/each}
 					</div>
-				{:else}<small class="review-meta">Select a file to see its actions.</small>{/if}
+				{:else}<small class="review-meta">{uiText('Select a file to see its actions.')}</small>{/if}
 			</section>
 		{/if}
 	{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { nativeOutput as player, type SonosRoom } from './native';
@@ -68,21 +69,22 @@
 	});
 </script>
 
-<h3>Sonos rooms</h3>
+<h3>{uiText('Sonos rooms')}</h3>
 <div class="settings-panel" data-surface="panel">
 	{#each rooms as room (room.id)}
 		<div class="room">
 			<strong>{room.name}</strong>
 			<p>
 				{room.members === 1
-					? 'Standalone room'
+					? uiText('Standalone room')
 					: room.coordinator === room.id
 						? 'Group coordinator · ' + room.members + ' rooms'
 						: 'Grouped with ' + room.groupName}
 			</p>
 			{#if room.volume !== undefined}
 				<label
-					>{room.name} volume <output>{levels[room.id] ?? room.volume}%</output>
+					>{room.name}
+					{uiText('volume')} <output>{levels[room.id] ?? room.volume}%</output>
 					<input
 						type="range"
 						min="0"
@@ -99,9 +101,10 @@
 			{/if}
 			{#if room.coordinator && (room.coordinator !== room.id || room.members === 1) && rooms.length > 1}
 				<label
-					>Group for {room.name}<InlineChoice selected={targets[room.id]}
+					>{uiText('Group for')}
+					{room.name}<InlineChoice selected={targets[room.id]}
 						><select bind:value={targets[room.id]} disabled={busy}>
-							<option value={room.id}>Standalone</option>
+							<option value={room.id}>{uiText('Standalone')}</option>
 							{#each rooms.filter((r) => r.id !== room.id && room.leaders.includes(r.id)) as group (group.id)}<option
 									value={group.id}>{group.name}</option
 								>{/each}
@@ -111,7 +114,7 @@
 				{#if targets[room.id] !== room.coordinator}<button
 						class="secondary"
 						disabled={busy}
-						onclick={() => setGroup(room)}>Apply group</button
+						onclick={() => setGroup(room)}>{uiText('Apply group')}</button
 					>{/if}
 			{/if}
 		</div>
@@ -119,7 +122,7 @@
 	{#if status}<p role="status">{status}</p>{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
 	<button class="secondary" disabled={busy} onclick={() => run(read)}
-		>{busy ? 'Updating rooms…' : 'Refresh rooms'}</button
+		>{busy ? uiText('Updating rooms…') : uiText('Refresh rooms')}</button
 	>
 </div>
 

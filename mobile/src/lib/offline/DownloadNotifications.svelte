@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { App } from '@capacitor/app';
 	import { onMount } from 'svelte';
 	import { nativeMedia, type DownloadNotificationState } from './nativeMedia';
@@ -48,7 +49,7 @@
 
 <p role="status">{status}</p>
 <button class="secondary" disabled={opening} onclick={open}
-	>Open Android notification settings</button
+	>{uiText('Open Android notification settings')}</button
 >
 {#if error}<p role="alert">{error}</p>{/if}
 

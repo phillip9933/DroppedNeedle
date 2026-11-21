@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import type { Section } from '../boards/layout';
 	import { defaultFieldLabel, supportsPlayerLines } from './layout';
@@ -12,22 +13,23 @@
 
 <div class="styles">
 	<label
-		>Horizontal alignment<InlineChoice selected={field.align ?? ''}
+		>{uiText('Horizontal alignment')}<InlineChoice selected={field.align ?? ''}
 			><select
 				value={field.align ?? ''}
 				onchange={(e) =>
 					change({ align: (e.currentTarget.value || undefined) as Section['align'] })}
 			>
-				<option value="">Default</option><option value="start">Start</option><option value="center"
-					>Center</option
-				><option value="end">End</option></select
+				<option value="">{uiText('Default')}</option><option value="start">{uiText('Start')}</option
+				><option value="center">{uiText('Center')}</option><option value="end"
+					>{uiText('End')}</option
+				></select
 			></InlineChoice
 		></label
 	>
 
 	<label
-		>Padding (px)<input
-			aria-label="Padding"
+		>{uiText('Padding (px)')}<input
+			aria-label={uiText('Padding')}
 			type="number"
 			inputmode="decimal"
 			step="any"
@@ -38,57 +40,63 @@
 		/></label
 	>
 	<label
-		>Vertical alignment<InlineChoice selected={field.vAlign ?? ''}
+		>{uiText('Vertical alignment')}<InlineChoice selected={field.vAlign ?? ''}
 			><select
 				value={field.vAlign ?? ''}
 				onchange={(e) =>
 					change({ vAlign: (e.currentTarget.value || undefined) as Section['vAlign'] })}
 			>
-				<option value="">Default</option><option value="start">Top</option><option value="center"
-					>Center</option
-				><option value="end">Bottom</option></select
+				<option value="">{uiText('Default')}</option><option value="start">{uiText('Top')}</option
+				><option value="center">{uiText('Center')}</option><option value="end"
+					>{uiText('Bottom')}</option
+				></select
 			></InlineChoice
 		></label
 	>
 
 	<label
-		>Label<InlineChoice
+		>{uiText('Label')}<InlineChoice
 			selected={(field.showLabel ?? defaultFieldLabel(field)) ? 'show' : 'hidden'}
-			label="Label"
+			label={uiText('Label')}
 			><select
 				value={(field.showLabel ?? defaultFieldLabel(field)) ? 'show' : 'hidden'}
 				onchange={(e) => change({ showLabel: e.currentTarget.value === 'show' })}
-				><option value="hidden">Hidden</option><option value="show">Show</option></select
+				><option value="hidden">{uiText('Hidden')}</option><option value="show"
+					>{uiText('Show')}</option
+				></select
 			></InlineChoice
 		></label
 	>
 	<label
-		>Label name<input
+		>{uiText('Label name')}<input
 			maxlength="64"
 			value={field.labelName ?? ''}
-			placeholder="Field name"
+			placeholder={uiText('Field name')}
 			oninput={(e) => change({ labelName: e.currentTarget.value })}
 		/></label
 	>
 	<label
-		>Label position<InlineChoice selected={field.labelPosition ?? 'below'}
+		>{uiText('Label position')}<InlineChoice selected={field.labelPosition ?? 'below'}
 			><select
 				value={field.labelPosition ?? 'below'}
 				onchange={(e) =>
 					change({ labelPosition: e.currentTarget.value as Section['labelPosition'] })}
-				><option value="above">Above</option><option value="below">Below</option></select
+				><option value="above">{uiText('Above')}</option><option value="below"
+					>{uiText('Below')}</option
+				></select
 			></InlineChoice
 		></label
 	>
 
 	{#if field.id === 'player-seek' || field.id === 'player-timeline'}
 		<label
-			>Seek bar style<InlineChoice selected={field.seekStyle ?? 'standard'}
+			>{uiText('Seek bar style')}<InlineChoice selected={field.seekStyle ?? 'standard'}
 				><select
 					value={field.seekStyle ?? 'standard'}
 					onchange={(e) => change({ seekStyle: e.currentTarget.value as Section['seekStyle'] })}
-					><option value="standard">Standard</option><option value="animated">Animated</option
-					><option value="waveform">Waveform</option></select
+					><option value="standard">{uiText('Standard')}</option><option value="animated"
+						>{uiText('Animated')}</option
+					><option value="waveform">{uiText('Waveform')}</option></select
 				></InlineChoice
 			></label
 		>
@@ -103,31 +111,32 @@
 			>{/each}
 	{/if}
 	{#if field.id === 'player-lyrics'}<label
-			>Lyrics display<InlineChoice selected={field.lyricsMode ?? 'artwork'}
+			>{uiText('Lyrics display')}<InlineChoice selected={field.lyricsMode ?? 'artwork'}
 				><select
 					value={field.lyricsMode ?? 'artwork'}
 					onchange={(e) => change({ lyricsMode: e.currentTarget.value as Section['lyricsMode'] })}
-					><option value="artwork">Over artwork</option><option value="sheet">Bottom sheet</option
+					><option value="artwork">{uiText('Over artwork')}</option><option value="sheet"
+						>{uiText('Bottom sheet')}</option
 					></select
 				></InlineChoice
 			></label
 		>{/if}
 	{#if supportsPlayerLines(field.id)}
 		<label
-			>Text size<InlineChoice selected={field.textSize ?? 'normal'}
+			>{uiText('Text size')}<InlineChoice selected={field.textSize ?? 'normal'}
 				><select
 					value={field.textSize ?? 'normal'}
 					onchange={(e) => change({ textSize: e.currentTarget.value as Section['textSize'] })}
 				>
-					<option value="small">Small</option><option value="normal">Normal</option><option
-						value="large">Large</option
-					></select
+					<option value="small">{uiText('Small')}</option><option value="normal"
+						>{uiText('Normal')}</option
+					><option value="large">{uiText('Large')}</option></select
 				></InlineChoice
 			></label
 		>
 
 		<label
-			>Maximum lines<InlineChoice
+			>{uiText('Maximum lines')}<InlineChoice
 				selected={field.maxLines === undefined ? 'auto' : String(field.maxLines)}
 				><select
 					value={field.maxLines === undefined ? 'auto' : String(field.maxLines)}
@@ -136,7 +145,8 @@
 							maxLines: e.currentTarget.value === 'auto' ? undefined : Number(e.currentTarget.value)
 						})}
 				>
-					<option value="auto">Default</option><option value="0">Unlimited</option
+					<option value="auto">{uiText('Default')}</option><option value="0"
+						>{uiText('Unlimited')}</option
 					>{#each Array.from({ length: 8 }, (_, i) => i + 1) as n (n)}<option value={n}>{n}</option
 						>{/each}</select
 				></InlineChoice
@@ -148,7 +158,7 @@
 				checked={!!field.reserveLines}
 				disabled={!field.maxLines}
 				onchange={(e) => change({ reserveLines: e.currentTarget.checked })}
-			/>Reserve all lines</label
+			/>{uiText('Reserve all lines')}</label
 		>
 	{/if}
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { Session } from '../connection';
 	import { errorMessage, type Album, type OnPlay } from './catalog';
 	import { artistChart, type DiscoverArtistRef } from './discovery';
@@ -45,10 +46,9 @@
 
 <section data-part="artist-chart">
 	{#if error}<p role="alert">{error}</p>
-		<button class="secondary" onclick={() => retry++}>Try again</button>{:else if !result}<p
-			role="status"
-		>
-			Loading chart…
+		<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button
+		>{:else if !result}<p role="status">
+			{uiText('Loading chart…')}
 		</p>
 	{:else if result.list && (result.list.albums.length || result.list.unlinked.length)}<Albums
 			{session}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
@@ -37,7 +38,7 @@
 	});
 </script>
 
-<h2 id={kind + '-cache-settings'}>{art ? 'Cover artwork' : 'Lyrics'}</h2>
+<h2 id={kind + '-cache-settings'}>{art ? uiText('Cover artwork') : uiText('Lyrics')}</h2>
 <fieldset
 	class="settings-panel"
 	data-surface="panel"
@@ -46,7 +47,8 @@
 >
 	{#if info}
 		<label
-			>{label} cache limit<InlineChoice selected={info.limit}
+			>{label}
+			{uiText('cache limit')}<InlineChoice selected={info.limit}
 				><select value={info.limit} onchange={(e) => change(Number(e.currentTarget.value))}
 					>{#each mediaLimits[kind] as limit (limit)}<option value={limit}
 							>{limit ? limit + ' MiB' : 'Off (remove cached ' + contents + ')'}</option
@@ -56,21 +58,29 @@
 		>
 		<p>
 			{info.count.toLocaleString()}
-			{art ? (info.count === 1 ? 'cover' : 'covers') : info.count === 1 ? 'track' : 'tracks'} · {storageSize(
-				info.bytes
-			)}. {#if info.limit}{art
-					? 'Covers you’ve viewed are available offline.'
-					: 'Lyrics you’ve opened are available offline.'}{/if}
+			{art
+				? info.count === 1
+					? uiText('cover')
+					: uiText('covers')
+				: info.count === 1
+					? uiText('track')
+					: uiText('tracks')} · {storageSize(info.bytes)}. {#if info.limit}{art
+					? uiText('Covers you’ve viewed are available offline.')
+					: uiText('Lyrics you’ve opened are available offline.')}{/if}
 		</p>
-		{#if confirming}<p>Remove the cached {contents} for this account from this device?</p>
+		{#if confirming}<p>
+				{uiText('Remove the cached')}
+				{contents}
+				{uiText('for this account from this device?')}
+			</p>
 			<div class="settings-actions">
-				<button class="secondary" onclick={() => (confirming = false)}>Cancel</button><button
-					class="secondary"
-					onclick={() => change(info!.limit, true)}>Remove cached {contents}</button
+				<button class="secondary" onclick={() => (confirming = false)}>{uiText('Cancel')}</button
+				><button class="secondary" onclick={() => change(info!.limit, true)}
+					>{uiText('Remove cached')} {contents}</button
 				>
 			</div>
 		{:else}<button class="text-button" disabled={!info.count} onclick={() => (confirming = true)}
-				>Clear {kind} cache</button
+				>{uiText('Clear')} {kind} {uiText('cache')}</button
 			>{/if}
 	{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
