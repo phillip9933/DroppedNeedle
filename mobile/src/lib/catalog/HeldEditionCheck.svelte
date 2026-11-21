@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -183,35 +184,45 @@
 	}
 </script>
 
-<section class="settings-stack" aria-label="Album edition review">
+<section class="settings-stack" aria-label={uiText('Album edition review')}>
 	{#if loadError}<p role="alert">{loadError}</p>
-		<button class="secondary" onclick={() => refresh++}>Reload editions</button>
-	{:else if !status}<p role="status">Checking the library edition…</p>
+		<button class="secondary" onclick={() => refresh++}>{uiText('Reload editions')}</button>
+	{:else if !status}<p role="status">{uiText('Checking the library edition…')}</p>
 	{:else}
 		{#if status.reason.message}<p>{status.reason.message}</p>{/if}
 		{#if choices.length}
 			<label
-				>Edition<InlineChoice {selected} label="Edition"
+				>{uiText('Edition')}<InlineChoice {selected} label={uiText('Edition')}
 					><select bind:value={selected} disabled={busy || saved || stale}
 						>{#each choices as choice (choice.id)}<option value={choice.id}>{choice.label}</option
 							>{/each}</select
 					></InlineChoice
 				></label
 			>
-		{:else}<p>No edition is available to check yet.</p>{/if}
-		{#if listError}<p role="status">Other editions could not be loaded. {listError}</p>{/if}
+		{:else}<p>{uiText('No edition is available to check yet.')}</p>{/if}
+		{#if listError}<p role="status">
+				{uiText('Other editions could not be loaded.')}
+				{listError}
+			</p>{/if}
 		{#if stale}
-			<p role="alert">The library edition changed. Reload it to review the current match.</p>
-			<button class="secondary" onclick={() => refresh++}>Reload editions</button>
+			<p role="alert">
+				{uiText('The library edition changed. Reload it to review the current match.')}
+			</p>
+			<button class="secondary" onclick={() => refresh++}>{uiText('Reload editions')}</button>
 		{:else if planError}
 			<p role="alert">{planError}</p>
-			<button class="secondary" onclick={() => refresh++}>Reload editions</button>
-		{:else if planning}<p role="status">Comparing tracks…</p>
+			<button class="secondary" onclick={() => refresh++}>{uiText('Reload editions')}</button>
+		{:else if planning}<p role="status">{uiText('Comparing tracks…')}</p>
 		{:else if plan}
 			<div class="review-section">
 				<h3 class="review-heading">{plan.edition.title}</h3>
 				<p class="review-meta">
-					{plan.kept_count} matched · {plan.missing_count} missing · {plan.extra_count} extra{plan.duplicate_count
+					{plan.kept_count}
+					{uiText('matched ·')}
+					{plan.missing_count}
+					{uiText('missing ·')}
+					{plan.extra_count}
+					{uiText('extra')}{plan.duplicate_count
 						? ' · ' + plan.duplicate_count + ' duplicates'
 						: ''}{plan.other_version_count
 						? ' · ' + plan.other_version_count + ' other versions'
@@ -219,7 +230,7 @@
 				</p>
 			</div>
 			{#if plan.tracks.length}<details class="settings-disclosure" data-surface="panel">
-					<summary>Edition tracks ({plan.tracks.length})</summary>
+					<summary>{uiText('Edition tracks (')}{plan.tracks.length})</summary>
 					<ul class="review-files">
 						{#each plan.tracks as track (track.disc_number + '.' + track.position)}<li
 								class="edition-track"
@@ -227,38 +238,41 @@
 								<span class="review-meta">{track.disc_number}.{track.position}</span>
 								<span
 									>{track.title}<small class="review-meta"
-										>{track.local_track_id ? 'Matched' : 'Missing'}</small
+										>{track.local_track_id ? uiText('Matched') : uiText('Missing')}</small
 									></span
 								>
 							</li>{/each}
 					</ul>
 				</details>{/if}
 			<details class="settings-disclosure" data-surface="panel" open>
-				<summary>Held files to retry ({targets.length})</summary>
+				<summary>{uiText('Held files to retry (')}{targets.length})</summary>
 				<ul class="review-files">
 					{#each targets as file (file.id)}<li>{file.original_name}</li>{/each}
 				</ul>
 			</details>
 			{#if status.files_by_itself && !alreadyChosen && !saved}<p>
-					DN will also apply this library folder’s automatic file settings.
+					{uiText('DN will also apply this library folder’s automatic file settings.')}
 				</p>{/if}
 			{#if needsOverride && !saved}<label class="override"
-					><input type="checkbox" bind:checked={useAnyway} disabled={busy} />Use this edition even
-					though none of the library files match it.</label
+					><input type="checkbox" bind:checked={useAnyway} disabled={busy} />{uiText(
+						'Use this edition even though none of the library files match it.'
+					)}</label
 				>{/if}
-			{#if saved}<p role="status">Edition saved. The selected files can be retried.</p>{/if}
+			{#if saved}<p role="status">
+					{uiText('Edition saved. The selected files can be retried.')}
+				</p>{/if}
 			{#if actionError}<p role="alert">{actionError}</p>{/if}
 			<button
 				class="primary"
 				disabled={busy || !targets.length || (needsOverride && !useAnyway)}
 				onclick={apply}
 				>{busy
-					? 'Working…'
+					? uiText('Working…')
 					: saved || alreadyChosen
-						? 'Retry selected files'
+						? uiText('Retry selected files')
 						: plan.is_current
-							? 'Confirm edition and retry files'
-							: 'Use edition and retry files'}</button
+							? uiText('Confirm edition and retry files')
+							: uiText('Use edition and retry files')}</button
 			>
 		{/if}
 	{/if}

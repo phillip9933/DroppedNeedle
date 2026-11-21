@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { uiText, uiFormat } from '../i18n';
+
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { ArrowUp, ArrowDown, Check, Play } from '@lucide/svelte';
 	import sampleArtwork from '../player/tidal-memory.webp';
@@ -81,12 +83,12 @@
 	const surfaces = Object.keys(surfaceNames) as InterfacePreferences['surface'][];
 </script>
 
-<section class="settings-stack" aria-label="Interface settings">
-	<h2>Button and panel style</h2>
-	<div class="materials" role="group" aria-label="Surface style">
+<section class="settings-stack" aria-label={uiText('Interface settings')}>
+	<h2 id="interface-material">{uiText('Button and panel style')}</h2>
+	<div class="materials" role="group" aria-label={uiText('Surface style')}>
 		{#each surfaces as style (style)}<button
 				class="material-choice"
-				aria-label={surfaceNames[style]}
+				aria-label={uiText(surfaceNames[style])}
 				aria-pressed={$interfacePreferences.surface === style}
 				onclick={() => setInterface({ surface: style })}
 			>
@@ -98,12 +100,12 @@
 					{#if $interfacePreferences.surface === style}<span class="check"><Check size={13} /></span
 						>{/if}
 				</span>
-				<span class="material-name">{surfaceNames[style]}</span>
+				<span class="material-name">{uiText(surfaceNames[style])}</span>
 			</button>{/each}
 	</div>
 	{#if $interfacePreferences.surface === 'blur'}<label class="strength"
-			><span>Blur strength <output>{$interfacePreferences.blur} px</output></span><input
-				aria-label="Blur strength"
+			><span>{uiText('Blur strength')} <output>{$interfacePreferences.blur} px</output></span><input
+				aria-label={uiText('Blur strength')}
 				type="range"
 				min="0"
 				max="24"
@@ -112,48 +114,60 @@
 				oninput={(e) => setInterface({ blur: e.currentTarget.valueAsNumber })}
 			/></label
 		>{/if}
-	<label
-		>Screen transitions<InlineChoice
+	<label id="interface-motion"
+		>{uiText('Screen transitions')}<InlineChoice
 			selected={$interfacePreferences.motion}
-			label="Screen transitions"
+			label={uiText('Screen transitions')}
 			><select
 				value={$interfacePreferences.motion}
 				onchange={(e) =>
 					setInterface({ motion: e.currentTarget.value as InterfacePreferences['motion'] })}
-				><option value="off">Off</option><option value="quick">Quick</option><option value="gentle"
-					>Gentle</option
-				></select
+				><option value="off">{uiText('Off')}</option><option value="quick">{uiText('Quick')}</option
+				><option value="gentle">{uiText('Gentle')}</option></select
 			></InlineChoice
 		></label
 	>
 	{#if session?.userId}
-		<label
-			>Start screen
+		<label id="interface-start"
+			>{uiText('Start screen')}
 			<InlineChoice selected={opening}
 				><select
 					value={opening}
 					onchange={(e) => changeStart(e.currentTarget.value as StartScreen)}
 				>
-					<option value="automatic">Automatic</option>
-					<option value="home">Home</option>
-					<option value="library">Library</option>
-					<option value="player">Now Playing</option>
+					<option value="automatic">{uiText('Automatic')}</option>
+					<option value="home">{uiText('Home')}</option>
+					<option value="library">{uiText('Library')}</option>
+					<option value="player">{uiText('Now Playing')}</option>
 				</select></InlineChoice
 			>
 		</label>
-		{#if opening === 'automatic'}<p>Open Home when connected and Offline music when offline.</p>
-		{:else if opening === 'player'}<p>Open your saved queue. An empty queue opens Library.</p>{/if}
+		{#if opening === 'automatic'}<p>
+				{uiText('Open Home when connected and Offline music when offline.')}
+			</p>
+		{:else if opening === 'player'}<p>
+				{uiText('Open your saved queue. An empty queue opens Library.')}
+			</p>{/if}
 		{#if saveIssue}<p role="alert">{saveIssue}</p>{/if}
 	{/if}
-	<h2>Navigation bar</h2>
-	<div class="settings-tabs" data-surface="panel" role="group" aria-label="Navigation bar position">
+	<h2 id="interface-navigation">{uiText('Navigation bar')}</h2>
+	<div
+		class="settings-tabs"
+		data-surface="panel"
+		role="group"
+		aria-label={uiText('Navigation bar position')}
+	>
 		{#each ['docked', 'floating'] as bar (bar)}<button
 				aria-pressed={$interfacePreferences.bar === bar}
 				onclick={() => setInterface({ bar: bar === 'floating' ? 'floating' : 'docked' })}
-				>{bar === 'docked' ? 'Docked' : 'Floating'}</button
+				>{bar === 'docked' ? uiText('Docked') : uiText('Floating')}</button
 			>{/each}
 	</div>
-	<p>Pin up to {maxTabs} destinations. The Settings menu includes navigation shortcuts.</p>
+	<p>
+		{uiFormat('Pin up to {count} destinations. The Settings menu includes navigation shortcuts.', {
+			count: maxTabs
+		})}
+	</p>
 	<div class="choices" data-surface="panel">
 		{#each ordered as id, i (id)}
 			{@const opt = options.find((d) => d.id === id)!}
@@ -164,16 +178,16 @@
 						checked={visible.includes(id)}
 						disabled={!visible.includes(id) && visible.length >= maxTabs}
 						onchange={() => toggle(id)}
-					/><opt.icon size={17} />{opt.label}</label
+					/><opt.icon size={17} />{uiText(opt.label)}</label
 				>
 				{#if visible.includes(id)}<button
 						class="order"
-						aria-label={'Move ' + opt.label + ' earlier'}
+						aria-label={uiFormat('Move {name} earlier', { name: uiText(opt.label) })}
 						disabled={i === 0}
 						onclick={() => move(i, -1)}><ArrowUp size={17} /></button
 					><button
 						class="order"
-						aria-label={'Move ' + opt.label + ' later'}
+						aria-label={uiFormat('Move {name} later', { name: uiText(opt.label) })}
 						disabled={i === visible.length - 1}
 						onclick={() => move(i, 1)}><ArrowDown size={17} /></button
 					>{/if}
@@ -181,17 +195,17 @@
 		{/each}
 	</div>
 	{#if session?.userId}
-		<h2 id="mini-player-settings">Mini-player</h2>
+		<h2 id="mini-player-settings">{uiText('Mini-player')}</h2>
 		<div class="mini-rows" data-surface="panel" role="group" aria-labelledby="mini-player-settings">
 			<label class="mini-row"
-				><span>Show cover artwork</span><input
+				><span>{uiText('Show cover artwork')}</span><input
 					type="checkbox"
 					checked={mini.artwork}
 					onchange={(e) => changeMini({ artwork: e.currentTarget.checked })}
 				/></label
 			>
 			<label class="mini-row"
-				><span>Secondary text</span><InlineChoice selected={mini.secondary}
+				><span>{uiText('Secondary text')}</span><InlineChoice selected={mini.secondary}
 					><select
 						value={mini.secondary}
 						onchange={(e) =>
@@ -200,13 +214,13 @@
 							})}
 					>
 						{#each Object.entries(miniText) as [value, label] (value)}<option {value}
-								>{label}</option
+								>{uiText(label)}</option
 							>{/each}
 					</select></InlineChoice
 				></label
 			>
 			<label class="mini-row"
-				><span>Show track progress</span><input
+				><span>{uiText('Show track progress')}</span><input
 					type="checkbox"
 					checked={mini.progress}
 					onchange={(e) => changeMini({ progress: e.currentTarget.checked })}
@@ -214,14 +228,15 @@
 			>
 			{#each sides as side (side)}
 				<label class="mini-row"
-					><span>{side === 'before' ? 'Before Play/Pause' : 'After Play/Pause'}</span><InlineChoice
-						selected={mini[side]}
+					><span
+						>{side === 'before' ? uiText('Before Play/Pause') : uiText('After Play/Pause')}</span
+					><InlineChoice selected={mini[side]}
 						><select
 							value={mini[side]}
 							onchange={(e) => placeButton(side, e.currentTarget.value as MiniButton)}
 						>
 							{#each Object.entries(miniButtons) as [value, label] (value)}<option {value}
-									>{label}</option
+									>{uiText(label)}</option
 								>{/each}
 						</select></InlineChoice
 					></label
@@ -236,7 +251,7 @@
 			setInterface(defaultInterface);
 			changeMini(defaultMiniPlayer);
 			changeStart('automatic');
-		}}>Restore interface defaults</button
+		}}>{uiText('Restore interface defaults')}</button
 	>
 </section>
 

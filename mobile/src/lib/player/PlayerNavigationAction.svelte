@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
+
 	import { Cast, ChevronDown, ListMusic, Settings2 } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
 	import { navigationFields, type NavigationId } from './layout';
@@ -45,7 +47,7 @@
 			class="icon-button player-control"
 			data-screen-link={id === 'player-settings' && !editing ? true : undefined}
 			{disabled}
-			aria-label={accessible}
+			aria-label={uiText(accessible)}
 			aria-expanded={id === 'player-queue' ? queueOpen : undefined}
 			onclick={() => onactivate(id)}
 		>
@@ -53,7 +55,7 @@
 				{section}
 				glyph={glyphs[id]}
 				size={id === 'player-settings' ? 20 : 24}
-				{label}
+				label={uiText(label)}
 			/>
 		</button>{/if}
 </span>

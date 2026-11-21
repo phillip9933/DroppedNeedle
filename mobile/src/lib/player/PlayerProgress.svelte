@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { untrack } from 'svelte';
 	import type { Session } from '../connection';
 	import type { Section } from '../boards/layout';
@@ -122,7 +123,7 @@
 		<span class="thumb" style:left={ratio * 100 + '%'}></span>
 		<input
 			type="range"
-			aria-label="Playback position"
+			aria-label={uiText('Playback position')}
 			min="0"
 			max={duration || 0}
 			step="0.1"
@@ -141,13 +142,15 @@
 		/>
 	</div>
 	{#if elapsed || length || remaining}<div class="times">
-			{#if elapsed}<time aria-label="Elapsed time">{stamp(now)}</time>{/if}
+			{#if elapsed}<time aria-label={uiText('Elapsed time')}>{stamp(now)}</time>{/if}
 			<span></span>
-			{#if remaining}<time aria-label="Time remaining">−{stamp(Math.max(0, duration - now))}</time
+			{#if remaining}<time aria-label={uiText('Time remaining')}
+					>−{stamp(Math.max(0, duration - now))}</time
 				>{/if}
-			{#if length}<time aria-label="Track length">{stamp(duration)}</time>{/if}
+			{#if length}<time aria-label={uiText('Track length')}>{stamp(duration)}</time>{/if}
 		</div>{/if}
-	{#if style === 'waveform' && unavailable}<small class="unavailable">Waveform unavailable</small
+	{#if style === 'waveform' && unavailable}<small class="unavailable"
+			>{uiText('Waveform unavailable')}</small
 		>{/if}
 </div>
 

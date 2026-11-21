@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import SoundSettings from './SoundSettings.svelte';
 	import { onMount } from 'svelte';
@@ -130,17 +131,17 @@
 	});
 </script>
 
-<section class="settings-stack" aria-label="Playback preferences">
-	<h2>Mobile stream quality</h2>
+<section class="settings-stack" aria-label={uiText('Playback preferences')}>
+	<h2>{uiText('Mobile stream quality')}</h2>
 	<p class="connection" role="status">
-		{#if network === 'wifi'}Connected through Wi-Fi or Ethernet.
-		{:else if network === 'cellular'}Connected through cellular data.
-		{:else if network === 'offline'}Device is offline.
-		{:else}Connection type unknown. Streaming uses the cellular profile.{/if}
+		{#if network === 'wifi'}{uiText('Connected through Wi-Fi or Ethernet.')}
+		{:else if network === 'cellular'}{uiText('Connected through cellular data.')}
+		{:else if network === 'offline'}{uiText('Device is offline.')}
+		{:else}{uiText('Connection type unknown. Streaming uses the cellular profile.')}{/if}
 	</p>
 	{#each connections as entry (entry.id)}
 		{@const q = profiles[entry.id]}
-		<h3 class="settings-subheading" id={'stream-' + entry.id}>{entry.name}</h3>
+		<h3 class="settings-subheading" id={'stream-' + entry.id}>{uiText(entry.name)}</h3>
 		<fieldset
 			class="settings-panel"
 			data-surface="panel"
@@ -148,19 +149,21 @@
 			disabled={savingProfile}
 		>
 			<label
-				>Audio format<InlineChoice selected={q.format} label={entry.name + ' audio format'}
+				>{uiText('Audio format')}<InlineChoice
+					selected={q.format}
+					label={entry.name + ' audio format'}
 					><select
 						value={q.format}
 						onchange={(e) => configure(entry.id, e.currentTarget.value as Format, q.rate)}
 					>
-						<option value="original">Original file</option><option value="mp3">MP3</option><option
-							value="opus">Opus</option
-						>
+						<option value="original">{uiText('Original file')}</option><option value="mp3"
+							>MP3</option
+						><option value="opus">Opus</option>
 					</select></InlineChoice
 				></label
 			>
 			{#if q.format !== 'original'}<label
-					>Requested bitrate<InlineChoice
+					>{uiText('Requested bitrate')}<InlineChoice
 						selected={q.rate}
 						label={entry.name + ' requested bitrate'}
 						><select
@@ -175,30 +178,32 @@
 	{/each}
 	{#if Capacitor.getPlatform() === 'ios' && (profiles.wifi.format === 'opus' || profiles.cellular.format === 'opus')}<p
 		>
-			If this device cannot play Ogg Opus, DN sends MP3 at your selected bitrate.
+			{uiText('If this device cannot play Ogg Opus, DN sends MP3 at your selected bitrate.')}
 		</p>{/if}
 	{#if profileError}<p role="alert">{profileError}</p>{/if}
 	<p>
-		Each track uses the connection available when it starts loading. If DN falls back to an original
-		file, it plays at its source bitrate.
+		{uiText(
+			'Each track uses the connection available when it starts loading. If DN falls back to an original file, it plays at its source bitrate.'
+		)}
 	</p>
-	{#if serviceError}<p role="status">Could not check DN conversion. {serviceError}</p>
-		<button class="secondary" onclick={readConversion}>Check conversion again</button>
+	{#if serviceError}<p role="status">{uiText('Could not check DN conversion.')} {serviceError}</p>
+		<button class="secondary" onclick={readConversion}>{uiText('Check conversion again')}</button>
 	{:else if conversion === 'off'}<p>
-			Conversion is turned off. Your format choices take effect when On-the-fly transcoding is
-			enabled in DN’s Settings → Connect Apps.
+			{uiText(
+				'Conversion is turned off. Your format choices take effect when On-the-fly transcoding is enabled in DN’s Settings → Connect Apps.'
+			)}
 		</p>
-		<button class="text-button" onclick={readConversion}>Check conversion again</button>
+		<button class="text-button" onclick={readConversion}>{uiText('Check conversion again')}</button>
 	{:else if conversion === 'unavailable'}<p>
-			DN reports that ffmpeg is unavailable. Original files can still play.
+			{uiText('DN reports that ffmpeg is unavailable. Original files can still play.')}
 		</p>
-		<button class="text-button" onclick={readConversion}>Check conversion again</button>
-	{:else if conversion === 'on'}<p>DN can convert streams for both profiles.</p>
-	{:else}<p role="status">Checking server conversion…</p>{/if}
+		<button class="text-button" onclick={readConversion}>{uiText('Check conversion again')}</button>
+	{:else if conversion === 'on'}<p>{uiText('DN can convert streams for both profiles.')}</p>
+	{:else}<p role="status">{uiText('Checking server conversion…')}</p>{/if}
 	{#if Capacitor.getPlatform() !== 'ios'}
-		<h2>Audio playback</h2>
+		<h2 id="audio-playback">{uiText('Audio playback')}</h2>
 		<SoundSettings />
-		<h2 id="similar-autoplay">Play queue</h2>
+		<h2 id="similar-autoplay">{uiText('Play queue')}</h2>
 		<div
 			class="settings-panel"
 			data-surface="panel"
@@ -211,13 +216,18 @@
 					checked={autoplay}
 					disabled={autoplayBusy}
 					onchange={(e) => void autoplaySetting(e.currentTarget.checked)}
-				/> Autoplay similar library music</label
+				/>
+				{uiText('Autoplay similar library music')}</label
 			>
-			<p>When the queue ends, continue with related songs from your DroppedNeedle library.</p>
+			<p>
+				{uiText(
+					'When the queue ends, continue with related songs from your DroppedNeedle library.'
+				)}
+			</p>
 			{#if autoplayError}<p role="alert">{autoplayError}</p>{/if}
 		</div>
 	{/if}
-	<h2 id="track-fades-settings">Track fades</h2>
+	<h2 id="track-fades-settings">{uiText('Track fades')}</h2>
 	<div
 		class="settings-panel"
 		data-surface="panel"
@@ -226,15 +236,15 @@
 	>
 		{#each fadeEdges as edge (edge.key)}
 			<label>
-				{edge.label}
-				<InlineChoice selected={fades[edge.key]} label={edge.label}
+				{uiText(edge.label)}
+				<InlineChoice selected={fades[edge.key]} label={uiText(edge.label)}
 					><select
 						value={fades[edge.key]}
 						disabled={loadingFades || saving}
 						onchange={(e) => fade({ [edge.key]: Number(e.currentTarget.value) })}
 					>
 						{#each fadeLengths as ms (ms)}<option value={ms}
-								>{ms ? ms / 1000 + ' seconds' : 'Off'}</option
+								>{ms ? ms / 1000 + ' seconds' : uiText('Off')}</option
 							>{/each}
 					</select></InlineChoice
 				>
@@ -250,12 +260,13 @@
 					e.currentTarget.checked = fades.smart;
 					void fade({ smart: requested });
 				}}
-			/> Smart fades</label
+			/>
+			{uiText('Smart fades')}</label
 		>
 		<p>
-			Overlap quiet endings and intros, or line up a clear, steady beat between tracks. Transitions
-			last up to eight seconds. Consecutive album tracks play through. If analysis is unavailable,
-			your manual fades apply.
+			{uiText(
+				'Overlap quiet endings and intros, or line up a clear, steady beat between tracks. Transitions last up to eight seconds. Consecutive album tracks play through. If analysis is unavailable, your manual fades apply.'
+			)}
 		</p>
 	</div>
 	{#if fadeError}<p role="alert">{fadeError}</p>{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onDestroy, tick, type Snippet } from 'svelte';
 	import { ArrowDown, ArrowUp, GripVertical } from '@lucide/svelte';
 	import PlaylistDialog from '../catalog/PlaylistDialog.svelte';
@@ -185,7 +186,7 @@
 		aria-describedby={help}
 		aria-haspopup="dialog"
 		aria-keyshortcuts="ArrowUp ArrowDown"
-		title="Drag to reorder or tap to choose a position"
+		title={uiText('Drag to reorder or tap to choose a position')}
 		onpointerdown={(e) => start(e, index, title)}
 		onkeydown={(e) => {
 			if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -205,7 +206,7 @@
 
 <div bind:this={list}>
 	<span id={help} hidden
-		>Drag to reorder, use the arrow keys, or activate to choose a position.</span
+		>{uiText('Drag to reorder, use the arrow keys, or activate to choose a position.')}</span
 	>
 	<p class:sr-only={!showMessage} class:notice={showMessage} role="status" tabindex="-1">
 		{message}
@@ -221,7 +222,7 @@
 			}}
 		>
 			<label
-				>Track position ({offset + 1}–{offset + count})
+				>{uiText('Track position (')}{offset + 1}–{offset + count})
 				<input
 					type="number"
 					inputmode="numeric"
@@ -239,7 +240,7 @@
 					disabled={picker.index === 0}
 					aria-label={'Move ' + picker.title + ' up'}
 					onclick={() => picker && commit(picker, picker.index - 1, true)}
-					><ArrowUp size={16} /> Up</button
+					><ArrowUp size={16} /> {uiText('Up')}</button
 				>
 				<button
 					type="button"
@@ -247,18 +248,20 @@
 					disabled={picker.index + 1 === count}
 					aria-label={'Move ' + picker.title + ' down'}
 					onclick={() => picker && commit(picker, picker.index + 1, true)}
-					><ArrowDown size={16} /> Down</button
+					><ArrowDown size={16} /> {uiText('Down')}</button
 				>
 			</div>
 			<div class="actions">
-				<button type="button" class="text-button" onclick={() => (picker = null)}>Cancel</button>
+				<button type="button" class="text-button" onclick={() => (picker = null)}
+					>{uiText('Cancel')}</button
+				>
 				<button
 					type="submit"
 					class="primary"
 					disabled={!Number.isInteger(position) ||
 						position! <= offset ||
 						position! > offset + count ||
-						position === offset + picker.index + 1}>Move track</button
+						position === offset + picker.index + 1}>{uiText('Move track')}</button
 				>
 			</div>
 		</form>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import { nativeMedia, type ManualStatus } from './nativeMedia';
 
@@ -76,21 +77,25 @@
 </script>
 
 {#if status?.total || error}
-	<section class="downloads" aria-label="Download queue">
-		<h2>Download queue</h2>
+	<section class="downloads" aria-label={uiText('Download queue')}>
+		<h2>{uiText('Download queue')}</h2>
 		{#if status?.total}
 			<p role="status">
-				{labels[status.state]} · {status.saved.toLocaleString()} of {status.total.toLocaleString()} saved{status.failed
-					? ' · ' + status.failed.toLocaleString() + ' failed'
-					: ''}
+				{labels[status.state]} · {status.saved.toLocaleString()}
+				{uiText('of')}
+				{status.total.toLocaleString()}
+				{uiText('saved')}{status.failed ? ' · ' + status.failed.toLocaleString() + ' failed' : ''}
 			</p>
 			{#if status.current}<p class="current">
 					{status.current.title}{status.current.artist ? ' · ' + status.current.artist : ''}
 				</p>{/if}
-			{#if status.pending}<progress aria-label="Songs saved" value={status.saved} max={status.total}
+			{#if status.pending}<progress
+					aria-label={uiText('Songs saved')}
+					value={status.saved}
+					max={status.total}
 				></progress>{/if}
 			{#if status.failures?.length}
-				<ul aria-label="Failed songs">
+				<ul aria-label={uiText('Failed songs')}>
 					{#each status.failures as song (song.id)}
 						<li>
 							<strong>{song.title}{song.artist ? ' · ' + song.artist : ''}</strong><span
@@ -100,20 +105,23 @@
 					{/each}
 				</ul>
 				{#if status.failed > status.failures.length}<p>
-						{(status.failed - status.failures.length).toLocaleString()} more failed.
+						{(status.failed - status.failures.length).toLocaleString()}
+						{uiText('more failed.')}
 					</p>{/if}
 			{:else if status.failed && status.lastError}<p>{status.lastError}</p>{/if}
 			<div class="actions">
 				{#if status.failed}<button class="secondary" disabled={busy} onclick={() => update('retry')}
-						>Retry failed downloads</button
+						>{uiText('Retry failed downloads')}</button
 					>{/if}
 				<button class="text-button" disabled={busy} onclick={() => update('cancel')}
-					>{status.pending ? 'Cancel remaining downloads' : 'Dismiss download summary'}</button
+					>{status.pending
+						? uiText('Cancel remaining downloads')
+						: uiText('Dismiss download summary')}</button
 				>
 			</div>
 		{/if}
 		{#if error}<p role="alert">{error}</p>
-			<button class="text-button" onclick={refresh}>Check again</button>{/if}
+			<button class="text-button" onclick={refresh}>{uiText('Check again')}</button>{/if}
 	</section>
 {/if}
 

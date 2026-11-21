@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
 	import { path } from '../catalog/catalog';
@@ -129,44 +130,49 @@
 		<button
 			class="text-button"
 			aria-label={'Unpin ' + pin.name}
-			onclick={() => onpins(pins.filter((p) => !same(p, pin)))}>Unpin</button
+			onclick={() => onpins(pins.filter((p) => !same(p, pin)))}>{uiText('Unpin')}</button
 		>
 	</div>
 {/each}
 {#if choosing}
 	<label
-		>Collection type<InlineChoice selected={kind}
+		>{uiText('Collection type')}<InlineChoice selected={kind}
 			><select bind:value={kind} onchange={() => (query = '')}>
-				<option value="playlist">DN playlist</option><option value="artist">Artist</option><option
-					value="filter">Saved library filter</option
-				>
-				<option value="recent">Recently added songs</option><option value="favorites"
-					>Favorite songs</option
+				<option value="playlist">{uiText('DN playlist')}</option><option value="artist"
+					>{uiText('Artist')}</option
+				><option value="filter">{uiText('Saved library filter')}</option>
+				<option value="recent">{uiText('Recently added songs')}</option><option value="favorites"
+					>{uiText('Favorite songs')}</option
 				>
 			</select></InlineChoice
 		></label
 	>
 	{#if kind === 'artist'}<label
-			>Find an artist<input type="search" bind:value={query} placeholder="Artist name" /></label
+			>{uiText('Find an artist')}<input
+				type="search"
+				bind:value={query}
+				placeholder={uiText('Artist name')}
+			/></label
 		>{/if}
-	{#if loading}<p role="status">Loading collections…</p>{/if}
+	{#if loading}<p role="status">{uiText('Loading collections…')}</p>{/if}
 	{#if error}<p role="status">{error}</p>{/if}
 	{#each candidates.filter((p) => !pins.some((pin) => same(pin, p))) as item (item.id)}
-		<button class="text-button" onclick={() => add(item)}>Pin {item.name}</button>
+		<button class="text-button" onclick={() => add(item)}>{uiText('Pin')} {item.name}</button>
 	{:else}
 		{#if !loading && !error}<p>
 				{kind === 'filter'
-					? 'No more saved library filters. Create one in Library customization.'
-					: 'No more matching collections.'}
+					? uiText('No more saved library filters. Create one in Library customization.')
+					: uiText('No more matching collections.')}
 			</p>{/if}
 	{/each}
-	<button class="secondary" onclick={() => (choosing = false)}>Done</button>
+	<button class="secondary" onclick={() => (choosing = false)}>{uiText('Done')}</button>
 {:else}
-	<button class="secondary" onclick={() => (choosing = true)}>Pin a collection</button>
+	<button class="secondary" onclick={() => (choosing = true)}>{uiText('Pin a collection')}</button>
 {/if}
 <p>
-	Android checks pinned collections about every six hours on allowed networks. Shared songs use one
-	copy. Unpinning the last collection removes its automatic downloads.
+	{uiText(
+		'Android checks pinned collections about every six hours on allowed networks. Shared songs use one copy. Unpinning the last collection removes its automatic downloads.'
+	)}
 </p>
 
 <style>

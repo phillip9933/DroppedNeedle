@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -129,35 +130,37 @@
 
 {#if draft}
 	<p>
-		Set how this server chooses an edition. Put preferred values first in each comma-separated list.
+		{uiText(
+			'Set how this server chooses an edition. Put preferred values first in each comma-separated list.'
+		)}
 	</p>
 	<fieldset
 		class="settings-panel"
 		data-surface="panel"
-		aria-label="Edition selection"
+		aria-label={uiText('Edition selection')}
 		disabled={busy}
 	>
 		{#each lists as f (f.key)}<label>{f.label}<input bind:value={listText[f.key]} /></label>{/each}
 		<label
-			>Release date<InlineChoice selected={draft.date}
+			>{uiText('Release date')}<InlineChoice selected={draft.date}
 				><select bind:value={draft.date}
-					><option value="earliest">Earliest</option><option value="latest">Latest</option><option
-						value="any">Any</option
-					></select
+					><option value="earliest">{uiText('Earliest')}</option><option value="latest"
+						>{uiText('Latest')}</option
+					><option value="any">{uiText('Any')}</option></select
 				></InlineChoice
 			></label
 		>
 		<label
-			>Version<InlineChoice selected={draft.version}
+			>{uiText('Version')}<InlineChoice selected={draft.version}
 				><select bind:value={draft.version}
-					><option value="standard">Standard</option><option value="deluxe">Deluxe</option><option
-						value="any">Any</option
-					></select
+					><option value="standard">{uiText('Standard')}</option><option value="deluxe"
+						>{uiText('Deluxe')}</option
+					><option value="any">{uiText('Any')}</option></select
 				></InlineChoice
 			></label
 		>
 	</fieldset>
-	<h2 id="avoided-types">Types to avoid</h2>
+	<h2 id="avoided-types">{uiText('Types to avoid')}</h2>
 	<fieldset
 		class="settings-panel"
 		data-surface="panel"
@@ -168,13 +171,14 @@
 				><input type="checkbox" value={t} bind:group={draft.avoid_types} />{t}</label
 			>{/each}
 		<label class="check"
-			><input type="checkbox" bind:checked={draft.manage_unconfirmed} />Apply edition management to
-			unconfirmed matches</label
+			><input type="checkbox" bind:checked={draft.manage_unconfirmed} />{uiText(
+				'Apply edition management to unconfirmed matches'
+			)}</label
 		>
 	</fieldset>
 {:else if releases}
-	<p>Choose which release types appear in server searches and on artist pages.</p>
-	{#each groups as g (g.key)}<h2 id={g.key}>{g.label}</h2>
+	<p>{uiText('Choose which release types appear in server searches and on artist pages.')}</p>
+	{#each groups as g (g.key)}<h2 id={g.key}>{uiText(g.label)}</h2>
 		<fieldset class="settings-panel" data-surface="panel" aria-labelledby={g.key} disabled={busy}>
 			{#each [...new Set([...g.options, ...releases[g.key]])] as t (t)}<label class="check"
 					><input type="checkbox" value={t} bind:group={releases[g.key]} />{t === 'ep'
@@ -182,12 +186,12 @@
 						: t[0].toUpperCase() + t.slice(1)}</label
 				>{/each}
 		</fieldset>{/each}
-{:else if busy}<p role="status">Loading server preferences…</p>{/if}
+{:else if busy}<p role="status">{uiText('Loading server preferences…')}</p>{/if}
 {#if draft || releases}<button class="secondary" disabled={busy || !dirty} onclick={save}
-		>Save server preferences</button
+		>{uiText('Save server preferences')}</button
 	>{/if}
 {#if error}<p role="alert">{error}</p>
-	{#if !draft && !releases}<button class="text-button" onclick={read}>Try again</button
+	{#if !draft && !releases}<button class="text-button" onclick={read}>{uiText('Try again')}</button
 		>{/if}{/if}{#if message}<p role="status">{message}</p>{/if}
 
 <style>

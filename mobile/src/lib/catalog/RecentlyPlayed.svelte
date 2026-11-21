@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { Preview } from '../boards/display';
 	import PreviewItem from '../boards/PreviewItem.svelte';
 	import type { Session } from '../connection';
@@ -88,7 +89,7 @@
 
 {#if error}
 	<p role="alert">{error}</p>
-	<button class="secondary" onclick={() => retry++}>Try again</button>
+	<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
 {:else if listens.length}
 	<ol data-part="recent-listens" class="preview-items">
 		{#each listens.slice(0, display.limit) as listen, i (i)}
@@ -120,12 +121,14 @@
 		{/each}
 	</ol>
 {:else if loading || refreshing}
-	<p role="status">Loading recent plays…</p>
+	<p role="status">{uiText('Loading recent plays…')}</p>
 {:else if disabled}<p>
-		To see your recent plays, enable Recently Played under Settings → Content preferences → Home.
+		{uiText(
+			'To see your recent plays, enable Recently Played under Settings → Content preferences → Home.'
+		)}
 	</p>
-{:else}<p>No recent plays available from DroppedNeedle.</p>{/if}
-{#if resolving !== null}<p role="status">Finding the local track…</p>{:else if notice}<p
+{:else}<p>{uiText('No recent plays available from DroppedNeedle.')}</p>{/if}
+{#if resolving !== null}<p role="status">{uiText('Finding the local track…')}</p>{:else if notice}<p
 		role="status"
 	>
 		{notice}

@@ -2,8 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 const port = Number(process.env.DN_MOBILE_TEST_PORT ?? 4187);
 const baseURL = 'http://127.0.0.1:' + port;
-// Keep concurrently running fixture servers on the bundle each one built.
-const bundle = 'test-results/bundles/' + port;
+// Playwright clears its results directory at startup. Keep each preview bundle outside it.
+const bundle = 'node_modules/.cache/dn-mobile-journeys/' + port;
 export default defineConfig({
 	testDir: '.',
 	outputDir: '../test-results/' + port,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, postJson, type Session } from '../connection';
@@ -70,31 +71,36 @@
 	});
 </script>
 
-<h2>Library scans</h2>
+<h2>{uiText('Library scans')}</h2>
 <div class="settings-panel" data-surface="panel">
 	{#if stats}<p>
-			{stats.total_artists.toLocaleString()} artists · {stats.total_albums.toLocaleString()} albums ·
+			{stats.total_artists.toLocaleString()}
+			{uiText('artists ·')}
+			{stats.total_albums.toLocaleString()}
+			{uiText('albums ·')}
 			{stats.total_tracks.toLocaleString()}
-			songs
+			{uiText('songs')}
 		</p>{/if}
 	{#if runs}<p>
-			{runs.active ? 'Current scan: ' + runs.active.state : 'No scan running.'}{runs.queued
-				? ' A scan is queued.'
+			{runs.active ? 'Current scan: ' + runs.active.state : uiText('No scan running.')}{runs.queued
+				? uiText(' A scan is queued.')
 				: ''}
 		</p>{/if}
 	<div class="settings-actions">
-		{#if ask}<p>Scan all configured library roots for new and changed files?</p>
-			<button class="primary" onclick={scan}>Start scan</button>
-			<button class="text-button" onclick={() => (ask = false)}>Cancel</button>
+		{#if ask}<p>{uiText('Scan all configured library roots for new and changed files?')}</p>
+			<button class="primary" onclick={scan}>{uiText('Start scan')}</button>
+			<button class="text-button" onclick={() => (ask = false)}>{uiText('Cancel')}</button>
 		{:else}<button
 				class="secondary"
 				disabled={!settings?.policy_revision || !settings.enabled || sending || loading}
-				onclick={() => (ask = true)}>Scan for changes</button
+				onclick={() => (ask = true)}>{uiText('Scan for changes')}</button
 			>{/if}
-		<button class="text-button" disabled={loading || sending} onclick={read}>Refresh scans</button>
+		<button class="text-button" disabled={loading || sending} onclick={read}
+			>{uiText('Refresh scans')}</button
+		>
 	</div>
 </div>
-{#if history.length}<h2>Recent scans</h2>
+{#if history.length}<h2>{uiText('Recent scans')}</h2>
 	<ul class="settings-list" data-surface="panel">
 		{#each history as run (run.id)}<li>
 				{run.kind.replaceAll('_', ' ')} · {run.state} · {new Date(
@@ -104,7 +110,7 @@
 	</ul>{/if}
 {#if error}<p role="alert">{error}</p>{/if}{#if message}<p role="status">
 		{message}
-	</p>{:else if loading}<p role="status">Loading scans…</p>{/if}
+	</p>{:else if loading}<p role="status">{uiText('Loading scans…')}</p>{/if}
 
 <style>
 	ul {

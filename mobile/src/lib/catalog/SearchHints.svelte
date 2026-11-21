@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { Clock3, Search } from '@lucide/svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -161,10 +162,12 @@
 </script>
 
 {#if shown.length}
-	<section class="hints" aria-label={history ? 'Recent searches' : 'Search suggestions'}>
+	<section class="hints" aria-label={history ? uiText('Recent searches') : 'Search suggestions'}>
 		<div class="heading">
-			<h2>{history ? 'Recent searches' : 'Suggestions'}</h2>
-			{#if history}<button class="text-button" onclick={() => save([])}>Clear history</button>{/if}
+			<h2>{history ? uiText('Recent searches') : uiText('Suggestions')}</h2>
+			{#if history}<button class="text-button" onclick={() => save([])}
+					>{uiText('Clear history')}</button
+				>{/if}
 		</div>
 		{#each shown as hint (hint.scope + hint.term)}
 			<button
@@ -173,7 +176,7 @@
 				onclick={() => onpick(hint.term, hint.scope)}
 			>
 				{#if history}<Clock3 size={17} />{:else}<Search size={17} />{/if}
-				<span>{hint.term}</span><small>{labels[hint.scope]}</small>
+				<span>{hint.term}</span><small>{uiText(labels[hint.scope])}</small>
 			</button>
 		{/each}
 	</section>

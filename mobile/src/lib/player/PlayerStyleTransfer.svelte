@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { sectionTitle, type Section } from '../boards/layout';
 	import { readLayoutFile, saveLayoutFile } from './layoutFiles';
 	import { playerCanvas } from './composition';
@@ -118,22 +119,22 @@
 	bind:open
 	data-part="player-layout-sharing"
 >
-	<summary>Share player layout</summary>
+	<summary>{uiText('Share player layout')}</summary>
 	{#if open}<div
 			class="settings-tabs"
 			data-surface="panel"
 			role="group"
-			aria-label="Layout transfer"
+			aria-label={uiText('Layout transfer')}
 		>
 			<button type="button" aria-pressed={mode === 'export'} onclick={() => tabs('export')}
-				>Export</button
+				>{uiText('Export')}</button
 			><button type="button" aria-pressed={mode === 'import'} onclick={() => tabs('import')}
-				>Import</button
+				>{uiText('Import')}</button
 			>
 		</div>
 		{#if mode === 'export'}
 			{#if exported.error}<p role="alert">{exported.error}</p>{:else}<label
-					>Current layout JSON<textarea
+					>{uiText('Current layout JSON')}<textarea
 						bind:this={output}
 						rows="5"
 						readonly
@@ -143,12 +144,11 @@
 				>
 				<div class="settings-actions">
 					<button type="button" class="secondary" disabled={saving} onclick={saveFile}
-						>Save layout file</button
+						>{uiText('Save layout file')}</button
 					>
-					<button type="button" class="secondary" onclick={copy}>Copy layout</button><button
-						type="button"
-						class="text-button"
-						onclick={select}>Select text</button
+					<button type="button" class="secondary" onclick={copy}>{uiText('Copy layout')}</button
+					><button type="button" class="text-button" onclick={select}
+						>{uiText('Select text')}</button
 					>
 				</div>{/if}
 		{:else}
@@ -157,21 +157,21 @@
 				bind:this={chooser}
 				type="file"
 				accept=".json,application/json"
-				aria-label="Layout JSON file"
+				aria-label={uiText('Layout JSON file')}
 				onchange={(e) => chooseFile(e.currentTarget)}
 			/>
 			<button type="button" class="secondary" onclick={() => chooser?.click()}
-				>Choose layout file</button
+				>{uiText('Choose layout file')}</button
 			>
 			<label
-				>Shared layout JSON<textarea
+				>{uiText('Shared layout JSON')}<textarea
 					rows="5"
 					spellcheck="false"
 					value={input}
 					oninput={(e) => update(e.currentTarget.value)}
 				></textarea></label
 			><button type="button" class="secondary" disabled={!input.trim()} onclick={preview}
-				>Review imported layout</button
+				>{uiText('Review imported layout')}</button
 			>
 			{#if review !== null}{@const hasHeader = review.some((s) => s.placement)}{@const canvas =
 					playerCanvas(review)}{@const rows = hasHeader ? canvas : canvas.slice(1)}{@const count =
@@ -179,18 +179,18 @@
 				<div class="review">
 					<p>
 						{rows.length}
-						{rows.length === 1 ? 'row' : 'rows'} · {count}
-						{count === 1 ? 'element' : 'elements'}
+						{rows.length === 1 ? uiText('row') : uiText('rows')} · {count}
+						{count === 1 ? uiText('element') : uiText('elements')}
 					</p>
 					{#if rows.length}<ol>
 							{#each rows as row, i (row[0].id)}<li>
-									{#if i === 0 && hasHeader}<strong>Header</strong> ·
+									{#if i === 0 && hasHeader}<strong>{uiText('Header')}</strong> ·
 									{/if}{row.map(sectionTitle).join(' · ')}
 								</li>{/each}
-						</ol>{:else}<p>This layout has no player elements.</p>{/if}<button
+						</ol>{:else}<p>{uiText('This layout has no player elements.')}</p>{/if}<button
 						type="button"
 						class="secondary"
-						onclick={load}>Load into editor</button
+						onclick={load}>{uiText('Load into editor')}</button
 					>
 				</div>{/if}
 		{/if}{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p role="status">

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
@@ -65,7 +66,11 @@
 	}
 </script>
 
-<PlaylistDialog title={creating ? 'New playlist' : 'Add to playlist'} {onclose} {busy}>
+<PlaylistDialog
+	title={creating ? uiText('New playlist') : uiText('Add to playlist')}
+	{onclose}
+	{busy}
+>
 	{#if creating}
 		<PlaylistNameForm
 			action="Create playlist"
@@ -75,23 +80,23 @@
 		/>
 	{:else if receipt}
 		<p role="status">{receipt}</p>
-		<button class="primary" onclick={onclose}>Done</button>
+		<button class="primary" onclick={onclose}>{uiText('Done')}</button>
 	{:else}
-		{#if loading}<p role="status">Loading playlists…</p>
+		{#if loading}<p role="status">{uiText('Loading playlists…')}</p>
 		{:else if failed}<p role="alert">{error}</p>
-			<button class="secondary" onclick={load}>Try again</button>
+			<button class="secondary" onclick={load}>{uiText('Try again')}</button>
 		{:else}
 			{#if items.length}
 				<label
-					>Playlist<InlineChoice {selected}
+					>{uiText('Playlist')}<InlineChoice {selected}
 						><select bind:value={selected} disabled={busy}>
 							{#each items as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
 						</select></InlineChoice
 					></label
 				>
-			{:else}<p>Create a playlist to save these tracks.</p>{/if}
+			{:else}<p>{uiText('Create a playlist to save these tracks.')}</p>{/if}
 			<button class="text-button" disabled={busy} onclick={() => (creating = true)}
-				>New playlist</button
+				>{uiText('New playlist')}</button
 			>
 			{#if error}<p role="alert">{error}</p>{/if}
 		{/if}
@@ -99,9 +104,11 @@
 			{#if selected && !failed && !loading}<button
 					class="primary"
 					disabled={busy || !tracks.length}
-					onclick={add}>Add {tracks.length === 1 ? 'track' : tracks.length + ' tracks'}</button
+					onclick={add}
+					>{uiText('Add')}
+					{tracks.length === 1 ? uiText('track') : tracks.length + ' tracks'}</button
 				>{/if}
-			<button class="secondary" disabled={busy} onclick={onclose}>Cancel</button>
+			<button class="secondary" disabled={busy} onclick={onclose}>{uiText('Cancel')}</button>
 		</div>
 	{/if}
 </PlaylistDialog>

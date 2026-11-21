@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { Pencil, Plus } from '@lucide/svelte';
 	import { sectionTitle, type Section } from '../boards/layout';
@@ -47,13 +48,13 @@
 	aria-label={'Edit ' + rowName(r).toLowerCase()}
 >
 	<div class="head">
-		<strong>{rowName(r)}</strong><button aria-label="Finish editing row" onclick={close}
-			>Done</button
+		<strong>{rowName(r)}</strong><button aria-label={uiText('Finish editing row')} onclick={close}
+			>{uiText('Done')}</button
 		>
 	</div>
 	<div class="basics">
 		<label
-			>Number of columns<InlineChoice selected={row.length}
+			>{uiText('Number of columns')}<InlineChoice selected={row.length}
 				><select value={row.length} onchange={(e) => resize(Number(e.currentTarget.value))}>
 					{#each Array.from({ length: maxPlayerColumns }, (_, i) => i + 1) as n (n)}<option
 							value={n}>{n}</option
@@ -62,18 +63,18 @@
 			></label
 		>
 		<label
-			>Row position<InlineChoice selected={r}
+			>{uiText('Row position')}<InlineChoice selected={r}
 				><select value={r} onchange={(e) => move(Number(e.currentTarget.value))}>
 					{#each rows.keys() as i (i)}<option value={i}>{rowName(i)}</option>{/each}</select
 				></InlineChoice
 			></label
 		>
 		{#if row.length > 1}<label
-				>Column spacing (px)<input
+				>{uiText('Column spacing (px)')}<input
 					type="number"
 					min="0"
 					max="32"
-					placeholder="Default"
+					placeholder={uiText('Default')}
 					value={gap ?? ''}
 					onchange={(e) =>
 						setGap(
@@ -84,8 +85,8 @@
 				/></label
 			>{/if}
 		<label
-			>Minimum row height (px)<input
-				aria-label="Minimum row height"
+			>{uiText('Minimum row height (px)')}<input
+				aria-label={uiText('Minimum row height')}
 				min="0"
 				max="640"
 				type="number"
@@ -96,9 +97,9 @@
 	</div>
 	{#if row.length > 1}
 		<div class="width-label">
-			<strong>Column widths</strong><button
+			<strong>{uiText('Column widths')}</strong><button
 				class="text-button"
-				onclick={() => row.forEach((_, i) => setWidth(i, 1))}>Equal widths</button
+				onclick={() => row.forEach((_, i) => setWidth(i, 1))}>{uiText('Equal widths')}</button
 			>
 		</div>
 		<div
@@ -125,7 +126,7 @@
 			{/each}<button
 				class="text-button"
 				aria-label={'Add subrow to column ' + (c + 1)}
-				onclick={() => addStack(c)}><Plus size={15} />Add subrow</button
+				onclick={() => addStack(c)}><Plus size={15} />{uiText('Add subrow')}</button
 			>
 			{#if row.length > 1}<div class="size">
 					<input
@@ -142,7 +143,7 @@
 		</div>
 	{/each}
 	<button class="text-button remove" onclick={remove}
-		>{r === 0 ? 'Clear header' : 'Remove row'}</button
+		>{r === 0 ? uiText('Clear header') : uiText('Remove row')}</button
 	>
 </div>
 

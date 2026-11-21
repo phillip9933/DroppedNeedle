@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { Capacitor } from '@capacitor/core';
 	import { tick } from 'svelte';
 	import type { Section } from '../boards/layout';
@@ -87,72 +88,79 @@
 	<button
 		class={settingsEntry ? 'settings-entry' : compact ? 'icon-button' : 'secondary'}
 		class:player-control={compact}
-		aria-label="Cast and audio output"
+		aria-label={uiText('Cast and audio output')}
 		aria-haspopup="dialog"
 		aria-expanded={open}
 		bind:this={opener}
 		onclick={show}
 	>
-		{#if settingsEntry}<Cast size={19} /><span>Cast and audio output</span><ChevronRight
+		{#if settingsEntry}<Cast size={19} /><span>{uiText('Cast and audio output')}</span><ChevronRight
 				size={16}
 			/>
 		{:else}<PlayerActionFace
 				{section}
 				glyph={Cast}
 				size={compact ? 21 : 18}
-				label="Cast and audio output"
+				label={uiText('Cast and audio output')}
 				defaultLabel={!compact}
 			/>{/if}
 	</button>
 {/if}
 {#if open}
-	<ReviewSheet title="Cast and audio output" onback={close}>
+	<ReviewSheet title={uiText('Cast and audio output')} onback={close}>
 		<div class="outputs settings-stack">
 			{#if android}
-				<h3>Music output</h3>
+				<h3>{uiText('Music output')}</h3>
 				<div class="settings-panel" data-surface="panel">
-					<p role="status">{destination ? `Casting to ${destination}` : 'Playing on this phone'}</p>
+					<p role="status">
+						{destination ? `Casting to ${destination}` : uiText('Playing on this phone')}
+					</p>
 					{#if destination}
-						<p>Stopping the cast pauses the queue on this phone.</p>
-						<button class="secondary" disabled={busy} onclick={() => select()}>Stop casting</button>
+						<p>{uiText('Stopping the cast pauses the queue on this phone.')}</p>
+						<button class="secondary" disabled={busy} onclick={() => select()}
+							>{uiText('Stop casting')}</button
+						>
 					{:else}
 						<button class="primary" disabled={busy} onclick={google}
-							><Cast size={18} />Choose Google Cast device</button
+							><Cast size={18} />{uiText('Choose Google Cast device')}</button
 						>
 					{/if}
 				</div>
-				<h3>Other network speakers</h3>
+				<h3>{uiText('Other network speakers')}</h3>
 				<div class="settings-panel" data-surface="panel">
-					<p>Find speakers and TVs that support UPnP or DLNA on this Wi-Fi network.</p>
+					<p>{uiText('Find speakers and TVs that support UPnP or DLNA on this Wi-Fi network.')}</p>
 					{#if !destination}{#each devices as device (device.id)}
 							<button class="secondary" disabled={busy} onclick={() => select(device.id)}
 								><Speaker size={18} />{device.name}</button
 							>
 						{/each}{/if}
 					{#if searched && devices.length === 0}<p role="status">
-							No compatible receivers found.
+							{uiText('No compatible receivers found.')}
 						</p>{/if}
 					<button class="secondary" disabled={busy} onclick={search}
-						>{searched ? 'Search again' : 'Find network speakers'}</button
+						>{searched ? uiText('Search again') : uiText('Find network speakers')}</button
 					>
 				</div>
 				{#if devices.some((d) => d.sonos)}{#key devices}<SonosControls />{/key}{/if}
 				{#if !destination}
-					<h3>Cast display</h3>
+					<h3>{uiText('Cast display')}</h3>
 					<div class="settings-panel" data-surface="panel">
 						<p>
-							Android’s Cast settings can share the phone’s screen and audio with a compatible
-							display.
+							{uiText(
+								'Android’s Cast settings can share the phone’s screen and audio with a compatible display.'
+							)}
 						</p>
 						<button class="secondary" disabled={busy} onclick={() => run(() => player.castScreen())}
-							>Open Cast settings</button
+							>{uiText('Open Cast settings')}</button
 						>
 					</div>
 				{/if}
 			{:else}
-				<button class="secondary" disabled={busy} onclick={show}>Choose AirPlay output</button>
+				<button class="secondary" disabled={busy} onclick={show}
+					>{uiText('Choose AirPlay output')}</button
+				>
 			{/if}
-			{#if busy && android}<p role="status">Connecting…</p>{/if}
+			{#if busy && android}<p role="status">{uiText('Connecting…')}</p>{/if}
 			{#if error}<p role="alert">{error}</p>{/if}
 		</div>
 	</ReviewSheet>

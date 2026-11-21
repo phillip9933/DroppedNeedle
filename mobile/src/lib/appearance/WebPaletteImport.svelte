@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
@@ -68,36 +69,42 @@
 </script>
 
 <details class="settings-disclosure" data-surface="panel" bind:open>
-	<summary>Import colors from a web style</summary>
+	<summary>{uiText('Import colors from a web style')}</summary>
 	{#if open}
 		<label
-			>Web style<InlineChoice selected={picked}
+			>{uiText('Web style')}<InlineChoice selected={picked}
 				><select bind:value={picked}
-					><option value="current">Current account CSS</option
+					><option value="current">{uiText('Current account CSS')}</option
 					>{#each history as row (row.id)}<option value={String(row.id)}
-							>Saved {new Date(row.saved_at).toLocaleString()} · #{row.id}</option
+							>{uiText('Saved')} {new Date(row.saved_at).toLocaleString()} · #{row.id}</option
 						>{/each}</select
 				></InlineChoice
 			></label
 		>
 		<label
-			>Palette to import<InlineChoice selected={palette}
+			>{uiText('Palette to import')}<InlineChoice selected={palette}
 				><select bind:value={palette}
 					>{#each ['dark', 'light', 'midnight'] as name (name)}<option value={name}
-							>{labels[name as Palette]}</option
+							>{uiText(labels[name as Palette])}</option
 						>{/each}</select
 				></InlineChoice
 			></label
 		>
 		{#if historyError}<p role="alert">{historyError}</p>
-			<button class="text-button" onclick={() => reload++}>Reload saved styles</button>{/if}
-		{#if !source.trim()}<p>This style has no saved CSS.</p>{:else if problem}<p role="alert">
+			<button class="text-button" onclick={() => reload++}>{uiText('Reload saved styles')}</button
+			>{/if}
+		{#if !source.trim()}<p>{uiText('This style has no saved CSS.')}</p>{:else if problem}<p
+				role="alert"
+			>
 				{problem}
 			</p>
 		{:else if review}{#if review.applied.length}<p>
-					{review.applied.length} compatible {review.applied.length === 1
-						? 'variable'
-						: 'variables'} in the {labels[palette]} palette.
+					{review.applied.length}
+					{uiText('compatible')}
+					{review.applied.length === 1 ? uiText('variable') : uiText('variables')}
+					{uiText('in the')}
+					{labels[palette]}
+					{uiText('palette.')}
 				</p>
 				<ul>
 					{#each review.applied as entry (entry.key)}<li>
@@ -108,19 +115,19 @@
 							{entry.value}
 						</li>{/each}
 				</ul>
-			{:else}<p>No compatible palette variables found.</p>{/if}
-			{#if review.skipped.length}<p>Skipped web-only rules or unsupported values</p>
+			{:else}<p>{uiText('No compatible palette variables found.')}</p>{/if}
+			{#if review.skipped.length}<p>{uiText('Skipped web-only rules or unsupported values')}</p>
 				<ul>
 					{#each review.skipped as text (text)}<li><code>{text}</code></li>{/each}
 				</ul>{/if}
 			{#if review.otherModes.length}<p>
-					Rules for other themes were excluded from this palette.
+					{uiText('Rules for other themes were excluded from this palette.')}
 				</p>{/if}
 			{#if review.applied.length}<button
 					class="secondary"
 					onclick={() => {
 						if (review) onapply(review.theme);
-					}}>Apply palette to this device</button
+					}}>{uiText('Apply palette to this device')}</button
 				>{/if}{/if}
 	{/if}
 </details>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { Availability } from '../offline/library';
 	import type { DetailInventory } from './detailInventory.svelte';
 	import LibraryAvailability from './LibraryAvailability.svelte';
@@ -28,42 +29,53 @@
 <div class="device-tracks">
 	<div aria-live="polite">
 		{#if source.storageError}
-			<span>Device availability could not be checked. {source.storageError}</span>
-			<button class="text-button" onclick={source.retryStorage}>Retry device check</button>
-		{:else if !source.inventory}<span>Checking device availability…</span>
+			<span>{uiText('Device availability could not be checked.')} {source.storageError}</span>
+			<button class="text-button" onclick={source.retryStorage}
+				>{uiText('Retry device check')}</button
+			>
+		{:else if !source.inventory}<span>{uiText('Checking device availability…')}</span>
 		{:else if total === undefined || total < available}
 			<span
 				>{available.toLocaleString()}
-				{available === 1 ? 'track' : 'tracks'} available on this device. Full library count unknown.</span
+				{available === 1 ? uiText('track') : uiText('tracks')}
+				{uiText('available on this device. Full library count unknown.')}</span
 			>
 		{:else if observedAt}
 			<span
 				>{available.toLocaleString()}
-				{available === 1 ? 'track' : 'tracks'} available on this device. DN last showed {total.toLocaleString()}
-				playable {total === 1 ? 'track' : 'tracks'} on
+				{available === 1 ? uiText('track') : uiText('tracks')}
+				{uiText('available on this device. DN last showed')}
+				{total.toLocaleString()}
+				{uiText('playable')}
+				{total === 1 ? uiText('track') : uiText('tracks')}
+				{uiText('on')}
 				<time datetime={new Date(observedAt).toISOString()}
 					>{new Date(observedAt).toLocaleDateString()}</time
 				>.</span
 			>
 		{:else}
 			<span
-				>{available.toLocaleString()} of {total.toLocaleString()} playable {total === 1
-					? 'track'
-					: 'tracks'} available on this device.</span
+				>{available.toLocaleString()}
+				{uiText('of')}
+				{total.toLocaleString()}
+				{uiText('playable')}
+				{total === 1 ? uiText('track') : uiText('tracks')}
+				{uiText('available on this device.')}</span
 			>
 		{/if}
 		{#if unavailable}
 			<span
 				>{unavailable.toLocaleString()}
-				{unavailable === 1 ? 'entry has' : 'entries have'} no playable file in DN.</span
+				{unavailable === 1 ? uiText('entry has') : uiText('entries have')}
+				{uiText('no playable file in DN.')}</span
 			>
 		{/if}
 	</div>
-	{#if editing}<span>Editing the full playlist order.</span>
+	{#if editing}<span>{uiText('Editing the full playlist order.')}</span>
 	{:else}<LibraryAvailability
 			inline
 			{deviceOnly}
-			label="Track availability"
+			label={uiText('Track availability')}
 			{value}
 			{onchange}
 		/>{/if}

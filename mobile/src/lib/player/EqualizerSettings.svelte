@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
@@ -82,12 +83,16 @@
 	const gain = (level: number) => (level > 0 ? '+' : '') + Number((level / 100).toFixed(2)) + ' dB';
 </script>
 
-{#if !android}<p>The playback equalizer is available on supported Android devices.</p>
-{:else if !settings}<p role="status">Checking audio output…</p>
+{#if !android}<p>{uiText('The playback equalizer is available on supported Android devices.')}</p>
+{:else if !settings}<p role="status">{uiText('Checking audio output…')}</p>
 {:else if !settings.available}<p role="status">{settings.reason}</p>
-	<button class="secondary" onclick={refresh}>Check again</button>
+	<button class="secondary" onclick={refresh}>{uiText('Check again')}</button>
 {:else}
-	<section class="eq settings-stack" data-part="equalizer" aria-label="Playback equalizer">
+	<section
+		class="eq settings-stack"
+		data-part="equalizer"
+		aria-label={uiText('Playback equalizer')}
+	>
 		<div class="settings-panel" data-surface="panel">
 			{#if settings.output}
 				{@const output = settings.output}
@@ -97,32 +102,36 @@
 						checked={output.assigned}
 						disabled={busy}
 						onchange={(e) => assign(output.id, e.currentTarget.checked)}
-					/>Remember a separate preset for {output.name}</label
+					/>{uiText('Remember a separate preset for')}
+					{output.name}</label
 				>
 			{/if}
 			<label class="toggle"
 				><input
 					type="checkbox"
-					aria-label="Enable equalizer"
+					aria-label={uiText('Enable equalizer')}
 					checked={settings.enabled}
 					disabled={busy}
 					onchange={(e) => save({ enabled: e.currentTarget.checked })}
-				/> Enable equalizer</label
+				/>
+				{uiText('Enable equalizer')}</label
 			>
 			<label
-				>Preset<InlineChoice selected={settings.preset} label="Equalizer preset"
+				>{uiText('Preset')}<InlineChoice
+					selected={settings.preset}
+					label={uiText('Equalizer preset')}
 					><select
 						value={settings.preset}
 						disabled={!settings.enabled || busy}
 						onchange={(e) => preset(e.currentTarget.value as EqPresetName)}
 					>
-						{#if !settings.preset}<option value="" disabled>Custom</option>{/if}
+						{#if !settings.preset}<option value="" disabled>{uiText('Custom')}</option>{/if}
 						{#each EQ_PRESET_NAMES as name (name)}<option value={name}>{name}</option>{/each}
 					</select></InlineChoice
 				></label
 			>
 		</div>
-		<h2 id="equalizer-bands">Frequency bands</h2>
+		<h2 id="equalizer-bands">{uiText('Frequency bands')}</h2>
 		<div class="settings-panel" data-surface="panel" role="group" aria-labelledby="equalizer-bands">
 			{#each settings.centers as center, i (center)}
 				{@const level = preview?.index === i ? preview.level : settings.levels[i]}
@@ -146,7 +155,7 @@
 			{/each}
 		</div>
 		<button class="secondary" disabled={!settings.enabled || busy} onclick={() => preset('Flat')}
-			>Reset to flat</button
+			>{uiText('Reset to flat')}</button
 		>
 		{#if error}<p role="alert">{error}</p>{/if}
 	</section>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { uiText, uiFormat } from '../i18n';
+
 	import { Check, Plus } from '@lucide/svelte';
 	import { available, sectionTitle, type Section } from '../boards/layout';
 	import { isPlayerText, splitAvailable, splitPlayerSection, rowName } from './composition';
@@ -52,26 +54,40 @@
 	}
 </script>
 
-<div class="picker" tabindex="-1" data-inspector role="group" aria-label="Choose a player feature">
+<div
+	class="picker"
+	tabindex="-1"
+	data-inspector
+	role="group"
+	aria-label={uiText('Choose a player feature')}
+>
 	<div class="head">
-		<div><strong>Choose a feature</strong><small>{rowName(r)} · column {c + 1}</small></div>
-		<button class="icon" aria-label="Close feature picker" onclick={close}>Back</button>
+		<div>
+			<strong>{uiText('Choose a feature')}</strong><small
+				>{rowName(r)} {uiText('· column')} {c + 1}</small
+			>
+		</div>
+		<button class="icon" aria-label={uiText('Close feature picker')} onclick={close}
+			>{uiText('Back')}</button
+		>
 	</div>
 	<input
 		type="search"
 		bind:value={query}
-		aria-label="Find a feature"
-		placeholder="Find a feature"
+		aria-label={uiText('Find a feature')}
+		placeholder={uiText('Find a feature')}
 	/>
 	<div class="choices">
 		{#each matches as item (item.id)}
 			{@const origin = from(item.id)}
-			<button aria-label={'Use ' + item.label} onclick={() => choose(item.id)}
+			<button
+				aria-label={uiFormat('Use {name}', { name: uiText(item.label) })}
+				onclick={() => choose(item.id)}
 				><span
-					>{item.label}{#if origin}<small>{origin}</small>{/if}</span
+					>{uiText(item.label)}{#if origin}<small>{origin}</small>{/if}</span
 				>{#if origin}<Check size={16} />{:else}<Plus size={16} />{/if}</button
 			>
-		{:else}<p>No matching features.</p>{/each}
+		{:else}<p>{uiText('No matching features.')}</p>{/each}
 	</div>
 </div>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { Moon, Timer } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
 	import { player, type SleepTimerState } from '../player';
@@ -108,7 +109,7 @@
 		class:player-control={!!section || queueControl}
 		class:queue-control={queueControl}
 		class:active={!!timer}
-		aria-label="Sleep timer"
+		aria-label={uiText('Sleep timer')}
 		aria-haspopup="dialog"
 		onclick={() => {
 			if (!sample) open = true;
@@ -118,13 +119,13 @@
 			{section}
 			glyph={Moon}
 			size={19}
-			label="Sleep timer"
+			label={uiText('Sleep timer')}
 			defaultLabel={!section}
 		/>
 		{#if timer}<small>{short}</small>{/if}
 	</button>{/if}
 {#if open}
-	<PlayerSheet title="Sleep timer" {busy} onclose={close}>
+	<PlayerSheet title={uiText('Sleep timer')} {busy} onclose={close}>
 		<form
 			class="timer"
 			onsubmit={(e) => {
@@ -132,12 +133,12 @@
 				void apply();
 			}}
 		>
-			<div class="modes" role="group" aria-label="Timer mode">
+			<div class="modes" role="group" aria-label={uiText('Timer mode')}>
 				<button type="button" aria-pressed={mode === 'minutes'} onclick={() => (mode = 'minutes')}
-					>Duration</button
+					>{uiText('Duration')}</button
 				>
 				<button type="button" aria-pressed={mode === 'track'} onclick={() => (mode = 'track')}
-					>Tracks</button
+					>{uiText('Tracks')}</button
 				>
 			</div>
 			<label class="amount">
@@ -158,11 +159,11 @@
 				<span
 					>{mode === 'minutes'
 						? value === 1
-							? 'minute'
-							: 'minutes'
+							? uiText('minute')
+							: uiText('minutes')
 						: value === 1
-							? 'track'
-							: 'tracks'}</span
+							? uiText('track')
+							: uiText('tracks')}</span
 				>
 			</label>
 			<div class="ruler">
@@ -196,11 +197,8 @@
 				/>
 			</div>
 			{#if mode === 'minutes'}<label class="finish"
-					>Finish last track <input
-						type="checkbox"
-						role="switch"
-						bind:checked={finishTrack}
-					/></label
+					>{uiText('Finish last track')}
+					<input type="checkbox" role="switch" bind:checked={finishTrack} /></label
 				>{/if}
 			<p role="status" class="status"><Timer size={15} aria-hidden="true" />{status}</p>
 			{#if error}<p role="alert">{error}</p>{/if}
@@ -209,9 +207,10 @@
 						class="text-button"
 						type="button"
 						disabled={busy}
-						onclick={() => apply(true)}>Cancel timer</button
+						onclick={() => apply(true)}>{uiText('Cancel timer')}</button
 					>{/if}
-				<button class="primary" type="submit" disabled={busy} aria-label="Start timer">Start</button
+				<button class="primary" type="submit" disabled={busy} aria-label={uiText('Start timer')}
+					>{uiText('Start')}</button
 				>
 			</div>
 		</form>

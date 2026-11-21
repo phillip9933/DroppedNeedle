@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onDestroy, untrack } from 'svelte';
 	import type { Session } from '../connection';
@@ -84,7 +85,7 @@
 	}
 </script>
 
-<PlaylistDialog title="Export playlist" onclose={cancel}>
+<PlaylistDialog title={uiText('Export playlist')} onclose={cancel}>
 	<form
 		onsubmit={(e) => {
 			e.preventDefault();
@@ -93,30 +94,37 @@
 	>
 		{#if file && file.choose}<p>{file.filename}</p>
 		{:else}<label
-				>File format<InlineChoice selected={format}
+				>{uiText('File format')}<InlineChoice selected={format}
 					><select bind:value={format} disabled={busy}
-						><option value="m3u8">M3U8 playlist</option><option value="csv">CSV spreadsheet</option
+						><option value="m3u8">{uiText('M3U8 playlist')}</option><option value="csv"
+							>{uiText('CSV spreadsheet')}</option
 						></select
 					></InlineChoice
 				></label
 			>
 			<label
-				>Path prefix (optional)<input
+				>{uiText('Path prefix (optional)')}<input
 					bind:value={prefix}
 					disabled={busy}
 					placeholder="Music/"
 					autocomplete="off"
 				/></label
 			>
-			<small>DN uses paths relative to its music library. The prefix goes before each path.</small
+			<small
+				>{uiText(
+					'DN uses paths relative to its music library. The prefix goes before each path.'
+				)}</small
 			>{/if}
 		{#if issue}<p role="alert">{issue}</p>{/if}
-		{#if busy}<p role="status">{file ? 'Saving playlist…' : 'Preparing playlist…'}</p>{/if}
+		{#if busy}<p role="status">
+				{file ? uiText('Saving playlist…') : uiText('Preparing playlist…')}
+			</p>{/if}
 		<div class="actions">
-			<button type="button" class="secondary" onclick={cancel}>Cancel</button><button
+			<button type="button" class="secondary" onclick={cancel}>{uiText('Cancel')}</button><button
 				type="submit"
 				class="primary"
-				disabled={busy}>{file?.choose ? 'Choose destination' : 'Export file'}</button
+				disabled={busy}
+				>{file?.choose ? uiText('Choose destination') : uiText('Export file')}</button
 			>
 		</div>
 	</form>

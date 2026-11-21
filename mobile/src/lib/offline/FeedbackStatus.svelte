@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { Session } from '../connection';
 	import { preferredOffline } from './media';
 	import { retryTrackFeedback } from './feedback';
@@ -57,12 +58,13 @@
 	<div class="sync">
 		<span role="status"
 			>{blocked
-				? 'DN could not apply your track changes.'
+				? uiText('DN could not apply your track changes.')
 				: count === 1
-					? '1 track change waiting to sync.'
+					? uiText('1 track change waiting to sync.')
 					: count + ' track changes waiting to sync.'}</span
 		>
-		{#if canSend}<button class="text-button" disabled={busy} onclick={retry}>Retry sync</button
+		{#if canSend}<button class="text-button" disabled={busy} onclick={retry}
+				>{uiText('Retry sync')}</button
 			>{/if}
 	</div>
 {/if}

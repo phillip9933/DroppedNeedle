@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { Snippet } from 'svelte';
 	import { Heart } from '@lucide/svelte';
 	import { putJson, type Session } from '../connection';
@@ -71,7 +72,7 @@
 	disabled={busy}
 	aria-pressed={active}
 	aria-label={active ? 'Remove ' + kind + ' from favorites' : 'Favorite ' + kind}
-	title={active ? 'Remove from favorites' : 'Add to favorites'}
+	title={active ? uiText('Remove from favorites') : uiText('Add to favorites')}
 	onclick={toggle}
 	>{#if face}{@render face(active)}{:else}<Heart
 			size={18}

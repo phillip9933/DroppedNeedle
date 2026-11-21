@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import {
@@ -50,12 +51,12 @@
 </script>
 
 {#if error}<p role="alert">{error}</p>
-	<button class="text-button" onclick={read}>Try again</button><button
+	<button class="text-button" onclick={read}>{uiText('Try again')}</button><button
 		class="text-button"
-		onclick={onback}>Back</button
+		onclick={onback}>{uiText('Back')}</button
 	>
 {:else if board === 'player' && recovery}
 	<PlayerComposer {recovery} {onback} onsave={persist} />
 {:else if board !== 'player' && owner}
 	<LayoutEditor {board} {sections} {filters} {onback} onsave={save} />
-{:else}<p role="status">Loading layout…</p>{/if}
+{:else}<p role="status">{uiText('Loading layout…')}</p>{/if}

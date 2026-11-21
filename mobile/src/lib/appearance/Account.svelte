@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { Browser } from '@capacitor/browser';
 	import { ExternalLink } from '@lucide/svelte';
@@ -182,15 +183,15 @@
 	class="settings-tabs account-tabs"
 	data-surface="panel"
 	role="group"
-	aria-label="Account views"
+	aria-label={uiText('Account views')}
 >
 	{#each views as v (v)}<button
 			aria-pressed={v === view}
 			disabled={saving}
-			onclick={() => (view = v)}>{v}</button
+			onclick={() => (view = v)}>{uiText(v)}</button
 		>{/each}
 </div>
-{#if busy}<p role="status">Loading…</p>
+{#if busy}<p role="status">{uiText('Loading…')}</p>
 {:else if view === 'Profile' && profile}
 	<form
 		class="settings-panel"
@@ -200,28 +201,37 @@
 			void save();
 		}}
 	>
-		<label>Display name<input required bind:value={name} aria-invalid={nameTooLong} /></label
+		<label
+			>{uiText('Display name')}<input
+				required
+				bind:value={name}
+				aria-invalid={nameTooLong}
+			/></label
 		><button
 			class="secondary"
 			disabled={saving || nameTooLong || !name.trim() || name.trim() === profile.display_name}
-			>Save name</button
+			>{uiText('Save name')}</button
 		>
-		{#if nameTooLong}<p role="alert">Use up to 64 characters for your display name.</p>{/if}
+		{#if nameTooLong}<p role="alert">
+				{uiText('Use up to 64 characters for your display name.')}
+			</p>{/if}
 	</form>
 	<details class="settings-disclosure" data-surface="panel" bind:open={editIdentity}>
-		<summary>Username and email</summary>
+		<summary>{uiText('Username and email')}</summary>
 		<form
 			onsubmit={(e) => {
 				e.preventDefault();
 				void identity('username');
 			}}
 		>
-			<label>Username<input required autocomplete="username" bind:value={username} /></label><button
+			<label
+				>{uiText('Username')}<input required autocomplete="username" bind:value={username} /></label
+			><button
 				class="secondary"
 				disabled={saving ||
 					!username.trim() ||
 					username.trim() === (profile.username_display ?? profile.username ?? '')}
-				>Save username</button
+				>{uiText('Save username')}</button
 			>
 		</form>
 		<form
@@ -230,26 +240,26 @@
 				void identity('email');
 			}}
 		>
-			<label>Email<input type="email" autocomplete="email" bind:value={email} /></label><button
-				class="secondary"
-				disabled={saving || email.trim() === (profile.email ?? '')}>Save email</button
+			<label>{uiText('Email')}<input type="email" autocomplete="email" bind:value={email} /></label
+			><button class="secondary" disabled={saving || email.trim() === (profile.email ?? '')}
+				>{uiText('Save email')}</button
 			>
 		</form>
 	</details>
-	<h2>Open in web app</h2>
+	<h2>{uiText('Open in web app')}</h2>
 	<div class="settings-list" data-surface="panel">
 		<button class="settings-entry" onclick={() => web('/profile#connected-services')}
-			><span>Connected services</span><ExternalLink size={15} /></button
+			><span>{uiText('Connected services')}</span><ExternalLink size={15} /></button
 		>
 		<button class="settings-entry" onclick={() => web('/profile#account')}
-			><span>Account and security</span><ExternalLink size={15} /></button
+			><span>{uiText('Account and security')}</span><ExternalLink size={15} /></button
 		>
 		{#if profile.role === 'admin'}
 			<button class="settings-entry" onclick={() => web('/settings')}
-				><span>Server settings</span><ExternalLink size={15} /></button
+				><span>{uiText('Server settings')}</span><ExternalLink size={15} /></button
 			>
 			<button class="settings-entry" onclick={() => web('/library/management')}
-				><span>Library management</span><ExternalLink size={15} /></button
+				><span>{uiText('Library management')}</span><ExternalLink size={15} /></button
 			>
 		{/if}
 	</div>
@@ -263,20 +273,24 @@
 		}}
 	>
 		<label
-			>Now playing visibility<InlineChoice selected={visibility}
+			>{uiText('Now playing visibility')}<InlineChoice selected={visibility}
 				><select bind:value={visibility}
-					><option value="full">Show track and artist</option><option value="track_hidden"
-						>Show that I’m listening</option
-					><option value="offline">Show me as offline</option></select
+					><option value="full">{uiText('Show track and artist')}</option><option
+						value="track_hidden">{uiText('Show that I’m listening')}</option
+					><option value="offline">{uiText('Show me as offline')}</option></select
 				></InlineChoice
 			></label
 		>
-		<label class="check"><input type="checkbox" bind:checked={lastfm} />Scrobble to Last.fm</label>
 		<label class="check"
-			><input type="checkbox" bind:checked={listenbrainz} />Scrobble to ListenBrainz</label
+			><input type="checkbox" bind:checked={lastfm} />{uiText('Scrobble to Last.fm')}</label
+		>
+		<label class="check"
+			><input type="checkbox" bind:checked={listenbrainz} />{uiText(
+				'Scrobble to ListenBrainz'
+			)}</label
 		>
 		<label
-			>Discovery listening source<InlineChoice selected={source}
+			>{uiText('Discovery listening source')}<InlineChoice selected={source}
 				><select bind:value={source}
 					><option value="listenbrainz">ListenBrainz</option><option value="lastfm">Last.fm</option
 					></select
@@ -284,56 +298,68 @@
 			></label
 		>
 		<label class="check"
-			><input type="checkbox" bind:checked={auto} />Automatically request my personal mix</label
+			><input type="checkbox" bind:checked={auto} />{uiText(
+				'Automatically request my personal mix'
+			)}</label
 		>
 		{#if prefs.auto_request_state && prefs.auto_request_state !== 'none'}<small
-				>Approval: {prefs.auto_request_state}</small
+				>{uiText('Approval:')} {prefs.auto_request_state}</small
 			>{/if}
 		{#if prefs.navidrome_handles_external_scrobbles !== undefined}<label class="check"
-				><input type="checkbox" bind:checked={navidrome} />Let Navidrome forward its own scrobbles</label
+				><input type="checkbox" bind:checked={navidrome} />{uiText(
+					'Let Navidrome forward its own scrobbles'
+				)}</label
 			>{/if}
-		<button class="secondary" disabled={saving}>Save preferences</button>
+		<button class="secondary" disabled={saving}>{uiText('Save preferences')}</button>
 	</form>
-	<button class="text-button" disabled={saving} onclick={refreshMix}>Refresh personal mix</button>
+	<button class="text-button" disabled={saving} onclick={refreshMix}
+		>{uiText('Refresh personal mix')}</button
+	>
 {:else if view === 'Services'}
-	<h2>Connected services</h2>
+	<h2>{uiText('Connected services')}</h2>
 	{#if services.length}<div class="settings-list" data-surface="panel">
 			{#each services as service (service.service)}<div class="device">
 					<strong>{service.service}</strong><small
-						>{service.username || 'No account linked'} · {service.enabled
-							? 'Enabled'
-							: 'Disabled'}</small
+						>{service.username || uiText('No account linked')} · {service.enabled
+							? uiText('Enabled')
+							: uiText('Disabled')}</small
 					>
 				</div>{/each}
 		</div>{/if}
-	{#if !services.length && !error}<p>No connected services.</p>{/if}
+	{#if !services.length && !error}<p>{uiText('No connected services.')}</p>{/if}
 	<button class="text-button" onclick={() => web('/profile#connected-services')}
-		>Manage linked accounts in browser</button
+		>{uiText('Manage linked accounts in browser')}</button
 	>
 {:else if view === 'Devices'}
 	{#if devices.length}<div class="settings-list" data-surface="panel">
 			{#each devices as d (d.id)}<div class="device">
-					<strong>{d.label || 'Device'}</strong><small
+					<strong>{d.label || uiText('Device')}</strong><small
 						>{d.current
-							? 'This session'
+							? uiText('This session')
 							: 'Last active ' + new Date(d.last_seen_at * 1000).toLocaleDateString()}</small
 					>
-					{#if !d.current}{#if d.id === confirm}<p>Sign this device out of DroppedNeedle?</p>
-							<button class="secondary" disabled={saving} onclick={save}>Confirm sign out</button>
+					{#if !d.current}{#if d.id === confirm}<p>
+								{uiText('Sign this device out of DroppedNeedle?')}
+							</p>
+							<button class="secondary" disabled={saving} onclick={save}
+								>{uiText('Confirm sign out')}</button
+							>
 							<button class="text-button" disabled={saving} onclick={() => (confirm = '')}
-								>Keep device</button
+								>{uiText('Keep device')}</button
 							>
 						{:else}<button
 								class="text-button"
 								disabled={saving}
 								aria-label={'Sign out ' + (d.label || 'device')}
-								onclick={() => (confirm = d.id)}>Sign out device</button
+								onclick={() => (confirm = d.id)}>{uiText('Sign out device')}</button
 							>{/if}{/if}
 				</div>{/each}
-		</div>{:else if !error}<p>No active devices.</p>{/if}
+		</div>{:else if !error}<p>{uiText('No active devices.')}</p>{/if}
 {/if}
 {#if error}<p role="alert">{error}</p>
-	<button class="text-button" disabled={saving} onclick={() => retry++}>Reload account</button>{/if}
+	<button class="text-button" disabled={saving} onclick={() => retry++}
+		>{uiText('Reload account')}</button
+	>{/if}
 {#if message}<p role="status">{message}</p>{/if}
 
 <style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from './lib/i18n';
 	import { onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { Capacitor } from '@capacitor/core';
@@ -555,7 +556,7 @@
 					type="button"
 					class="icon-button settings-shortcut"
 					data-settings-shortcut
-					aria-label="Settings"
+					aria-label={uiText('Settings')}
 					data-screen-link
 					onclick={() => openPanel('settings')}><Menu size={24} /></button
 				>
@@ -564,10 +565,10 @@
 	{/if}
 	{#if issue}<div class="notice" bind:clientHeight={noticeHeight}>
 			<p role="alert">{issue}</p>
-			<button class="text-button" onclick={() => (issue = '')}>Dismiss</button>
+			<button class="text-button" onclick={() => (issue = '')}>{uiText('Dismiss')}</button>
 		</div>{/if}
 	<main bind:this={main} tabindex="-1">
-		{#if loading}<p role="status" class="pad">Opening DroppedNeedle…</p>
+		{#if loading}<p role="status" class="pad">{uiText('Opening DroppedNeedle…')}</p>
 		{:else}
 			{#if session}
 				<div

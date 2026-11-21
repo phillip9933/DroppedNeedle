@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
@@ -141,30 +142,31 @@
 
 <div class="widget" data-part="discovery-feature" data-feature={id}>
 	{#if expanded && isChart(id)}<label
-			>Chart period<InlineChoice selected={range}
+			>{uiText('Chart period')}<InlineChoice selected={range}
 				><select bind:value={range} onchange={() => (offsets = [0])}
-					><option value="this_week">This week</option><option value="this_month">This month</option
-					><option value="this_year">This year</option><option value="all_time">All time</option
+					><option value="this_week">{uiText('This week')}</option><option value="this_month"
+						>{uiText('This month')}</option
+					><option value="this_year">{uiText('This year')}</option><option value="all_time"
+						>{uiText('All time')}</option
 					></select
 				></InlineChoice
 			></label
 		>{/if}
-	{#if busy}<p role="status">Loading…</p>{:else if error}<p role="alert">{error}</p>
-		<button class="text-button" onclick={() => retry++}>Try again</button>
+	{#if busy}<p role="status">{uiText('Loading…')}</p>{:else if error}<p role="alert">{error}</p>
+		<button class="text-button" onclick={() => retry++}>{uiText('Try again')}</button>
 	{:else if data}
 		{#if data.notice}<p>{data.notice}</p>{/if}
 		{#if data.playlists}
 			{#if options.length}
 				<label
-					>Choose a playlist<InlineChoice selected={selectedPlaylist}
+					>{uiText('Choose a playlist')}<InlineChoice selected={selectedPlaylist}
 						><select value={selectedPlaylist} onchange={(e) => pickPlaylist(e.currentTarget.value)}
-							><option value="">Select a playlist</option>{#each options as p (p.id)}<option
-									value={p.id}>{p.name}</option
-								>{/each}</select
+							><option value="">{uiText('Select a playlist')}</option
+							>{#each options as p (p.id)}<option value={p.id}>{p.name}</option>{/each}</select
 						></InlineChoice
 					></label
 				>
-			{:else}<p>Create a playlist in your library to get suggestions for it.</p>{/if}
+			{:else}<p>{uiText('Create a playlist in your library to get suggestions for it.')}</p>{/if}
 		{/if}
 		{#if expanded && data.cards}<DiscoverDeck
 				{session}
@@ -192,23 +194,25 @@
 			/>{/if}
 		{#if !data.notice && !hasRows && !(expanded && data.cards) && !data.playlists && !(genreWidget && expanded)}<p
 			>
-				{empty[id] ?? 'No items for this section yet.'}
+				{empty[id] ?? uiText('No items for this section yet.')}
 			</p>{/if}
 		{#if expanded && isChart(id) && (offsets.length > 1 || data.next != null)}<div class="pages">
 				<button
 					class="secondary"
 					disabled={offsets.length === 1}
-					onclick={() => (offsets = offsets.slice(0, -1))}>Previous</button
-				><span>Page {offsets.length}</span><button
+					onclick={() => (offsets = offsets.slice(0, -1))}>{uiText('Previous')}</button
+				><span>{uiText('Page')} {offsets.length}</span><button
 					class="secondary"
 					disabled={data.next == null}
 					onclick={() => {
 						if (data?.next != null) offsets = [...offsets, data.next];
-					}}>Next</button
+					}}>{uiText('Next')}</button
 				>
 			</div>{/if}
 		{#if pendingSong}<p role="status">
-				Finding {pendingSong.title} in your library…
+				{uiText('Finding')}
+				{pendingSong.title}
+				{uiText('in your library…')}
 			</p>{:else if songStatus}<p role="status">{songStatus}</p>{/if}
 	{/if}
 </div>

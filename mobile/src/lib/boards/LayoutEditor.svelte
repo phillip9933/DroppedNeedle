@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText, uiFormat } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { tick, untrack } from 'svelte';
 	import { boardDisplay } from './display';
@@ -38,7 +39,7 @@
 	let list: HTMLOListElement;
 	const choices = $derived(
 		[
-			...available(board),
+			...available(board).map((w) => ({ ...w, label: uiText(w.label) })),
 			...(board === 'discover' ? [] : saved.map((f) => ({ id: f.id, label: f.name })))
 		].filter(
 			(w) =>
@@ -74,13 +75,13 @@
 
 <div class="editor" data-part="layout-editor">
 	<div class="bar">
-		<button class="text-button" onclick={onback}>Cancel</button>
-		<button class="primary" onclick={save}>Save layout</button>
+		<button class="text-button" onclick={onback}>{uiText('Cancel')}</button>
+		<button class="primary" onclick={save}>{uiText('Save layout')}</button>
 	</div>
-	<h1>Edit {boardNames[board]}</h1>
+	<h1>{uiText('Edit')} {uiText(boardNames[board])}</h1>
 	{#if error}<p role="alert">{error}</p>{/if}
-	<h2>On this screen</h2>
-	{#if draft.length === 0}<p>Add a section below to start your layout.</p>{/if}
+	<h2>{uiText('On this screen')}</h2>
+	{#if draft.length === 0}<p>{uiText('Add a section below to start your layout.')}</p>{/if}
 	<ol
 		class:settings-list={draft.length > 0}
 		data-surface={draft.length ? 'panel' : undefined}
@@ -122,23 +123,27 @@
 				{#if options === item.id}<div class="fields">
 						{#if item.filter}<p>{filterSummary(item.filter)}</p>
 							<button class="secondary" onclick={() => (editing = item.filter!)}
-								>Edit filters</button
+								>{uiText('Edit filters')}</button
 							>{/if}
 						<label class="check"
-							><input type="checkbox" bind:checked={item.preview} />Show a preview</label
+							><input type="checkbox" bind:checked={item.preview} />{uiText(
+								'Show a preview'
+							)}</label
 						>
 						{#if item.display}
 							{@const columnField = item.display.layout === 'grid' ? 'columns' : 'listColumns'}
 							<div class="display-options">
 								<label
-									>Display<InlineChoice selected={item.display.layout}
+									>{uiText('Display')}<InlineChoice selected={item.display.layout}
 										><select bind:value={item.display.layout}
-											><option value="list">List</option><option value="grid">Grid</option></select
+											><option value="list">{uiText('List')}</option><option value="grid"
+												>{uiText('Grid')}</option
+											></select
 										></InlineChoice
 									></label
 								>
 								<label
-									>Preview rows<InlineChoice selected={item.display.rows}
+									>{uiText('Preview rows')}<InlineChoice selected={item.display.rows}
 										><select bind:value={item.display.rows}
 											>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
 												>{/each}</select
@@ -146,7 +151,7 @@
 									></label
 								>
 								<label
-									>Columns<InlineChoice selected={item.display[columnField]}
+									>{uiText('Columns')}<InlineChoice selected={item.display[columnField]}
 										><select bind:value={item.display[columnField]}
 											>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
 												>{/each}</select
@@ -154,10 +159,11 @@
 									></label
 								>
 								<label
-									>Row density<InlineChoice selected={item.display.density}
+									>{uiText('Row density')}<InlineChoice selected={item.display.density}
 										><select bind:value={item.display.density}
-											><option value="compact">Compact</option><option value="normal">Normal</option
-											><option value="spacious">Spacious</option></select
+											><option value="compact">{uiText('Compact')}</option><option value="normal"
+												>{uiText('Normal')}</option
+											><option value="spacious">{uiText('Spacious')}</option></select
 										></InlineChoice
 									></label
 								>
@@ -167,25 +173,27 @@
 			</li>
 		{/each}
 	</ol>
-	<h2>Add sections</h2>
+	<h2>{uiText('Add sections')}</h2>
 	{#if board !== 'discover'}<button class="secondary" onclick={() => (editing = {})}
-			>New filtered section</button
+			>{uiText('New filtered section')}</button
 		>{/if}
 	<input
 		type="search"
-		aria-label="Find a section"
-		placeholder="Find a section"
+		aria-label={uiText('Find a section')}
+		placeholder={uiText('Find a section')}
 		bind:value={filter}
 	/>
 	{#each ['library', 'discover'] as group (group)}
 		{@const matches = choices.filter((w) => w.id.startsWith(group + '-'))}
 		{#if matches.length}
-			{#if board === 'home'}<h3>{group === 'library' ? 'Library' : 'Discover'}</h3>{/if}
+			{#if board === 'home'}<h3>
+					{group === 'library' ? uiText('Library') : uiText('Discover')}
+				</h3>{/if}
 			<div class="settings-list" data-surface="panel">
 				{#each matches as widget (widget.id)}
 					<button
 						class="settings-entry"
-						aria-label={'Add ' + widget.label}
+						aria-label={uiFormat('Add {name}', { name: widget.label })}
 						onclick={() => add(widget.id)}><span>{widget.label}</span><Plus size={18} /></button
 					>
 				{/each}
@@ -193,7 +201,9 @@
 		{/if}
 	{/each}
 	{#if !choices.length}<p>
-			{filter ? 'No matching sections.' : 'All available sections are on this screen.'}
+			{filter
+				? uiText('No matching sections.')
+				: uiText('All available sections are on this screen.')}
 		</p>{/if}
 	<button
 		class="text-button reset"
@@ -201,7 +211,7 @@
 			draft = defaults(board).map(editable);
 			options = '';
 			filter = '';
-		}}>Restore default layout</button
+		}}>{uiText('Restore default layout')}</button
 	>
 </div>
 

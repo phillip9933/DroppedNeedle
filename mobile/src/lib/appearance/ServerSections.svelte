@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -68,9 +69,13 @@
 	}
 </script>
 
-<p>Choose the sections your DN account receives. These settings also apply to the web app.</p>
+<p>
+	{uiText(
+		'Choose the sections your DN account receives. These settings also apply to the web app.'
+	)}
+</p>
 <label
-	>Page<InlineChoice selected={page}
+	>{uiText('Page')}<InlineChoice selected={page}
 		><select
 			disabled={busy || !!Object.keys(changes).length}
 			bind:value={page}
@@ -91,26 +96,26 @@
 					/><span
 						><strong>{row.title}</strong><small>{row.description}</small>{#if !row.available}<small
 								>{row.turned_off
-									? 'Disabled on this server.'
+									? uiText('Disabled on this server.')
 									: row.requires
 										? 'Requires ' + row.requires + '.'
-										: 'Unavailable on this server.'}</small
+										: uiText('Unavailable on this server.')}</small
 							>{/if}</span
 					></label
 				>{/each}
 		</div>{/if}
-	{#if !rows.length}<p>No sections for this page.</p>{/if}
+	{#if !rows.length}<p>{uiText('No sections for this page.')}</p>{/if}
 	<button class="secondary" disabled={busy || !Object.keys(changes).length} onclick={save}
-		>Save section preferences</button
+		>{uiText('Save section preferences')}</button
 	>
 	{#if Object.keys(changes).length}<button
 			class="text-button"
 			disabled={busy}
-			onclick={() => (changes = {})}>Discard changes</button
+			onclick={() => (changes = {})}>{uiText('Discard changes')}</button
 		>{/if}
-{:else if busy}<p role="status">Loading section preferences…</p>{/if}
+{:else if busy}<p role="status">{uiText('Loading section preferences…')}</p>{/if}
 {#if error}<p role="alert">{error}</p>
-	{#if !data}<button class="text-button" onclick={load}>Try again</button>{/if}{/if}
+	{#if !data}<button class="text-button" onclick={load}>{uiText('Try again')}</button>{/if}{/if}
 {#if message}<p role="status">{message}</p>{/if}
 
 <style>

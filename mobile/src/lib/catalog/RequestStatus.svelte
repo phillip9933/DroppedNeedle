@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
+
 	import {
 		ArrowDownToLine,
 		CircleAlert,
@@ -51,7 +53,7 @@
 </script>
 
 <span class="status" data-tone={status.tone}>
-	<status.icon size={14} aria-hidden="true" />{label}
+	<status.icon size={14} aria-hidden="true" />{uiText(label)}
 </span>
 
 <style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import { errorMessage, type CatalogTab, type OnPlay } from '../catalog/catalog';
@@ -73,12 +74,12 @@
 		{onnavigate}
 	/>
 {:else}
-	<button class="text-button" onclick={onback}>Back to Now Playing</button>
-	{#if busy}<p role="status">Opening {credit.kind}…</p>
+	<button class="text-button" onclick={onback}>{uiText('Back to Now Playing')}</button>
+	{#if busy}<p role="status">{uiText('Opening')} {credit.kind}…</p>
 	{:else if issue}<p role="alert">{issue}</p>
-		<button class="secondary" onclick={() => revision++}>Try again</button>
+		<button class="secondary" onclick={() => revision++}>{uiText('Try again')}</button>
 	{:else if detail?.kind === 'saved'}
-		<small>On this device</small>
+		<small>{uiText('On this device')}</small>
 		<LibraryGroup
 			{session}
 			item={detail.item}
@@ -89,6 +90,6 @@
 		/>
 	{:else}
 		<h1>{credit.track[credit.kind]}</h1>
-		<p>This track has no available {credit.kind} link in this library.</p>
+		<p>{uiText('This track has no available')} {credit.kind} {uiText('link in this library.')}</p>
 	{/if}
 {/if}

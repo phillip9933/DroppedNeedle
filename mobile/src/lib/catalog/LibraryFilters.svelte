@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { getJson, type Session } from '../connection';
 	import { errorMessage, path } from './catalog';
@@ -73,12 +74,12 @@
 	});
 </script>
 
-<div class="filters" role="group" aria-label="Collection filters">
+<div class="filters" role="group" aria-label={uiText('Collection filters')}>
 	<LibraryAvailability value={availability} onchange={chooseAvailability} />
 	{#if category === 'Tracks' || category === 'Albums' || category === 'Artists'}<button
 			class="secondary"
 			aria-pressed={filters.favorites}
-			onclick={() => change({ favorites: !filters.favorites })}>Favorites only</button
+			onclick={() => change({ favorites: !filters.favorites })}>{uiText('Favorites only')}</button
 		>{/if}
 	{#if category === 'Tracks' || category === 'Albums'}
 		<details
@@ -86,33 +87,35 @@
 				if (e.currentTarget.open) attempt++;
 			}}
 		>
-			<summary>Rating and format</summary>
+			<summary>{uiText('Rating and format')}</summary>
 			<div class="fields">
 				<label
-					>Your rating<InlineChoice selected={filters.rating}
+					>{uiText('Your rating')}<InlineChoice selected={filters.rating}
 						><select
 							value={filters.rating}
 							onchange={(e) => change({ rating: Number(e.currentTarget.value) })}
-							><option value="0">Any rating</option>{#each [1, 2, 3, 4, 5] as r (r)}<option
-									value={r}>{r} {r === 1 ? 'star' : 'stars'}</option
+							><option value="0">{uiText('Any rating')}</option
+							>{#each [1, 2, 3, 4, 5] as r (r)}<option value={r}
+									>{r} {r === 1 ? uiText('star') : uiText('stars')}</option
 								>{/each}</select
 						></InlineChoice
 					></label
 				>
 				<label
-					>Rating range<InlineChoice selected={filters.ratingMode}
+					>{uiText('Rating range')}<InlineChoice selected={filters.ratingMode}
 						><select
 							value={filters.ratingMode}
 							onchange={(e) =>
 								change({ ratingMode: e.currentTarget.value as BrowseFilters['ratingMode'] })}
-							><option value="at_least">At least</option><option value="at_most">At most</option
+							><option value="at_least">{uiText('At least')}</option><option value="at_most"
+								>{uiText('At most')}</option
 							></select
 						></InlineChoice
 					></label
 				>
 				{#if error}<p role="alert">{error}</p>
-					<button class="secondary" onclick={() => attempt++}>Retry formats</button>
-				{:else if opening}<small>Loading formats…</small
+					<button class="secondary" onclick={() => attempt++}>{uiText('Retry formats')}</button>
+				{:else if opening}<small>{uiText('Loading formats…')}</small
 					>{:else}{#each options as format (format)}<label class="check"
 							><input
 								type="checkbox"
@@ -126,12 +129,14 @@
 							/>{format.toUpperCase()}</label
 						>{/each}{/if}
 				<label
-					>Selected formats<InlineChoice selected={filters.formatMode}
+					>{uiText('Selected formats')}<InlineChoice selected={filters.formatMode}
 						><select
 							value={filters.formatMode}
 							onchange={(e) =>
 								change({ formatMode: e.currentTarget.value as BrowseFilters['formatMode'] })}
-							><option value="with">With</option><option value="without">Without</option></select
+							><option value="with">{uiText('With')}</option><option value="without"
+								>{uiText('Without')}</option
+							></select
 						></InlineChoice
 					></label
 				>
@@ -139,12 +144,14 @@
 					class="text-button"
 					onclick={() =>
 						change({ rating: 0, ratingMode: 'at_least', formats: [], formatMode: 'with' })}
-					>Clear rating and format</button
+					>{uiText('Clear rating and format')}</button
 				>
 			</div>
 		</details>
 	{/if}
-	{#if onsave}<button class="text-button" onclick={onsave}>Save filters as section</button>{/if}
+	{#if onsave}<button class="text-button" onclick={onsave}
+			>{uiText('Save filters as section')}</button
+		>{/if}
 </div>
 
 <style>

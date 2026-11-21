@@ -82,15 +82,15 @@ final class ManualDownloadScheduler implements ManualDownloads.Scheduler {
     }
     static Notification notification(Context ctx, String owner, int done, int total) {
         if (Build.VERSION.SDK_INT >= 26) ctx.getSystemService(NotificationManager.class).createNotificationChannel(
-                new NotificationChannel(CHANNEL, "Offline downloads", NotificationManager.IMPORTANCE_LOW));
+                new NotificationChannel(CHANNEL, ctx.getString(R.string.offline_downloads), NotificationManager.IMPORTANCE_LOW));
         Intent cancel = new Intent(ctx, ManualDownloadCancel.class).setData(new Uri.Builder()
                 .scheme("dn-download").authority("cancel").appendPath(owner).build());
         PendingIntent action = PendingIntent.getBroadcast(ctx, 0, cancel, PendingIntent.FLAG_IMMUTABLE);
         NotificationCompat.Builder notification = new NotificationCompat.Builder(ctx, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).setOnlyAlertOnce(true)
-                .setContentTitle("Saving offline music").addAction(0, "Cancel", action)
+                .setContentTitle(ctx.getString(R.string.saving_offline)).addAction(0, ctx.getString(android.R.string.cancel), action)
                 .setContentIntent(PendingIntent.getActivity(ctx, 0, DownloadNotificationRoute.intent(ctx), PendingIntent.FLAG_IMMUTABLE));
-        if (total > 0) notification.setContentText(done + " of " + total + " songs processed");
+        if (total > 0) notification.setContentText(ctx.getString(R.string.download_progress, done, total));
         notification.setProgress(total, done, total == 0);
         return notification.build();
     }

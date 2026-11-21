@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import type { Album, OnPlay } from './catalog';
@@ -38,7 +39,7 @@
 </script>
 
 <section data-part="genres">
-	{#if name}<button class="secondary" onclick={() => choose('')}>All genres</button>
+	{#if name}<button class="secondary" onclick={() => choose('')}>{uiText('All genres')}</button>
 		{#key name}<GenreDetail {session} {name} {onopen} {onartist} {onplay} />{/key}
 	{:else}
 		<form
@@ -49,10 +50,10 @@
 		>
 			<input
 				type="search"
-				aria-label="Genre name"
-				placeholder="Find a genre"
+				aria-label={uiText('Genre name')}
+				placeholder={uiText('Find a genre')}
 				bind:value={term}
-			/><button class="secondary" disabled={!term.trim()}>Browse genre</button>
+			/><button class="secondary" disabled={!term.trim()}>{uiText('Browse genre')}</button>
 		</form>
 		<div class="preview-items">
 			{#each names.filter((g) => g

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import { Browser } from '@capacitor/browser';
@@ -258,7 +259,7 @@
 </script>
 
 <div class="heading">
-	<h1 class="screen-title">Requests</h1>
+	<h1 class="screen-title">{uiText('Requests')}</h1>
 	<button
 		class="icon-button"
 		aria-label={'Refresh ' + view}
@@ -273,7 +274,7 @@
 	class="settings-tabs request-tabs"
 	data-surface="panel"
 	role="tablist"
-	aria-label="Request views"
+	aria-label={uiText('Request views')}
 >
 	{#each tabs as tab, i (tab.id)}
 		<button
@@ -283,7 +284,7 @@
 			aria-controls="requests-panel"
 			tabindex={view === tab.id ? 0 : -1}
 			onkeydown={(e) => tabKey(e, i)}
-			onclick={() => switchView(tab.id)}>{tab.label}</button
+			onclick={() => switchView(tab.id)}>{uiText(tab.label)}</button
 		>
 	{/each}
 </div>
@@ -294,7 +295,10 @@
 	tabindex="0"
 	aria-labelledby={'requests-tab-' + view}
 >
-	{#if profileError}<p role="alert">Could not load account permissions. {profileError}</p>{/if}
+	{#if profileError}<p role="alert">
+			{uiText('Could not load account permissions.')}
+			{profileError}
+		</p>{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if actionError}<p role="alert">{actionError}</p>{/if}
 	{#if receipt}<p role="status">{receipt}</p>{/if}
@@ -328,12 +332,12 @@
 							r.progress
 						)}{/if}
 					{#if list === 'approvals' && r.requested_by_name}<span
-							>Requested by {r.requested_by_name}</span
+							>{uiText('Requested by')} {r.requested_by_name}</span
 						>{/if}
 					{#if list === 'history' && (r.completed_at || r.requested_at)}
 						{@const time = new Date((r.completed_at || r.requested_at) * 1000)}
 						<span
-							>{r.completed_at ? 'Finished' : 'Requested'}
+							>{r.completed_at ? uiText('Finished') : uiText('Requested')}
 							<time datetime={time.toISOString()}
 								>{time.toLocaleDateString(undefined, {
 									year: 'numeric',
@@ -351,7 +355,7 @@
 
 	{#if view === 'requests'}
 		<details class="settings-disclosure" data-surface="panel" bind:open={watchesOpen}>
-			<summary><Eye size={19} aria-hidden="true" /><span>Wanted watches</span></summary>
+			<summary><Eye size={19} aria-hidden="true" /><span>{uiText('Wanted watches')}</span></summary>
 			{#if watchesOpen}<WantedWatches
 					{session}
 					{viewer}
@@ -361,24 +365,25 @@
 					{launchWeb}
 				/>{/if}
 		</details>
-		{#if active.length}<section aria-label="Active requests">
-				<h2 class="section-title">Active <span>{active.length}</span></h2>
+		{#if active.length}<section aria-label={uiText('Active requests')}>
+				<h2 class="section-title">{uiText('Active')} <span>{active.length}</span></h2>
 				{@render rows(active, 'active')}
 			</section>{/if}
 		{#if history.length || historyStatus || historySort || active.length || historyTotal}
-			<section aria-label="Request history">
-				<h2 class="section-title">History <span>{historyTotal}</span></h2>
+			<section aria-label={uiText('Request history')}>
+				<h2 class="section-title">{uiText('History')} <span>{historyTotal}</span></h2>
 				<details class="settings-disclosure filters" data-surface="panel">
 					<summary
-						><ListFilter size={18} aria-hidden="true" /><span>Filter and sort history</span
+						><ListFilter size={18} aria-hidden="true" /><span
+							>{uiText('Filter and sort history')}</span
 						>{#if historyStatus || historySort}<Check
 								size={15}
-								aria-label="Filters applied"
+								aria-label={uiText('Filters applied')}
 							/>{/if}</summary
 					>
 					<div>
 						<label
-							>History status<InlineChoice selected={historyStatus}
+							>{uiText('History status')}<InlineChoice selected={historyStatus}
 								><select
 									value={historyStatus}
 									onchange={(event) => {
@@ -386,19 +391,21 @@
 										updateHistory();
 									}}
 								>
-									<option value="">All statuses</option><option value="imported">Imported</option
-									><option value="incomplete">Incomplete</option><option value="failed"
-										>Failed</option
-									><option value="cancelled">Cancelled</option><option value="rejected"
-										>Rejected</option
+									<option value="">{uiText('All statuses')}</option><option value="imported"
+										>{uiText('Imported')}</option
+									><option value="incomplete">{uiText('Incomplete')}</option><option value="failed"
+										>{uiText('Failed')}</option
+									><option value="cancelled">{uiText('Cancelled')}</option><option value="rejected"
+										>{uiText('Rejected')}</option
 									>
-									{#if viewer?.role === 'admin'}<option value="reimportable">Can reimport</option
+									{#if viewer?.role === 'admin'}<option value="reimportable"
+											>{uiText('Can reimport')}</option
 										>{/if}
 								</select></InlineChoice
 							></label
 						>
 						<label
-							>History order<InlineChoice selected={historySort}
+							>{uiText('History order')}<InlineChoice selected={historySort}
 								><select
 									value={historySort}
 									onchange={(event) => {
@@ -406,8 +413,9 @@
 										updateHistory();
 									}}
 								>
-									<option value="">Newest first</option><option value="oldest">Oldest first</option
-									><option value="status">By status</option>
+									<option value="">{uiText('Newest first')}</option><option value="oldest"
+										>{uiText('Oldest first')}</option
+									><option value="status">{uiText('By status')}</option>
 								</select></InlineChoice
 							></label
 						>
@@ -415,48 +423,50 @@
 				</details>
 				{#if history.length}{@render rows(history, 'history')}
 				{:else if !busy && !error}<p>
-						{historyStatus ? 'No requests match this status.' : 'No request history yet.'}
+						{historyStatus
+							? uiText('No requests match this status.')
+							: uiText('No request history yet.')}
 					</p>{/if}
 			</section>
 		{/if}
 		{#if pages > 1}
 			<div class="pagination">
 				<button class="secondary" disabled={busy || page < 2} onclick={() => refresh(page - 1)}
-					>Previous</button
+					>{uiText('Previous')}</button
 				>
 				<span>{page} / {pages}</span><button
 					class="secondary"
 					disabled={busy || page >= pages}
-					onclick={() => refresh(page + 1)}>Next</button
+					onclick={() => refresh(page + 1)}>{uiText('Next')}</button
 				>
 			</div>
 		{/if}
 		{#if !active.length && !history.length && !historyStatus && !historySort && !error}<p
 				role="status"
 			>
-				{busy ? 'Loading requests…' : 'No requests yet.'}
+				{busy ? uiText('Loading requests…') : uiText('No requests yet.')}
 			</p>{/if}
 	{:else if view === 'approvals'}
-		<section aria-label="Approvals">
-			<h2 class="section-title">Awaiting approval <span>{pending.length}</span></h2>
+		<section aria-label={uiText('Approvals')}>
+			<h2 class="section-title">{uiText('Awaiting approval')} <span>{pending.length}</span></h2>
 			{#if pending.length}{@render rows(pending, 'approvals')}
 			{:else if !error}<p role="status">
-					{busy ? 'Loading approvals…' : 'No requests awaiting approval.'}
+					{busy ? uiText('Loading approvals…') : uiText('No requests awaiting approval.')}
 				</p>{/if}
 		</section>
 	{:else}
 		{#if viewer}
 			<div class="settings-list" data-surface="panel">
 				<button class="settings-entry" onclick={() => (held = {})}>
-					<FolderSearch size={19} aria-hidden="true" /><span>Review all held files</span
+					<FolderSearch size={19} aria-hidden="true" /><span>{uiText('Review all held files')}</span
 					><ChevronRight size={17} aria-hidden="true" />
 				</button>
 			</div>
 		{/if}
 		{#each downloadSections as [group, entries] (group)}
 			{@const visible = shown[group] ?? (group === 'Queued' ? 5 : 20)}
-			<section aria-label={group}>
-				<h2 class="section-title">{group} <span>{entries.length}</span></h2>
+			<section aria-label={uiText(group)}>
+				<h2 class="section-title">{uiText(group)} <span>{entries.length}</span></h2>
 				<ul class="record-list">
 					{#each entries.slice(0, visible) as task (task.id)}
 						{@const title = task.track_title || task.album_title}
@@ -479,45 +489,52 @@
 							{#if task.status === 'downloading'}
 								{@render progress(title, task.progress_percent)}
 								{#if task.files_total > 0}<span
-										>{task.files_completed} of {task.files_total} files</span
+										>{task.files_completed}
+										{uiText('of')}
+										{task.files_total}
+										{uiText('files')}</span
 									>{/if}
 							{/if}
 							{#if task.reason?.text}<p class="reason">{task.reason.text}</p>{/if}
 							{#if task.next_retry_at && task.retry_max > 0 && !task.held_for_review}
-								<span>Next retry {new Date(task.next_retry_at * 1000).toLocaleString()}</span>
+								<span
+									>{uiText('Next retry')}
+									{new Date(task.next_retry_at * 1000).toLocaleString()}</span
+								>
 							{/if}
 						</RequestRecord>
 					{/each}
 				</ul>
 				{#if entries.length > visible}
 					<button class="text-button" onclick={() => (shown[group] = visible + 20)}
-						>Show more {group.toLowerCase()} ({entries.length - visible})</button
+						>{uiText('Show more')} {group.toLowerCase()} ({entries.length - visible})</button
 					>
 				{/if}
 			</section>
 		{/each}
 		{#if !tasks.length && !error}<p role="status">
-				{busy ? 'Loading downloads…' : 'No downloads on this page.'}
+				{busy ? uiText('Loading downloads…') : uiText('No downloads on this page.')}
 			</p>{/if}
 		{#if downloadPage > 1 || moreDownloads}
-			<div class="pagination" aria-label="Download history pages">
+			<div class="pagination" aria-label={uiText('Download history pages')}>
 				<button
 					class="secondary"
 					disabled={busy || downloadPage < 2}
-					onclick={() => refresh(downloadPage - 1)}>Previous</button
+					onclick={() => refresh(downloadPage - 1)}>{uiText('Previous')}</button
 				>
-				<span>History page {downloadPage}</span><button
+				<span>{uiText('History page')} {downloadPage}</span><button
 					class="secondary"
 					disabled={busy || !moreDownloads}
-					onclick={() => refresh(downloadPage + 1)}>Next</button
+					onclick={() => refresh(downloadPage + 1)}>{uiText('Next')}</button
 				>
 			</div>
 		{/if}
 		<details class="settings-disclosure server-tools" data-surface="panel">
 			<summary
-				><ExternalLink size={18} aria-hidden="true" /><span>More on your server</span></summary
+				><ExternalLink size={18} aria-hidden="true" /><span>{uiText('More on your server')}</span
+				></summary
 			>
-			<p>These tools open DroppedNeedle in your browser. Sign in there if prompted.</p>
+			<p>{uiText('These tools open DroppedNeedle in your browser. Sign in there if prompted.')}</p>
 			{#each serverTools as tool (tool.label)}
 				<a
 					class="settings-entry"
@@ -526,7 +543,7 @@
 					rel="noopener noreferrer"
 					onclick={launchWeb}
 				>
-					<span>{tool.label}</span><ExternalLink size={16} aria-hidden="true" />
+					<span>{uiText(tool.label)}</span><ExternalLink size={16} aria-hidden="true" />
 				</a>
 			{/each}
 		</details>
@@ -570,14 +587,18 @@
 		{#if selected}
 			<p class="effect">{selected.effect}</p>
 			<div class="settings-actions">
-				<button class="secondary" disabled={sending} onclick={backFromAction}>Go back</button>
-				<button class="primary" disabled={sending} onclick={confirm}>{selected.label}</button>
+				<button class="secondary" disabled={sending} onclick={backFromAction}
+					>{uiText('Go back')}</button
+				>
+				<button class="primary" disabled={sending} onclick={confirm}
+					>{uiText(selected.label)}</button
+				>
 			</div>
 		{:else}
 			<div class="choices">
 				{#each menu.options as option (option.label)}
 					<button class="settings-entry" onclick={() => (selected = option)}>
-						<span>{option.label}</span><ChevronRight size={17} aria-hidden="true" />
+						<span>{uiText(option.label)}</span><ChevronRight size={17} aria-hidden="true" />
 					</button>
 				{/each}
 			</div>

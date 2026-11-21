@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from './i18n';
 	import { destinations, interfacePreferences, type Destination } from './appearance/interface';
 	let {
 		current,
@@ -17,14 +18,15 @@
 </script>
 
 {#if pinned.length}
-	<nav aria-label="Music" class="navigation" data-part="bottom-bar">
+	<nav aria-label={uiText('Music')} class="navigation" data-part="bottom-bar">
 		{#each pinned as item (item.id)}
 			<button
 				type="button"
 				data-screen-link
 				data-destination={item.id}
 				aria-current={current === item.id ? 'page' : undefined}
-				onclick={() => onnavigate(item.id)}><item.icon size={20} /><span>{item.label}</span></button
+				onclick={() => onnavigate(item.id)}
+				><item.icon size={20} /><span>{uiText(item.label)}</span></button
 			>
 		{/each}
 	</nav>

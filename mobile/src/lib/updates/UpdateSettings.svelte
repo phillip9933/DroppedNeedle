@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { storageSize } from '../offline/media';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { nativeUpdates, type AndroidUpdateState } from './androidUpdates';
@@ -41,66 +42,74 @@
 {#if snapshot}
 	<dl class="settings-facts" data-surface="panel">
 		<div>
-			<dt>Installed version</dt>
+			<dt>{uiText('Installed version')}</dt>
 			<dd>{snapshot.installedVersion}</dd>
 		</div>
 		{#if snapshot.supported}
 			<div>
-				<dt>Last checked</dt>
+				<dt>{uiText('Last checked')}</dt>
 				<dd>
 					{#if snapshot.lastChecked}<time datetime={new Date(snapshot.lastChecked).toISOString()}
 							>{new Date(snapshot.lastChecked).toLocaleString(undefined, {
 								dateStyle: 'medium',
 								timeStyle: 'short'
 							})}</time
-						>{:else}Never{/if}
+						>{:else}{uiText('Never')}{/if}
 				</dd>
 			</div>
 		{/if}
 	</dl>
 	{#if snapshot.supported}
 		{#if snapshot.checking || pending === 'check'}
-			<p role="status">Checking GitHub for updates…</p>
+			<p role="status">{uiText('Checking GitHub for updates…')}</p>
 		{:else if !release && snapshot.lastChecked && !error}
-			<p role="status">You’re up to date on the {snapshot.channel} channel.</p>
+			<p role="status">
+				{uiText('You’re up to date on the')}
+				{snapshot.channel}
+				{uiText('channel.')}
+			</p>
 		{/if}
 		<button
 			class="secondary"
 			disabled={working}
-			onclick={() => run('check', () => nativeUpdates.check())}>Check for updates</button
+			onclick={() => run('check', () => nativeUpdates.check())}
+			>{uiText('Check for updates')}</button
 		>
 
 		{#if release}
 			{@const tag = release.tag}
-			<h2>Version {release.version}</h2>
+			<h2>{uiText('Version')} {release.version}</h2>
 			<div class="settings-panel" data-surface="panel">
 				{#if snapshot.ready}
-					<p role="status">Verified and ready to install.</p>
+					<p role="status">{uiText('Verified and ready to install.')}</p>
 					{#if snapshot.canInstall}
 						<button
 							class="primary"
 							disabled={working}
 							onclick={() => run('install', () => nativeUpdates.install({ tag }))}
-							>Install update</button
+							>{uiText('Install update')}</button
 						>
 					{:else}
 						<p>
-							Allow DroppedNeedle to install apps in Android settings, then return here to install
-							this update.
+							{uiText(
+								'Allow DroppedNeedle to install apps in Android settings, then return here to install this update.'
+							)}
 						</p>
 						<button
 							class="secondary"
 							disabled={working}
 							onclick={() => run('permission', () => nativeUpdates.openInstallSettings())}
-							>Allow app installs</button
+							>{uiText('Allow app installs')}</button
 						>
 					{/if}
 				{:else if snapshot.downloading}
 					<span class="download-size"
-						>{storageSize(snapshot.bytesDownloaded)} of {storageSize(release.sizeBytes)}</span
+						>{storageSize(snapshot.bytesDownloaded)}
+						{uiText('of')}
+						{storageSize(release.sizeBytes)}</span
 					>
 					<progress
-						aria-label="Update download"
+						aria-label={uiText('Update download')}
 						max={release.sizeBytes}
 						value={snapshot.bytesDownloaded}
 					></progress>
@@ -108,15 +117,15 @@
 						class="secondary"
 						disabled={pending === 'cancel'}
 						onclick={() => run('cancel', () => nativeUpdates.cancelDownload())}
-						>Cancel download</button
+						>{uiText('Cancel download')}</button
 					>
 				{:else}
-					<p>Android download · {storageSize(release.sizeBytes)}</p>
+					<p>{uiText('Android download ·')} {storageSize(release.sizeBytes)}</p>
 					<button
 						class="primary"
 						disabled={working}
 						onclick={() => run('download', () => nativeUpdates.download({ tag }))}
-						>Download update</button
+						>{uiText('Download update')}</button
 					>
 				{/if}
 				{#if snapshot.offer && !snapshot.downloading}
@@ -124,35 +133,37 @@
 						class="text-button"
 						disabled={working}
 						onclick={() => run('dismiss', () => nativeUpdates.dismiss({ tag }))}
-						>Dismiss reminder</button
+						>{uiText('Dismiss reminder')}</button
 					>
 				{/if}
 			</div>
 			{#if release.notes?.trim()}
 				<details class="settings-disclosure" data-surface="panel">
-					<summary>Release notes</summary>
+					<summary>{uiText('Release notes')}</summary>
 					<p class="notes" dir="auto">{release.notes.slice(0, 8000)}</p>
 				</details>
 			{/if}
 		{/if}
 	{:else}
-		<p>Installing updates from GitHub requires Android 8 or later.</p>
+		<p>{uiText('Installing updates from GitHub requires Android 8 or later.')}</p>
 	{/if}
 {:else if !error}
-	<p role="status">Reading installed version…</p>
+	<p role="status">{uiText('Reading installed version…')}</p>
 {/if}
 
 {#if error}
 	<p role="alert">{error}</p>
-	{#if readError}<button class="secondary" onclick={onrefresh}>Reload update status</button>{/if}
+	{#if readError}<button class="secondary" onclick={onrefresh}
+			>{uiText('Reload update status')}</button
+		>{/if}
 {/if}
 
 {#if snapshot?.supported}
-	<h2>GitHub updates</h2>
+	<h2>{uiText('GitHub updates')}</h2>
 	<div class="settings-panel" data-surface="panel">
 		<label
-			>Release channel
-			<InlineChoice selected={snapshot.channel} label="Release channel">
+			>{uiText('Release channel')}
+			<InlineChoice selected={snapshot.channel} label={uiText('Release channel')}>
 				<select
 					value={snapshot.channel}
 					disabled={working}
@@ -161,8 +172,8 @@
 						void run('preferences', () => nativeUpdates.setPreferences({ channel }));
 					}}
 				>
-					<option value="stable">Stable</option>
-					<option value="beta">Beta</option>
+					<option value="stable">{uiText('Stable')}</option>
+					<option value="beta">{uiText('Beta')}</option>
 				</select>
 			</InlineChoice>
 		</label>
@@ -175,7 +186,7 @@
 					const automaticChecks = event.currentTarget.checked;
 					void run('preferences', () => nativeUpdates.setPreferences({ automaticChecks }));
 				}}
-			/>Check automatically</label
+			/>{uiText('Check automatically')}</label
 		>
 		<label
 			><input
@@ -186,7 +197,7 @@
 					const wifiDownload = event.currentTarget.checked;
 					void run('preferences', () => nativeUpdates.setPreferences({ wifiDownload }));
 				}}
-			/>Download automatically on Wi-Fi</label
+			/>{uiText('Download automatically on Wi-Fi')}</label
 		>
 	</div>
 {/if}

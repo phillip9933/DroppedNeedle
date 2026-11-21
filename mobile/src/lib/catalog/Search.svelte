@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText, uiFormat } from '../i18n';
 	import { tick, untrack } from 'svelte';
 	import type { Session } from '../connection';
 	import { catalogSource } from './catalogSource.svelte';
@@ -89,6 +90,7 @@
 		pendingOffset: number | undefined,
 		returnId = '',
 		restoration = 0;
+	const scopeLabel = $derived(uiText(scopes.find((s) => s.id === scope)!.label));
 	const query = $derived({ account: session, q: term.trim(), kind: scope, start: offset, retry });
 	let completed: typeof query | undefined;
 	$effect(() => {
@@ -233,7 +235,7 @@
 
 <div bind:this={root}>
 	<div hidden={!!detail}>
-		<h1>Search</h1>
+		<h1>{uiText('Search')}</h1>
 		<input
 			type="search"
 			bind:value={term}
@@ -249,16 +251,16 @@
 				}
 			}}
 			enterkeyhint="search"
-			aria-label="Search music"
+			aria-label={uiText('Search music')}
 			placeholder={scope === 'top'
-				? 'Search music'
-				: 'Search ' + scopes.find((s) => s.id === scope)?.label.toLowerCase()}
+				? uiText('Search music')
+				: uiFormat('Search {name}', { name: scopeLabel.toLocaleLowerCase('en') })}
 			autocomplete="off"
 		/>
-		<div class="scopes" role="group" aria-label="Search category">
+		<div class="scopes" role="group" aria-label={uiText('Search category')}>
 			{#each scopes as item (item.id)}<button
 					aria-pressed={scope === item.id}
-					onclick={() => choose(item.id)}>{item.label}</button
+					onclick={() => choose(item.id)}>{uiText(item.label)}</button
 				>{/each}
 		</div>
 		<SearchHints
@@ -273,27 +275,29 @@
 			onpick={pickHint}
 		/>
 		{#if source.policyIssue}<p role="alert">{source.policyIssue}</p>
-			<button class="secondary" onclick={() => source.retryPolicy()}>Retry search settings</button>
-		{:else if !source.ready}<p role="status">Opening search…</p>
+			<button class="secondary" onclick={() => source.retryPolicy()}
+				>{uiText('Retry search settings')}</button
+			>
+		{:else if !source.ready}<p role="status">{uiText('Opening search…')}</p>
 		{:else if useDevice}
 			<p class="device-source" role="status">
 				{source.unreachable
-					? 'DN is unavailable. Searching music on this device.'
-					: 'Searching music on this device.'}
+					? uiText('DN is unavailable. Searching music on this device.')
+					: uiText('Searching music on this device.')}
 				{#if source.unreachable}<button
 						class="text-button"
 						onclick={() => {
 							source.retryNetwork();
 							retry++;
-						}}>Retry DN</button
+						}}>{uiText('Retry DN')}</button
 					>{/if}
 			</p>
 			{#if source.storageError}<p role="alert">{source.storageError}</p>
 				{#if session.userId}<button class="secondary" onclick={() => source.retryStorage()}
-						>Retry device library</button
+						>{uiText('Retry device library')}</button
 					>{/if}
 			{:else if inventory && !inventory.items.length}<p>
-					No music is saved or cached for this account on this device.
+					{uiText('No music is saved or cached for this account on this device.')}
 				</p>
 			{:else if inventory && localModel}<DeviceSearchResults
 					bind:this={localResults}
@@ -310,7 +314,7 @@
 					onready={restore}
 					onrules={() => ruleRevision++}
 				/>
-			{:else if source.storageBusy}<p role="status">Opening saved music…</p>{/if}
+			{:else if source.storageBusy}<p role="status">{uiText('Opening saved music…')}</p>{/if}
 		{:else if scope === 'genres' || scope === 'playlists'}
 			<SearchCollection
 				{session}
@@ -329,12 +333,12 @@
 				onready={restore}
 			/>
 		{:else if error}<p role="alert">{error}</p>
-			<button class="secondary" onclick={() => retry++}>Try again</button>
-		{:else if busy}<p role="status">Searching…</p>
+			<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
+		{:else if busy}<p role="status">{uiText('Searching…')}</p>
 		{:else if result}
-			{#if result.tracks.length}<h2>Songs in your library</h2>
+			{#if result.tracks.length}<h2>{uiText('Songs in your library')}</h2>
 				<TrackList {session} tracks={result.tracks} onplay={playResult} />{/if}
-			{#if result.artists.length}<h2>Artists</h2>
+			{#if result.artists.length}<h2>{uiText('Artists')}</h2>
 				<div class="artists">
 					{#each result.artists as artist (artist.mbid || artist.localId)}<button
 							class="secondary"
@@ -344,7 +348,7 @@
 							}}>{artist.name}</button
 						>{/each}
 				</div>{/if}
-			{#if result.albums.length}<h2>Albums</h2>
+			{#if result.albums.length}<h2>{uiText('Albums')}</h2>
 				<Albums
 					{session}
 					albums={result.albums}
@@ -353,7 +357,7 @@
 						onopen(value);
 					}}
 				/>{/if}
-			{#if result.recordings.length}<h2>Songs to request</h2>
+			{#if result.recordings.length}<h2>{uiText('Songs to request')}</h2>
 				{#each result.recordings as row (row.song.recording_mbid + '-' + row.song.release_mbid)}<div
 						class="recording"
 					>
@@ -363,11 +367,11 @@
 							></span
 						><RequestSong {session} song={row.song} requested={row.requested} />
 					</div>{/each}{/if}
-			{#if result.partial}<p role="status">Some MusicBrainz results are unavailable.</p>
-				<button class="secondary" onclick={() => retry++}>Retry search</button>{/if}
+			{#if result.partial}<p role="status">{uiText('Some MusicBrainz results are unavailable.')}</p>
+				<button class="secondary" onclick={() => retry++}>{uiText('Retry search')}</button>{/if}
 			{#if !result.albums.length && !result.tracks.length && !result.artists.length && !result.recordings.length}<p
 				>
-					{offset ? 'No more matches.' : 'No matches for “' + term.trim() + '”.'}
+					{offset ? uiText('No more matches.') : 'No matches for “' + term.trim() + '”.'}
 				</p>{/if}
 			{#if scope !== 'top' && (offset > 0 || result.next !== null)}
 				<div class="pages">
@@ -376,24 +380,26 @@
 						disabled={!offset}
 						onclick={() => {
 							if (result) offset = result.previous;
-						}}>Previous results</button
+						}}>{uiText('Previous results')}</button
 					><button
 						class="secondary"
 						disabled={result.next === null}
 						onclick={() => {
 							if (result?.next != null) offset = result.next;
-						}}>Next results</button
+						}}>{uiText('Next results')}</button
 					>
 				</div>
 			{/if}
-		{:else if term.length}<p>Enter at least two characters.</p>{/if}
+		{:else if term.length}<p>{uiText('Enter at least two characters.')}</p>{/if}
 	</div>
 	{#if detail}
-		<button class="text-button device-back" aria-label="Back to search" onclick={goBack}
-			><ChevronLeft size={18} />Back to search</button
+		<button class="text-button device-back" aria-label={uiText('Back to search')} onclick={goBack}
+			><ChevronLeft size={18} />{uiText('Back to search')}</button
 		>
 		{#if detailError}<p role="alert">{detailError}</p>
-			<button class="secondary" onclick={() => source.retryStorage()}>Retry device library</button>
+			<button class="secondary" onclick={() => source.retryStorage()}
+				>{uiText('Retry device library')}</button
+			>
 		{:else}
 			{#key detail.row.id}<LibraryGroup
 					bind:this={groupView}

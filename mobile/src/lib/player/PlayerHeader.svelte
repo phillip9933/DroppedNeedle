@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { ChevronDown, ListMusic, Pause, Play } from '@lucide/svelte';
 	import type { Section } from '../boards/layout';
 	let {
@@ -40,20 +41,20 @@
 	<div class="fallback" inert={readOnly}>
 		{#if missingClose}<button
 				class="icon-button player-control"
-				aria-label="Close player"
+				aria-label={uiText('Close player')}
 				onclick={onclose}><ChevronDown /></button
 			>{/if}
 		{#if missingPlay}<button
 				class="icon-button player-control"
 				inert={readOnly}
-				aria-label={playing ? 'Pause' : 'Play'}
+				aria-label={playing ? uiText('Pause') : uiText('Play')}
 				onclick={ontoggle}
 				>{#if playing}<Pause />{:else}<Play />{/if}</button
 			>{/if}
 		{#if queueExit}<button
 				class="icon-button player-control"
 				inert={readOnly}
-				aria-label="Hide play queue"
+				aria-label={uiText('Hide play queue')}
 				aria-expanded={true}
 				onclick={onqueue}><ListMusic /></button
 			>{/if}
