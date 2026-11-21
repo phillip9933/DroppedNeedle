@@ -1,6 +1,6 @@
 {
   "name": "droppedneedle-mobile",
-  "version": "0.17.2",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.25.0",
@@ -12,6 +12,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "build": "vite build",
     "sync": "pnpm build && cap sync",
+    "android:prepare-update": "node scripts/prepare-android-update.mjs",
     "test:journey": "playwright test --config tests/playwright.config.ts",
     "lint": "eslint src tests vite.config.ts",
     "format:check": "prettier --config ../frontend/.prettierrc --check src tests vite.config.ts eslint.config.js"

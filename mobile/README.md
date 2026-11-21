@@ -12,6 +12,12 @@ For OIDC, including authentik, enter the public DroppedNeedle address served by 
 
 Server administrators can add browser sign-in by building the DN web frontend with the `feat/mobile-browser-pairing` change. It provides `/connect/mobile` and `/mobile-pairing.json`. The marker should return JSON containing `"droppedneedle_mobile_pairing": 1`. The phone must be able to reach the DN API and media endpoints using its DN device session. A proxy that requires a separate browser session on those routes needs a compatible access policy.
 
+## Update the Android app
+
+On Android 8 or later, open **Settings → App → App updates**. You can also open Settings from the sign-in screen. Choose **Check for updates** to check the Android releases on GitHub. This works independently of your DroppedNeedle account.
+
+The app checks the stable channel about once a day by default. Choose **Beta** to include prereleases, or enable **Download automatically on Wi-Fi** to have the APK ready for later. Open **App updates** to read the release notes, download the APK and install it. If Android asks for permission, allow installs from DroppedNeedle, return to the app and tap **Install update**. Android asks you to confirm the installation.
+
 ## Customize your screens
 
 Open **Settings → Screen layouts** and choose Home, Library, Discover, or Now Playing. Each screen has its own saved layout. **Restore default layout** loads a fresh draft, **Save layout** applies it, and **Cancel** discards it.
@@ -165,6 +171,18 @@ pnpm sync
 ```
 
 For Android, install JDK 21 and Android SDK Platform 36. Run `./gradlew assembleDebug` from `android/`. The APK is at `android/app/build/outputs/apk/debug/app-debug.apk`. For iOS, open the project with `pnpm exec cap open ios` on a Mac with Xcode and select a simulator or device. Run `pnpm sync` after you change the Svelte app. The native build reads the copied bundle.
+
+### Prepare an Android GitHub release
+
+Set the mobile package version and Android `versionName` to the same version, and increase the Android `versionCode` for every release, including betas. After `pnpm sync`, generate a signed, standalone **release APK** in Android Studio using the same signing identity as the builds distributed to users. Android requires that identity for an in-place upgrade. Ordinary `assembleDebug` builds are for USB testing.
+
+From `mobile/`, set `ANDROID_HOME` to your SDK directory and run the following with the signed APK and an output directory of your choice.
+
+```sh
+pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
+```
+
+The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.18.0` uses tag `android-v0.18.0` and asset `droppedneedle-android-0.18.0.apk`. For `0.19.0-beta.1`, use `android-v0.19.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
 
 ## How the clients fit together
 
