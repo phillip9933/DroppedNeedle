@@ -3,6 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { localSignIn } from './fixtures/localSignIn';
 import { seedOfflineMusic } from './fixtures/offlineMusic';
+import { repeatShuffleDraws } from './fixtures/shuffleDraws';
+import { silentWav } from './fixtures/silentWav';
 
 const server = 'https://smart.example/dn';
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
@@ -157,6 +159,33 @@ async function edit(page: Page, name: string) {
 	await page.getByRole('dialog').getByRole('button', { name: 'Edit smart playlist' }).click();
 	return page.getByRole('dialog');
 }
+
+test('shuffling a saved smart playlist after closing the app gives a fresh order for the same matches', async ({
+	context
+}) => {
+	await repeatShuffleDraws(context);
+	let previous: string[] = [];
+	for (let i = 0; i < 2; i++) {
+		const app = await context.newPage();
+		await fixture(app);
+		await app.route(server + '/api/v3/stream/local/**', (r) =>
+			r.fulfill({ contentType: 'audio/wav', body: silentWav() })
+		);
+		await localSignIn(app, server);
+		await playlists(app);
+		if (i === 0) await create(app);
+		await button(app, 'Night driving').click();
+		await button(app, 'Shuffle all').click();
+		await button(app, 'Show play queue').click();
+		const rows = app.locator('[data-part=play-queue] strong');
+		await expect(rows).toHaveCount(2);
+		const order = await rows.allTextContents();
+		expect([...order].sort()).toEqual(['North Coast', 'North Star']);
+		if (i > 0) expect(order).not.toEqual(previous);
+		previous = order;
+		await app.close();
+	}
+});
 
 test('a smart playlist evaluates the current DN filters and limit and keeps account-scoped edits on this device', async ({
 	page

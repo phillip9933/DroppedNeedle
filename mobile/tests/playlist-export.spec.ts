@@ -3,6 +3,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { localSignIn } from './fixtures/localSignIn';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
+import type { PlayerTrack } from '../src/lib/player';
+import type { components } from '../../frontend/src/lib/api/v3/openapi';
 const server = 'https://export.example/dn';
 const b = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const dialog = (p: Page) => p.getByRole('dialog', { name: 'Export playlist' });
@@ -10,7 +12,11 @@ const csv =
 	'title,artist,album,album artist,duration,path\r\n"=Rain","霧",B,A,15,Music/Rain.flac\r\n';
 const m3u = '#EXTM3U\n#PLAYLIST:霧\n#EXTINF:15,A - Rain\nMusic/Rain.flac\n';
 type ResponseMode = 'file' | 'hidden' | 'proxy' | 'expired' | 'missing' | 'html' | 'masquerade';
-async function fixture(page: Page, owned = false) {
+async function fixture(
+	page: Page,
+	owned = false,
+	tracks: components['schemas']['PlaylistTrack'][] = []
+) {
 	let mode: ResponseMode = 'file';
 	const exports: URL[] = [];
 	const playlist = {
@@ -21,7 +27,7 @@ async function fixture(page: Page, owned = false) {
 		can_edit: owned,
 		can_delete: owned,
 		is_redacted: false,
-		track_count: 0,
+		track_count: tracks.length,
 		cover_urls: []
 	};
 	await page.route(server + '/api/v3/**', async (route) => {
@@ -38,7 +44,7 @@ async function fixture(page: Page, owned = false) {
 				role: 'user'
 			});
 		if (path === '/playlists') return json({ playlists: [playlist] });
-		if (path === '/playlists/road') return json({ ...playlist, tracks: [] });
+		if (path === '/playlists/road') return json({ ...playlist, tracks });
 		if (path === '/playlists/road/export') {
 			exports.push(url);
 			expect(req.method()).toBe('GET');
@@ -71,7 +77,7 @@ async function fixture(page: Page, owned = false) {
 	});
 	return { exports, set: (v: ResponseMode) => (mode = v) };
 }
-async function open(page: Page, who = 'listener') {
+async function openPlaylist(page: Page, who = 'listener') {
 	await localSignIn(page, server, who);
 	await b(page, 'Search').click();
 	await page
@@ -79,6 +85,9 @@ async function open(page: Page, who = 'listener') {
 		.getByRole('button', { name: 'Playlists' })
 		.click();
 	await b(page, 'Morning / mix').click();
+}
+async function open(page: Page, who = 'listener') {
+	await openPlaylist(page, who);
 	await b(page, 'Export playlist').click();
 }
 async function fallback(page: Page) {
@@ -262,9 +271,7 @@ test('invalid prefix, HTML, denied access, lost network, and a truly expired DN 
 	await expect(page.getByLabel('Server address')).toBeVisible();
 });
 
-test('Android prepares via authenticated transport, passes only its handle and name to Files and cleans up after every result', async ({
-	page
-}) => {
+async function androidPlaylistBridge(page: Page) {
 	await page.addInitScript(() => {
 		const methods: Record<string, string[]> = {
 			App: ['getLaunchUrl', 'addListener', 'removeListener'],
@@ -281,6 +288,9 @@ test('Android prepares via authenticated transport, passes only its handle and n
 			],
 			DNPlayer: [
 				'getState',
+				'restore',
+				'shuffleSelection',
+				'setQueue',
 				'addListener',
 				'removeListener',
 				'clearSession',
@@ -327,10 +337,42 @@ test('Android prepares via authenticated transport, passes only its handle and n
 						return method === 'snapshot'
 							? { items: [], options: { offlineOnly: false } }
 							: { offlineOnly: false };
-					if (plugin === 'DNPlayer')
-						return method === 'getState'
-							? { queue: [], index: -1, position: 0, playing: false }
-							: {};
+					if (plugin === 'DNPlayer') {
+						if (method === 'shuffleSelection') {
+							sessionStorage.setItem('shuffle-request', JSON.stringify(opts));
+							return new Promise((resolve, reject) => {
+								window.addEventListener(
+									'finish-shuffle',
+									(event) => {
+										const reply = (event as CustomEvent<{ error?: string; indices?: number[] }>)
+											.detail;
+										if (reply.error) reject(Error(reply.error));
+										else resolve({ indices: reply.indices });
+									},
+									{ once: true }
+								);
+							});
+						}
+						if (method === 'setQueue') {
+							const tracks = opts.tracks as unknown as PlayerTrack[];
+							const calls = JSON.parse(sessionStorage.getItem('submitted-queues') ?? '[]');
+							sessionStorage.setItem(
+								'submitted-queues',
+								JSON.stringify([...calls, tracks.map((t) => t.title)])
+							);
+							sessionStorage.setItem('playing-tracks', JSON.stringify(tracks));
+						}
+						const tracks = JSON.parse(sessionStorage.getItem('playing-tracks') ?? '[]');
+						return {
+							tracks,
+							index: tracks.length ? 0 : -1,
+							position: 0,
+							duration: 60,
+							repeat: 'off',
+							playing: !!tracks.length,
+							error: null
+						};
+					}
 					if (plugin === 'CapacitorHttp') {
 						const response = await fetch(opts.url, {
 							method: opts.method,
@@ -373,6 +415,76 @@ test('Android prepares via authenticated transport, passes only its handle and n
 			}
 		});
 	});
+}
+
+test('Android waits for the saved shuffle, maps repeated recordings by occurrence, and discards a superseded reply', async ({
+	page
+}) => {
+	await androidPlaylistBridge(page);
+	const titles = ['Opening cut', 'Interlude', 'Closing cut'];
+	await fixture(
+		page,
+		true,
+		titles.map((title, i) => ({
+			id: 'entry-' + i,
+			track_name: title,
+			artist_name: 'Dawn',
+			album_name: 'Road',
+			source_type: 'local',
+			track_source_id: i === 1 ? 'middle' : 'repeated',
+			position: i,
+			created_at: 1
+		}))
+	);
+	await openPlaylist(page);
+	const queues = () =>
+		page.evaluate(() => JSON.parse(sessionStorage.getItem('submitted-queues') ?? '[]'));
+	async function begin() {
+		await page.evaluate(() => sessionStorage.removeItem('shuffle-request'));
+		await b(page, 'Shuffle playlist').click();
+		await expect
+			.poll(() =>
+				page.evaluate(() => JSON.parse(sessionStorage.getItem('shuffle-request') ?? 'null'))
+			)
+			.toEqual({
+				serverUrl: server,
+				userId: 'listener',
+				ids: ['repeated', 'middle', 'repeated'],
+				serverOrder: false
+			});
+	}
+	async function reply(result: { error?: string; indices?: number[] }) {
+		await page.evaluate(async (result) => {
+			window.dispatchEvent(new CustomEvent('finish-shuffle', { detail: result }));
+			await new Promise(requestAnimationFrame);
+		}, result);
+	}
+	await begin();
+	expect(await queues()).toEqual([]);
+	await reply({ error: 'Could not save the shuffle order.' });
+	await expect(
+		page.getByRole('alert').filter({ hasText: 'Could not save the shuffle order.' })
+	).toBeVisible();
+	expect(await queues()).toEqual([]);
+
+	await begin();
+	await b(page, 'Play playlist').click();
+	await expect(b(page, 'Show play queue')).toBeVisible();
+	await reply({ indices: [2, 0, 1] });
+	expect(await queues()).toEqual([titles]);
+	await page.keyboard.press('Escape');
+	await begin();
+	await reply({ indices: [2, 0, 1] });
+	await b(page, 'Show play queue').click();
+	const expected = [titles[2], titles[0], titles[1]];
+	await expect(page.locator('[data-part=play-queue] strong')).toHaveText(expected);
+	expect(await queues()).toEqual([titles, expected]);
+});
+
+test('Android prepares via authenticated transport, passes only its handle and name to Files and cleans up after every result', async ({
+	page
+}) => {
+	await androidPlaylistBridge(page);
 	const fixtureServer = await fixture(page);
 	await open(page);
 	for (const mode of ['cancel', 'failed', 'save', 'expired']) {

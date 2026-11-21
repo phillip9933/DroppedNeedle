@@ -1,7 +1,7 @@
 <script lang="ts">
 	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
-	import { ArrowLeft, Play, Trash2 } from '@lucide/svelte';
+	import { ArrowLeft, Play, Shuffle, Trash2 } from '@lucide/svelte';
 	import { DnError, type Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
 	import {
@@ -13,6 +13,7 @@
 		type Playlist
 	} from './playlists';
 	import { loadNearEnd } from './browseViewport';
+	import { playlistShuffle } from './browseActions';
 	import SelectionHost from './SelectionHost.svelte';
 	import { trackChoice } from './librarySelection.svelte';
 	import TrackRow from './TrackRow.svelte';
@@ -74,6 +75,24 @@
 		);
 	});
 	const shownTracks = $derived(visible.flatMap(({ track }) => track ?? []));
+	const shuffle = playlistShuffle();
+	let playError = $state('');
+	$effect(() => {
+		void session;
+		void active;
+		void playlist;
+		void filter;
+		playError = '';
+		return shuffle.cancel;
+	});
+	async function shufflePlaylist() {
+		playError = '';
+		try {
+			await shuffle.play(shownTracks, session, onplay);
+		} catch (cause) {
+			playError = errorMessage(cause);
+		}
+	}
 	const choicesInView = $derived(
 		visible.flatMap(({ entry, track }) => (track ? [trackChoice(track, 'entry:' + entry.id)] : []))
 	);
@@ -148,6 +167,9 @@
 			<button class="primary" disabled={!shownTracks.length} onclick={() => onplay(shownTracks, 0)}
 				><Play size={18} />Play playlist</button
 			>
+			<button class="secondary" disabled={!shownTracks.length} onclick={shufflePlaylist}
+				><Shuffle size={18} />Shuffle playlist</button
+			>
 		{/if}
 		<button
 			class="secondary"
@@ -168,6 +190,7 @@
 			>
 		{/if}
 	</div>
+	{#if playError}<p role="alert">{playError}</p>{/if}
 	{#if exportStatus}<p role="status">{exportStatus}</p>{/if}
 	{#if editing}
 		<div class="actions">

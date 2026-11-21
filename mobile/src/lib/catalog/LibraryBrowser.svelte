@@ -54,7 +54,12 @@
 		saveBrowsePreferences,
 		type BrowsePreferences
 	} from './browsePreferences';
-	import { collectionTracks, playbackFilter, shuffled } from './browseActions';
+	import {
+		beginPlaybackPreparation,
+		collectionTracks,
+		playbackFilter,
+		shuffled
+	} from './browseActions';
 	import { prepareLibraryPlayback } from '../player/libraryWindow';
 	import { queueSizeCheck } from './libraryQueue';
 	import type { SmartPlaylist } from './smartPlaylists';
@@ -516,8 +521,11 @@
 		actionRequest = controller;
 		const signal = controller.signal,
 			forQueue = !['open', 'playlist', 'offline'].includes(action);
-		const stop = () => cancelAction();
-		if (forQueue) window.addEventListener('dn-playback-intent', stop);
+		const finish = forQueue
+			? beginPlaybackPreparation(() => {
+					if (actionRequest === controller) cancelAction();
+				})
+			: undefined;
 		const update = (n: number, t: number) => {
 			if (!signal.aborted)
 				progress = 'Preparing tracks · ' + n.toLocaleString() + ' of ' + t.toLocaleString();
@@ -536,7 +544,7 @@
 				const params = action === 'shuffle' ? { ...query, sort: 'random', order: 'asc' } : query;
 				const batch = await prepareLibraryPlayback(session, params, signal, update);
 				signal.throwIfAborted();
-				window.removeEventListener('dn-playback-intent', stop);
+				finish?.();
 				await onplay(batch.tracks, 0, batch.continuation);
 				return;
 			}
@@ -552,7 +560,6 @@
 						update
 					);
 			signal.throwIfAborted();
-			window.removeEventListener('dn-playback-intent', stop);
 			if (action === 'open') {
 				if (row)
 					ondetail(
@@ -569,8 +576,10 @@
 			if (row && forQueue) {
 				const check = queueSizeCheck(session.serverUrl);
 				tracks.forEach(check);
-				if (action === 'shuffle') tracks = shuffled(tracks);
+				if (action === 'shuffle') tracks = await shuffled(tracks, session);
 			}
+			signal.throwIfAborted();
+			finish?.();
 			if (action === 'play' || action === 'shuffle') await onplay(tracks, 0);
 			else if (action === 'next' || action === 'end') {
 				await player.enqueue(tracks, session, action);
@@ -590,7 +599,7 @@
 		} catch (cause) {
 			if (!signal.aborted) actionError = errorMessage(cause);
 		} finally {
-			window.removeEventListener('dn-playback-intent', stop);
+			finish?.();
 			if (actionRequest === controller) {
 				actionRequest = undefined;
 				busy = false;

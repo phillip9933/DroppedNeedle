@@ -35,6 +35,12 @@ export const nativePlayer = registerPlugin<
 		EqualizerBridge &
 		OutputBridge &
 		FadeBridge & {
+			shuffleSelection(options: {
+				serverUrl: string;
+				userId: string;
+				ids: string[];
+				serverOrder: boolean;
+			}): Promise<{ indices: number[] }>;
 			soundSettings(options: Partial<SoundSettings>): Promise<SoundSettings>;
 			restore(access: PlayerAccess & { profiles: Profiles }): Promise<PlayerState>;
 			getStreamNetwork(): Promise<{ network: Network }>;

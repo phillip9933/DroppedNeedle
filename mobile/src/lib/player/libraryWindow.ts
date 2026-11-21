@@ -8,6 +8,7 @@ import {
 	type TrackPage
 } from '../catalog/libraryQueue';
 import type { PlayerTrack } from '../player';
+import { shuffled } from './shuffle';
 
 export interface LibraryContinuation {
 	filters: Record<string, string>;
@@ -114,12 +115,28 @@ export async function prepareLibraryPlayback(
 	const params = query(filters),
 		first = await read(session, params, null, 200, signal);
 	signal.throwIfAborted();
-	if (first.total <= maxQueueTracks || Capacitor.getPlatform() === 'ios')
-		return {
-			tracks: await prepareLibraryQueue(session, params, signal, progress, true, undefined, first)
-		};
+	if (first.total <= maxQueueTracks || Capacitor.getPlatform() === 'ios') {
+		const tracks = await prepareLibraryQueue(
+			session,
+			params,
+			signal,
+			progress,
+			true,
+			undefined,
+			first
+		);
+		signal.throwIfAborted();
+		if (params.sort !== 'random') return { tracks };
+		const order = await shuffled(tracks, session, 'server');
+		signal.throwIfAborted();
+		return { tracks: order };
+	}
 	const result = batch(first, params, 0, new Set(), null, 200);
 	result.tracks.forEach(queueSizeCheck(session.serverUrl));
+	if (params.sort === 'random') {
+		result.tracks = await shuffled(result.tracks, session, 'server');
+		signal.throwIfAborted();
+	}
 	progress?.(result.tracks.length, first.total);
 	return result;
 }

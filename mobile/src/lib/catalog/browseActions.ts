@@ -1,5 +1,6 @@
 import type { Session } from '../connection';
 import type { PlayerTrack } from '../player';
+import type { OnPlay } from './catalog';
 import {
 	browsePage,
 	requestFilters,
@@ -9,14 +10,37 @@ import {
 	type BrowseFilters
 } from './libraryBrowse';
 import { prepareLibraryQueue, queueSizeCheck } from './libraryQueue';
+import { shuffled } from '../player/shuffle';
 
-export function shuffled<T>(values: T[]): T[] {
-	const result = [...values];
-	for (let i = result.length - 1; i > 0; i--) {
-		const other = Math.floor(Math.random() * (i + 1));
-		[result[i], result[other]] = [result[other], result[i]];
-	}
-	return result;
+export { shuffled };
+
+export function beginPlaybackPreparation(cancel: () => void) {
+	window.dispatchEvent(new Event('dn-playback-intent'));
+	const interrupt = () => cancel();
+	window.addEventListener('dn-playback-intent', interrupt);
+	return () => window.removeEventListener('dn-playback-intent', interrupt);
+}
+
+export function playlistShuffle() {
+	let revision = 0;
+	const cancel = () => revision++;
+	return {
+		cancel,
+		async play(tracks: PlayerTrack[], session: Session, onplay: OnPlay) {
+			const finish = beginPlaybackPreparation(cancel);
+			const current = ++revision;
+			try {
+				const order = await shuffled(tracks, session);
+				if (revision !== current) return;
+				finish();
+				await onplay(order, 0);
+			} catch (cause) {
+				if (revision === current) throw cause;
+			} finally {
+				finish();
+			}
+		}
+	};
 }
 
 export function playbackFilter(
@@ -49,21 +73,17 @@ export async function collectionTracks(
 	shuffle: boolean,
 	progress: (done: number, total: number) => void
 ) {
-	if (!available && category === 'Tracks') {
-		return prepareLibraryQueue(
+	if (!available && (category === 'Tracks' || (category === 'Genres' && !filters.q.trim()))) {
+		const query = category === 'Tracks' ? requestFilters(filters) : { sort: 'album', order: 'asc' };
+		const tracks = await prepareLibraryQueue(
 			session,
-			{ ...requestFilters(filters), ...(shuffle ? { sort: 'random', order: 'asc' } : {}) },
+			shuffle ? { ...query, sort: 'random', order: 'asc' } : query,
 			signal,
 			progress
 		);
-	}
-	if (!available && category === 'Genres' && !filters.q.trim()) {
-		return prepareLibraryQueue(
-			session,
-			{ sort: shuffle ? 'random' : 'album', order: 'asc' },
-			signal,
-			progress
-		);
+		const order = shuffle ? await shuffled(tracks, session, 'server') : tracks;
+		signal.throwIfAborted();
+		return order;
 	}
 	const all: PlayerTrack[] = [],
 		cursorHistory = new Set<string>(),
@@ -89,5 +109,7 @@ export async function collectionTracks(
 		if (cursor) cursorHistory.add(cursor);
 	} while (cursor);
 	if (!all.length) throw Error('No playable tracks match these filters.');
-	return shuffle ? shuffled(all) : all;
+	const order = shuffle ? await shuffled(all, session) : all;
+	signal.throwIfAborted();
+	return order;
 }

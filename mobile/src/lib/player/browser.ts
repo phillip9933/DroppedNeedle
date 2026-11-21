@@ -19,13 +19,7 @@ import { identifyAudio, setBrowserWaveformSource } from './waveform';
 import { browserSpeed } from './sound';
 import { similarTracks, type HeardTrack } from './autoplay';
 import { albumSequence, maxOverlap, smartOverlap } from './smartFades';
-
-function shuffle<T>(tracks: T[], start = 0) {
-	for (let i = tracks.length - 1; i > start; i--) {
-		const j = start + Math.floor(Math.random() * (i - start + 1));
-		[tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-	}
-}
+import { shuffleInPlace, shuffleLocally } from './shuffle';
 
 export function browserPlayer(): PlaybackBridge {
 	let audio = new Audio();
@@ -194,7 +188,7 @@ export function browserPlayer(): PlaybackBridge {
 			if (trim > 0) rememberPruned(state.tracks.slice(0, trim));
 			const retained = state.tracks.slice(trim);
 			const displayed = [...batch.tracks];
-			if (original && !restart) shuffle(displayed);
+			if (original && !restart) shuffleInPlace(displayed);
 			const tracks = [...retained, ...displayed];
 			tracks.forEach(queueSizeCheck(serverUrl));
 			if (restart) original = undefined;
@@ -835,12 +829,10 @@ export function browserPlayer(): PlaybackBridge {
 						original = undefined;
 					} else if (state.tracks.length > start + 1) {
 						original = [...state.tracks];
-						shuffle(state.tracks, start);
-						if (original.every((t, i) => state.tracks[i] === t))
-							[state.tracks[start], state.tracks[start + 1]] = [
-								state.tracks[start + 1],
-								state.tracks[start]
-							];
+						state.tracks = [
+							...original.slice(0, start),
+							...shuffleLocally(original.slice(start), { serverUrl, userId }, 'upcoming')
+						];
 					}
 				}
 				if (

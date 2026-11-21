@@ -87,6 +87,32 @@ test('shuffle keeps the active occurrence and a paused replacement can restore i
 	expect(result.other.hasPreviousQueue).toBe(false);
 });
 
+test('two possible upcoming orders alternate for one listener and undo preserves the queue', async ({
+	page
+}) => {
+	const orders = await page.evaluate(async (account) => {
+		const player = window.continuityPlayer;
+		const [first, second, , third] = window.continuityTracks;
+		const tracks = [first, second, third];
+		const start = async (userId: string) => {
+			await player.setQueue({ ...account, userId, tracks, index: 0, playing: false });
+			const order = await player.command({ action: 'shuffleUpcoming' });
+			const undone = await player.command({ action: 'shuffleUpcoming' });
+			return [order.tracks.map((t) => t.id), undone.tracks.map((t) => t.id)];
+		};
+		return [
+			await start(account.userId),
+			await start('another listener'),
+			await start(account.userId)
+		];
+	}, access);
+	const original = ['one', 'two', 'three'];
+	expect(orders[0][0]).toEqual(['one', 'three', 'two']);
+	expect(orders[1][0]).toEqual(orders[0][0]);
+	expect(orders[2][0]).toEqual(original);
+	expect(orders.map(([, undone]) => undone)).toEqual([original, original, original]);
+});
+
 test('autoplay asks DN for fresh local recordings and cancels a pending plan on pause', async ({
 	page
 }) => {
