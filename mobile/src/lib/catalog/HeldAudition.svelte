@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { Headphones } from '@lucide/svelte';
 	import { combineSignals } from '../abortSignals';
 	import { Capacitor, CapacitorHttp } from '@capacitor/core';
 	import { serverAddress, type Session } from '../connection';
@@ -82,7 +83,9 @@
 </script>
 
 <button class="text-button" disabled={busy} aria-label={'Preview ' + name} onclick={listen}
-	>{busy ? 'Loading preview…' : 'Preview opening audio'}</button
+	><Headphones size={16} aria-hidden="true" />{busy
+		? 'Loading preview…'
+		: 'Preview opening audio'}</button
 >
 <audio
 	bind:this={audio}

@@ -1,13 +1,12 @@
 <script lang="ts">
-	import { onMount, tick, type Snippet } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
-	import { ArrowLeft } from '@lucide/svelte';
-	import { pullSheet } from '../controls/pullSheet';
-	const offsets = new SvelteMap<string, number>();
+	import type { Snippet } from 'svelte';
+	import PlayerSheet from '../player/PlayerSheet.svelte';
 	let {
 		title,
 		context = '',
-		backLabel = 'Back',
+		backLabel,
+		closeLabel,
+		scrollKey,
 		busy = false,
 		onback,
 		children
@@ -15,118 +14,87 @@
 		title: string;
 		context?: string;
 		backLabel?: string;
+		closeLabel?: string;
+		scrollKey?: string;
 		busy?: boolean;
 		onback: () => void;
 		children: Snippet;
 	} = $props();
-	let dialog: HTMLDialogElement, body: HTMLElement, heading: HTMLHeadingElement;
-	onMount(() => {
-		dialog.showModal();
-		function dismiss(e: Event) {
-			e.preventDefault();
-			e.stopImmediatePropagation();
-			if (!busy) onback();
-		}
-		function key(e: KeyboardEvent) {
-			if (e.key === 'Escape') dismiss(e);
-		}
-		window.addEventListener('dn-back', dismiss, true);
-		window.addEventListener('keydown', key, true);
-		return () => {
-			window.removeEventListener('dn-back', dismiss, true);
-			window.removeEventListener('keydown', key, true);
-			dialog.close();
-		};
-	});
-	$effect(() => {
-		const current = title;
-		void tick().then(() => {
-			body?.scrollTo(0, offsets.get(current) ?? 0);
-			heading?.focus({ preventScroll: true });
-		});
-		return () => {
-			if (body) offsets.set(current, body.scrollTop);
-		};
-	});
 </script>
 
-<dialog
-	bind:this={dialog}
-	use:pullSheet={{ dismiss: onback, disabled: busy }}
-	aria-label={title}
-	oncancel={(e) => {
-		e.preventDefault();
-		if (!busy) onback();
-	}}
+<PlayerSheet
+	{title}
+	{context}
+	{closeLabel}
+	backLabel={backLabel ?? (closeLabel ? undefined : 'Back')}
+	scrollKey={scrollKey ?? title}
+	{busy}
+	onclose={onback}
 >
-	<header data-sheet-handle>
-		<button class="icon-button" aria-label={backLabel} disabled={busy} onclick={onback}
-			><ArrowLeft size={21} /></button
-		>
-		<div>
-			<h2 tabindex="-1" bind:this={heading}>{title}</h2>
-			{#if context}<small>{context}</small>{/if}
-		</div>
-	</header>
-	<div class="body" bind:this={body}>{@render children()}</div>
-</dialog>
+	<div class="review-content">{@render children()}</div>
+</PlayerSheet>
 
 <style>
-	dialog {
-		translate: 0 var(--sheet-pull, 0px);
-		width: min(100%, 36rem);
-		height: min(100%, 52rem);
-		max-width: 100%;
-		max-height: 100dvh;
-		padding: 0;
-		border: 1px solid var(--line);
-		border-radius: var(--radius);
-		color: var(--text);
-		background: var(--bg);
+	.review-content {
+		display: grid;
+		gap: 0.85rem;
+		min-width: 0;
+		padding-block-start: 0.5rem;
+		overflow-wrap: anywhere;
 	}
-	dialog[open] {
-		display: flex;
-		flex-direction: column;
+	.review-content > :global(*) {
+		min-width: 0;
 	}
-	dialog::backdrop {
-		background: color-mix(in srgb, var(--bg) 78%, transparent);
+	.review-content :global(.review-section) {
+		display: grid;
+		gap: 0.45rem;
+		min-width: 0;
 	}
-	header {
-		touch-action: none;
-		flex: none;
+	.review-content :global(.review-heading) {
 		display: flex;
 		align-items: center;
-		gap: 0.65rem;
-		padding: 0.65rem var(--gap);
-		border-bottom: 1px solid var(--line);
-		background: var(--surface);
-	}
-	h2 {
+		gap: min(0.5rem, 2vw);
 		margin: 0;
-		font-size: 1.2rem;
-		overflow-wrap: anywhere;
+		color: var(--heading, var(--text));
+		font-size: 1.12rem;
+		line-height: 1.3;
+		letter-spacing: -0.025em;
 	}
-	small {
+	.review-content :global(.review-count) {
+		margin-inline-start: auto;
 		color: var(--muted);
-		overflow-wrap: anywhere;
+		font-size: 0.85rem;
+		font-variant-numeric: tabular-nums;
+		font-weight: 500;
 	}
-	.body {
-		padding: var(--gap);
-		overflow: auto;
-		overscroll-behavior: contain;
+	.review-content :global(.review-meta) {
+		display: block;
+		color: var(--muted);
+		font-size: 0.87rem;
+		line-height: 1.45;
+		font-weight: 450;
 	}
-	@media (max-width: 36rem) {
-		dialog {
-			width: 100%;
-			height: 100dvh;
-			border: 0;
-			border-radius: 0;
-		}
-		header {
-			padding-top: max(0.65rem, env(safe-area-inset-top));
-		}
-		.body {
-			padding-bottom: max(var(--gap), env(safe-area-inset-bottom));
-		}
+	.review-content :global(.review-files) {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.review-content :global(.review-files > li) {
+		min-width: 0;
+		padding-block: 0.5rem;
+		border-block-start: 1px solid var(--line);
+	}
+	.review-content :global(.settings-entry strong) {
+		display: block;
+		font-weight: 600;
+	}
+	.review-content :global(.settings-disclosure) {
+		min-width: 0;
+	}
+	.review-content :global(.settings-disclosure > summary::after) {
+		flex-shrink: 0;
+	}
+	.review-content > :global(p) {
+		margin: 0;
 	}
 </style>
