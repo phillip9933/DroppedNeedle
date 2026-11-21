@@ -656,9 +656,9 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	for (const name of ['Add to playlist', 'Offline download', 'Seek bar', 'Duration'])
 		await addFeature(page, name);
 	await button('Save layout').click();
-	await expect(region.locator('[data-section-id=player-quality]')).toHaveText(
-		'Lossless · PCM · 16-bit · 8 kHz · 128 kbps'
-	);
+	const quality = region.locator('[data-section-id=player-quality] [data-part=audio-quality]');
+	await expect(quality).toHaveText('PCM', { useInnerText: true });
+	await expect(quality).toHaveAttribute('title', 'Lossless · PCM · 16-bit · 8 kHz · 128 kbps');
 	const download = region.locator('[data-section-id=player-download]');
 	await download.getByRole('button', { name: 'Save offline', exact: true }).click();
 	await expect(download.getByRole('button', { name: 'Manage track download' })).toHaveText(
