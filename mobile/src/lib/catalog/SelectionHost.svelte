@@ -3,7 +3,6 @@
 	import { onDestroy, type Snippet } from 'svelte';
 	import {
 		CheckCheck,
-		ListChecks,
 		Play,
 		Shuffle,
 		ListPlus,
@@ -65,19 +64,8 @@
 	export function isSelecting() {
 		return group.selecting;
 	}
-	export function toggleSelection() {
-		if (group.selecting) {
-			cancel();
-			return;
-		}
-		if (!group.buttons.size) return;
-		group.selecting = true;
-		group.message = '';
-		error = '';
-	}
-
 	let root: HTMLElement;
-	const available = $derived(active && enabled && group.buttons.size > 0);
+
 	let progress = $state('');
 	let playlist = $state<PlayerTrack[] | null>(null),
 		error = $state(''),
@@ -175,15 +163,7 @@
 </script>
 
 <div bind:this={root} class="collection" data-selection-group class:choosing={group.selecting}>
-	<div class="heading">
-		{#if heading}<h1>{heading}</h1>{/if}
-		{#if available && !externalToggle}<button
-				class="select secondary"
-				aria-pressed={group.selecting}
-				onclick={toggleSelection}
-				aria-label={uiText('Select items')}><ListChecks size={18} /> {uiText('Select')}</button
-			>{/if}
-	</div>
+	{#if heading}<h1>{heading}</h1>{/if}
 	{#if tools && (!group.selecting || externalToggle)}<div
 			class="tools"
 			class:category-controls={externalToggle}
@@ -300,20 +280,12 @@
 		margin-block: 0 0.7rem;
 	}
 	.tools,
-	.heading,
 	.summary,
-	.actions,
-	.select {
+	.actions {
 		display: flex;
 		align-items: center;
 		gap: 0.45rem;
 		flex-wrap: wrap;
-	}
-	.heading h1 {
-		flex: 1 1 auto;
-	}
-	.heading .select {
-		margin-left: auto;
 	}
 	button {
 		display: inline-flex;

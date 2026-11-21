@@ -153,7 +153,11 @@ test('explicit offline Search finds saved metadata, local playlists, actions and
 	await page.keyboard.press('Escape');
 	await button(page, 'Library').click();
 	await button(page, 'Browse Playlists').click();
-	await button(page, 'Create smart playlist').click();
+	await button(page, 'New playlist').click();
+	await page
+		.getByRole('dialog')
+		.getByRole('button', { name: /^Smart playlist/ })
+		.click();
 	const creator = page.getByRole('dialog');
 	await creator.getByLabel('Playlist name').fill('Amber stars');
 	await chooseOption(creator.getByLabel('Playlist rating', { exact: true }), '5');
@@ -193,9 +197,7 @@ test('explicit offline Search finds saved metadata, local playlists, actions and
 	await page.keyboard.press('Escape');
 	await scope(page, 'Songs').click();
 	const legend = page.getByRole('group', { name: 'Offline availability' });
-	await expect(legend).toContainText('Downloaded');
-	await expect(legend).toContainText('Automatically saved');
-	await expect(legend).toContainText('Playback cache');
+	await expect(legend).toHaveText('Available offline');
 	await button(page, 'More options for Ámber song 00').click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Rate 5 stars' }).click();

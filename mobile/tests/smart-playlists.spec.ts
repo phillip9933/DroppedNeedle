@@ -64,7 +64,11 @@ test('five-star jazz from a year range uses personal history before its limit, i
 			}
 		}))
 	);
-	await button(page, 'Create smart playlist').click();
+	await button(page, 'New playlist').click();
+	await page
+		.getByRole('dialog')
+		.getByRole('button', { name: /^Smart playlist/ })
+		.click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Playlist name').fill('Back in rotation');
 	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '5');
@@ -92,7 +96,7 @@ test('five-star jazz from a year range uses personal history before its limit, i
 async function playlists(page: Page) {
 	await button(page, 'Library').click();
 	await button(page, 'Browse Playlists').click();
-	await expect(button(page, 'Create smart playlist')).toBeVisible();
+	await expect(button(page, 'New playlist')).toBeVisible();
 }
 async function fixture(page: Page) {
 	let user = 'listener',
@@ -141,7 +145,11 @@ async function fixture(page: Page) {
 	};
 }
 async function create(page: Page) {
-	await button(page, 'Create smart playlist').click();
+	await button(page, 'New playlist').click();
+	await page
+		.getByRole('dialog')
+		.getByRole('button', { name: /^Smart playlist/ })
+		.click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Playlist name').fill('Night driving');
 	await dialog.getByLabel('Contains').fill('North');
@@ -159,6 +167,36 @@ async function edit(page: Page, name: string) {
 	await page.getByRole('dialog').getByRole('button', { name: 'Edit smart playlist' }).click();
 	return page.getByRole('dialog');
 }
+
+test('New playlist carries its name to a full-screen rule editor and previews library matches before saving', async ({
+	page
+}) => {
+	const env = await fixture(page);
+	await localSignIn(page, server);
+	await playlists(page);
+	await button(page, 'New playlist').click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByLabel('Playlist name').fill('Try filters');
+	await dialog.getByRole('button', { name: /^Smart playlist/ }).click();
+	await expect(dialog).toHaveAccessibleName('Smart playlist');
+	expect((await dialog.boundingBox())?.height).toBe(page.viewportSize()!.height);
+	await expect(dialog.getByLabel('Playlist name')).toHaveValue('Try filters');
+	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '4');
+	await dialog.getByLabel('Track limit').fill('2');
+	await dialog.getByRole('button', { name: 'Preview matching tracks' }).click();
+	await expect(dialog.getByRole('region', { name: 'Matching tracks' })).toContainText('North Star');
+	await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+	await expect(dialog).toHaveAccessibleName('New playlist');
+	await expect(dialog.getByLabel('Playlist name')).toHaveValue('Try filters');
+	await dialog.getByRole('button', { name: /^Smart playlist/ }).click();
+	await expect(dialog.getByLabel('Playlist rating', { exact: true })).toHaveAttribute(
+		'data-value',
+		'4'
+	);
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
+	await expect(button(page, 'Try filters')).toHaveCount(0);
+	expect(env.playlistWrites).toEqual([]);
+});
 
 test('shuffling a saved smart playlist after closing the app gives a fresh order for the same matches', async ({
 	context

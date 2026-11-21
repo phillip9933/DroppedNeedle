@@ -180,7 +180,11 @@ async function smartList(page: Page, create = false) {
 	await button(page, 'Library').click();
 	await button(page, 'Browse Playlists').click();
 	if (create) {
-		await button(page, 'Create smart playlist').click();
+		await button(page, 'New playlist').click();
+		await page
+			.getByRole('dialog')
+			.getByRole('button', { name: /^Smart playlist/ })
+			.click();
 		const dialog = page.getByRole('dialog');
 		await dialog.getByLabel('Playlist name').fill('Loved five stars');
 		await dialog.getByLabel('Favorites only').check();
@@ -246,7 +250,7 @@ test('airplane edits immediately qualify for a smart playlist and only the origi
 	await button(page, 'Play all').click();
 	await button(page, 'More actions').click();
 	await button(page, 'Remove track from favorites').click();
-	await button(page, 'Clear rating').click();
+	await button(page, 'Rate 5 stars').click();
 	await expect(button(page, 'Favorite track')).toHaveAttribute('aria-pressed', 'false');
 	await button(page, 'Close More actions').click();
 	await button(page, 'Close player').click();

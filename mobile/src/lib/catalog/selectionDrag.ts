@@ -34,6 +34,8 @@ export function selectionDrag() {
 			frame = 0,
 			moved = false,
 			previousFrame = 0,
+			edgeSince = 0,
+			edgeDirection = 0,
 			alive = true;
 		let visit: ReturnType<typeof begin>;
 		const timer = setTimeout(() => {
@@ -80,13 +82,21 @@ export function selectionDrag() {
 						: 0;
 			const step = Math.min(32, previousFrame ? time - previousFrame : 16);
 			previousFrame = time;
+			const direction = Math.sign(velocity);
+			if (direction !== edgeDirection) {
+				edgeSince = time;
+				edgeDirection = direction;
+			}
 			if (velocity) main.dataset.rangeScrolling = '';
 			else delete main.dataset.rangeScrolling;
 			if (
 				velocity &&
 				((velocity < 0 && main.scrollTop > 0) || (velocity > 0 && main.scrollTop < available))
 			) {
-				main.scrollTop += Math.sign(velocity) * Math.max(1, Math.abs(velocity) * step * 0.7);
+				// Give the listener time to fine-tune a short range before accelerating.
+				const ramp = Math.min(1, Math.max(0, time - edgeSince - 450) / 1800);
+				const speed = 0.7 + 1.4 * ramp; // pixels per millisecond at the edge
+				main.scrollTop += direction * Math.max(1, Math.abs(velocity) * speed * step);
 				frame = requestAnimationFrame(update);
 			} else if (velocity > 0 && root.querySelector('[data-selection-more]')) {
 				frame = requestAnimationFrame(update);
