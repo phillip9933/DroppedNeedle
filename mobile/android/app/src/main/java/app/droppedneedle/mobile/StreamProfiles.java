@@ -118,4 +118,12 @@ final class StreamProfiles {
     }
 
     Selection track() { return new Selection(); }
+
+    Runnable watch(Runnable changed) {
+        SharedPreferences.OnSharedPreferenceChangeListener listener = (prefs, updated) -> {
+            if (key != null && key.equals(updated)) changed.run();
+        };
+        prefs.registerOnSharedPreferenceChangeListener(listener);
+        return () -> prefs.unregisterOnSharedPreferenceChangeListener(listener);
+    }
 }

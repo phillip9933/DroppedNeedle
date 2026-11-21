@@ -8,6 +8,15 @@ import { seedOfflineMusic } from './fixtures/offlineMusic';
 declare global {
 	interface Window {
 		fixtureVolumes: number[];
+		transitionSamples: {
+			time: number;
+			left: number;
+			right: number;
+			nextTime: number;
+			two: boolean;
+		}[];
+		transitionPosition: () => number;
+		liveDecks: () => number;
 		setFixtureConnection: (transport: string) => void;
 	}
 }
@@ -43,7 +52,8 @@ async function connect(
 	secondTrack = false,
 	firstResponse?: Promise<void>,
 	longAudio = false,
-	account = 'listener'
+	account = 'listener',
+	edges?: { head: number; tail: number; album: boolean; pulse?: number }
 ) {
 	const streams: string[] = [];
 	let conversion = 'on';
@@ -67,15 +77,33 @@ async function connect(
 				title: i ? 'Overtones' : 'Reflections',
 				artist_name: 'Strings',
 				album_title: 'Nightfall',
-				duration_seconds: 0.3,
+				duration_seconds: edges ? 6 : 0.3,
 				disc_number: 1,
-				track_number: i + 1
+				track_number: edges && !edges.album && i ? 4 : i + 1
 			}));
 			return json({ items, total: items.length });
 		}
 		if (path === '/stream/local/first' || path === '/stream/local/next') {
 			streams.push(url.search);
 			if (path.endsWith('first') && firstResponse) await firstResponse;
+			if (edges) {
+				const wav = silentWav(6);
+				const first = path.endsWith('first');
+				for (let i = 0; i < 6 * 8000; i++) {
+					const t = i / 8000,
+						quiet = first ? t >= 6 - edges.tail : t < edges.head;
+					let amplitude = quiet ? 400 : 11000;
+					if (edges.pulse) {
+						const beat = Math.floor(i / 800) % (first ? 5 : edges.pulse) === (first ? 1 : 2);
+						amplitude = beat ? 18000 : 5500;
+					}
+					wav.writeInt16LE(
+						Math.round(Math.sin(t * Math.PI * (first ? 440 : 660)) * amplitude),
+						44 + i * 2
+					);
+				}
+				return route.fulfill({ body: wav, contentType: 'audio/wav' });
+			}
 			if (longAudio) return route.fulfill({ body: silentWav(60), contentType: 'audio/wav' });
 			const format = url.searchParams.get('format');
 			if (format === 'mp3')
@@ -474,6 +502,7 @@ test('DN conversion and local fades apply to playback through the normal album a
 	page
 }) => {
 	await page.addInitScript(() => {
+		localStorage.setItem('dn.mobile.track-fades.v1', '2000');
 		const audio = window.Audio;
 		const volumes: number[] = [];
 		Object.assign(window, {
@@ -503,9 +532,33 @@ test('DN conversion and local fades apply to playback through the normal album a
 	expect(fixture.streams).toEqual(['']);
 	await settings(page, 'Streaming and fades');
 	await expect(page.getByText(/DN can convert streams/)).toBeVisible();
+	await expect(page.getByRole('combobox', { name: 'Fade in', exact: true })).toHaveAttribute(
+		'data-value',
+		'2000'
+	);
+	await expect(page.getByRole('combobox', { name: 'Fade out', exact: true })).toHaveAttribute(
+		'data-value',
+		'2000'
+	);
+	await expect(page.getByRole('checkbox', { name: 'Smart fades' })).not.toBeChecked();
+	await page.evaluate(() => {
+		const original = Storage.prototype.setItem;
+		Storage.prototype.setItem = function (key, value) {
+			if (key === 'dn.mobile.track-fades.v2') {
+				Storage.prototype.setItem = original;
+				throw Error('Could not save fades');
+			}
+			original.call(this, key, value);
+		};
+	});
+	await page.getByRole('checkbox', { name: 'Smart fades' }).click();
+	await expect(page.getByRole('alert')).toContainText('Could not save fades');
+	await expect(page.getByRole('checkbox', { name: 'Smart fades' })).not.toBeChecked();
+	await page.getByRole('checkbox', { name: 'Smart fades' }).check();
 	await chooseOption(page.getByLabel('Wi-Fi audio format'), 'opus');
 	await chooseOption(page.getByLabel('Wi-Fi requested bitrate'), '128');
-	await chooseOption(page.getByLabel('Fade in and out'), '500');
+	await chooseOption(page.getByLabel('Fade in', { exact: true }), '500');
+	await chooseOption(page.getByLabel('Fade out', { exact: true }), '4000');
 	await back(page, 'Settings');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await page
@@ -525,7 +578,9 @@ test('DN conversion and local fades apply to playback through the normal album a
 		'data-value',
 		'original'
 	);
-	await expect(page.getByLabel('Fade in and out')).toHaveAttribute('data-value', '500');
+	await expect(page.getByLabel('Fade in', { exact: true })).toHaveAttribute('data-value', '500');
+	await expect(page.getByRole('checkbox', { name: 'Smart fades' })).toBeChecked();
+	await expect(page.getByLabel('Fade out', { exact: true })).toHaveAttribute('data-value', '4000');
 	await chooseOption(page.getByLabel('Wi-Fi audio format'), 'original');
 });
 
@@ -567,4 +622,113 @@ test('a queued track uses the new network profile without interrupting the track
 		'data-value',
 		'96'
 	);
+});
+
+for (const example of [
+	{ name: 'quiet ending and intro', tail: 1.4, head: 1, album: false, expected: 2.4 },
+	{ name: 'matching rhythmic edges', tail: 0, head: 0, album: false, pulse: 5, expected: 2.1 },
+	{ name: 'different rhythmic tempos', tail: 0, head: 0, album: false, pulse: 7, expected: 0 },
+	{ name: 'two loud edges', tail: 0, head: 0, album: false, expected: 0 },
+	{ name: 'consecutive album tracks', tail: 1.4, head: 1, album: true, expected: 0 }
+]) {
+	test('Smart fades play ' + example.name + ' through the real queue', async ({ page }) => {
+		await page.addInitScript(() => {
+			localStorage.setItem(
+				'dn.mobile.track-fades.v2',
+				JSON.stringify({ fadeInMs: 500, fadeOutMs: 2000, smart: true })
+			);
+			const elements: HTMLAudioElement[] = [];
+			const samples: {
+				time: number;
+				left: number;
+				right: number;
+				nextTime: number;
+				two: boolean;
+			}[] = [];
+			Object.assign(window, {
+				transitionSamples: samples,
+				transitionPosition: () => elements.find((a) => !a.paused && a.currentSrc)?.currentTime ?? 0,
+				Audio: new Proxy(window.Audio, {
+					construct(target, args) {
+						const element = Reflect.construct(target, args) as HTMLAudioElement;
+						elements.push(element);
+						return element;
+					}
+				})
+			});
+			setInterval(() => {
+				const [first, second] = elements.filter((el) => el.currentSrc.startsWith('blob:'));
+				if (first && second && !first.paused)
+					samples.push({
+						time: first.currentTime,
+						left: first.volume,
+						right: second.volume,
+						nextTime: second.currentTime,
+						two: !second.paused
+					});
+			}, 30);
+		});
+		const fixture = await connect(page, true, undefined, false, 'listener', example);
+		await page
+			.getByRole('button', { name: /Nightfall/ })
+			.first()
+			.click();
+		await page.getByRole('button', { name: 'Play album', exact: true }).click();
+		const now = page.getByRole('region', { name: 'Now playing' });
+		await expect(now.getByText('Overtones', { exact: true }).first()).toBeVisible({
+			timeout: 12000
+		});
+		const samples = await page.evaluate(() => window.transitionSamples);
+		const overlap = samples.filter((s) => s.two);
+		if (example.expected) {
+			expect(6 - overlap[0].time).toBeCloseTo(example.expected, 0);
+			expect(
+				overlap.some(
+					(s) => s.left > 0.2 && s.left < 0.9 && s.right > 0.2 && s.right < 0.9 && s.nextTime > 0
+				)
+			).toBe(true);
+			// The playing incoming element becomes primary, so its intro never restarts.
+			expect(await page.evaluate(() => window.transitionPosition())).toBeGreaterThan(
+				example.expected - 0.55
+			);
+		} else {
+			expect(overlap).toHaveLength(0);
+			expect(samples.filter((s) => s.time > 5.3).some((s) => s.left === 1)).toBe(true);
+		}
+		expect(fixture.streams).toHaveLength(2);
+	});
+}
+
+test('pausing during an overlap silences both tracks and keeps the current queue entry', async ({
+	page
+}) => {
+	await page.addInitScript(() => {
+		localStorage.setItem(
+			'dn.mobile.track-fades.v2',
+			JSON.stringify({ fadeInMs: 0, fadeOutMs: 0, smart: true })
+		);
+		const elements: HTMLAudioElement[] = [];
+		Object.assign(window, {
+			liveDecks: () => elements.filter((el) => !el.paused && el.volume > 0 && el.currentSrc).length,
+			Audio: new Proxy(window.Audio, {
+				construct(target, args) {
+					const element = Reflect.construct(target, args) as HTMLAudioElement;
+					elements.push(element);
+					return element;
+				}
+			})
+		});
+	});
+	await connect(page, true, undefined, false, 'listener', { head: 1.6, tail: 1.6, album: false });
+	await page
+		.getByRole('button', { name: /Nightfall/ })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Play album', exact: true }).click();
+	const now = page.getByRole('region', { name: 'Now playing' });
+	await expect.poll(() => page.evaluate(() => window.liveDecks()), { timeout: 9000 }).toBe(2);
+	await now.getByRole('button', { name: 'Pause', exact: true }).click();
+	await expect.poll(() => page.evaluate(() => window.liveDecks())).toBe(0);
+	await expect(now.getByText('Reflections', { exact: true }).first()).toBeVisible();
+	await expect(now.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
 });

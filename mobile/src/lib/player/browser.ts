@@ -1,4 +1,10 @@
-import { browserFade, browserNetwork, streamProfiles, streamAddress } from './streaming';
+import {
+	browserConnection,
+	browserFade,
+	browserNetwork,
+	streamProfiles,
+	streamAddress
+} from './streaming';
 import {
 	nextLibraryBatch,
 	retainedHistory,
@@ -10,8 +16,10 @@ import type { PlaybackBridge, PlayerState, PlayerTrack } from '../player';
 import { cacheWebPlayback, isAudio, webLocalAudio, webPlaybackPolicy } from '../offline/web';
 import { identifyAudio, setBrowserWaveformSource } from './waveform';
 
+import { albumSequence, maxOverlap, smartOverlap } from './smartFades';
+
 export function browserPlayer(): PlaybackBridge {
-	const audio = new Audio();
+	let audio = new Audio();
 	let state: PlayerState = {
 		repeat: 'off',
 		tracks: [],
@@ -85,6 +93,7 @@ export function browserPlayer(): PlaybackBridge {
 			const resume = waitingAtEnd;
 			waitingAtEnd = false;
 			if (resume) await playAt(old);
+			else fadeVolume();
 		} catch (e) {
 			if (request.signal.aborted || cursor !== windowCursor) return;
 			windowProblem = e instanceof Error ? e.message : 'Could not load more library tracks.';
@@ -126,47 +135,181 @@ export function browserPlayer(): PlaybackBridge {
 		}
 	}
 	// A background tab may throttle timers. Media events and foregrounding also check the deadline.
-	audio.addEventListener('timeupdate', checkSleep);
 	document.addEventListener('visibilitychange', checkSleep);
 	window.addEventListener('pageshow', checkSleep);
 
-	let fadeMs = browserFade();
+	let fades = browserFade();
 	let fadeTimer: ReturnType<typeof setTimeout> | undefined;
-	function fadeVolume() {
-		clearTimeout(fadeTimer);
-		const position = (audio.currentTime || 0) * 1000;
-		const duration =
-			(Number.isFinite(audio.duration)
-				? audio.duration
-				: (state.tracks[state.index]?.duration ?? 0)) * 1000;
-		const ramp = duration > 0 ? Math.min(fadeMs, duration / 2) : fadeMs;
-		const distance = duration > 0 ? Math.min(position, duration - position) : position;
-		const level = ramp > 0 ? Math.max(0, Math.min(1, distance / ramp)) : 1;
-		if (audio.volume !== level) audio.volume = level;
-		if (!ramp || audio.paused || audio.ended) return;
-		const beforeEnd = duration - ramp - position;
-		if (position >= ramp && duration <= 0) return;
-		fadeTimer = setTimeout(
-			fadeVolume,
-			position < ramp || beforeEnd <= 0 ? 50 : Math.max(16, beforeEnd / audio.playbackRate)
+	let sourceBlob: Blob | undefined;
+	let preserveIntro = false;
+	type Prepared = {
+		current: PlayerTrack;
+		next: PlayerTrack;
+		request: AbortController;
+		media?: HTMLAudioElement;
+		url?: string;
+		source?: Awaited<ReturnType<typeof loadTrack>>;
+		overlap?: number | null;
+		mixStart?: number;
+	};
+	let prepared: Prepared | undefined;
+	function release(element: HTMLAudioElement, url?: string) {
+		element.pause();
+		element.removeAttribute('src');
+		element.load();
+		if (url) URL.revokeObjectURL(url);
+	}
+	function discardNext() {
+		if (!prepared) return;
+		const old = prepared;
+		prepared = undefined;
+		old.request.abort();
+		if (old.media) release(old.media, old.url);
+	}
+	function upcoming() {
+		if (state.repeat === 'one' || state.sleepTimer || state.tracks.length < 2) return;
+		return (
+			state.tracks[state.index + 1] ??
+			(state.repeat === 'all' && !windowCursor ? state.tracks[0] : undefined)
 		);
 	}
-	for (const event of [
-		'play',
-		'pause',
-		'seeking',
-		'seeked',
-		'ended',
-		'durationchange',
-		'ratechange'
-	])
-		audio.addEventListener(event, fadeVolume);
-	window.addEventListener('dn-track-fade', () => {
-		fadeMs = browserFade();
+	async function prepareNext(pair: Prepared, outgoing: Blob) {
+		const { request, current, next } = pair;
+		try {
+			const source = await loadTrack(next, request);
+			if (request.signal.aborted) return;
+			pair.source = source;
+			pair.media = new Audio();
+			pair.media.preload = 'auto';
+			pair.media.volume = 0;
+			pair.url = URL.createObjectURL(source.blob);
+			pair.media.src = pair.url;
+			pair.overlap = await smartOverlap(outgoing, current, source.blob, next, request.signal).catch(
+				() => null
+			);
+		} catch {
+			pair.overlap = null;
+		}
+		if (!request.signal.aborted) fadeVolume();
+	}
+	function fadeVolume() {
+		clearTimeout(fadeTimer);
+		const current = state.tracks[state.index];
+		const next = fades.smart ? upcoming() : undefined;
+		if (prepared && (current !== prepared.current || next !== prepared.next)) discardNext();
+		const position = audio.currentTime || 0;
+		const duration = Number.isFinite(audio.duration) ? audio.duration : (current?.duration ?? 0);
+		const left = duration - position;
+		if (
+			!prepared &&
+			current &&
+			next &&
+			sourceBlob &&
+			duration > 0 &&
+			left <= maxOverlap * 2 &&
+			!audio.paused &&
+			!audio.ended &&
+			!blockAdvance
+		) {
+			prepared = { current, next, request: new AbortController() };
+			void prepareNext(prepared, sourceBlob);
+		}
+		const pair = prepared;
+		const controlled =
+			!!next && (typeof pair?.overlap === 'number' || albumSequence(current, next));
+		const fadeIn = preserveIntro && fades.smart ? 0 : fades.fadeInMs / 1000;
+		const fadeOut = controlled ? 0 : fades.fadeOutMs / 1000;
+		const scale = duration > 0 && fadeIn + fadeOut > duration ? duration / (fadeIn + fadeOut) : 1;
+		let gain = Math.min(
+			1,
+			fadeIn ? position / (fadeIn * scale) : 1,
+			fadeOut && duration > 0 ? Math.max(0, left) / (fadeOut * scale) : 1
+		);
+		if (
+			pair?.overlap &&
+			pair.media &&
+			!audio.paused &&
+			!audio.ended &&
+			!audio.seeking &&
+			!blockAdvance
+		) {
+			if (
+				pair.mixStart === undefined &&
+				left > 0 &&
+				left <= pair.overlap &&
+				pair.media.readyState >= 3
+			) {
+				pair.mixStart = position;
+				pair.media.playbackRate = audio.playbackRate;
+				void pair.media.play().catch(() => {
+					if (pair === prepared) {
+						pair.overlap = null;
+						delete pair.mixStart;
+						fadeVolume();
+					}
+				});
+			}
+			if (pair.mixStart !== undefined && !pair.media.paused) {
+				const progress = Math.max(
+					0,
+					Math.min(1, (position - pair.mixStart) / Math.max(0.001, duration - pair.mixStart))
+				);
+				gain *= Math.cos(Math.PI * 0.5 * progress);
+				pair.media.volume = Math.sin(Math.PI * 0.5 * progress);
+			}
+		}
+		if (audio.volume !== gain) audio.volume = gain;
+		if (audio.paused || audio.ended || !sourceBlob || duration <= 0) return;
+		const endWindow = next ? maxOverlap * 2 : fadeOut * scale;
+		if (position < fadeIn * scale || (endWindow && left <= endWindow)) {
+			fadeTimer = setTimeout(fadeVolume, 50);
+		} else if (endWindow) {
+			fadeTimer = setTimeout(
+				fadeVolume,
+				Math.max(16, ((left - endWindow) * 1000) / audio.playbackRate)
+			);
+		}
+	}
+	function invalidateNext() {
+		discardNext();
 		fadeVolume();
+	}
+	const fadeEvents = ['play', 'playing', 'durationchange', 'ratechange', 'seeked'];
+	function attach(element: HTMLAudioElement) {
+		element.addEventListener('timeupdate', checkSleep);
+		for (const e of fadeEvents) element.addEventListener(e, fadeVolume);
+		element.addEventListener('seeking', invalidateNext);
+		element.addEventListener('pause', stopped);
+		element.onended = ended;
+		element.onerror = mediaError;
+	}
+	function stopped() {
+		if (audio.paused && !audio.ended) discardNext();
+		fadeVolume();
+	}
+	function detach(element: HTMLAudioElement) {
+		element.removeEventListener('timeupdate', checkSleep);
+		for (const e of fadeEvents) element.removeEventListener(e, fadeVolume);
+		element.removeEventListener('seeking', invalidateNext);
+		element.removeEventListener('pause', stopped);
+		element.onended = null;
+		element.onerror = null;
+	}
+	window.addEventListener('dn-track-fade', () => {
+		fades = browserFade();
+		invalidateNext();
 	});
+	window.addEventListener('dn-offline-policy', invalidateNext);
+	window.addEventListener('dn-stream-profiles', invalidateNext);
+	browserConnection()?.addEventListener('change', invalidateNext);
+	window.addEventListener('offline', invalidateNext);
+	window.addEventListener('online', invalidateNext);
 
 	function unload() {
+		discardNext();
+		sourceBlob = undefined;
+		preserveIntro = false;
+		clearTimeout(fadeTimer);
 		setBrowserWaveformSource(null);
 		state.quality = null;
 		active?.abort();
@@ -199,6 +342,54 @@ export function browserPlayer(): PlaybackBridge {
 		};
 	}
 
+	async function loadTrack(track: PlayerTrack, request: AbortController) {
+		// A web preview cannot attach a bearer header to an audio element.
+		const account = userId ? { serverUrl, userId } : null;
+		const accessToken = token;
+		const profiles = streamProfiles({ serverUrl, userId });
+		const profile = browserNetwork() === 'wifi' ? profiles.wifi : profiles.cellular;
+		let cache: (() => void) | undefined;
+		let blob = account ? await webLocalAudio(account, track.id).catch(() => null) : null;
+		if (!blob) {
+			const policy = account ? await webPlaybackPolicy(account, track.id).catch(() => null) : null;
+			const options = policy?.options;
+			if (options?.offlineOnly) throw Error('This song is not stored on this device.');
+			const source = new URL(streamAddress(track.streamUrl, profile));
+			const load = (url: URL) =>
+				fetch(url, {
+					headers: { Authorization: 'Bearer ' + accessToken },
+					credentials: 'omit',
+					redirect: 'error',
+					referrerPolicy: 'no-referrer',
+					signal: request.signal
+				});
+			let response = await load(source);
+			if (
+				response.status === 409 &&
+				['opus', 'mp3'].includes(source.searchParams.get('format') ?? '')
+			) {
+				await response.body?.cancel();
+				source.search = '?format=raw';
+				response = await load(source);
+			}
+			if (!response.ok) throw new Error('DroppedNeedle could not serve this track.');
+			blob = await response.blob();
+			if (
+				account &&
+				policy?.options.autoCache &&
+				!source.searchParams.has('start_seconds') &&
+				blob.size &&
+				response.status === 200 &&
+				isAudio(response.headers.get('content-type')) &&
+				!request.signal.aborted
+			)
+				cache = () => {
+					void cacheWebPlayback(account, track, blob!, policy.revision);
+				};
+		}
+		return { blob, cache };
+	}
+
 	async function playAt(index: number, play = true) {
 		const track = state.tracks[index];
 		if (!track) throw new Error('This track is outside the play queue.');
@@ -213,49 +404,11 @@ export function browserPlayer(): PlaybackBridge {
 		const request = new AbortController();
 		active = request;
 		try {
-			// A web preview cannot attach a bearer header to an audio element.
-			const account = userId ? { serverUrl, userId } : null;
-			let blob = account ? await webLocalAudio(account, track.id).catch(() => null) : null;
-			if (!blob) {
-				const policy = account
-					? await webPlaybackPolicy(account, track.id).catch(() => null)
-					: null;
-				const options = policy?.options;
-				if (options?.offlineOnly) throw Error('This song is not stored on this device.');
-				const profiles = streamProfiles({ serverUrl, userId });
-				const profile = browserNetwork() === 'wifi' ? profiles.wifi : profiles.cellular;
-				const source = new URL(streamAddress(track.streamUrl, profile));
-				const load = (url: URL) =>
-					fetch(url, {
-						headers: { Authorization: 'Bearer ' + token },
-						credentials: 'omit',
-						redirect: 'error',
-						referrerPolicy: 'no-referrer',
-						signal: request.signal
-					});
-				let response = await load(source);
-				if (
-					response.status === 409 &&
-					['opus', 'mp3'].includes(source.searchParams.get('format') ?? '')
-				) {
-					await response.body?.cancel();
-					source.search = '?format=raw';
-					response = await load(source);
-				}
-				if (!response.ok) throw new Error('DroppedNeedle could not serve this track.');
-				blob = await response.blob();
-				if (
-					account &&
-					policy?.options.autoCache &&
-					!source.searchParams.has('start_seconds') &&
-					blob.size &&
-					response.status === 200 &&
-					isAudio(response.headers.get('content-type')) &&
-					!request.signal.aborted
-				)
-					void cacheWebPlayback(account, track, blob, policy.revision);
-			}
+			const source = await loadTrack(track, request);
 			if (request.signal.aborted) return;
+			source.cache?.();
+			const blob = source.blob;
+			sourceBlob = blob;
 			setBrowserWaveformSource({ serverUrl, userId, id: track.id, blob });
 			const quality = await identifyAudio(blob, track.duration).catch(() => null);
 			if (request.signal.aborted) return;
@@ -272,7 +425,7 @@ export function browserPlayer(): PlaybackBridge {
 		}
 	}
 
-	audio.onended = () => {
+	function ended() {
 		if (blockAdvance) return;
 		const playRevision = pauseRevision;
 		checkSleep();
@@ -291,6 +444,7 @@ export function browserPlayer(): PlaybackBridge {
 				cancelSleep();
 		}
 		if (state.repeat === 'one') {
+			preserveIntro = false;
 			audio.currentTime = 0;
 			void audio.play().catch(() => {
 				state.error = 'This track could not be played.';
@@ -303,12 +457,49 @@ export function browserPlayer(): PlaybackBridge {
 			waitingAtEnd = true;
 			void extendWindow();
 		} else if (state.index + 1 < state.tracks.length || state.repeat === 'all') {
-			void playAt((state.index + 1) % state.tracks.length).catch(() => {});
+			const index = (state.index + 1) % state.tracks.length;
+			const next = state.tracks[index];
+			const pair = prepared;
+			const gapless =
+				fades.smart && !state.sleepTimer && albumSequence(state.tracks[state.index], next);
+			if (pair?.next === next && pair.media && !pair.media.error && pair.source) {
+				prepared = undefined;
+				pair.request.abort();
+				detach(audio);
+				release(audio, objectUrl);
+				audio = pair.media;
+				objectUrl = pair.url;
+				sourceBlob = pair.source.blob;
+				active?.abort();
+				const request = new AbortController();
+				active = request;
+				state = { ...state, index, error: null, quality: null };
+				preserveIntro = typeof pair.overlap === 'number' || gapless;
+				setBrowserWaveformSource({ serverUrl, userId, id: next.id, blob: sourceBlob });
+				pair.source.cache?.();
+				void identifyAudio(sourceBlob, next.duration)
+					.then((quality) => {
+						if (!request.signal.aborted) state.quality = quality;
+					})
+					.catch(() => {});
+				attach(audio);
+				fadeVolume();
+				if (audio.paused)
+					void audio.play().catch(() => {
+						if (!request.signal.aborted) state.error = 'This track could not be played.';
+					});
+				void extendWindow();
+			} else {
+				const result = playAt(index);
+				preserveIntro = gapless;
+				void result.catch(() => {});
+			}
 		}
-	};
-	audio.onerror = () => {
+	}
+	function mediaError() {
 		if (audio.hasAttribute('src')) state.error = 'This audio format could not be played.';
-	};
+	}
+	attach(audio);
 	return {
 		async getState() {
 			return snapshot();
@@ -320,6 +511,7 @@ export function browserPlayer(): PlaybackBridge {
 				detachWindow();
 				const at = options.placement === 'next' ? state.index + 1 : state.tracks.length;
 				state.tracks = [...state.tracks.slice(0, at), ...options.tracks, ...state.tracks.slice(at)];
+				fadeVolume();
 				return snapshot();
 			}
 			if (serverUrl !== options.serverUrl || userId !== options.userId || token !== options.token)
@@ -334,6 +526,7 @@ export function browserPlayer(): PlaybackBridge {
 			return snapshot();
 		},
 		async command({ action, value, to }) {
+			if (action !== 'retryLibraryWindow') discardNext();
 			if (action === 'retryLibraryWindow') {
 				await extendWindow(true);
 				return snapshot();
@@ -357,6 +550,7 @@ export function browserPlayer(): PlaybackBridge {
 			}
 			if (action === 'cancelSleepTimer') {
 				cancelSleep();
+				fadeVolume();
 				return snapshot();
 			}
 			if (action === 'setSleepMinutes' || action === 'sleepAfterTrack') {
@@ -379,6 +573,7 @@ export function browserPlayer(): PlaybackBridge {
 					state.sleepTimer = { mode: 'minutes', endsAt: Date.now() + ms, finishTrack: to === 1 };
 					sleepAlarm = setTimeout(checkSleep, ms);
 				}
+				fadeVolume();
 				return snapshot();
 			}
 			if (action === 'clear' || (action === 'remove' && value === 0 && state.tracks.length === 1)) {
@@ -436,6 +631,7 @@ export function browserPlayer(): PlaybackBridge {
 					else audio.pause();
 				}
 			}
+			fadeVolume();
 			return snapshot();
 		}
 	};

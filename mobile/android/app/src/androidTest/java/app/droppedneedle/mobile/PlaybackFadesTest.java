@@ -33,8 +33,10 @@ public final class PlaybackFadesTest {
             test.runOnMainSync(() -> {
                 player[0] = new ExoPlayer.Builder(app).build();
                 ExoPlayer audio = player[0];
-                fades[0] = new PlaybackFades(preferenceContext, audio);
-                fades[0].configure(500);
+                isolated.edit().clear().putInt("milliseconds", 500).commit();
+                fades[0] = new PlaybackFades(preferenceContext, audio, () -> null, () -> false);
+                assertEquals(500, fades[0].settings().optInt("fadeInMs"));
+                assertEquals(500, fades[0].settings().optInt("fadeOutMs"));
                 audio.addListener(new Player.Listener() {
                     @Override public void onVolumeChanged(float volume) {
                         if (audio.getCurrentPosition() >= 400 && volume >= .98f) full.complete(true);
@@ -53,9 +55,16 @@ public final class PlaybackFadesTest {
             assertTrue(tail.get(8, TimeUnit.SECONDS));
             test.runOnMainSync(() -> {
                 fades[0].release();
-                fades[0] = new PlaybackFades(preferenceContext, player[0]);
-                assertEquals(500, fades[0].length());
-                fades[0].configure(0);
+                fades[0] = new PlaybackFades(preferenceContext, player[0], () -> null, () -> false);
+                fades[0].configure(0, null, true);
+                assertEquals(500, fades[0].settings().optInt("fadeOutMs"));
+                assertFalse(fades[0].settings().has("milliseconds"));
+                fades[0].release();
+                fades[0] = new PlaybackFades(preferenceContext, player[0], () -> null, () -> false);
+                assertEquals(0, fades[0].settings().optInt("fadeInMs"));
+                assertEquals(500, fades[0].settings().optInt("fadeOutMs"));
+                assertTrue(fades[0].settings().optBoolean("smart"));
+                fades[0].configure(0, 0, false);
                 assertEquals(1.0f, player[0].getVolume(), 0.001f);
             });
         } finally {

@@ -15,12 +15,18 @@
 		readTrackFade,
 		setTrackFade,
 		fadeLengths,
+		defaultFades,
+		type TrackFades,
 		type Format,
 		type Network,
 		type Profile,
 		type Profiles
 	} from './streaming';
 	let { session }: { session: Session } = $props();
+	const fadeEdges = [
+		{ key: 'fadeInMs', label: 'Fade in' },
+		{ key: 'fadeOutMs', label: 'Fade out' }
+	] as const;
 	const connections = [
 		{ id: 'wifi', name: 'Wi-Fi' },
 		{ id: 'cellular', name: 'Cellular data' }
@@ -32,7 +38,7 @@
 		conversion = $state<'on' | 'off' | 'unavailable' | null>(null);
 	let serviceError = $state(''),
 		fadeError = $state(''),
-		milliseconds = $state(0),
+		fades = $state<TrackFades>({ ...defaultFades }),
 		loadingFades = $state(true),
 		saving = $state(false);
 	let checks = 0;
@@ -60,13 +66,14 @@
 			savingProfile = false;
 		}
 	}
-	async function fade(value: number) {
+	async function fade(change: Partial<TrackFades>) {
 		if (saving) return;
 		saving = true;
 		fadeError = '';
 		try {
-			await setTrackFade(value);
-			milliseconds = value;
+			const next = { ...fades, ...change };
+			await setTrackFade(next);
+			fades = next;
 		} catch (e) {
 			fadeError = errorMessage(e);
 		} finally {
@@ -94,7 +101,7 @@
 		// Some native WebViews don't emit a browser connection-change event.
 		const timer = setInterval(detect, 5000);
 		void readTrackFade()
-			.then((v) => (milliseconds = v))
+			.then((v) => (fades = v))
 			.catch((e) => (fadeError = errorMessage(e)))
 			.finally(() => (loadingFades = false));
 		return () => {
@@ -178,19 +185,39 @@
 		role="group"
 		aria-labelledby="track-fades-settings"
 	>
-		<label
-			>Fade in and out<InlineChoice selected={milliseconds} label="Fade in and out"
-				><select
-					value={milliseconds}
-					disabled={loadingFades || saving}
-					onchange={(e) => fade(Number(e.currentTarget.value))}
-					>{#each fadeLengths as ms (ms)}<option value={ms}
-							>{ms ? ms / 1000 + ' seconds' : 'Off'}</option
-						>{/each}</select
-				></InlineChoice
-			></label
+		{#each fadeEdges as edge (edge.key)}
+			<label>
+				{edge.label}
+				<InlineChoice selected={fades[edge.key]} label={edge.label}
+					><select
+						value={fades[edge.key]}
+						disabled={loadingFades || saving}
+						onchange={(e) => fade({ [edge.key]: Number(e.currentTarget.value) })}
+					>
+						{#each fadeLengths as ms (ms)}<option value={ms}
+								>{ms ? ms / 1000 + ' seconds' : 'Off'}</option
+							>{/each}
+					</select></InlineChoice
+				>
+			</label>
+		{/each}
+		<label class="smart-fades"
+			><input
+				type="checkbox"
+				checked={fades.smart}
+				disabled={loadingFades || saving}
+				onchange={(e) => {
+					const requested = e.currentTarget.checked;
+					e.currentTarget.checked = fades.smart;
+					void fade({ smart: requested });
+				}}
+			/> Smart fades</label
 		>
-		<p>Gradually raise the volume at the start of a track and lower it at the end.</p>
+		<p>
+			Overlap quiet endings and intros, or line up a clear, steady beat between tracks. Transitions
+			last up to eight seconds. Consecutive album tracks play through. If analysis is unavailable,
+			your manual fades apply.
+		</p>
 	</div>
 	{#if fadeError}<p role="alert">{fadeError}</p>{/if}
 </section>
@@ -199,6 +226,11 @@
 	label {
 		display: grid;
 		gap: 0.35rem;
+	}
+	.smart-fades {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
 	}
 	.connection {
 		color: var(--text);
