@@ -150,12 +150,14 @@ for (const [surface, palette] of [
 				},
 				{ surface, palette }
 			);
-			await fixture(page);
+			await fixture(page, [...songs, 'Late Train', 'Early Train']);
 			await play(page);
 			const live = page.locator('[data-part="now-playing"]');
 			const checkIcons = async (player: Locator) => {
 				const painted = await player
-					.locator('.content button:has(.face), .fallback > button')
+					.locator(
+						'.content button:has(.face), .fallback > button, .queue-tools > button:not(.text-button)'
+					)
 					.evaluateAll((buttons) =>
 						buttons
 							.filter((button) => {
@@ -184,6 +186,37 @@ for (const [surface, palette] of [
 			await expect(lyrics).toHaveAttribute('aria-pressed', 'true');
 			await expect(lyrics).not.toHaveCSS('color', idleColor);
 			await checkIcons(live);
+			await page.setViewportSize({ width: 320, height: 720 });
+			await live.getByRole('button', { name: 'Show play queue' }).click();
+			const toolbar = live.locator('.queue-tools');
+			await expect(toolbar.getByRole('button', { name: 'Edit queue' })).toBeVisible();
+			await checkIcons(live);
+			for (const name of ['Sleep timer', 'Shuffle upcoming']) {
+				const button = toolbar.getByRole('button', { name, exact: true });
+				const label = button.locator('.caption');
+				await expect(label).toHaveText(name);
+				const target = (await button.boundingBox())!;
+				const icon = (await button.locator('svg').boundingBox())!;
+				const caption = (await label.boundingBox())!;
+				expect(Math.min(target.width, target.height)).toBeGreaterThanOrEqual(44);
+				expect(Math.abs(icon.x + icon.width / 2 - caption.x - caption.width / 2)).toBeLessThan(1);
+				expect(caption.y).toBeGreaterThanOrEqual(icon.y + icon.height);
+				expect(caption.height).toBeLessThanOrEqual(
+					await label.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) + 1)
+				);
+			}
+			const shuffle = toolbar.getByRole('button', { name: 'Shuffle upcoming' });
+			await shuffle.click();
+			await expect(toolbar.getByRole('button', { name: 'Restore original order' })).toHaveAttribute(
+				'aria-pressed',
+				'true'
+			);
+			await toolbar.getByRole('button', { name: 'Sleep timer' }).click();
+			await expect(page.getByRole('dialog', { name: 'Sleep timer' })).toBeVisible();
+			await page.keyboard.press('Escape');
+			await live.getByRole('button', { name: 'Hide play queue' }).click();
+			await expect(lyrics).toBeVisible();
+			await page.setViewportSize({ width: 390, height: 844 });
 			await live.getByRole('button', { name: 'Close player' }).click();
 			const dock = page.getByRole('navigation', { name: 'Music' });
 			await expect(dock).toHaveCSS('border-top-width', '0px');

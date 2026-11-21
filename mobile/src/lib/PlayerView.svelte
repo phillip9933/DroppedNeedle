@@ -731,13 +731,16 @@
 		{#if queueOpen && track}
 			<div class="queue-tools">
 				{#if !rows[0].some((s) => s.id === 'player-sleep')}<SleepTimer
+						queueControl
 						timer={$store.sleepTimer}
 					/>{/if}
 				<button
-					class="secondary"
+					class="secondary player-control"
+					aria-label={shuffleLabel}
 					aria-pressed={$store.shuffled}
 					disabled={(!$store.shuffled && $store.tracks.length - $store.index <= 2) || pending}
-					onclick={() => edit(player.shuffleUpcoming)}><Shuffle size={16} /> {shuffleLabel}</button
+					onclick={() => edit(player.shuffleUpcoming)}
+					><PlayerActionFace glyph={Shuffle} size={19} label={shuffleLabel} defaultLabel /></button
 				>
 				<button class="text-button" aria-pressed={editing} onclick={() => (editing = !editing)}
 					>{editing ? 'Done' : 'Edit queue'}</button
@@ -1429,7 +1432,6 @@
 	.queue-tools,
 	.edit-tools,
 	.queue li,
-	.queue-tools .secondary,
 	.repeat {
 		display: flex;
 		align-items: center;
@@ -1439,11 +1441,8 @@
 		justify-content: space-between;
 		gap: 0.5rem;
 	}
-	.queue-tools .secondary,
 	.repeat {
 		gap: 0.4rem;
-	}
-	.repeat {
 		justify-self: center;
 		min-width: 44px;
 		min-height: 44px;
