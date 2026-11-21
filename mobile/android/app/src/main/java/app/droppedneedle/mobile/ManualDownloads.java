@@ -104,6 +104,7 @@ final class ManualDownloads {
                 .put("failures", count.failed() == 0 ? new JSONArray() : queue.failures(store.account))
                 .put("saved", count.saved()).put("total", total).put("lastError", count.error());
     }
+    synchronized ManualDownloadQueue.Counts counts(OfflineStore store) { return queue.counts(store.account); }
     synchronized JSONObject enqueue(OfflineStore store, JSONArray tracks) throws Exception {
         HeadsetAccount owner = requireOwner(store);
         String stamp = session(owner);

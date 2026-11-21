@@ -1,5 +1,6 @@
 import { getArtwork, type Session } from '../connection';
 import { cachedValue, storeValue } from '../offline/viewedMedia';
+import { companion } from '../offline/companions';
 import { mediaChanged, preferredOffline } from '../offline/media';
 
 // Capacitor's native transport does not share the browser's per-host request pool.
@@ -56,6 +57,14 @@ export function observeCover(
 						job.source = cached.source;
 						for (const listener of listeners) listener(cached.source);
 						if (Date.now() - (cached.fetched ?? 0) < freshFor) return;
+					}
+					if (!cached?.source && listeners.size) {
+						const saved = await companion(session, 'artwork', path).catch(() => undefined);
+						if (saved) {
+							job.source = saved;
+							for (const listener of listeners) listener(saved);
+							return;
+						}
 					}
 					if (cacheOnly || !navigator.onLine || !listeners.size || (await offlineOnly(session)))
 						return;

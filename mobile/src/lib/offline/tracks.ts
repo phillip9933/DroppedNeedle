@@ -60,6 +60,12 @@ export type OfflinePin = {
 	filters?: Record<string, string>;
 };
 export type OfflineOptions = {
+	readAheadWifi?: number;
+	readAheadCellular?: number;
+	readAheadWifiKiBps?: number;
+	readAheadCellularKiBps?: number;
+	completeDownloads?: boolean;
+	downloadWaveforms?: boolean;
 	downloadQuality?: Quality;
 	offlinePins?: OfflinePin[];
 	autoDownload: DownloadSource;

@@ -198,7 +198,7 @@ export async function webLocalAudio(a: Account, id: string) {
 		if (!complete(entry)) return null;
 		entry.used = Date.now();
 		await result(store.put(entry));
-		return entry.audio;
+		return { blob: entry.audio, source: originOf(entry) };
 	});
 }
 export async function cacheWebPlayback(

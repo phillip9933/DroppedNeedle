@@ -18,6 +18,17 @@ export type ManualStatus = {
 };
 export const nativeMedia = registerPlugin<
 	OfflineBridge & {
+		companion(
+			owner: Account & { kind: 'artwork' | 'lyrics'; key: string }
+		): Promise<{ source?: string }>;
+		refreshMetadata(owner: Account & { observedIds: string[] }): Promise<{
+			updated: number;
+			unavailable: number;
+			confirmed?: Record<string, { rating?: number; favorite?: boolean }>;
+		}>;
+		diagnostics(owner: Account): Promise<{ text: string }>;
+		shareDiagnostics(input: Account & { text: string }): Promise<void>;
+		saveDiagnostics(input: Account & { text: string }): Promise<{ saved: boolean }>;
 		enqueueManual(batch: Account & { tracks: PlayerTrack[] }): Promise<{
 			saved: number;
 			queued: number;

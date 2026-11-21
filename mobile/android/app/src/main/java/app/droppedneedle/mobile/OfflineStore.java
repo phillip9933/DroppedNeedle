@@ -31,6 +31,7 @@ final class OfflineStore {
     private static final Object LOCK = new Object();
     private static final Set<String> OPENED = new HashSet<>();
     static final String CACHE = "cached", AUTOMATIC = "automatic", DOWNLOAD = "downloaded";
+    static final String AHEAD = "readAhead";
     static volatile Runnable mediaChanged;
     static void changed() {
         Runnable listener = mediaChanged;
@@ -166,6 +167,54 @@ final class OfflineStore {
     boolean offlineOnly() {
         return index.getBoolean("offlineOnly", false);
     }
+    int ahead(StreamProfiles.Path path, boolean bandwidth) {
+        if (path != StreamProfiles.Path.WIFI && path != StreamProfiles.Path.CELLULAR) return 0;
+        String key = AHEAD + (path == StreamProfiles.Path.WIFI ? "Wifi" : "Cellular") + (bandwidth ? "KiBps" : "");
+        return index.getInt(key, 0);
+    }
+    boolean completeDownloads() { return index.getBoolean("completeDownloads", true); }
+    boolean downloadWaveforms() { return index.getBoolean("downloadWaveforms", false); }
+    OfflineCompanions companions() { return OfflineCompanions.open(context,dir); }
+    private void stageCompanions(SharedPreferences.Editor edit, String key, String id) {
+        if (completeDownloads()) edit.putString("companion." + key, id);
+    }
+    ArrayList<String> pendingCompanions() {
+        ArrayList<String> ids = new ArrayList<>();
+        for (var entry : index.getAll().entrySet())
+            if (entry.getKey().startsWith("companion.") && entry.getValue() instanceof String id) ids.add(id);
+        return ids;
+    }
+    JSONObject savedTrack(String id) {
+        synchronized (LOCK) { JSONObject e = entry(row(id)); return file(e) == null ? null : e.optJSONObject("track"); }
+    }
+    boolean retainsCompanions(String id) {
+        synchronized (LOCK) { JSONObject e = entry(row(id)); return file(e) != null && !CACHE.equals(origin(e)); }
+    }
+    void completedCompanions(String id, long revision) throws IOException {
+        synchronized (LOCK) {
+            if (revision == itemRevision(id)) requireWrite(index.edit().remove("companion." + row(id)));
+        }
+    }
+    void putCompanions(String id, long revision, String path, OfflineCompanions.Image image, String lyrics, String peaks) {
+        synchronized (LOCK) {
+            if (completeDownloads() && revision == itemRevision(id) && file(entry(row(id))) != null)
+                companions().put(digest(id),path,image,lyrics,peaks);
+        }
+    }
+    private boolean acceptCache(String source, String key) {
+        if (AHEAD.equals(source))
+            return readAheadOn(StreamProfiles.active(context)) && !index.getBoolean("exclude." + key, false);
+        return !offlineOnly() && permittedNetwork() && cacheEnabled();
+    }
+    boolean readAheadOn(StreamProfiles.Path path) { return !offlineOnly() && ahead(path,false) > 0; }
+    Runnable watchReadAhead(Runnable changed) {
+        SharedPreferences.OnSharedPreferenceChangeListener listener = (prefs, key) -> {
+            if (key != null && (key.startsWith(AHEAD) || key.equals("offlineOnly") || key.equals("unmeteredOnly")
+                    || key.equals("cacheGeneration") || key.equals("cacheMiB"))) changed.run();
+        };
+        index.registerOnSharedPreferenceChangeListener(listener);
+        return () -> index.unregisterOnSharedPreferenceChangeListener(listener);
+    }
     // Even revisions record offline history. A withdrawal also disqualifies the current occurrence
     // if the listener enables recording again before the song ends.
     long historyRevision() { return index.getLong("historyRevision", 0); }
@@ -232,6 +281,12 @@ final class OfflineStore {
         return new JSONObject()
                 .put("offlinePins", extraPins()).put("downloadQuality", downloadQuality().json()).put("autoDownload", source()).put("downloadMiB", index.getInt("downloadMiB", 512))
                 .put("autoCache", cacheEnabled())
+                .put("completeDownloads", completeDownloads())
+                .put("downloadWaveforms", downloadWaveforms())
+                .put("readAheadWifi", ahead(StreamProfiles.Path.WIFI, false))
+                .put("readAheadCellular", ahead(StreamProfiles.Path.CELLULAR, false))
+                .put("readAheadWifiKiBps", ahead(StreamProfiles.Path.WIFI, true))
+                .put("readAheadCellularKiBps", ahead(StreamProfiles.Path.CELLULAR, true))
                 .put("offlineOnly", offlineOnly())
                 .put("unmeteredOnly", index.getBoolean("unmeteredOnly", true))
                 .put("cacheMiB", index.getInt("cacheMiB", 512));
@@ -253,6 +308,38 @@ final class OfflineStore {
             return new JSONObject().put("options", options()).put("items", list).put("pinnedPlaylists",playlists);
         }
     }
+    JSONObject diagnostics(StreamProfiles.Path network, int pending, int failed, int history) throws JSONException {
+        String appVersion = "unknown";
+        long versionCode = 0;
+        try {
+            android.content.pm.PackageInfo installed = context.getPackageManager().getPackageInfo(context.getPackageName(),0);
+            if (installed.versionName != null && installed.versionName.matches("[0-9]+(\\.[0-9]+){0,3}"))
+                appVersion = installed.versionName;
+            versionCode = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(installed);
+        } catch (android.content.pm.PackageManager.NameNotFoundException unavailable) { }
+        synchronized (LOCK) {
+            int downloaded = 0, automatic = 0, cached = 0;
+            long bytes = 0;
+            for (JSONObject item : entries()) {
+                bytes += item.getLong("bytes");
+                switch (origin(item)) {
+                    case DOWNLOAD -> downloaded++;
+                    case AUTOMATIC -> automatic++;
+                    case CACHE -> cached++;
+                }
+            }
+            // This allowlist is the complete report format. Never serialize a store, options or status object.
+            return new JSONObject().put("reportVersion",1).put("platform","Android")
+                    .put("appVersion",appVersion).put("versionCode",versionCode)
+                    .put("androidApi",android.os.Build.VERSION.SDK_INT).put("connection",network.value)
+                    .put("offlineOnly",offlineOnly()).put("unmeteredOnly",unmeteredOnly())
+                    .put("downloadedTracks",downloaded).put("automaticTracks",automatic).put("cachedTracks",cached)
+                    .put("audioMiB",bytes/MIB).put("playbackCacheLimitMiB",budget()/MIB)
+                    .put("pendingDownloads",pending).put("failedDownloads",failed).put("pendingOfflineListens",history)
+                    .put("readAheadWifiTracks",ahead(StreamProfiles.Path.WIFI,false))
+                    .put("readAheadCellularTracks",ahead(StreamProfiles.Path.CELLULAR,false));
+        }
+    }
     JSONObject configure(JSONObject options) throws JSONException, IOException {
         return configure(options,false);
     }
@@ -272,6 +359,15 @@ final class OfflineStore {
                             .putBoolean("unmeteredOnly", options.getBoolean("unmeteredOnly"))
                             .putBoolean("offlineOnly", options.getBoolean("offlineOnly"));
             String beforePins = index.getString("offlinePins", "[]");
+            if (options.has("completeDownloads")) edit.putBoolean("completeDownloads", options.getBoolean("completeDownloads"));
+            if (options.has("downloadWaveforms")) edit.putBoolean("downloadWaveforms", options.getBoolean("downloadWaveforms"));
+            for (String key : new String[]{"readAheadWifi", "readAheadCellular", "readAheadWifiKiBps", "readAheadCellularKiBps"}) {
+                if (!options.has(key)) continue;
+                int value = options.getInt(key);
+                if (value < 0 || value > (key.endsWith("KiBps") ? 8192 : 20))
+                    throw new IllegalArgumentException("Choose a supported read-ahead limit.");
+                edit.putInt(key, value);
+            }
             String pins = options.has("offlinePins") ? OfflinePins.validate(options.getJSONArray("offlinePins")).toString() : beforePins;
             edit.putString("offlinePins", pins);
             Set<String> playlists = new HashSet<>();
@@ -283,7 +379,7 @@ final class OfflineStore {
             for (String key : index.getAll().keySet()) if (key.startsWith("playlistMembers.") && !playlists.contains(key)) edit.remove(key);
             if (options.has("downloadQuality")) edit.putString("downloadQuality",
                     new StreamProfiles.Quality(options.getJSONObject("downloadQuality")).json().toString());
-            if (!options.getBoolean("autoCache"))
+            if (cacheEnabled() && !options.getBoolean("autoCache"))
                 edit.putLong("cacheGeneration", index.getLong("cacheGeneration", 0) + 1);
             if (!pins.equals(beforePins) || !source.equals(source()) || options.getBoolean("unmeteredOnly") != unmeteredOnly() || options.getBoolean("offlineOnly") != offlineOnly())
                 edit.putLong("automaticGeneration", index.getLong("automaticGeneration", 0) + 1);
@@ -303,6 +399,14 @@ final class OfflineStore {
     }
     @Nullable
     File playable(String streamUrl) { return savedFile(streamUrl, true); }
+
+    String playbackOrigin(String streamUrl, File opened) {
+        synchronized (LOCK) {
+            String id = trackId(streamUrl);
+            JSONObject item = id == null ? null : entry(row(id));
+            return item != null && opened.equals(file(item)) ? origin(item) : "device";
+        }
+    }
 
     @Nullable
     File artworkSource(String streamUrl) { return savedFile(streamUrl, false); }
@@ -329,6 +433,10 @@ final class OfflineStore {
         }
     }
     long itemRevision(String id) { return index.getLong("revision." + row(id), 0); }
+    long cacheGeneration() { return index.getLong("cacheGeneration", 0); }
+    boolean wantsAhead(String id) {
+        synchronized (LOCK) { return !index.getBoolean("exclude." + row(id), false) && file(entry(row(id))) == null; }
+    }
     long autoGeneration() { return index.getLong("automaticGeneration", 0); }
     boolean hasAudio(String id) {
         synchronized (LOCK) { return file(entry(row(id))) != null; }
@@ -343,20 +451,44 @@ final class OfflineStore {
     boolean pinExisting(String id) throws IOException, JSONException {
         return keepExisting(id, null, null);
     }
+    boolean updateMetadata(JSONObject catalog, long revision) throws JSONException, IOException {
+        String id = catalog.getString("id"), key = row(id);
+        synchronized (LOCK) {
+            JSONObject e = entry(key);
+            if (file(e) == null || revision != itemRevision(id)) return false;
+            JSONObject previous = e.getJSONObject("track"), fresh = retained(catalog);
+            // Ratings are available from a separate endpoint. Keep them through partial responses.
+            for (String field : new String[]{"favorite","rating"})
+                if (!fresh.has(field) && previous.has(field)) fresh.put(field,previous.get(field));
+            if (!fresh.toString().equals(previous.toString())) {
+                SharedPreferences.Editor edit = index.edit().putString(key,e.put("track",fresh).toString());
+                boolean newArtwork = !fresh.optString("artworkUrl").equals(previous.optString("artworkUrl"));
+                if (newArtwork && !CACHE.equals(origin(e))) stageCompanions(edit,key,id);
+                requireWrite(edit);
+                if (newArtwork && !CACHE.equals(origin(e))) DownloadCompanionWorker.schedule(context,this);
+                changed();
+            }
+            return true;
+        }
+    }
     boolean keepExisting(String id, @Nullable String source, @Nullable JSONObject details) throws IOException, JSONException {
         synchronized (LOCK) {
             String key = row(id);
             if (source != null && !automaticAllowed(source, key)) return true;
             JSONObject e = entry(key);
             if (file(e) == null) return false;
+            boolean wasCached = CACHE.equals(origin(e));
             String target = source == null ? DOWNLOAD : AUTOMATIC;
             if (source != null && !CACHE.equals(origin(e))) return true;
             if (AUTOMATIC.equals(target)) requireRoom(e.getLong("bytes"));
             if (details != null) addDetails(e.getJSONObject("track"), details);
             e.put("origin", target).put("pinned", DOWNLOAD.equals(target)).put("used", System.currentTimeMillis());
             SharedPreferences.Editor editor = index.edit().putString(key, e.toString());
+            if (completeDownloads() && !index.contains("companion." + key) && wasCached)
+                stageCompanions(editor,key,id);
             if (source == null) editor.remove("exclude." + key);
             requireWrite(editor);
+            if (index.contains("companion." + key)) DownloadCompanionWorker.schedule(context,this);
             changed();
             return true;
         }
@@ -447,7 +579,8 @@ final class OfflineStore {
         return present;
     }
     private SharedPreferences.Editor removeRow(SharedPreferences.Editor edit, String key) {
-        return edit.remove(key).putLong("revision." + key, index.getLong("revision." + key, 0) + 1);
+        if (new File(dir,"companions.db").isFile()) companions().forget(key.substring("track.".length()));
+        return edit.remove(key).remove("companion." + key).putLong("revision." + key, index.getLong("revision." + key, 0) + 1);
     }
     private void discard(String key, JSONObject e) throws IOException {
         File f = file(e);
@@ -466,8 +599,13 @@ final class OfflineStore {
         }
     }
     private void evict(String origin, long budget) throws IOException, JSONException {
+        evict(origin,budget,Collections.emptySet());
+    }
+    private void evict(String origin, long budget, Set<String> protectedIds) throws IOException, JSONException {
         long kept = 0;
-        for (JSONObject e : newestFirst()) {
+        ArrayList<JSONObject> candidates = newestFirst();
+        if (!protectedIds.isEmpty()) candidates.sort(Comparator.comparing(e -> !protectedIds.contains(e.optJSONObject("track").optString("id"))));
+        for (JSONObject e : candidates) {
             if (!origin.equals(origin(e)))
                 continue;
             long size = e.getLong("bytes");
@@ -491,7 +629,7 @@ final class OfflineStore {
     private static void addDetails(JSONObject copy, JSONObject track) throws JSONException {
         for (String k : new String[]{"albumId","artistId","albumArtist","albumArtistId","genre","format","artistMbid","releaseGroupMbid","recordingMbid"})
             if (track.opt(k) instanceof String && !track.getString(k).isEmpty()) copy.put(k, track.getString(k));
-        for (String k : new String[]{"year","trackNumber","discNumber","dateAdded","rating","replayGainTrackDb","replayGainAlbumDb","replayGainTrackPeak","replayGainAlbumPeak"})
+        for (String k : new String[]{"year","trackNumber","discNumber","dateAdded","rating","sourceSampleRate","sourceBitDepth","sourceBitrate","replayGainTrackDb","replayGainAlbumDb","replayGainTrackPeak","replayGainAlbumPeak"})
             if (track.opt(k) instanceof Number) copy.put(k, track.get(k));
         if (track.opt("favorite") instanceof Boolean) copy.put("favorite", track.get("favorite"));
     }
@@ -527,11 +665,25 @@ final class OfflineStore {
 
     @Nullable
     Capture begin(JSONObject track, String origin, @Nullable String source, long expected) throws IOException, JSONException {
+        return begin(track,origin,source,expected,Collections.emptySet());
+    }
+    long cacheRoom(Set<String> protectedIds) {
+        synchronized (LOCK) {
+            long room = budget();
+            for (String id : protectedIds) {
+                JSONObject e = entry(row(id));
+                if (file(e) != null && CACHE.equals(origin(e))) room -= e.optLong("bytes");
+            }
+            return Math.max(0,room);
+        }
+    }
+    @Nullable
+    Capture begin(JSONObject track, String origin, @Nullable String source, long expected, Set<String> protectedIds) throws IOException, JSONException {
         JSONObject copy = retained(track);
         String id = copy.getString("id");
         synchronized (LOCK) {
             if (CACHE.equals(origin)
-                    && (!cacheEnabled() || !permittedNetwork() || expected > budget()
+                    && (!acceptCache(source, row(id)) || expected > cacheRoom(protectedIds)
                             || file(entry(row(id))) != null))
                 return null;
             if (AUTOMATIC.equals(origin)) {
@@ -539,28 +691,30 @@ final class OfflineStore {
                 if (expected > 0) requireRoom(expected);
             }
             prepareDirectory();
-            return new Capture(row(id), copy, origin, source, expected);
+            return new Capture(row(id), copy, origin, source, expected, protectedIds);
         }
     }
     final class Capture implements Closeable {
         private final String key;
         private final JSONObject track;
         private final String origin, source;
+        private final Set<String> protectedIds;
         private final long generation, revision, expected, limit;
         private final File temp;
         private final FileOutputStream output;
         private long bytes;
         private long nextNetworkCheck = 1_048_576;
         private boolean closed;
-        Capture(String key, JSONObject track, String origin, @Nullable String source, long expected) throws IOException {
+        Capture(String key, JSONObject track, String origin, @Nullable String source, long expected, Set<String> protectedIds) throws IOException {
             this.key = key;
             this.track = track;
             this.origin = origin;
             this.source = source;
             this.expected = expected;
+            this.protectedIds = protectedIds.isEmpty() ? Collections.emptySet() : new HashSet<>(protectedIds);
             generation = index.getLong(AUTOMATIC.equals(origin) ? "automaticGeneration" : "cacheGeneration", 0);
             revision = index.getLong("revision." + key, 0);
-            limit = DOWNLOAD.equals(origin) ? Long.MAX_VALUE : AUTOMATIC.equals(origin) ? automaticBudget() : budget();
+            limit = DOWNLOAD.equals(origin) ? Long.MAX_VALUE : AUTOMATIC.equals(origin) ? automaticBudget() : cacheRoom(protectedIds);
             temp = File.createTempFile("audio-", ".part", dir);
             try {
                 output = new FileOutputStream(temp);
@@ -576,7 +730,7 @@ final class OfflineStore {
             if (bytes + count >= nextNetworkCheck) {
                 if (AUTOMATIC.equals(origin) && (autoGeneration() != generation || !automaticAllowed(source, key)))
                     throw new IOException("The automatic download settings changed.");
-                if (!permittedNetwork())
+                if (AHEAD.equals(source) ? !readAheadOn(StreamProfiles.active(context)) : !permittedNetwork())
                     throw new IOException("Connect to an unmetered network or change Offline settings.");
                 nextNetworkCheck = bytes + count + MIB;
             }
@@ -584,18 +738,20 @@ final class OfflineStore {
             bytes += count;
         }
         void finish() throws IOException, JSONException { finish(null); }
-        void finish(@Nullable String mime) throws IOException, JSONException {
+        void finish(@Nullable String mime) throws IOException, JSONException { finish(mime, () -> true); }
+        void finish(@Nullable String mime, java.util.function.BooleanSupplier current) throws IOException, JSONException {
             if (bytes <= 0 || (expected >= 0 && bytes != expected))
                 throw new IOException("The audio download was incomplete.");
             output.getFD().sync();
             output.close();
             if (mime != null) mime = DownloadRepresentation.storedType(temp,mime);
             synchronized (LOCK) {
+                if (!current.getAsBoolean()) return;
                 if (index.getLong("revision." + key, 0) != revision)
                     throw new IOException("The offline copy was removed.");
                 if (CACHE.equals(origin)
-                        && (!cacheEnabled() || index.getLong("cacheGeneration", 0) != generation
-                                || bytes > budget()))
+                        && (!acceptCache(source, key) || index.getLong("cacheGeneration", 0) != generation
+                                || bytes > cacheRoom(protectedIds)))
                     return;
                 JSONObject old = entry(key);
                 if (file(old) != null && (CACHE.equals(origin) || DOWNLOAD.equals(origin(old)) ||
@@ -616,8 +772,10 @@ final class OfflineStore {
                                        .put("file", destination.getName());
                 try {
                     SharedPreferences.Editor write = index.edit().putString(key, e.toString());
+                    if (!CACHE.equals(origin)) stageCompanions(write,key,track.getString("id"));
                     if (DOWNLOAD.equals(origin)) write.remove("exclude." + key);
                     requireWrite(write);
+                    if (!CACHE.equals(origin) && completeDownloads()) DownloadCompanionWorker.schedule(context, OfflineStore.this);
                 } catch (IOException failed) {
                     destination.delete();
                     throw failed;
@@ -625,7 +783,11 @@ final class OfflineStore {
                 File previous = file(old);
                 if (previous != null)
                     previous.delete();
-                if (CACHE.equals(origin)) evict(CACHE, budget());
+                if (CACHE.equals(origin)) {
+                    Set<String> keep = new HashSet<>(protectedIds);
+                    keep.add(track.getString("id"));
+                    evict(CACHE, budget(),keep);
+                }
                 changed();
             }
         }
