@@ -14,6 +14,9 @@ export const labels: Record<Mode, string> = {
 };
 declare const __DN_WEB_PALETTES__: Record<Palette, Record<string, string>>;
 const palettes = __DN_WEB_PALETTES__;
+export function albumSheetColor(mode: Palette) {
+	return palettes[mode]['--dn-paper'];
+}
 export const roleKeys = [
 	'--dn-title',
 	'--dn-action',

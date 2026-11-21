@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiText, uiFormat } from '../i18n';
+	import { uiText, uiFormat, tr } from '../i18n';
 
 	import { onMount } from 'svelte';
 	import WebPaletteImport from './WebPaletteImport.svelte';
@@ -8,6 +8,7 @@
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import {
 		asTheme,
+		albumSheetColor,
 		isMode,
 		labels,
 		presets,
@@ -129,9 +130,9 @@
 <section class="settings-stack" data-part="theme-settings" aria-label={uiText('Theme settings')}>
 	<h2>{uiText('Device theme')}</h2>
 	<div class="modes" role="group" aria-label={uiText('Device theme')}>
-		{#each modes as mode (mode)}{@const palette = asTheme({
-				mode: mode === 'system' ? (matchesLight ? 'light' : 'dark') : mode
-			})}
+		{#each modes as mode (mode)}{@const resolved =
+				mode === 'system' ? (matchesLight ? 'light' : 'dark') : mode}
+			{@const palette = asTheme({ mode: resolved })}
 			<button
 				class="choice"
 				aria-label={uiText(labels[mode])}
@@ -141,6 +142,7 @@
 					class="swatch"
 					style:background={palette.colors.bg}
 					style:color={palette.colors.accent}
+					style:border-block-end-color={albumSheetColor(resolved)}
 					aria-hidden="true">Aa</span
 				>{uiText(labels[mode])}{#if selected.mode === mode}<Check
 						size={16}
@@ -149,6 +151,12 @@
 			>
 		{/each}
 	</div>
+	{#if selected.mode === 'dark' || selected.mode === 'midnight'}<p>
+			{tr(
+				'Dark uses cream album track lists. Midnight uses dark green track lists. Both use the same lime accent.',
+				'ダークではアルバムの曲一覧がクリーム色、ミッドナイトでは深緑になります。アクセントはどちらもライム色です。'
+			)}
+		</p>{/if}
 	{#if selected.mode === 'system'}<p>
 			{uiFormat('Following this device’s {mode} setting.', {
 				mode: uiText(matchesLight ? 'light' : 'dark')
@@ -243,6 +251,7 @@
 	}
 	.swatch {
 		border: 1px solid var(--line);
+		border-block-end-width: 5px;
 		border-radius: 0.25rem;
 		font-weight: 700;
 		padding: 0.18rem 0.32rem;
