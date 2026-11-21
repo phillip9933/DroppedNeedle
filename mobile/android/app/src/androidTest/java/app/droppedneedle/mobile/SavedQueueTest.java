@@ -58,7 +58,10 @@ public final class SavedQueueTest {
         SecretKey key = SavedQueue.key(server, token);
         SavedQueue saved = new SavedQueue(isolated);
         JSONObject queue = new JSONObject().put("revision", "latest").put("position", 1000)
-                .put("tracks", new JSONArray().put("Private title").put("Another track"));
+                .put("tracks", new JSONArray().put("Private title").put("Another track"))
+                .put("shuffleOrder",new JSONArray().put(1).put(0))
+                .put("previousQueue",new JSONObject().put("revision","older").put("position",3200))
+                .put("heard",new JSONArray().put(new JSONObject().put("id","earlier")));
         try {
             saved.write(key, queue, true);
             saved.write(key, new JSONObject().put("revision", "previous").put("position", 777), false);
@@ -70,6 +73,9 @@ public final class SavedQueueTest {
             assertEquals(1, reopened.getInt("index"));
             assertEquals(2, reopened.getInt("repeat"));
             assertEquals("Another track", reopened.getJSONArray("tracks").getString(1));
+            assertEquals(1,reopened.getJSONArray("shuffleOrder").getInt(0));
+            assertEquals(3200,reopened.getJSONObject("previousQueue").getInt("position"));
+            assertEquals("earlier",reopened.getJSONArray("heard").getJSONObject(0).getString("id"));
             for (String name : new String[]{"playback-queue.v1", "playback-cursor.v1"}) {
                 String stored = new String(Files.readAllBytes(new File(dir, name).toPath()),
                         StandardCharsets.ISO_8859_1);

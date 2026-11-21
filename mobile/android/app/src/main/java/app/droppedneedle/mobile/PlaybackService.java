@@ -23,7 +23,8 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession;
-import androidx.media3.session.MediaSessionService;
+import androidx.media3.session.MediaLibraryService;
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.google.common.util.concurrent.Futures;
@@ -43,7 +44,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
-public final class PlaybackService extends MediaSessionService {
+public final class PlaybackService extends MediaLibraryService {
     static final String LOCAL_BIND = "app.droppedneedle.mobile.LOCAL_PLAYER";
     final class LocalBinder extends Binder {
         PlaybackService service() { return PlaybackService.this; }
@@ -87,9 +88,15 @@ public final class PlaybackService extends MediaSessionService {
     private final LocalBinder binder = new LocalBinder();
     private volatile Access access;
     private RoutedPlayer player;
-    private MediaSession session;
+    private MediaLibrarySession session;
+    private CarSession car;
+    private Object pendingCarTrack;
+    private final Runnable stopEmptyExternalPlay = () -> {
+        if (player.getMediaItemCount() == 0 && !car.isSelecting()) stopForeground(STOP_FOREGROUND_REMOVE);
+    };
     private PlaybackReporter reporter;
     private PlaybackEqualizer equalizer;
+    private PlaybackSound sound;
     private PlaybackFades fades;
     private PlaybackSleepTimer sleep;
     private final TrackWaveform waveforms = new TrackWaveform();
@@ -97,15 +104,19 @@ public final class PlaybackService extends MediaSessionService {
     private ExoPlayer localPlayback;
     private Runnable stopFadeProfileWatch, stopFadeOfflineWatch;
     private ConnectivityManager connectivity;
-    private StreamProfiles.Path fadeNetwork;
-    private final ConnectivityManager.NetworkCallback fadeConnectivity = new ConnectivityManager.NetworkCallback() {
+    private StreamProfiles.Path playbackNetwork;
+    private final ConnectivityManager.NetworkCallback playbackConnectivity = new ConnectivityManager.NetworkCallback() {
         @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) { networkChanged(); }
         @Override public void onLost(Network network) { networkChanged(); }
         private void networkChanged() {
             main.post(() -> {
                 StreamProfiles.Path now = StreamProfiles.active(PlaybackService.this);
-                if (fadeNetwork != now) {
-                    fadeNetwork = now;
+                if (playbackNetwork != now) {
+                    playbackNetwork = now;
+                    if (now == StreamProfiles.Path.OFFLINE && radio != null) {
+                        cancelRadio();
+                        radioProblem = "Go online to continue with similar music.";
+                    }
                     fades.sourceChanged();
                 }
             });
@@ -114,6 +125,12 @@ public final class PlaybackService extends MediaSessionService {
     private LibraryQueuePager pager;
     private boolean changingWindow, repeatLibrary, wasPlaying;
     private SavedQueue saved;
+    private final QueueOrder order = new QueueOrder();
+    private JSONObject previousQueue;
+    private SimilarMusic radio;
+    private org.json.JSONArray heard = new org.json.JSONArray();
+    private boolean autoplay;
+    private String radioProblem;
     private SecretKey queueKey;
     private String revision;
     private long generation;
@@ -131,15 +148,26 @@ public final class PlaybackService extends MediaSessionService {
         if (changingWindow || queueKey == null || player.getMediaItemCount() == 0) return;
         if (includeTracks) revision = UUID.randomUUID().toString();
         if (revision == null) return;
+        JSObject state = archive(includeTracks);
+        if (includeTracks && previousQueue != null) state.put("previousQueue", previousQueue);
+        saved.write(queueKey, state, includeTracks);
+    }
+
+    private JSObject archive(boolean includeTracks) {
         JSObject state = new JSObject();
-        state.put("revision", revision);
+        state.put("revision", revision == null ? UUID.randomUUID().toString() : revision);
         if (access != null && access.userId != null) state.put("userId", access.userId);
         state.put("index", player.getCurrentMediaItemIndex());
         state.put("position", Math.max(0, player.getCurrentPosition()));
         state.put("repeat", repeatMode());
         if (pager.attached()) state.put("continuation", pager.saved());
-        if (includeTracks) state.put("tracks", queueTracks());
-        saved.write(queueKey, state, includeTracks);
+        if (includeTracks) {
+            state.put("tracks", queueTracks());
+            if (order.shuffled()) state.put("shuffleOrder", order.save(player));
+            if (heard.length()>0) state.put("heard", heard);
+        }
+        state.put("playing", showsPauseControl() || pager.waiting() || radio != null);
+        return state;
     }
 
     @Override public void onCreate() {
@@ -170,7 +198,9 @@ public final class PlaybackService extends MediaSessionService {
                     .setDefaultRequestProperties(Collections.singletonMap("Authorization", "Bearer " + current.token));
             return new OfflineDataSource(current, stream, timeline, current == null ? null : current.profiles.track());
         });
-        ExoPlayer local = new ExoPlayer.Builder(this)
+        sound = new PlaybackSound(this);
+        equalizer = new PlaybackEqualizer(this);
+        ExoPlayer local = new ExoPlayer.Builder(this, PlaybackSound.renderers(this, sound.primary, track -> main.post(() -> equalizer.monitor(track))))
                 .setMediaSourceFactory(audioSource)
                 .setAudioAttributes(AudioAttributes.DEFAULT, true)
                 .setHandleAudioBecomingNoisy(true)
@@ -210,6 +240,7 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void unschedule(Runnable task) { main.removeCallbacks(task); }
             @Override public void pause() {
                 wasPlaying = false;
+                cancelRadio();
                 pager.cancelAdvance();
                 player.pause();
             }
@@ -238,11 +269,11 @@ public final class PlaybackService extends MediaSessionService {
             @Override public void cancel(Runnable task) { main.removeCallbacks(task); }
         }, http);
         fades = new PlaybackFades(this, local, () -> SmartFadeAudio.library(access, http),
-                () -> player.destination().isEmpty() && !sleep.active());
+                () -> player.destination().isEmpty() && !sleep.active(), sound);
         connectivity = getSystemService(ConnectivityManager.class);
-        fadeNetwork = StreamProfiles.active(this);
-        if (connectivity != null) connectivity.registerDefaultNetworkCallback(fadeConnectivity);
-        equalizer = new PlaybackEqualizer(this);
+        playbackNetwork = StreamProfiles.active(this);
+        if (connectivity != null) connectivity.registerDefaultNetworkCallback(playbackConnectivity);
+        local.setPlaybackSpeed(sound.speed());
         int audioSession = local.getAudioSessionId();
         if (audioSession <= 0) {
             try {
@@ -261,6 +292,7 @@ public final class PlaybackService extends MediaSessionService {
         reporter = new PlaybackReporter(this, player);
         local.addListener(new Player.Listener() {
             @Override public void onPlayWhenReadyChanged(boolean ready, int reason) {
+                if (!ready && radio != null) cancelRadio();
                 if (!ready && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && sleep.afterTrack()) {
                     wasPlaying = false;
                     pager.cancelAdvance();
@@ -268,50 +300,56 @@ public final class PlaybackService extends MediaSessionService {
                 }
             }
             @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
+                sound.primary.factor = sound.factor(item);
                 sleep.changedTrack(trackIdentity(item), reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
                         || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT || fades.automaticAdvance(item));
+            }
+            @Override public void onTracksChanged(androidx.media3.common.Tracks tracks) {
+                sound.remember(local.getCurrentMediaItem(),tracks);
+                sound.primary.factor = sound.factor(local.getCurrentMediaItem());
+                fades.gainChanged();
             }
             @Override public void onAudioSessionIdChanged(int id) { equalizer.setSession(id); }
         });
         player.addListener(new Player.Listener() {
             @Override public void onEvents(Player source, Player.Events events) {
                 sleep.check();
+                if (pendingCarTrack != null && events.contains(Player.EVENT_TIMELINE_CHANGED)
+                        && source.getMediaItemCount() > 0 && pendingCarTrack == trackIdentity(source.getMediaItemAt(0))) {
+                    pendingCarTrack = null;
+                    save(true);
+                }
+                if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                        Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_MEDIA_METADATA_CHANGED))
+                    PlayerWidget.render(PlaybackService.this, source);
+                if (radio != null && (events.containsAny(Player.EVENT_POSITION_DISCONTINUITY,Player.EVENT_REPEAT_MODE_CHANGED)
+                        || source.getPlaybackSuppressionReason() != Player.PLAYBACK_SUPPRESSION_REASON_NONE)) cancelRadio();
                 boolean ended = source.getPlaybackState() == Player.STATE_ENDED;
                 boolean sleepBoundary = sleep.afterTrack() && ended;
-                if (ended && (sleepBoundary || !pager.attached() || !pager.hasNext() && !repeatLibrary)) sleep.finishedTrack();
-                if (!changingWindow && pager.attached()) {
-                    if (events.contains(Player.EVENT_REPEAT_MODE_CHANGED) && source.getRepeatMode() == Player.REPEAT_MODE_ALL)
+                if (ended && (sleepBoundary || !autoplay && (!pager.attached() || !pager.hasNext() && !repeatLibrary))) sleep.finishedTrack();
+                if (!changingWindow) {
+                    if (pager.attached() && events.contains(Player.EVENT_REPEAT_MODE_CHANGED) && source.getRepeatMode() == Player.REPEAT_MODE_ALL)
                         setRepeat(Player.REPEAT_MODE_ALL);
                     if (ended && wasPlaying) {
                         wasPlaying = false;
-                        if (!sleepBoundary && (pager.hasNext() || repeatLibrary)) pager.end(false);
+                        if (!sleepBoundary && pager.attached() && (pager.hasNext() || repeatLibrary)) pager.end(false);
+                        else if (!sleepBoundary && autoplay && source.getPlayWhenReady()) startRadio();
                     } else if (!ended) {
                         wasPlaying = showsPauseControl();
-                        if (wasPlaying) pager.load(false);
+                        if (wasPlaying && pager.attached()) pager.load(false);
                     }
                 }
                 if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
                         Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) checkpoint();
             }
         });
-        MediaSession.Callback callback = new MediaSession.Callback() {
+        car = new CarSession(this) {
             @Override public ListenableFuture<MediaSession.MediaItemsWithStartPosition> onPlaybackResumption(
                     MediaSession mediaSession, MediaSession.ControllerInfo controller) {
                 return resumeHeadset(controller);
             }
-            @Override public MediaSession.ConnectionResult onConnect(
-                    MediaSession mediaSession, MediaSession.ControllerInfo controller) {
-                Player.Commands commands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                        .remove(Player.COMMAND_SET_SHUFFLE_MODE)
-                        .remove(Player.COMMAND_CHANGE_MEDIA_ITEMS)
-                        .remove(Player.COMMAND_SET_MEDIA_ITEM)
-                        .build();
-                return new MediaSession.ConnectionResult.AcceptedResultBuilder(mediaSession)
-                        .setAvailablePlayerCommands(commands).build();
-            }
         };
-        session = new MediaSession.Builder(this, player)
-                .setCallback(callback)
+        session = new MediaLibrarySession.Builder(this, player, car)
                 .setBitmapLoader(new PlaybackArtwork(() -> access, http))
                 .build();
         addSession(session);
@@ -322,12 +360,57 @@ public final class PlaybackService extends MediaSessionService {
         return super.onBind(intent);
     }
 
-    @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return session; }
+    @Override public MediaLibrarySession onGetSession(MediaSession.ControllerInfo controller) { return session; }
+
+    long carGeneration() { return generation; }
+    void prepareExternalPlay() {
+        if (android.os.Build.VERSION.SDK_INT < 35 || player.isPlaying() || !HeadsetAccount.unlocked(this)) return;
+        // Android 15 requires foreground playback before ExoPlayer can request audio focus for a user tap.
+        String channel = androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID;
+        android.app.NotificationManager notifications = getSystemService(android.app.NotificationManager.class);
+        notifications.createNotificationChannel(new android.app.NotificationChannel(channel,
+                getString(androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_CHANNEL_NAME_RESOURCE_ID),
+                android.app.NotificationManager.IMPORTANCE_LOW));
+        android.app.Notification notice = new androidx.core.app.NotificationCompat.Builder(this, channel)
+                .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(getString(R.string.app_name))
+                .setOnlyAlertOnce(true).setSilent(true)
+                .setStyle(new androidx.media3.session.MediaStyleNotificationHelper.MediaStyle(session)).build();
+        try {
+            startForeground(androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
+                    notice, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            main.removeCallbacks(stopEmptyExternalPlay);
+            main.postDelayed(stopEmptyExternalPlay, 15000);
+        } catch (android.app.ForegroundServiceStartNotAllowedException ignored) {
+            // A background controller without a user interaction cannot promote this service.
+        }
+    }
+    MediaSession.MediaItemsWithStartPosition prepareCarQueue(HeadsetAccount login, JSArray queue, int index, long position)
+            throws JSONException {
+        Access next = new Access(this, login.server.toString(), login.token, login.userId);
+        ArrayList<MediaItem> checked = items(next, queue);
+        boolean same = access != null && access.base.equals(next.base) && access.token.equals(next.token)
+                && java.util.Objects.equals(access.userId, next.userId);
+        previousQueue = same && player.getMediaItemCount() > 0 ? archive(true) : null;
+        heard = new org.json.JSONArray();
+        generation++;
+        cancelHeadset();
+        cancelRadio();
+        detachWindow();
+        order.clear();
+        sleep.changedTrack(null);
+        remember(next, checked);
+        attach(next);
+        pendingCarTrack = trackIdentity(checked.get(0));
+        return new MediaSession.MediaItemsWithStartPosition(checked, index, position);
+    }
 
     private static ArrayList<MediaItem> items(Access access, JSArray queue) throws JSONException {
         ArrayList<MediaItem> items = new ArrayList<>();
+        java.util.IdentityHashMap<JSONObject,Boolean> occurrences = new java.util.IdentityHashMap<>();
         for (int i = 0; i < queue.length(); i++) {
             JSONObject track = queue.getJSONObject(i);
+            if (occurrences.put(track,true) != null || access.metadata.get(track.getString("id")) == track)
+                track = new JSONObject(track.toString());
             String stream = track.getString("streamUrl");
             if (!access.permits(HttpUrl.parse(stream), "stream/local/")) {
                 throw new IllegalArgumentException("Invalid DroppedNeedle stream.");
@@ -381,6 +464,13 @@ public final class PlaybackService extends MediaSessionService {
         changingWindow = true;
         try {
             remember(owner, newItems);
+            rememberPruned(prefix);
+            if (restart) order.clear();
+            else {
+                order.remove(player, 0, prefix);
+                order.insert(newItems, null);
+                if (order.shuffled()) Collections.shuffle(newItems);
+            }
             for (MediaItem item : newItems) retained.add(item.mediaId);
             if (restart) {
                 player.setMediaItems(newItems, 0, 0);
@@ -407,6 +497,13 @@ public final class PlaybackService extends MediaSessionService {
 
     void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index,
             @Nullable String placement, @Nullable JSONObject profiles, @Nullable JSONObject continuation) throws JSONException {
+        setQueue(address, token, userId, queue, index, placement, profiles, continuation, 0, true);
+    }
+
+    void setQueue(String address, String token, @Nullable String userId, JSArray queue, int index,
+            @Nullable String placement, @Nullable JSONObject profiles, @Nullable JSONObject continuation,
+            double positionSeconds, boolean playing) throws JSONException {
+        if (!Double.isFinite(positionSeconds) || positionSeconds < 0) throw new IllegalArgumentException("Invalid playback position.");
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
@@ -426,11 +523,18 @@ public final class PlaybackService extends MediaSessionService {
         remember(owner, items);
         if (append) {
             int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
+            cancelRadio();
             detachWindow();
+            order.insert(items, "next".equals(placement) ? player.getCurrentMediaItem() : null);
             player.addMediaItems(at, items);
             save(true);
             return;
         }
+        boolean same = access != null && access.base.equals(next.base) && access.token.equals(next.token)
+                && java.util.Objects.equals(access.userId, next.userId);
+        previousQueue = same && player.getMediaItemCount() > 0 ? archive(true) : null;
+        cancelRadio();
+        order.clear();
         changingWindow = true;
         try {
             int repeat = repeatMode();
@@ -439,13 +543,13 @@ public final class PlaybackService extends MediaSessionService {
             attach(next);
             pager.attach(window, next.base, next.apiPath, next.token);
             setRepeat(repeat);
+            player.pause();
             player.stop();
-            player.setMediaItems(items, index, 0);
-            player.prepare();
-            player.play();
+            player.setMediaItems(items, index, (long) (positionSeconds * 1000));
+            if (playing) { player.prepare(); player.play(); }
         } finally { changingWindow = false; }
         wasPlaying = showsPauseControl();
-        pager.load(false);
+        if (playing) pager.load(false);
         save(true);
     }
 
@@ -463,13 +567,14 @@ public final class PlaybackService extends MediaSessionService {
         queueKey = SavedQueue.key(next.base.toString(), next.token);
         authorizeReports(next);
         access = next;
+        autoplay = autoplaySetting(next.base.toString(), next.userId, null);
         stopFadeWatches();
         stopFadeProfileWatch = next.profiles.watch(fades::sourceChanged);
         if (next.offline != null) {
             boolean[] online = {next.allowsOnlineMedia()};
             stopFadeOfflineWatch = next.offline.watchOfflineMode(() -> {
                 boolean enabled = next.allowsOnlineMedia();
-                if (enabled != online[0]) { online[0] = enabled; fades.sourceChanged(); }
+                if (enabled != online[0]) { online[0] = enabled; if (!enabled) cancelRadio(); fades.sourceChanged(); }
             });
         }
         fades.sourceChanged();
@@ -485,6 +590,8 @@ public final class PlaybackService extends MediaSessionService {
 
     private MediaSession.MediaItemsWithStartPosition restoreArchive(Access next, JSONObject record, boolean headset)
             throws JSONException {
+        if (record.has("userId") && !java.util.Objects.equals(next.userId, record.optString("userId")))
+            throw new JSONException("Invalid saved queue owner.");
         JSArray queue = new JSArray(record.getJSONArray("tracks").toString());
         int index = record.getInt("index"), repeat = record.getInt("repeat");
         long position = Math.max(0, record.getLong("position"));
@@ -502,6 +609,10 @@ public final class PlaybackService extends MediaSessionService {
         attach(next);
         pager.attach(window, next.base, next.apiPath, next.token);
         setRepeat(repeat);
+        order.restore(checked,record.optJSONArray("shuffleOrder"));
+        heard = record.optJSONArray("heard");
+        if (heard == null) heard = new org.json.JSONArray();
+        previousQueue = record.optJSONObject("previousQueue");
         revision = savedRevision;
         return new MediaSession.MediaItemsWithStartPosition(checked, index, position);
     }
@@ -579,6 +690,17 @@ public final class PlaybackService extends MediaSessionService {
         });
     }
 
+    JSObject soundSettings(@Nullable Double speed, @Nullable String mode) {
+        JSObject result = sound.configure(speed, mode);
+        if (speed != null)
+            localPlayback.setPlaybackSpeed(sound.speed());
+        if (mode != null) {
+            sound.primary.factor = sound.factor(localPlayback.getCurrentMediaItem());
+            fades.gainChanged();
+        }
+        return result;
+    }
+
     PlaybackEqualizer equalizer() { return equalizer; }
 
     PlaybackFades fades() { return fades; }
@@ -586,14 +708,185 @@ public final class PlaybackService extends MediaSessionService {
 
     void afterWrite(Runnable complete) { saved.afterWrite(complete); }
 
+    boolean autoplaySetting(String server, String user, @Nullable Boolean enabled) {
+        HttpUrl url = HttpUrl.parse(server);
+        if (url == null || !url.isHttps())
+            throw new IllegalArgumentException("Invalid DroppedNeedle server.");
+        String key = new org.json.JSONArray(java.util.Arrays.asList(url.toString(), user)).toString();
+        android.content.SharedPreferences prefs = getSharedPreferences("dn-autoplay", MODE_PRIVATE);
+        if (enabled != null) {
+            prefs.edit().putBoolean(key, enabled).apply();
+            if (access != null && access.base.equals(url) && java.util.Objects.equals(access.userId, user)) {
+                autoplay = enabled;
+                if (!enabled)
+                    cancelRadio();
+            }
+        }
+        return prefs.getBoolean(key, false);
+    }
+
+    private void cancelRadio() {
+        if (radio != null) radio.cancel();
+        radio = null;
+        radioProblem = null;
+    }
+
+    private void rememberPruned(int count) throws JSONException {
+        if (count <= 0)
+            return;
+        // Keep a compact recent history even after the mobile queue window discards full track metadata.
+        org.json.JSONArray recent = new org.json.JSONArray();
+        for (int i = Math.max(0, heard.length() + count - 500); i < heard.length(); i++) recent.put(heard.get(i));
+        for (int i = Math.max(0, count - 500); i < count; i++) {
+            JSONObject song = (JSONObject) trackIdentity(player.getMediaItemAt(i));
+            recent.put(new JSONObject()
+                            .put("id", song.getString("id"))
+                            .put("recordingMbid", song.opt("recordingMbid")));
+        }
+        heard = recent;
+    }
+
+    private void startRadio() {
+        Access owner = access;
+        if (radio != null || owner == null || !autoplay || repeatMode() != Player.REPEAT_MODE_OFF
+                || pager.hasNext() || player.getMediaItemCount() == 0
+                || player.getCurrentMediaItemIndex() != player.getMediaItemCount() - 1)
+            return;
+        if (!owner.allowsOnlineMedia() || playbackNetwork == StreamProfiles.Path.OFFLINE) {
+            radioProblem = "Go online to continue with similar music.";
+            return;
+        }
+        SimilarMusic request = new SimilarMusic(playbackHttp, owner);
+        JSArray tracks = queueTracks();
+        org.json.JSONArray recent = heard;
+        Object last = trackIdentity(player.getCurrentMediaItem());
+        radio = request;
+        radioProblem = null;
+        playbackHttp.dispatcher().executorService().execute(() -> {
+            try {
+                JSArray additions = request.plan(tracks, recent);
+                main.post(() -> {
+                    if (radio != request)
+                        return;
+                    radio = null;
+                    if (access != owner || !owner.allowsOnlineMedia()
+                            || last != trackIdentity(player.getCurrentMediaItem()))
+                        return;
+                    try {
+                        int bytes = additions.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                        int trim = tracks.length();
+                        while (trim > 0 && tracks.length() - trim + additions.length() < 2000) {
+                            bytes += tracks.getJSONObject(trim - 1)
+                                             .toString()
+                                             .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                                             .length
+                                    + 1;
+                            if (bytes > LibraryWindow.MAX_BYTES)
+                                break;
+                            trim--;
+                        }
+                        if (trim == tracks.length())
+                            throw new IllegalArgumentException(
+                                    "The next tracks exceed the mobile queue size limit.");
+                        ArrayList<MediaItem> items = items(owner, additions);
+                        int start = player.getMediaItemCount() - trim;
+                        changingWindow = true;
+                        try {
+                            detachWindow();
+                            rememberPruned(trim);
+                            order.remove(player, 0, trim);
+                            if (trim > 0) {
+                                player.removeMediaItems(0, trim);
+                                java.util.HashSet<String> retained = new java.util.HashSet<>();
+                                for (int i = 0; i < player.getMediaItemCount(); i++)
+                                    retained.add(player.getMediaItemAt(i).mediaId);
+                                owner.metadata.keySet().retainAll(retained);
+                            }
+                            remember(owner, items);
+                            order.insert(items, null);
+                            player.addMediaItems(items);
+                            sleep.changedTrack(trackIdentity(items.get(0)), true);
+                            player.seekTo(start, 0);
+                            player.prepare();
+                            player.play();
+                        } finally {
+                            changingWindow = false;
+                        }
+                        wasPlaying = showsPauseControl();
+                        save(true);
+                    } catch (JSONException | IllegalArgumentException failure) {
+                        radioProblem = "Could not add similar tracks to the queue.";
+                    }
+                });
+            } catch (IOException | JSONException | IllegalArgumentException failure) {
+                main.post(() -> {
+                    if (radio != request)
+                        return;
+                    radio = null;
+                    // Network exceptions can contain hostnames or paths. Show only DN radio status to the
+                    // listener.
+                    String message = failure.getMessage();
+                    radioProblem = message != null
+                                    && (message.startsWith("DroppedNeedle ") || message.startsWith("This queue "))
+                            ? message
+                            : "Could not load similar music from DroppedNeedle.";
+                });
+            }
+        });
+    }
+
+    private void restorePrevious() {
+        if (access == null || previousQueue == null)
+            return;
+        JSONObject current = archive(true), old = previousQueue;
+        changingWindow = true;
+        try {
+            MediaSession.MediaItemsWithStartPosition next = restoreArchive(access, old, false);
+            previousQueue = current;
+            sleep.cancel();
+            player.pause();
+            player.stop();
+            player.setMediaItems(next.mediaItems, next.startIndex, next.startPositionMs);
+            if (old.optBoolean("playing")) {
+                player.prepare();
+                player.play();
+            }
+        } catch (JSONException failure) {
+            throw new IllegalArgumentException("The previous queue could not be restored.", failure);
+        } finally {
+            changingWindow = false;
+        }
+        wasPlaying = showsPauseControl();
+        if (wasPlaying)
+            pager.load(false);
+        save(true);
+    }
+
     void command(String action, double value, int to) {
         cancelHeadset();
         sleep.check();
         int count = player.getMediaItemCount();
         int item = (int) value;
+        if ("retryAutoplay".equals(action)) { startRadio(); return; }
+        if ("setAutoplay".equals(action)) {
+            if (access != null) autoplaySetting(access.base.toString(), access.userId, value != 0);
+            return;
+        }
+        boolean waitingRadio = radio != null;
+        if ("setPlaying".equals(action)) {
+            if (value != 0 && (showsPauseControl() || pager.waiting() || waitingRadio)) return;
+            if (value == 0) { cancelRadio(); pager.cancelAdvance(); wasPlaying = false; player.pause(); return; }
+            action = "toggle";
+        }
+        cancelRadio();
+        if ("restorePreviousQueue".equals(action)) { generation++; restorePrevious(); return; }
         if ("clear".equals(action) || ("remove".equals(action) && count == 1 && item == 0)) {
             generation++;
             revision = null;
+            previousQueue = null;
+            heard = new org.json.JSONArray();
+            order.clear();
+            autoplay = false;
             queueKey = null;
             sleep.cancel();
             detachWindow();
@@ -621,7 +914,7 @@ public final class PlaybackService extends MediaSessionService {
         boolean edit = "clearUpcoming".equals(action) || "shuffleUpcoming".equals(action)
                 || "move".equals(action) && item >= 0 && item < count && to >= 0 && to < count
                 || "remove".equals(action) && item >= 0 && item < count;
-        if (edit) detachWindow();
+        if (edit && !"shuffleUpcoming".equals(action)) detachWindow();
         generation++;
         switch (action) {
             case "cycleRepeat":
@@ -630,21 +923,19 @@ public final class PlaybackService extends MediaSessionService {
                         : repeat == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
                 break;
             case "clearUpcoming":
+                order.remove(player, player.getCurrentMediaItemIndex()+1, count);
                 player.removeMediaItems(player.getCurrentMediaItemIndex() + 1, count);
                 break;
             case "shuffleUpcoming":
-                int start = player.getCurrentMediaItemIndex() + 1;
-                if (start + 1 >= count) break;
-                ArrayList<MediaItem> upcoming = new ArrayList<>();
-                for (int i = start; i < count; i++) upcoming.add(player.getMediaItemAt(i));
-                Collections.shuffle(upcoming);
-                player.replaceMediaItems(start, count, upcoming);
+                changingWindow = true;
+                try { order.toggle(player); } finally { changingWindow = false; }
                 break;
             case "move":
-                if (item >= 0 && item < count && to >= 0 && to < count) player.moveMediaItem(item, to);
+                if (item >= 0 && item < count && to >= 0 && to < count) { order.clear(); player.moveMediaItem(item, to); }
                 break;
             case "remove":
                 if (item >= 0 && item < count) {
+                    order.remove(player, item, item+1);
                     if (item == count - 1 && item == player.getCurrentMediaItemIndex()) player.seekTo(item - 1, 0);
                     player.removeMediaItem(item);
                 }
@@ -653,7 +944,7 @@ public final class PlaybackService extends MediaSessionService {
                 pager.load(true);
                 break;
             case "toggle":
-                if (pager.waiting()) {
+                if (pager.waiting() || waitingRadio) {
                     pager.cancelAdvance();
                     wasPlaying = false;
                     player.pause();
@@ -673,7 +964,8 @@ public final class PlaybackService extends MediaSessionService {
             case "next":
                 if (pager.attached() && player.getCurrentMediaItemIndex() == count - 1 && (pager.hasNext() || repeatLibrary)) {
                     pager.end(true);
-                } else player.seekToNextMediaItem();
+                } else if (autoplay && player.getCurrentMediaItemIndex() == count-1 && repeatMode() == Player.REPEAT_MODE_OFF) startRadio();
+                else player.seekToNextMediaItem();
                 break;
             case "seek":
                 pager.cancelAdvance();
@@ -774,8 +1066,12 @@ public final class PlaybackService extends MediaSessionService {
         result.put("quality", currentQuality());
         result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
         result.put("tracks", tracks);
+        result.put("shuffled", order.shuffled());
+        result.put("hasPreviousQueue", previousQueue != null);
+        result.put("autoplay", autoplay);
+        if (radioProblem != null) result.put("autoplayProblem", radioProblem);
         result.put("index", index);
-        result.put("playing", index >= 0 && (showsPauseControl() || pager.waiting()));
+        result.put("playing", index >= 0 && (showsPauseControl() || pager.waiting() || radio != null));
         result.put("position", player.getCurrentPosition() / 1000.0);
         result.put("duration", duration);
         result.put("error", !player.routeError().isEmpty() ? player.routeError()
@@ -784,9 +1080,10 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
-        if (connectivity != null) connectivity.unregisterNetworkCallback(fadeConnectivity);
+        if (connectivity != null) connectivity.unregisterNetworkCallback(playbackConnectivity);
         stopFadeWatches();
         waveforms.close();
+        cancelRadio();
         cancelHeadset();
         generation++;
         save(false);
@@ -796,8 +1093,11 @@ public final class PlaybackService extends MediaSessionService {
         reporter.close();
         sleep.cancel();
         fades.release();
-        equalizer.release();
+        equalizer.close();
         access = null;
+        PlayerWidget.render(this, null);
+        main.removeCallbacks(stopEmptyExternalPlay);
+        car.close();
         session.release();
         player.release();
         super.onDestroy();

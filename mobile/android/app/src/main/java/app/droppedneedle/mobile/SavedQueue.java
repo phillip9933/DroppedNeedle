@@ -98,6 +98,8 @@ final class SavedQueue {
                 JSONObject latest = read(cursor, key);
                 if (latest.getString("revision").equals(queue.getString("revision"))) {
                     latest.put("tracks", queue.getJSONArray("tracks"));
+                    for (String field : new String[]{"previousQueue", "shuffleOrder", "heard"})
+                        if (queue.has(field)) latest.put(field, queue.get(field));
                     if (queue.has("userId")) latest.put("userId", queue.get("userId"));
                     else latest.remove("userId");
                     queue = latest;

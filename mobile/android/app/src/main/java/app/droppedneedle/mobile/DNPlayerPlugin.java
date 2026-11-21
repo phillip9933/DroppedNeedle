@@ -83,9 +83,19 @@ public final class DNPlayerPlugin extends Plugin {
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> {
             p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getArray("tracks"),
-                    call.getInt("index", -1), call.getString("placement"), call.getObject("profiles"), call.getObject("continuation"));
+                    call.getInt("index", -1), call.getString("placement"), call.getObject("profiles"), call.getObject("continuation"),
+                    call.getDouble("positionSeconds", 0.0), call.getBoolean("playing", true));
             JSObject result = p.snapshot();
             p.afterWrite(() -> call.resolve(result));
+        });
+    }
+
+    @PluginMethod public void autoplaySetting(PluginCall call) {
+        execute(call, p -> {
+            boolean enabled = p.autoplaySetting(call.getString("serverUrl"), call.getString("userId"), call.getBoolean("enabled"));
+            JSObject result = new JSObject();
+            result.put("enabled", enabled);
+            call.resolve(result);
         });
     }
 
@@ -131,13 +141,21 @@ public final class DNPlayerPlugin extends Plugin {
         });
     }
 
+    @PluginMethod public void soundSettings(PluginCall call) {
+        execute(call, p -> call.resolve(p.soundSettings(call.getDouble("speed"),call.getString("replayGain"))));
+    }
+
+    @PluginMethod public void setEqualizerOutput(PluginCall call) {
+        execute(call, p -> call.resolve(p.equalizer().assign(call.getString("outputId"),call.getBoolean("assigned",false))));
+    }
+
     @PluginMethod public void getEqualizer(PluginCall call) {
         execute(call, p -> call.resolve(p.equalizer().read()));
     }
 
     @PluginMethod public void setEqualizer(PluginCall call) {
         execute(call, p -> call.resolve(p.equalizer().configure(call.getBoolean("enabled", false),
-                call.getString("preset"), call.getArray("centers"), call.getArray("levels"))));
+                call.getString("preset"), call.getArray("centers"), call.getArray("levels"), call.getString("outputId"))));
     }
 
     @PluginMethod public void getState(PluginCall call) { execute(call, p -> call.resolve(p.snapshot())); }
@@ -172,12 +190,15 @@ public final class DNPlayerPlugin extends Plugin {
                         looking = false;
                         if (destroyed) return;
                         JSArray devices = new JSArray();
+                        java.util.Set<String> sonos = new java.util.HashSet<>();
                         for (DlnaRenderer device : found) {
+                            if (device.hasGroups() && !sonos.add(device.sonosId)) continue;
                             String id = UUID.randomUUID().toString();
                             outputs.put(id, device);
                             JSObject entry = new JSObject();
                             entry.put("id", id);
                             entry.put("name", device.name);
+                            entry.put("sonos",device.hasGroups());
                             devices.put(entry);
                         }
                         JSObject result = new JSObject();
@@ -194,13 +215,80 @@ public final class DNPlayerPlugin extends Plugin {
         });
     }
 
-    @PluginMethod public void castTo(PluginCall call) {
-        execute(call, p -> {
-            DlnaRenderer device = outputs.get(call.getString("id"));
-            if (device == null) { call.reject("Find the speaker again before connecting."); return; }
-            p.output().connect(device, error -> {
-                if (error.isEmpty()) call.resolve(outputState(p.output()));
-                else call.reject(error);
+    private interface RoomAction {
+        JSObject run(java.util.Map<String, DlnaRenderer> rooms) throws Exception;
+    }
+    private void roomCommand(PluginCall call, RoomAction action) {
+        main.post(() -> {
+            if (destroyed || looking) {
+                call.reject("Wait for speaker discovery to finish.");
+                return;
+            }
+            HashMap<String, DlnaRenderer> rooms = new HashMap<>(outputs);
+            discovery.execute(() -> {
+                try {
+                    call.resolve(action.run(rooms));
+                } catch (Exception e) {
+                    call.reject(
+                            e instanceof java.io.IOException ? e.getMessage() : "Sonos room controls are unavailable.");
+                }
+            });
+        });
+    }
+    private static DlnaRenderer speaker(java.util.Map<String, DlnaRenderer> rooms, String id)
+            throws java.io.IOException {
+        DlnaRenderer room = rooms.get(id);
+        if (room == null)
+            throw new java.io.IOException("Find the speaker again before connecting.");
+        return room;
+    }
+    @PluginMethod
+    public void sonosRooms(PluginCall call) {
+        roomCommand(call, rooms -> {
+            JSObject result = new JSObject();
+            result.put("rooms", SonosRooms.list(rooms));
+            return result;
+        });
+    }
+    @PluginMethod
+    public void setSonosGroup(PluginCall call) {
+        roomCommand(call, rooms -> {
+            String target = call.getString("coordinator");
+            SonosRooms.group(speaker(rooms, call.getString("id")), target == null ? null : speaker(rooms, target));
+            return new JSObject();
+        });
+    }
+    @PluginMethod
+    public void setSonosVolume(PluginCall call) {
+        roomCommand(call, rooms -> {
+            speaker(rooms, call.getString("id")).setVolume(call.getInt("volume", -1));
+            return new JSObject();
+        });
+    }
+    @PluginMethod
+    public void castTo(PluginCall call) {
+        main.post(() -> {
+            if (destroyed || looking) {
+                call.reject("Wait for speaker discovery to finish.");
+                return;
+            }
+            HashMap<String, DlnaRenderer> rooms = new HashMap<>(outputs);
+            discovery.execute(() -> {
+                try {
+                    DlnaRenderer device = SonosRooms.route(rooms, speaker(rooms, call.getString("id")));
+                    main.post(() -> {
+                        if (destroyed)
+                            return;
+                        execute(call, p -> p.output().connect(device, error -> {
+                            if (error.isEmpty())
+                                call.resolve(outputState(p.output()));
+                            else
+                                call.reject(error);
+                        }));
+                    });
+                } catch (Exception e) {
+                    call.reject(e.getMessage());
+                }
             });
         });
     }

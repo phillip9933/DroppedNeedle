@@ -157,6 +157,9 @@ final class ConversionSource implements MediaSource.Factory {
         public void init(DataReader input, Uri uri, Map<String, List<String>> headers, long position, long end,
                 ExtractorOutput output) throws IOException {
             long base = timeline.base(position);
+            // DN writes CBR MP3 conversions to a pipe without a Xing seek table. Once saved locally,
+            // the entire file length is known and Media3 can calculate ordinary byte seeks.
+            extractors.setConstantBitrateSeekingEnabled("file".equals(uri.getScheme()));
             boolean converted = requested(uri) && converted(headers);
             if (activeBase != -1 && (activeBase != base || live != converted || (live && position == base))) {
                 // Each ffmpeg invocation starts a fresh container, including the codec headers.

@@ -10,6 +10,10 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.view.KeyEvent;
 import androidx.media3.common.Player;
+import androidx.media3.common.MediaItem;
+import androidx.media3.session.MediaBrowser;
+import androidx.media3.session.LibraryResult;
+import com.google.common.util.concurrent.ListenableFuture;
 import androidx.media3.session.MediaController;
 import androidx.media3.session.SessionToken;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -120,9 +124,7 @@ public class HeadsetResumeTest {
         local.recordHistory(previouslyRecording);
         local.configure(previous);
     }
-    @Test public void coldControllerPlayUsesTheSavedAccountSelectionAndLatestPositionWithoutAWebView() throws Exception {
-        login(SERVER, TOKEN, USER);
-        savedQueue(true);
+    private void retainTone() throws Exception {
         int bytes = 8 * 8000 * 2;
         ByteBuffer audio = ByteBuffer.allocate(bytes + 44).order(ByteOrder.LITTLE_ENDIAN);
         audio.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(bytes + 36);
@@ -133,6 +135,11 @@ public class HeadsetResumeTest {
             file.write(audio.array(), 0, audio.capacity());
             file.finish();
         }
+    }
+    @Test public void coldControllerPlayUsesTheSavedAccountSelectionAndLatestPositionWithoutAWebView() throws Exception {
+        login(SERVER, TOKEN, USER);
+        savedQueue(true);
+        retainTone();
         ComponentName entry = new ComponentName(context, HeadsetPlayReceiver.class);
         ActivityInfo receiver = context.getPackageManager().getReceiverInfo(entry, 0);
         assertTrue(receiver.exported);
@@ -187,6 +194,45 @@ public class HeadsetResumeTest {
     private Intent button(int code) {
         return new Intent(Intent.ACTION_MEDIA_BUTTON)
                 .putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(KeyEvent.ACTION_DOWN, code));
+    }
+    private <T> T browserCall(java.util.function.Supplier<ListenableFuture<T>> send) throws Exception {
+        CompletableFuture<ListenableFuture<T>> pending = new CompletableFuture<>();
+        instrument.runOnMainSync(() -> pending.complete(send.get()));
+        return pending.get(3, TimeUnit.SECONDS).get(8, TimeUnit.SECONDS);
+    }
+    @Test public void carBrowserUsesOfflineSearchAndVoicePlaybackAndTheWidgetPausesIt() throws Exception {
+        login(SERVER, TOKEN, USER);
+        retainTone();
+        SessionToken token = new SessionToken(context, new ComponentName(context, PlaybackService.class));
+        MediaBrowser browser = browserCall(() -> new MediaBrowser.Builder(context, token).buildAsync());
+        try {
+            MediaItem root = browserCall(() -> browser.getLibraryRoot(null)).value;
+            assertNotNull(root);
+            assertEquals(CarLibrary.ROOT, root.mediaId);
+            MediaItem device = browserCall(() -> browser.getChildren(root.mediaId, 0, 10, null)).value.get(0);
+            assertEquals("On this device", device.mediaMetadata.title);
+            assertEquals("Tone two", browserCall(() -> browser.getChildren(device.mediaId, 0, 10, null)).value.get(0).mediaMetadata.title);
+            assertEquals(LibraryResult.RESULT_SUCCESS, browserCall(() -> browser.search("Tone", null)).resultCode);
+            assertEquals("Tone two", browserCall(() -> browser.getSearchResult("Tone", 0, 20, null)).value.get(0).mediaMetadata.title);
+            CompletableFuture<Boolean> started = new CompletableFuture<>(), stopped = new CompletableFuture<>();
+            instrument.runOnMainSync(() -> {
+                browser.addListener(new Player.Listener() {
+                    @Override public void onIsPlayingChanged(boolean playing) {
+                        if (playing) started.complete(true); else if (started.isDone()) stopped.complete(true);
+                    }
+                });
+                browser.setMediaItem(new MediaItem.Builder().setRequestMetadata(
+                        new MediaItem.RequestMetadata.Builder().setSearchQuery("Tone").build()).build());
+                browser.prepare(); browser.play();
+            });
+            assertTrue(started.get(8, TimeUnit.SECONDS));
+            awaitForegroundPlayback();
+            context.sendBroadcast(new Intent(context, PlayerWidget.class).setAction("app.droppedneedle.mobile.WIDGET.TOGGLE"));
+            assertTrue(stopped.get(4, TimeUnit.SECONDS));
+            logout();
+            assertEquals(androidx.media3.session.SessionError.ERROR_SESSION_SETUP_REQUIRED,
+                    browserCall(() -> browser.getChildren(device.mediaId, 0, 11, null)).resultCode);
+        } finally { instrument.runOnMainSync(() -> { browser.pause(); browser.release(); }); }
     }
     @Test public void wrongTenantRotatedTokenChangedUserMissingOwnerAndSignOutPreserveTheSavedQueue() throws Exception {
         savedQueue(true);

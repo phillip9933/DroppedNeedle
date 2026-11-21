@@ -9,6 +9,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <meta-data android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
         <meta-data android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="app.droppedneedle.mobile.GoogleCastOptions" />
 
@@ -34,16 +36,30 @@
         </activity>
         <activity-alias android:name="app.droppedneedle.mobile.DownloadsNotification"
             android:targetActivity="app.droppedneedle.mobile.MainActivity" android:exported="false" />
-        <service android:name=".PlaybackService" android:exported="false"
+        <activity android:name=".VoiceSearchActivity" android:exported="true"
+            android:permission="android.permission.MEDIA_CONTENT_CONTROL"
+            android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <service android:name=".PlaybackService" android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
         <service android:name=".ManualDownloadJob" android:exported="true"
             android:enabled="@bool/uses_user_initiated_transfers" tools:targetApi="34"
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name=".ManualDownloadCancel" android:exported="false" />
+        <receiver android:name=".PlayerWidget" android:exported="false" android:label="@string/widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/player_widget_info" />
+        </receiver>
         <receiver android:name=".HeadsetPlayReceiver" android:exported="true"
             android:permission="android.permission.MEDIA_CONTENT_CONTROL">
             <intent-filter>

@@ -333,20 +333,21 @@ final class ManualDownloads {
     private void fetch(Run run, HeadsetAccount owner, OfflineStore store, ManualDownloadQueue.Item item,
             Call.Factory http) throws Exception {
         long revision = store.itemRevision(item.id());
-        Call call = http.newCall(new Request.Builder().url(store.original(item.id()).newBuilder()
-                .addQueryParameter("format", "raw").build()).header("Authorization", "Bearer " + owner.token)
-                .header("Accept-Encoding", "identity").build());
-        synchronized (this) {
-            if (run.stopped || store.offlineOnly() || !store.permittedNetwork() || !owner.matches(login.get()))
-                throw new IOException("Download stopped.");
-            run.requesting(call);
-            currentTrack = ManualDownloadQueue.summary(item.track());
-            changed();
-        }
-        try (Response response = call.execute()) {
-            if (response.code() != 200) throw new HttpFailure(response.code());
+        StreamProfiles.Quality quality = store.downloadQuality();
+        currentTrack = ManualDownloadQueue.summary(item.track());
+        changed();
+        try (Response response = DownloadRepresentation.open(store.original(item.id()), owner.token, quality.format, quality.rate, request -> {
+            Call call = http.newCall(request);
+            synchronized (this) {
+                if (run.stopped || store.offlineOnly() || !store.permittedNetwork() || !owner.matches(login.get()))
+                    throw new IOException("Download stopped.");
+                run.requesting(call);
+            }
+            return call.execute();
+        })) {
+            String mime = DownloadRepresentation.mime(response);
+            if (mime == null) throw new HttpFailure(response.code());
             ResponseBody body = response.body();
-            if (body == null || !OfflineStore.isAudio(response.header("Content-Type"))) throw new HttpFailure(200);
             OfflineStore.Capture capture;
             try { capture = store.begin(item.track(), true, body.contentLength()); }
             catch (IOException storage) { throw new LocalFailure(); }
@@ -365,7 +366,7 @@ final class ManualDownloads {
                     if (run.stopped || store.offlineOnly() || !store.permittedNetwork() || !owner.matches(login.get())
                             || revision != store.itemRevision(item.id()) || queue.state(run.owner,item.id()) != ManualDownloadQueue.PENDING)
                         throw new IOException("Download stopped.");
-                    try { sink.finish(); } catch (IOException storage) { throw new LocalFailure(); }
+                    try { sink.finish(mime); } catch (IOException storage) { throw new LocalFailure(); }
                     queue.finish(run.owner, item.id(), ManualDownloadQueue.SAVED, "");
                 }
             }
