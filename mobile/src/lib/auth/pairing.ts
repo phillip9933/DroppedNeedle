@@ -128,7 +128,8 @@ export function watchSignIn(
 				if (Capacitor.getPlatform() === 'ios') await Browser.close().catch(() => {});
 			});
 		} catch (error) {
-			const revoked = error instanceof DnError && error.status === 401;
+			const revoked =
+				error instanceof DnError && error.status === 401 && error.code === 'UNAUTHORIZED';
 			await ifCurrent(pending.state, async () => {
 				if (revoked) await removeSecret(PENDING);
 				if (!closed) failed(error, !revoked);

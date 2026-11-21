@@ -25,7 +25,13 @@
 	import { nativeMedia } from './lib/offline/nativeMedia';
 	import { connectTrackFeedback } from './lib/offline/feedback';
 	import Connect from './lib/auth/Connect.svelte';
-	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
+	import {
+		restoreSession,
+		signOut,
+		forgetSession,
+		retrySignOuts,
+		type Session
+	} from './lib/connection';
 	import type { LibraryContinuation } from './lib/player/libraryWindow';
 	import { player, type PlayerTrack } from './lib/player';
 	import { connectMobileDevice } from './lib/player/deviceLink';
@@ -483,7 +489,7 @@
 				? [nativeMedia.cancelManual({ serverUrl: previous.serverUrl, userId: previous.userId })]
 				: []),
 			player.clear(),
-			expired ? forgetSession() : signOut(previous)
+			expired ? forgetSession(previous) : signOut(previous)
 		]);
 		const failure = outcomes.find((item) => item.status === 'rejected');
 		if (failure?.status === 'rejected') report(failure.reason);
@@ -497,6 +503,12 @@
 			})
 			.catch(report)
 			.finally(() => (loading = false));
+		const retryLogout = () => {
+			if (!document.hidden) void retrySignOuts().catch(report);
+		};
+		retryLogout();
+		window.addEventListener('online', retryLogout);
+		document.addEventListener('visibilitychange', retryLogout);
 		function expired(event: Event) {
 			const old = (event as CustomEvent<Session>).detail;
 			if (session && session.serverUrl === old.serverUrl && session.token === old.token)
@@ -529,6 +541,8 @@
 			window.removeEventListener('dn-download-notification', openDownloadNotification);
 			window.removeEventListener('dn-playlist-shortcut', openPlaylistShortcut);
 			window.removeEventListener('dn-session-expired', expired);
+			window.removeEventListener('online', retryLogout);
+			document.removeEventListener('visibilitychange', retryLogout);
 			window.removeEventListener('keydown', key);
 		};
 	});
