@@ -13,6 +13,9 @@ export async function emptyBoardRead(route: Route) {
 		return true;
 	}
 	switch (path) {
+		case 'search/suggest':
+			await route.fulfill({ json: { results: [], status: 'ok' } });
+			return true;
 		case 'discover':
 		case 'home':
 			await route.fulfill({ json: { sections: [], refreshing: false } });
