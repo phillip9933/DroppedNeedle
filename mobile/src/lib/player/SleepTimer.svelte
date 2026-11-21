@@ -8,12 +8,14 @@
 		section,
 		timer,
 		sample = false,
+		queueControl = false,
 		open = $bindable(false),
 		hideTrigger = false
 	}: {
 		section?: Section;
 		timer?: SleepTimerState | null;
 		sample?: boolean;
+		queueControl?: boolean;
 		open?: boolean;
 		hideTrigger?: boolean;
 	} = $props();
@@ -103,7 +105,8 @@
 
 {#if !hideTrigger}<button
 		class="secondary sleep"
-		class:player-control={!!section}
+		class:player-control={!!section || queueControl}
+		class:queue-control={queueControl}
 		class:active={!!timer}
 		aria-label="Sleep timer"
 		aria-haspopup="dialog"
@@ -222,6 +225,10 @@
 	}
 	.sleep.active {
 		color: var(--accent);
+	}
+	.queue-control {
+		flex-direction: column;
+		gap: 0.2rem;
 	}
 	.timer {
 		display: grid;
