@@ -32,7 +32,7 @@ final class QueueOrder {
         return -1;
     }
 
-    void toggle(Player player) {
+    void toggle(Player player, FreshShuffle.History history) {
         int current = player.getCurrentMediaItemIndex(), count = player.getMediaItemCount();
         if (original != null) {
             int normal = originalIndex(player.getCurrentMediaItem());
@@ -47,11 +47,7 @@ final class QueueOrder {
             for (int i = 0; i < count; i++) original.add(player.getMediaItemAt(i));
             List<MediaItem> suffix = original.subList(current + 1, count);
             ArrayList<MediaItem> upcoming = new ArrayList<>(suffix);
-            Collections.shuffle(upcoming);
-            boolean changed = false;
-            for (int i = 0; i < upcoming.size(); i++) changed |= key(upcoming.get(i)) != key(suffix.get(i));
-            if (!changed)
-                Collections.swap(upcoming, 0, 1);
+            FreshShuffle.draw(upcoming, item -> item.mediaId, history);
             player.replaceMediaItems(current + 1, count, upcoming);
         }
     }
