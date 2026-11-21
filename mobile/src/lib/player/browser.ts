@@ -16,10 +16,23 @@ import type { PlaybackBridge, PlayerState, PlayerTrack } from '../player';
 import { cacheWebPlayback, isAudio, webLocalAudio, webPlaybackPolicy } from '../offline/web';
 import { identifyAudio, setBrowserWaveformSource } from './waveform';
 
+import { browserSpeed } from './sound';
+import { similarTracks, type HeardTrack } from './autoplay';
 import { albumSequence, maxOverlap, smartOverlap } from './smartFades';
+
+function shuffle<T>(tracks: T[], start = 0) {
+	for (let i = tracks.length - 1; i > start; i--) {
+		const j = start + Math.floor(Math.random() * (i - start + 1));
+		[tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+	}
+}
 
 export function browserPlayer(): PlaybackBridge {
 	let audio = new Audio();
+	function speed(element: HTMLAudioElement) {
+		element.defaultPlaybackRate = element.playbackRate = browserSpeed();
+	}
+	speed(audio);
 	let state: PlayerState = {
 		repeat: 'off',
 		tracks: [],
@@ -39,6 +52,99 @@ export function browserPlayer(): PlaybackBridge {
 	let loadingWindow: AbortController | undefined;
 	let windowProblem: string | undefined,
 		waitingAtEnd = false;
+	let original: PlayerTrack[] | undefined;
+	let history: HeardTrack[] = [];
+	let heldPosition: number | undefined;
+	function rememberPruned(tracks: PlayerTrack[]) {
+		history = [
+			...history,
+			...tracks.slice(-500).map(({ id, recordingMbid }) => ({ id, recordingMbid }))
+		].slice(-500);
+	}
+	let previous: ReturnType<typeof archive> | undefined;
+	let radio: AbortController | undefined;
+	let autoplay = false;
+	let autoplayProblem: string | undefined;
+	function preferenceKey(server = serverUrl, user = userId) {
+		return 'dn.mobile.autoplay.' + JSON.stringify([server, user]);
+	}
+	function archive() {
+		return {
+			tracks: [...state.tracks],
+			index: state.index,
+			position: heldPosition ?? (audio.currentTime || 0),
+			playing: !audio.paused || waitingAtEnd || !!radio,
+			repeat: state.repeat,
+			original: original && [...original],
+			cursor: windowCursor,
+			history: [...history]
+		};
+	}
+	function cancelRadio() {
+		radio?.abort();
+		radio = undefined;
+		autoplayProblem = undefined;
+	}
+	async function continueRadio() {
+		if (
+			!autoplay ||
+			radio ||
+			!state.tracks.length ||
+			state.index !== state.tracks.length - 1 ||
+			state.repeat !== 'off' ||
+			windowCursor?.after
+		)
+			return;
+		const request = new AbortController();
+		radio = request;
+		autoplayProblem = undefined;
+		try {
+			const policy = userId
+				? await webPlaybackPolicy({ serverUrl, userId }, state.tracks[state.index].id)
+				: null;
+			if (policy?.options.offlineOnly || !navigator.onLine)
+				throw Error('Go online to continue with similar music.');
+			const incoming = await similarTracks(
+				{ serverUrl, userId, token, displayName: '' },
+				state.tracks,
+				request.signal,
+				history
+			);
+			if (radio !== request) return;
+			// A full 2,000-track queue can still continue. Retain as much played history as the bridge accepts.
+			const fits = queueSizeCheck(serverUrl);
+			incoming.forEach(fits);
+			let trim = state.tracks.length;
+			while (trim > 0) {
+				try {
+					fits(state.tracks[trim - 1]);
+				} catch {
+					break;
+				}
+				trim--;
+			}
+			if (trim === state.tracks.length)
+				throw Error('The next tracks exceed the mobile queue size limit.');
+			rememberPruned(state.tracks.slice(0, trim));
+			const retained = state.tracks.slice(trim);
+			if (original && trim) {
+				const keep = new Set(retained);
+				original = original.filter((t) => keep.has(t));
+			}
+			const next = [...retained, ...incoming];
+			const index = retained.length;
+			detachWindow();
+			state.tracks = next;
+			original?.push(...incoming);
+			radio = undefined;
+			await playAt(index);
+		} catch (e) {
+			if (!request.signal.aborted)
+				autoplayProblem = e instanceof Error ? e.message : 'Could not load similar music.';
+		} finally {
+			if (radio === request) radio = undefined;
+		}
+	}
 	let retryAlarm: ReturnType<typeof setTimeout> | undefined;
 	function detachWindow() {
 		loadingWindow?.abort();
@@ -85,8 +191,17 @@ export function browserPlayer(): PlaybackBridge {
 				return;
 			const trim = restart ? state.tracks.length : Math.max(0, state.index - retainedHistory);
 			const old = state.tracks.length - trim;
-			const tracks = [...state.tracks.slice(trim), ...batch.tracks];
+			if (trim > 0) rememberPruned(state.tracks.slice(0, trim));
+			const retained = state.tracks.slice(trim);
+			const displayed = [...batch.tracks];
+			if (original && !restart) shuffle(displayed);
+			const tracks = [...retained, ...displayed];
 			tracks.forEach(queueSizeCheck(serverUrl));
+			if (restart) original = undefined;
+			else if (original) {
+				const keep = new Set(retained);
+				original = [...original.filter((t) => keep.has(t)), ...batch.tracks];
+			}
 			state.tracks = tracks;
 			state.index = restart ? 0 : state.index - trim;
 			windowCursor = batch.continuation;
@@ -129,6 +244,7 @@ export function browserPlayer(): PlaybackBridge {
 				return;
 			}
 			pauseRevision++;
+			cancelRadio();
 			waitingAtEnd = false;
 			blockAdvance = true;
 			audio.pause();
@@ -180,6 +296,7 @@ export function browserPlayer(): PlaybackBridge {
 			if (request.signal.aborted) return;
 			pair.source = source;
 			pair.media = new Audio();
+			speed(pair.media);
 			pair.media.preload = 'auto';
 			pair.media.volume = 0;
 			pair.url = URL.createObjectURL(source.blob);
@@ -274,6 +391,11 @@ export function browserPlayer(): PlaybackBridge {
 		discardNext();
 		fadeVolume();
 	}
+	window.addEventListener('dn-playback-speed', () => {
+		speed(audio);
+		if (prepared?.media) speed(prepared.media);
+		fadeVolume();
+	});
 	const fadeEvents = ['play', 'playing', 'durationchange', 'ratechange', 'seeked'];
 	function attach(element: HTMLAudioElement) {
 		element.addEventListener('timeupdate', checkSleep);
@@ -299,7 +421,11 @@ export function browserPlayer(): PlaybackBridge {
 		fades = browserFade();
 		invalidateNext();
 	});
-	window.addEventListener('dn-offline-policy', invalidateNext);
+	window.addEventListener('dn-offline-policy', () => {
+		cancelRadio();
+		invalidateNext();
+	});
+	window.addEventListener('offline', cancelRadio);
 	window.addEventListener('dn-stream-profiles', invalidateNext);
 	browserConnection()?.addEventListener('change', invalidateNext);
 	window.addEventListener('offline', invalidateNext);
@@ -325,6 +451,10 @@ export function browserPlayer(): PlaybackBridge {
 		checkSleep();
 		return {
 			...state,
+			shuffled: !!original,
+			hasPreviousQueue: !!previous,
+			autoplay,
+			autoplayProblem,
 			libraryWindow: windowCursor
 				? {
 						loaded: windowCursor.loaded,
@@ -334,8 +464,8 @@ export function browserPlayer(): PlaybackBridge {
 						problem: windowProblem
 					}
 				: null,
-			playing: waitingAtEnd || !audio.paused,
-			position: audio.currentTime || 0,
+			playing: waitingAtEnd || !!radio || !audio.paused,
+			position: heldPosition ?? (audio.currentTime || 0),
 			duration: Number.isFinite(audio.duration)
 				? audio.duration
 				: (state.tracks[state.index]?.duration ?? 0)
@@ -390,7 +520,7 @@ export function browserPlayer(): PlaybackBridge {
 		return { blob, cache };
 	}
 
-	async function playAt(index: number, play = true) {
+	async function playAt(index: number, play = true, position = 0) {
 		const track = state.tracks[index];
 		if (!track) throw new Error('This track is outside the play queue.');
 		if (sleepingTrack && sleepingTrack !== track) cancelSleep();
@@ -400,7 +530,9 @@ export function browserPlayer(): PlaybackBridge {
 		unload();
 		state = { ...state, index, error: null };
 		waitingAtEnd = false;
-		if (play) void extendWindow();
+		heldPosition = play ? undefined : position;
+		if (!play) return;
+		void extendWindow();
 		const request = new AbortController();
 		active = request;
 		try {
@@ -415,6 +547,7 @@ export function browserPlayer(): PlaybackBridge {
 			state.quality = quality;
 			objectUrl = URL.createObjectURL(blob);
 			audio.src = objectUrl;
+			if (position > 0) audio.currentTime = position;
 			fadeVolume();
 			checkSleep();
 			if (play && playRevision === pauseRevision) await audio.play();
@@ -440,7 +573,12 @@ export function browserPlayer(): PlaybackBridge {
 			}
 			state.sleepTimer = { mode: 'track', remaining: left };
 			sleepingTrack = state.repeat === 'one' ? state.tracks[state.index] : undefined;
-			if (state.repeat === 'off' && !windowCursor?.after && state.index + 1 >= state.tracks.length)
+			if (
+				state.repeat === 'off' &&
+				!windowCursor?.after &&
+				!autoplay &&
+				state.index + 1 >= state.tracks.length
+			)
 				cancelSleep();
 		}
 		if (state.repeat === 'one') {
@@ -494,13 +632,24 @@ export function browserPlayer(): PlaybackBridge {
 				preserveIntro = gapless;
 				void result.catch(() => {});
 			}
-		}
+		} else if (autoplay) void continueRadio();
 	}
 	function mediaError() {
 		if (audio.hasAttribute('src')) state.error = 'This audio format could not be played.';
 	}
 	attach(audio);
 	return {
+		async autoplaySetting(options) {
+			const key = preferenceKey(options.serverUrl, options.userId);
+			if (options.enabled !== undefined) {
+				localStorage.setItem(key, String(options.enabled));
+				if (options.serverUrl === serverUrl && options.userId === userId) {
+					autoplay = options.enabled;
+					if (!autoplay) cancelRadio();
+				}
+			}
+			return { enabled: localStorage.getItem(key) === 'true' };
+		},
 		async getState() {
 			return snapshot();
 		},
@@ -508,32 +657,85 @@ export function browserPlayer(): PlaybackBridge {
 			if (options.placement && state.tracks.length) {
 				if (token !== options.token || serverUrl !== options.serverUrl || userId !== options.userId)
 					throw new Error('This queue belongs to a different session.');
+				const entries = options.tracks.map((t) => ({ ...t }));
+				cancelRadio();
 				detachWindow();
+				if (original)
+					original.splice(
+						options.placement === 'next'
+							? original.indexOf(state.tracks[state.index]) + 1
+							: original.length,
+						0,
+						...entries
+					);
 				const at = options.placement === 'next' ? state.index + 1 : state.tracks.length;
-				state.tracks = [...state.tracks.slice(0, at), ...options.tracks, ...state.tracks.slice(at)];
+				state.tracks = [...state.tracks.slice(0, at), ...entries, ...state.tracks.slice(at)];
 				fadeVolume();
 				return snapshot();
 			}
-			if (serverUrl !== options.serverUrl || userId !== options.userId || token !== options.token)
-				cancelSleep();
+			const same =
+				serverUrl === options.serverUrl && userId === options.userId && token === options.token;
+			previous = same && state.tracks.length ? archive() : undefined;
+			original = undefined;
+			cancelRadio();
+			if (!same) cancelSleep();
 			detachWindow();
 			windowCursor = options.continuation;
 			serverUrl = options.serverUrl;
 			userId = options.userId;
 			token = options.token;
-			state.tracks = options.tracks;
-			await playAt(options.index);
+			if (!same) autoplay = localStorage.getItem(preferenceKey()) === 'true';
+			state.tracks = options.tracks.map((t) => ({ ...t }));
+			history = [];
+			await playAt(options.index, options.playing ?? true, options.positionSeconds ?? 0);
 			return snapshot();
 		},
 		async command({ action, value, to }) {
+			const waitingForRadio = !!radio;
+			if (action === 'setAutoplay') {
+				autoplay = !!value;
+				if (serverUrl) localStorage.setItem(preferenceKey(), String(autoplay));
+				if (!autoplay) cancelRadio();
+				return snapshot();
+			}
+			if (action === 'retryAutoplay') {
+				await continueRadio();
+				return snapshot();
+			}
+			if (action === 'setPlaying') {
+				if (value && (waitingAtEnd || waitingForRadio || !audio.paused)) return snapshot();
+				if (!value && !waitingAtEnd && !waitingForRadio && audio.paused && !active)
+					return snapshot();
+				if (!value) {
+					pauseRevision++;
+					blockAdvance = true;
+					waitingAtEnd = false;
+					cancelRadio();
+					audio.pause();
+					return snapshot();
+				}
+				action = 'toggle';
+			}
+			cancelRadio();
+			if (action === 'restorePreviousQueue' && previous) {
+				const old = previous;
+				previous = archive();
+				detachWindow();
+				windowCursor = old.cursor;
+				history = old.history;
+				original = old.original;
+				state.tracks = old.tracks;
+				state.repeat = old.repeat;
+				await playAt(old.index, old.playing, old.position);
+				return snapshot();
+			}
 			if (action !== 'retryLibraryWindow') discardNext();
 			if (action === 'retryLibraryWindow') {
 				await extendWindow(true);
 				return snapshot();
 			}
-			if (['move', 'remove', 'clearUpcoming', 'shuffleUpcoming', 'clear'].includes(action))
-				detachWindow();
-			if (action === 'toggle' && waitingAtEnd) {
+			if (['move', 'remove', 'clearUpcoming', 'clear'].includes(action)) detachWindow();
+			if (action === 'toggle' && (waitingAtEnd || waitingForRadio)) {
 				waitingAtEnd = false;
 				audio.pause();
 				return snapshot();
@@ -581,29 +783,64 @@ export function browserPlayer(): PlaybackBridge {
 				unload();
 				token = serverUrl = '';
 				userId = undefined;
+				previous = original = undefined;
+				autoplay = false;
+				history = [];
+				heldPosition = undefined;
 				state = { ...state, repeat: 'off', tracks: [], index: -1, error: null };
 			} else if (state.tracks.length) {
 				if (action === 'seek' && Number.isFinite(value)) {
 					waitingAtEnd = false;
-					audio.currentTime = Math.max(0, value!);
+					if (heldPosition !== undefined) heldPosition = Math.max(0, value!);
+					else audio.currentTime = Math.max(0, value!);
 				}
 				if (action === 'skipTo' && Number.isInteger(value)) await playAt(value!);
-				if (action === 'next' && (state.index + 1 < state.tracks.length || state.repeat === 'all'))
+				else if (
+					action === 'next' &&
+					(state.index + 1 < state.tracks.length || state.repeat === 'all')
+				)
 					await playAt((state.index + 1) % state.tracks.length);
+				else if (
+					action === 'next' &&
+					state.index === state.tracks.length - 1 &&
+					state.repeat === 'off' &&
+					!windowCursor?.after &&
+					autoplay &&
+					!waitingForRadio
+				)
+					await continueRadio();
 				if (action === 'previous') {
 					waitingAtEnd = false;
-					if (audio.currentTime > 3 || state.index === 0) audio.currentTime = 0;
-					else await playAt(state.index - 1);
+					if ((heldPosition ?? audio.currentTime) > 3 || state.index === 0) {
+						if (heldPosition !== undefined) heldPosition = 0;
+						else audio.currentTime = 0;
+					} else await playAt(state.index - 1);
 				}
 				if (action === 'cycleRepeat') {
 					state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
 					if (windowCursor?.after === null && state.repeat !== 'all') waitingAtEnd = false;
 				}
-				if (action === 'clearUpcoming') state.tracks = state.tracks.slice(0, state.index + 1);
+				if (action === 'clearUpcoming') {
+					state.tracks = state.tracks.slice(0, state.index + 1);
+					if (original) {
+						const retained = new Set(state.tracks);
+						original = original.filter((t) => retained.has(t));
+					}
+				}
 				if (action === 'shuffleUpcoming') {
-					for (let i = state.tracks.length - 1; i > state.index + 1; i--) {
-						const j = state.index + 1 + Math.floor(Math.random() * (i - state.index));
-						[state.tracks[i], state.tracks[j]] = [state.tracks[j], state.tracks[i]];
+					const start = state.index + 1;
+					if (original) {
+						state.index = original.indexOf(state.tracks[state.index]);
+						state.tracks = original;
+						original = undefined;
+					} else if (state.tracks.length > start + 1) {
+						original = [...state.tracks];
+						shuffle(state.tracks, start);
+						if (original.every((t, i) => state.tracks[i] === t))
+							[state.tracks[start], state.tracks[start + 1]] = [
+								state.tracks[start + 1],
+								state.tracks[start]
+							];
 					}
 				}
 				if (
@@ -615,10 +852,12 @@ export function browserPlayer(): PlaybackBridge {
 					const current = state.tracks[state.index];
 					if (action === 'move' && to !== undefined && Number.isInteger(to) && state.tracks[to]) {
 						state.tracks.splice(to, 0, ...state.tracks.splice(value, 1));
+						original = undefined;
 						state.index = state.tracks.indexOf(current);
 					}
 					if (action === 'remove') {
 						const play = !audio.paused;
+						if (original) original.splice(original.indexOf(state.tracks[value]), 1);
 						state.tracks.splice(value, 1);
 						if (value === state.index) await playAt(Math.min(value, state.tracks.length - 1), play);
 						else state.index = state.tracks.indexOf(current);
@@ -626,7 +865,8 @@ export function browserPlayer(): PlaybackBridge {
 				}
 				if (action === 'toggle') {
 					blockAdvance = !audio.paused;
-					if (audio.paused && (audio.ended || !objectUrl || state.error)) await playAt(state.index);
+					if (audio.paused && (audio.ended || !objectUrl || state.error))
+						await playAt(state.index, true, heldPosition ?? 0);
 					else if (audio.paused) await audio.play();
 					else audio.pause();
 				}

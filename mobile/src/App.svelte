@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { Capacitor } from '@capacitor/core';
 	import { App as NativeApp } from '@capacitor/app';
@@ -27,6 +27,7 @@
 	import { restoreSession, signOut, forgetSession, type Session } from './lib/connection';
 	import type { LibraryContinuation } from './lib/player/libraryWindow';
 	import { player, type PlayerTrack } from './lib/player';
+	import { connectMobileDevice } from './lib/player/deviceLink';
 	import PlayerView from './lib/PlayerView.svelte';
 	import { PanelPull, type PlayerSurface } from './lib/player/panelPull.svelte';
 	import {
@@ -43,6 +44,11 @@
 		type SavedScope
 	} from './lib/player/related';
 	import Catalog from './lib/catalog/Catalog.svelte';
+	import {
+		launcherShortcuts,
+		pendingShortcut,
+		takePlaylistShortcut
+	} from './lib/catalog/launcherShortcuts';
 	import type { Category } from './lib/catalog/libraryBrowse';
 	import Appearance from './lib/appearance/Appearance.svelte';
 	import brand from '../../frontend/static/logo_icon.png';
@@ -176,11 +182,12 @@
 			pull.settle(commit, navigate);
 		}
 	};
-	function navigate(to: BrowseDestination, category?: Category) {
+	function navigate(to: BrowseDestination, category?: Category, shortcutId?: string) {
 		switchPanel(() => {
 			clearRelated();
 			catalogVisit++;
 			initialCategory = category;
+			pendingShortcut.set(shortcutId && session ? { session, id: shortcutId } : null);
 			tab = to;
 			panel = 'catalog';
 			issue = '';
@@ -210,6 +217,13 @@
 		if (pending?.open && session === owner) {
 			navigate('offline');
 		}
+	}
+	async function openPlaylistShortcut() {
+		const account = session;
+		if (!launcherShortcuts || !account?.userId) return;
+		const request = await takePlaylistShortcut(account).catch(() => undefined);
+		if (!request?.id || account !== session) return;
+		navigate('library', 'Playlists', request.id);
 	}
 	function focusMain(offset = 0, miniAction?: MiniAction, settingsFocus = false) {
 		void tick().then(() => {
@@ -373,6 +387,10 @@
 			document.removeEventListener('visibilitychange', sync);
 		};
 	});
+	$effect(() => {
+		const owner = session;
+		if (owner) return untrack(() => connectMobileDevice(owner));
+	});
 	async function connected(next: Session) {
 		let restoreError: unknown;
 		let hasCurrentTrack = false;
@@ -398,6 +416,7 @@
 		catalogVisit++;
 		focusMain();
 		await openDownloadNotification();
+		await openPlaylistShortcut();
 		if (restoreError) report(restoreError);
 	}
 	async function start(tracks: PlayerTrack[], index: number, continuation?: LibraryContinuation) {
@@ -478,6 +497,7 @@
 		window.addEventListener('resize', resetPull);
 		window.addEventListener('dn-open-offline', openOffline);
 		window.addEventListener('dn-download-notification', openDownloadNotification);
+		window.addEventListener('dn-playlist-shortcut', openPlaylistShortcut);
 		window.addEventListener('dn-session-expired', expired);
 		window.addEventListener('keydown', key);
 		return () => {
@@ -486,6 +506,7 @@
 			void listener?.then((handle) => handle.remove());
 			window.removeEventListener('dn-open-offline', openOffline);
 			window.removeEventListener('dn-download-notification', openDownloadNotification);
+			window.removeEventListener('dn-playlist-shortcut', openPlaylistShortcut);
 			window.removeEventListener('dn-session-expired', expired);
 			window.removeEventListener('keydown', key);
 		};

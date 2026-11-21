@@ -1,5 +1,6 @@
 import type { Session } from '../connection';
 import type { PlayerTrack } from '../player';
+import type { Quality } from '../player/streaming';
 
 export type OfflineAccount = Pick<Session, 'serverUrl' | 'userId'>;
 export type OfflineOrigin = 'cached' | 'automatic' | 'downloaded';
@@ -51,7 +52,16 @@ export function validLocalFileId(id: unknown): id is string {
 		!hasControl(id)
 	);
 }
+export type OfflinePin = {
+	kind: 'playlist' | 'artist' | 'recent' | 'favorites' | 'filter';
+	id: string;
+	name: string;
+	group?: 'songs' | 'albums' | 'artists';
+	filters?: Record<string, string>;
+};
 export type OfflineOptions = {
+	downloadQuality?: Quality;
+	offlinePins?: OfflinePin[];
 	autoDownload: DownloadSource;
 	downloadMiB: number;
 	autoCache: boolean;
@@ -60,13 +70,18 @@ export type OfflineOptions = {
 	offlineOnly: boolean;
 };
 export type OfflineItem = {
+	mime?: string;
 	track: PlayerTrack;
 	origin: OfflineOrigin;
 	pinned: boolean;
 	bytes: number;
 	used: number;
 };
-export type OfflineSnapshot = { items: OfflineItem[]; options: OfflineOptions };
+export type OfflineSnapshot = {
+	items: OfflineItem[];
+	options: OfflineOptions;
+	pinnedPlaylists?: { id: string; name: string; ids: string[] }[];
+};
 export const offlineDefaults: OfflineOptions = {
 	autoDownload: 'off',
 	downloadMiB: 512,
@@ -112,10 +127,23 @@ export function retainedTrack(track: PlayerTrack, serverUrl: string): PlayerTrac
 		'albumArtist',
 		'albumArtistId',
 		'genre',
-		'format'
+		'format',
+		'artistMbid',
+		'releaseGroupMbid',
+		'recordingMbid'
 	] as const)
 		if (typeof track[key] === 'string' && track[key]) details[key] = track[key];
-	for (const key of ['year', 'trackNumber', 'discNumber', 'dateAdded', 'rating'] as const)
+	for (const key of [
+		'year',
+		'trackNumber',
+		'discNumber',
+		'dateAdded',
+		'rating',
+		'replayGainTrackDb',
+		'replayGainAlbumDb',
+		'replayGainTrackPeak',
+		'replayGainAlbumPeak'
+	] as const)
 		if (typeof track[key] === 'number' && Number.isFinite(track[key])) details[key] = track[key];
 	if (typeof track.favorite === 'boolean') details.favorite = track.favorite;
 	return {

@@ -144,6 +144,35 @@ async function back(page: Page, heading: string) {
 	await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
 }
 
+test('playback speed persists and applies to the playing audio element', async ({ page }) => {
+	await page.addInitScript(() => {
+		const Original = window.Audio;
+		window.Audio = class extends Original {
+			constructor(src?: string) {
+				super(src);
+				Object.defineProperty(window, 'speedTestDeck', { value: this, configurable: true });
+			}
+		};
+	});
+	await connect(page, true, undefined, true);
+	await settings(page, 'Streaming and fades');
+	await chooseOption(page.getByRole('combobox', { name: 'Playback speed' }), '1.5');
+	await expect(page.getByRole('combobox', { name: 'Playback speed' })).toHaveAttribute(
+		'data-value',
+		'1.5'
+	);
+	await back(page, 'Settings');
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await page
+		.getByRole('button', { name: /Nightfall/ })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Play album', exact: true }).click();
+	await expect
+		.poll(() => page.evaluate(() => Reflect.get(window, 'speedTestDeck')?.playbackRate))
+		.toBe(1.5);
+});
+
 async function swipe(touch: CDPSession, x: number, y: number, dx: number, dy: number) {
 	await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
 	for (let i = 1; i <= 5; i++) {

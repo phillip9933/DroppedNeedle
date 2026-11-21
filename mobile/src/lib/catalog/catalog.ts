@@ -72,6 +72,41 @@ export function playerTrack(
 	};
 }
 
+export function replayGainTags(
+	t: Pick<
+		Schema['TrackView'],
+		| 'replaygain_track_gain'
+		| 'replaygain_album_gain'
+		| 'replaygain_track_peak'
+		| 'replaygain_album_peak'
+	>
+) {
+	return {
+		replayGainTrackDb: t.replaygain_track_gain ?? undefined,
+		replayGainAlbumDb: t.replaygain_album_gain ?? undefined,
+		replayGainTrackPeak: t.replaygain_track_peak ?? undefined,
+		replayGainAlbumPeak: t.replaygain_album_peak ?? undefined
+	};
+}
+
+export function radioSong(t: Schema['RadioPlanTrack'], id: string): PlayerTrack {
+	return {
+		...playerTrack(
+			id,
+			t.track_name,
+			t.artist_name,
+			t.album_name ?? '',
+			cover(t.album_mbid),
+			t.duration_s
+		),
+		...replayGainTags(t),
+		artistMbid: t.artist_mbid || undefined,
+		recordingMbid: t.recording_mbid || undefined,
+		releaseGroupMbid: t.album_mbid || undefined,
+		format: t.file_format || undefined
+	};
+}
+
 export function localAlbum(a: Schema['AlbumView']): Album {
 	return {
 		title: a.title,
@@ -104,6 +139,10 @@ export function localSong(t: Schema['TrackView'], artist = '') {
 		),
 		albumId: t.album_id || undefined,
 		artistId: t.artist_id || undefined,
+		artistMbid: t.artist_mbid || t.album_artist_mbid || undefined,
+		recordingMbid: t.recording_mbid || undefined,
+		releaseGroupMbid: t.release_group_mbid || undefined,
+		...replayGainTags(t),
 		albumArtist: t.album_artist_name || undefined,
 		albumArtistId: t.album_artist_id || undefined,
 		genre: t.genre || undefined,

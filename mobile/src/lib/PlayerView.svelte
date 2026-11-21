@@ -23,6 +23,7 @@
 	import PlayerProgress from './player/PlayerProgress.svelte';
 	import PlayerQuality from './player/PlayerQuality.svelte';
 	import EqualizerSettings from './player/EqualizerSettings.svelte';
+	import SoundSettings from './player/SoundSettings.svelte';
 	import type { Snippet } from 'svelte';
 	import { samplePlayer } from './player/samplePlayer';
 	import sampleArt from './player/tidal-memory.webp';
@@ -184,12 +185,19 @@
 	);
 	const libraryWindow = $derived($store.libraryWindow);
 	const canGoNext = $derived(
-		$store.index + 1 < $store.tracks.length || !!libraryWindow?.more || $store.repeat === 'all'
+		$store.index + 1 < $store.tracks.length ||
+			!!libraryWindow?.more ||
+			$store.repeat === 'all' ||
+			($store.autoplay && $store.repeat === 'off')
 	);
 	const swipeAction = $derived(editor ? undefined : skip);
 	const queueOffset = $derived(libraryWindow?.offset ?? 0);
 	const shuffleLabel = $derived(
-		libraryWindow ? 'Shuffle loaded upcoming tracks' : 'Shuffle upcoming'
+		$store.shuffled
+			? 'Restore original order'
+			: libraryWindow
+				? 'Shuffle loaded upcoming tracks'
+				: 'Shuffle upcoming'
 	);
 	const fields = $derived({
 		title: track?.title ?? '',
@@ -283,7 +291,8 @@
 	<button
 		class="repeat"
 		aria-label={shuffleLabel}
-		disabled={$store.tracks.length - $store.index <= 2 || pending}
+		aria-pressed={$store.shuffled}
+		disabled={(!$store.shuffled && $store.tracks.length - $store.index <= 2) || pending}
 		onclick={() => edit(player.shuffleUpcoming)}
 	>
 		<PlayerActionFace
@@ -720,14 +729,39 @@
 					/>{/if}
 				<button
 					class="secondary"
-					disabled={$store.tracks.length - $store.index <= 2 || pending}
+					aria-pressed={$store.shuffled}
+					disabled={(!$store.shuffled && $store.tracks.length - $store.index <= 2) || pending}
 					onclick={() => edit(player.shuffleUpcoming)}><Shuffle size={16} /> {shuffleLabel}</button
 				>
 				<button class="text-button" aria-pressed={editing} onclick={() => (editing = !editing)}
 					>{editing ? 'Done' : 'Edit queue'}</button
 				>
 			</div>
+			{#if $store.autoplayProblem}
+				<div role="status">
+					<p>{$store.autoplayProblem}</p>
+					<button class="text-button" onclick={() => action(player.retryAutoplay)}
+						>Retry similar music</button
+					>
+				</div>
+			{/if}
 			{#if editing}<div class="queue-options">
+					{#if $store.autoplay !== undefined}
+						<label
+							><input
+								type="checkbox"
+								checked={$store.autoplay}
+								onchange={(event) => action(() => player.setAutoplay(event.currentTarget.checked))}
+							/> Autoplay similar library music</label
+						>
+					{/if}
+					{#if $store.hasPreviousQueue}
+						<button
+							class="text-button"
+							disabled={pending}
+							onclick={() => edit(player.restorePreviousQueue)}>Restore previous queue</button
+						>
+					{/if}
 					<button class="text-button" onclick={() => (saveQueue = [...$store.tracks])}
 						>{libraryWindow ? 'Save loaded tracks to playlist' : 'Save queue to playlist'}</button
 					>
@@ -840,6 +874,7 @@
 							onclick={(e) => visitCredit('album', e.currentTarget)}><Disc3 />Go to album</button
 						>{/if}
 					<SleepTimer timer={$store.sleepTimer} />
+					{#if Capacitor.getPlatform() !== 'ios'}<SoundSettings speedOnly />{/if}
 					{#if Capacitor.getPlatform() === 'android'}<button
 							class="sheet-action"
 							onclick={() => openSheet('equalizer')}><SlidersHorizontal />Equalizer</button

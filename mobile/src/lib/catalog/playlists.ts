@@ -2,7 +2,7 @@ import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import type { PlayerTrack } from '../player';
 import { validLocalFileId } from '../offline/tracks';
 import { DnError, getJson, mutateJson, postJson, type Session } from '../connection';
-import { cover, path, playerTrack } from './catalog';
+import { cover, path, playerTrack, replayGainTags } from './catalog';
 import { forgetPlaylist, rememberPlaylistList, rememberPlaylistTracks } from './playlistOffline';
 
 type Schema = components['schemas'];
@@ -153,6 +153,8 @@ export async function readPlaylist(
 					localCover(entry.cover_url),
 					entry.duration
 				),
+				recordingMbid: entry.recording_mbid || undefined,
+				...replayGainTags(entry),
 				albumId: validLocalFileId(entry.album_id) ? entry.album_id : undefined,
 				artistId: validLocalFileId(entry.artist_id) ? entry.artist_id : undefined,
 				format: typeof entry.format === 'string' ? entry.format.trim() || undefined : undefined,

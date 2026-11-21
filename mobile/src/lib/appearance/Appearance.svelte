@@ -8,6 +8,7 @@
 	import OfflineSettings from '../offline/OfflineSettings.svelte';
 	import { offlineSupported, preferredOffline } from '../offline/media';
 	import PlaybackSettings from '../player/PlaybackSettings.svelte';
+	import LinkedPlayers from '../../../../frontend/src/lib/features/player/components/LinkedPlayers.svelte';
 	import EqualizerSettings from '../player/EqualizerSettings.svelte';
 	import {
 		ChevronLeft,
@@ -45,6 +46,7 @@
 		| 'interface'
 		| 'offline'
 		| 'playback'
+		| 'handoff'
 		| 'equalizer'
 		| 'account'
 		| 'content'
@@ -105,6 +107,7 @@
 			{ id: 'interface', label: 'Interface and navigation' },
 			{ id: 'offline', label: 'Offline and cache' },
 			{ id: 'playback', label: 'Streaming and fades' },
+			{ id: 'handoff', label: 'Player handoff' },
 			{ id: 'equalizer', label: 'Equalizer' },
 			{ id: 'about', label: 'About' }
 		].find((i) => i.id === page)?.label ?? 'Settings'
@@ -233,6 +236,12 @@
 				{@render groupHeading('Playback')}
 				<div class="settings-list" data-surface="panel">
 					<Outputs settingsEntry />
+					{#if session.userId && Capacitor.getPlatform() !== 'ios'}<button
+							class="settings-entry"
+							data-screen-link
+							onclick={() => open('handoff')}
+							><Disc3 size={19} /><span>Player handoff</span><ChevronRight size={16} /></button
+						>{/if}
 					<button class="settings-entry" data-screen-link onclick={() => open('playback')}
 						><Music2 size={19} /><span>Streaming and fades</span><ChevronRight size={16} /></button
 					>
@@ -289,6 +298,7 @@
 				{:else if page === 'interface'}<InterfaceSettings {session} offline={offlineSupported} />
 				{:else if page === 'offline' && session && offlineSupported}<OfflineSettings {session} />
 				{:else if page === 'playback' && session}<PlaybackSettings {session} />
+				{:else if page === 'handoff' && session}<LinkedPlayers />
 				{:else if page === 'themes'}<ThemeSettings {session} />
 				{:else if page === 'account' && session}<Account {session} />
 				{:else if page === 'content' && session}<ServerSections {session} {admin} />

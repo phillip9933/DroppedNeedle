@@ -16,6 +16,13 @@ export interface PlayerTrack {
 	duration?: number;
 	albumId?: string;
 	artistId?: string;
+	artistMbid?: string;
+	recordingMbid?: string;
+	releaseGroupMbid?: string;
+	replayGainTrackDb?: number;
+	replayGainAlbumDb?: number;
+	replayGainTrackPeak?: number;
+	replayGainAlbumPeak?: number;
 	albumArtist?: string;
 	albumArtistId?: string;
 	genre?: string;
@@ -50,6 +57,10 @@ export type PlaybackFormat = {
 };
 
 export interface PlayerState {
+	shuffled?: boolean;
+	hasPreviousQueue?: boolean;
+	autoplay?: boolean;
+	autoplayProblem?: string;
 	libraryWindow?: LibraryWindowStatus | null;
 	sleepTimer?: SleepTimerState | null;
 	quality?: PlaybackFormat | null;
@@ -73,17 +84,26 @@ export type PlayerAction =
 	| 'remove'
 	| 'clearUpcoming'
 	| 'shuffleUpcoming'
+	| 'restorePreviousQueue'
+	| 'setPlaying'
+	| 'setAutoplay'
+	| 'retryAutoplay'
 	| 'cycleRepeat'
 	| 'setSleepMinutes'
 	| 'sleepAfterTrack'
 	| 'cancelSleepTimer'
 	| 'retryLibraryWindow';
 export interface PlaybackBridge {
+	autoplaySetting(
+		options: Pick<PlayerAccess, 'serverUrl' | 'userId'> & { enabled?: boolean }
+	): Promise<{ enabled: boolean }>;
 	setQueue(
 		options: PlayerAccess & {
 			tracks: PlayerTrack[];
 			index: number;
 			placement?: QueuePlacement;
+			positionSeconds?: number;
+			playing?: boolean;
 			profiles?: Profiles;
 			continuation?: LibraryContinuation;
 		}
@@ -110,7 +130,8 @@ const queueEdits = new Set<PlayerAction>([
 	'move',
 	'remove',
 	'clearUpcoming',
-	'shuffleUpcoming'
+	'shuffleUpcoming',
+	'restorePreviousQueue'
 ]);
 const state = writable(empty, () => {
 	const timer = setInterval(() => {
@@ -197,7 +218,8 @@ async function submitTracks(
 	index: number,
 	access: PlayerAccess,
 	placement?: QueuePlacement,
-	continuation?: LibraryContinuation
+	continuation?: LibraryContinuation,
+	start?: { positionSeconds: number; playing: boolean }
 ) {
 	window.dispatchEvent(new Event('dn-playback-intent'));
 	if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
@@ -222,7 +244,15 @@ async function submitTracks(
 	}));
 	queueRevision++;
 	return update(() =>
-		backend.setQueue({ ...access, tracks: queue, index, placement, profiles, continuation })
+		backend.setQueue({
+			...access,
+			tracks: queue,
+			index,
+			placement,
+			profiles,
+			continuation,
+			...start
+		})
 	);
 }
 
@@ -246,6 +276,25 @@ export const player = {
 		access: PlayerAccess,
 		continuation?: LibraryContinuation
 	) => submitTracks(tracks, index, access, undefined, continuation),
+	resumeQueue: (
+		tracks: PlayerTrack[],
+		index: number,
+		positionSeconds: number,
+		playing: boolean,
+		access: PlayerAccess
+	) => {
+		if (Capacitor.getPlatform() === 'ios')
+			throw Error('Device playback transfer is unavailable on iOS.');
+		if (!Number.isFinite(positionSeconds) || positionSeconds < 0)
+			throw Error('Invalid playback position.');
+		return submitTracks(tracks, index, access, undefined, undefined, { positionSeconds, playing });
+	},
+	autoplaySetting: (access: PlayerAccess, enabled?: boolean) =>
+		backend.autoplaySetting({ serverUrl: access.serverUrl, userId: access.userId, enabled }),
+	setPlaying: (playing: boolean) => command('setPlaying', Number(playing)),
+	restorePreviousQueue: () => command('restorePreviousQueue'),
+	setAutoplay: (enabled: boolean) => command('setAutoplay', Number(enabled)),
+	retryAutoplay: () => command('retryAutoplay'),
 	enqueue: (tracks: PlayerTrack[], access: PlayerAccess, placement: QueuePlacement = 'end') =>
 		submitTracks(tracks, 0, access, placement),
 	move: moveQueueEntry,

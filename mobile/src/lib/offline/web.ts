@@ -32,7 +32,9 @@ export const audioNotFound = 'DN_AUDIO_NOT_FOUND';
 export interface OfflineBridge {
 	snapshot(a: Account): Promise<OfflineSnapshot>;
 	options(a: Account): Promise<OfflineOptions>;
-	configure(a: Account & { options: OfflineOptions }): Promise<OfflineOptions>;
+	configure(
+		a: Account & { options: OfflineOptions; clearUnpinned?: boolean }
+	): Promise<OfflineOptions>;
 	clearCache(a: Account): Promise<void>;
 	remove(a: Account & { ids: string[] }): Promise<void>;
 	cancelAutomatic(a: Account): Promise<void>;

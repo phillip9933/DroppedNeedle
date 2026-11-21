@@ -1,6 +1,6 @@
 <script lang="ts">
 	import InlineChoice from '../controls/InlineChoice.svelte';
-	import { onDestroy, onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		ArrowDown,
@@ -60,6 +60,9 @@
 	import type { SmartPlaylist } from './smartPlaylists';
 	import SelectionHost from './SelectionHost.svelte';
 	import BrowseEntries from './BrowseEntries.svelte';
+	import AlphabetRail from './AlphabetRail.svelte';
+	import { launcherShortcuts, pendingShortcut, pinPlaylist } from './launcherShortcuts';
+	import { foldSearchText } from './trackFilters';
 	import BrowseItemMenu from './BrowseItemMenu.svelte';
 	import { loadNearEnd } from './browseViewport';
 	import { tappedPlayback, type PageEnd } from './browsePlayback';
@@ -173,6 +176,9 @@
 		busy = $state(false);
 	let pageRequest: AbortController | undefined, actionRequest: AbortController | undefined;
 	let results: BrowseEntries;
+	let jumpNotice = $state(''),
+		jumpGeneration = 0;
+	let pendingPage: { signal: AbortSignal; promise: Promise<void> } | undefined;
 	let returnItem = '',
 		preserveLength = 0,
 		wasActive = false,
@@ -199,6 +205,32 @@
 	function preferences(p: Partial<BrowsePreferences>) {
 		settings = { ...settings, ...p };
 		saveBrowsePreferences(session, category, settings);
+	}
+	$effect(() => {
+		const pinned = $pendingShortcut;
+		if (
+			!pinned ||
+			pinned.session !== session ||
+			!active ||
+			!ready ||
+			loading ||
+			category !== 'Playlists'
+		)
+			return;
+		if (error) return;
+		const row = (snapshot.items ?? items).find((i) => i.id === pinned.id);
+		pendingShortcut.set(null);
+		if (row) untrack(() => open(row));
+		else actionError = 'This pinned playlist is unavailable in the current library.';
+	});
+	async function pin(row: BrowseItem) {
+		context = null;
+		try {
+			await pinPlaylist(session, row.id, row.title);
+			receipt = 'Confirm the playlist shortcut in your launcher.';
+		} catch (cause) {
+			actionError = errorMessage(cause);
+		}
 	}
 	function change(p: Partial<BrowseFilters>) {
 		filters = { ...filters, ...p };
@@ -283,6 +315,8 @@
 		if (!ready) return;
 		untrack(() => {
 			if (!shown) {
+				jumpGeneration++;
+				jumpNotice = '';
 				pageRequest?.abort();
 				pageRequest = undefined;
 				waitingMore = false;
@@ -304,6 +338,8 @@
 				return;
 			}
 			lastKey = definition;
+			jumpGeneration++;
+			jumpNotice = '';
 			pageRequest?.abort();
 			const controller = new AbortController();
 			pageRequest = controller;
@@ -362,10 +398,18 @@
 				});
 		});
 	});
-	async function more() {
+	function more(pageSize?: number) {
 		const after = cursor,
 			signal = pageRequest?.signal;
-		if (!after || !active || !visible || !signal || signal.aborted || waitingMore) return;
+		if (!after || !active || !visible || !signal || signal.aborted) return Promise.resolve();
+		if (pendingPage?.signal === signal) return pendingPage.promise;
+		const promise = appendPage(after, signal, pageSize).finally(() => {
+			if (pendingPage?.promise === promise) pendingPage = undefined;
+		});
+		pendingPage = { signal, promise };
+		return promise;
+	}
+	async function appendPage(after: string, signal: AbortSignal, pageSize?: number) {
 		waitingMore = true;
 		error = '';
 		try {
@@ -377,7 +421,8 @@
 				signal,
 				available,
 				undefined,
-				snapshot
+				snapshot,
+				pageSize
 			);
 			if (signal.aborted) return;
 			if (result.next && (cursors.has(result.next) || !result.items.some((i) => !known.has(i.id))))
@@ -391,6 +436,50 @@
 			if (!signal.aborted) error = errorMessage(cause);
 		} finally {
 			if (!signal.aborted) waitingMore = false;
+		}
+	}
+	async function jump(letter: string) {
+		const generation = ++jumpGeneration;
+		const initial = (row: BrowseItem) => {
+			const first = foldSearchText(row.title.trim()).charAt(0).toUpperCase();
+			return /^[A-Z]$/.test(first) ? first : '#';
+		};
+		jumpNotice = '';
+		let start = 0;
+		while (generation === jumpGeneration) {
+			const all = snapshot.items ?? items;
+			let found = -1;
+			for (let i = start; i < all.length; i++) {
+				if (initial(all[i]) === letter) {
+					found = i;
+					break;
+				}
+			}
+			if (found >= 0) {
+				if (found >= items.length && snapshot.items) {
+					const next = Math.min(all.length, found + 48);
+					items = all.slice(0, next);
+					cursor = next < all.length ? String(next) : null;
+					pages.push({ end: next, after: cursor });
+					if (cursor) cursors.add(cursor);
+					await tick();
+				}
+				if (generation === jumpGeneration) await results?.scrollToIndex(found);
+				return;
+			}
+			if (!cursor || snapshot.items) {
+				jumpNotice = 'No ' + category.toLowerCase() + ' starting with ' + letter + '.';
+				return;
+			}
+			jumpNotice = 'Finding ' + letter + '…';
+			start = items.length;
+			await more(200);
+			if (generation !== jumpGeneration) return;
+			if (items.length === start) {
+				jumpNotice = '';
+				return;
+			}
+			jumpNotice = '';
 		}
 	}
 	type Action = 'open' | 'play' | 'shuffle' | 'next' | 'end' | 'playlist' | 'offline';
@@ -753,21 +842,35 @@
 		<button class="secondary" onclick={() => (items.length && cursor ? more() : retry++)}
 			>Retry</button
 		>{/if}
-	<BrowseEntries
-		bind:this={results}
-		{active}
-		{total}
-		{session}
-		{items}
-		{category}
-		layout={settings.layout}
-		columns={settings.columns}
-		compact={settings.compact}
-		{inventory}
-		localOnly={disconnected}
-		{open}
-		menu={(row) => (context = row)}
-	/>
+	{@const alphabet =
+		(category === 'Albums' || category === 'Artists') &&
+		filters.sort === 'name' &&
+		(total ?? 0) > 30 &&
+		!host?.isSelecting()}
+	<div class:alphabet>
+		<div class="result-column">
+			<BrowseEntries
+				bind:this={results}
+				{active}
+				{total}
+				{session}
+				{items}
+				{category}
+				layout={settings.layout}
+				columns={settings.columns}
+				compact={settings.compact}
+				{inventory}
+				localOnly={disconnected}
+				{open}
+				menu={(row) => (context = row)}
+			/>
+		</div>
+		{#if alphabet}<AlphabetRail
+				descending={filters.order === 'desc'}
+				onjump={jump}
+				notice={jumpNotice}
+			/>{/if}
+	</div>
 	{#if !loading && !error && !items.length}<p class="notice">
 			No matching {category.toLowerCase()}.
 		</p>{/if}
@@ -776,7 +879,7 @@
 			data-selection-more={error ? undefined : true}
 			use:loadNearEnd={{ active, enabled: !error && !waitingMore && !loading, load: more }}
 			disabled={waitingMore}
-			onclick={more}>{waitingMore ? 'Loading…' : 'More ' + unit}</button
+			onclick={() => more()}>{waitingMore ? 'Loading…' : 'More ' + unit}</button
 		>{/if}
 </SelectionHost>
 
@@ -787,6 +890,11 @@
 		onclose={() => (context = null)}
 		onopen={open}
 		action={run}
+		onpin={launcherShortcuts && session.userId
+			? () => {
+					if (context) void pin(context);
+				}
+			: undefined}
 		edit={(rule) => {
 			smart = rule;
 			context = null;
@@ -823,6 +931,13 @@
 	/>{/if}
 
 <style>
+	.alphabet {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+	.result-column {
+		min-width: 0;
+	}
 	.collection-controls {
 		width: 100%;
 	}
