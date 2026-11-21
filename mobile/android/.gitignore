@@ -3,6 +3,7 @@
 # Built application files
 *.apk
 *.aar
+!third_party/android-updater/maven/io/github/phillip9933/android-updater/1.0.0/android-updater-1.0.0.aar
 *.ap_
 *.aab
 

@@ -1,1 +1,5 @@
 gradlew.bat text eol=crlf
+
+# Preserve the exact bytes covered by the upstream release checksums.
+third_party/android-updater/** -text
+third_party/android-updater/README.md text

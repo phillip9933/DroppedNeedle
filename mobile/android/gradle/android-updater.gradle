@@ -1,0 +1,36 @@
+import java.security.MessageDigest
+
+def bundle = rootProject.file('third_party/android-updater')
+def manifest = new File(bundle, 'SHA256SUMS')
+def sha256 = { File file -> MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString() }
+if (!manifest.isFile() || sha256(manifest) != '8d1779204a7c9525c15082ee66d7b5de47794ec42b79e23e3f6ca3c1552b5cb1') {
+    throw new GradleException('The Android App Updater release checksum manifest is missing or has changed.')
+}
+def mavenPaths = [] as Set
+manifest.readLines('UTF-8').each { line ->
+    def (digest, path) = line.split('  ', 2)
+    def file = new File(bundle, path)
+    if (!file.isFile() || sha256(file) != digest) {
+        throw new GradleException("Android App Updater release checksum failed for ${path}")
+    }
+    if (path.startsWith('maven/')) mavenPaths.add(path)
+}
+def bundledMavenPaths = [] as Set
+fileTree(bundle).matching { include 'maven/**' }.visit { entry ->
+    if (!entry.directory) bundledMavenPaths.add(entry.relativePath.pathString)
+}
+if (bundledMavenPaths != mavenPaths) {
+    throw new GradleException('The Android App Updater repository contains files outside the pinned release.')
+}
+
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'AndroidAppUpdater'
+                url = uri(new File(bundle, 'maven'))
+            }
+        }
+        filter { includeModule('io.github.phillip9933', 'android-updater') }
+    }
+}
