@@ -274,10 +274,69 @@ test('a 0.13.1 draft based on the implicit old default survives the compact foot
 	).toHaveCount(0);
 	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
 	const result = await page.evaluate(
-		(k) => JSON.parse(localStorage.getItem(k)!) as { id: string; title: string }[],
+		(k) => JSON.parse(localStorage.getItem(k)!).sections as { id: string; title: string }[],
 		saved
 	);
 	expect(result.find((f) => f.id === 'player-title')?.title).toBe('My track');
 	expect(result.some((f) => f.id === 'player-more')).toBe(true);
 	expect(result.some((f) => f.id === 'player-quality')).toBe(false);
+});
+
+test('an interrupted version 2 edit migrates with its saved grid and reopens at exactly the same position', async ({
+	page
+}) => {
+	await routes(page);
+	await page.goto('/');
+	const field = (x: number, y: number) => ({
+		id: 'player-title',
+		title: '',
+		preview: true,
+		grid: { x, y, w: 5, h: 2 }
+	});
+	const original = [field(1, 0)],
+		draft = [field(3, 7)];
+	await page.evaluate(
+		async ({ server, saved, original, draft }) => {
+			localStorage.setItem(saved, JSON.stringify(original));
+			const encode = (sections: typeof original) =>
+				JSON.stringify({ format: 'droppedneedle-player-layout', version: 2, sections });
+			const req = indexedDB.open('dn.mobile.player-drafts', 1);
+			req.onupgradeneeded = () => req.result.createObjectStore('layouts');
+			const db = await new Promise<IDBDatabase>((resolve, reject) => {
+				req.onsuccess = () => resolve(req.result);
+				req.onerror = () => reject(req.error);
+			});
+			const tx = db.transaction('layouts', 'readwrite');
+			tx.objectStore('layouts').put({ baseline: encode(original), layout: encode(draft) }, [
+				server,
+				'alex',
+				123,
+				'coarse-grid-edit'
+			]);
+			await new Promise<void>((resolve, reject) => {
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+			});
+			db.close();
+		},
+		{ server, saved, original, draft }
+	);
+	await edit(page);
+	await expect(page.getByText('Recovered your unsaved layout.', { exact: true })).toBeVisible();
+	expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), saved)).toEqual(
+		original
+	);
+	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+	await expect(page.locator('[data-part=now-playing]')).toBeVisible();
+	const expected = { version: 3, sections: [{ ...draft[0], grid: { x: 6, y: 14, w: 10, h: 4 } }] };
+	expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), saved)).toEqual(
+		expected
+	);
+	await edit(page);
+	await expect(page.getByText('Recovered your unsaved layout.')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+	await expect(page.locator('[data-part=now-playing]')).toBeVisible();
+	expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), saved)).toEqual(
+		expected
+	);
 });

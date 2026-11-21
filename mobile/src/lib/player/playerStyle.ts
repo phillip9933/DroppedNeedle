@@ -11,7 +11,13 @@ import {
 	playerWidgets
 } from './layout';
 
-import { isPlayerGrid, toPlayerGrid, validGridRect } from './grid';
+import {
+	isPlayerGrid,
+	PLAYER_GRID_VERSION,
+	toPlayerGrid,
+	upgradeV2GridRect,
+	validGridRect
+} from './grid';
 
 const format = 'droppedneedle-player-layout';
 const keys = [
@@ -65,7 +71,11 @@ export function exportPlayerStyle(
 				})
 		)
 	);
-	const layout = { format, version: sections.some((s) => s.grid) ? 2 : 1, sections: fields };
+	const layout = {
+		format,
+		version: sections.some((s) => s.grid) ? PLAYER_GRID_VERSION : 1,
+		sections: fields
+	};
 	if (spacing === 'readable') {
 		const readable = JSON.stringify(layout, null, 2);
 		if (fits(readable)) return readable;
@@ -112,12 +122,12 @@ function readSection(item: unknown, index: number, version: number): Section {
 	if (typeof preview !== 'boolean') throw Error(`${label} needs a true or false preview option.`);
 	if (sameRow !== undefined && typeof sameRow !== 'boolean')
 		throw Error(`${label} has an invalid row setting.`);
-	const { grid } = item;
+	const grid = version === 2 ? upgradeV2GridRect(item.grid) : item.grid;
 	if (
-		grid !== undefined &&
+		item.grid !== undefined &&
 		(version === 1 ||
 			!validGridRect(grid) ||
-			Object.keys(grid).some((key) => !['x', 'y', 'w', 'h'].includes(key)))
+			Object.keys(item.grid as object).some((key) => !['x', 'y', 'w', 'h'].includes(key)))
 	)
 		throw Error(`${label} has an invalid grid position or size.`);
 	const measurements: Partial<Pick<Section, (typeof playerMeasurements)[number]>> = {};
@@ -157,7 +167,7 @@ function readSection(item: unknown, index: number, version: number): Section {
 		throw Error(`${label} has an invalid navigation placement.`);
 	return {
 		...measurements,
-		...playerOptions(item, true),
+		...playerOptions({ ...item, grid }, true),
 		...(vAlign === undefined ? {} : { vAlign }),
 		...(icon === undefined ? {} : { icon }),
 		...(showLabel === undefined ? {} : { showLabel }),
@@ -183,10 +193,10 @@ export function importPlayerStyle(text: string): Section[] {
 	if (
 		!record(value) ||
 		value.format !== format ||
-		(value.version !== 1 && value.version !== 2) ||
+		(value.version !== 1 && value.version !== 2 && value.version !== PLAYER_GRID_VERSION) ||
 		!Array.isArray(value.sections)
 	)
-		throw Error('Use a DroppedNeedle player layout in version 1 or 2 format.');
+		throw Error('Use a DroppedNeedle player layout in version 1, 2 or 3 format.');
 	if (Object.keys(value).some((key) => !['format', 'version', 'sections'].includes(key)))
 		throw Error('The layout includes an unknown field.');
 	const version = value.version;
@@ -196,7 +206,7 @@ export function importPlayerStyle(text: string): Section[] {
 		if (seen.has(item.id)) throw Error('Each player element needs its own ID.');
 		seen.add(item.id);
 	}
-	if (version === 2) {
+	if (version >= 2) {
 		if (!isPlayerGrid(sections))
 			throw Error('Each element needs its own space inside the player grid.');
 		return sections;

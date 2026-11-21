@@ -186,7 +186,7 @@ html[data-material] .primary {
 }
 html[data-material]
 	:is(
-		dialog,
+		dialog:where(:not([data-part='layout-preview'])),
 		.menu,
 		.segmented,
 		.records,

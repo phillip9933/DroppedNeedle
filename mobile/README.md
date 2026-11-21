@@ -54,7 +54,7 @@ Hold a library item to select it. While selecting, hold another item and drag th
 
 Open **Settings → Edit Now Playing layout**, or tap the settings control on the expanded player. The editor shows a sample album, song, queue and lyrics. You can edit with an empty queue or while your own music plays. Tap **Preview** to see the current draft at player size. **Back to editing** returns to the same spot with your edits in place. Android Back leaves the preview, then closes the open item editor or picker before exiting the editor. Saving or canceling returns you to Now Playing. If the app restarts while you’re editing, reopen the editor to recover your unfinished layout. The live player changes when you choose **Save layout**. **Cancel** or Android Back from the main editor discards the draft.
 
-The editor uses a 15-column, 20-row grid. Hold an item and drag it to move it. Tap an item to open its options. After you close them, drag the highlighted corner to resize. Swipe without holding to scroll the editor. Choose **Add item** to fill free space. To put two items in the same column, select the first one and choose **Place another item underneath**. The rest of the layout stays in place.
+The editor uses a 30-column, 40-row grid. Saved layouts from the 15-by-20 grid open at the same proportions. Hold an item and drag it to move it. Tap an item to open its options. After you close them, drag the highlighted corner to resize. Swipe without holding to scroll the editor. Choose **Add item** to fill free space. To put two items in the same column, select the first one and choose **Place another item underneath**. The rest of the layout stays in place.
 
 Choose **Edit item** to set its position and size in cells, padding in pixels, and alignment. Icons can fill their tile or use a fixed size. Actions can show a custom label above or below the icon. Track title, artist and album have separate line limits. Custom text accepts values such as `{artist} · {album}` or `{position}/{count}`.
 
@@ -208,7 +208,7 @@ From `mobile/`, set `ANDROID_HOME` to your SDK directory and run the following w
 pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
 ```
 
-The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.22.0` uses tag `android-v0.22.0` and asset `droppedneedle-android-0.22.0.apk`. For `0.22.0-beta.1`, use `android-v0.22.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.23.0` uses tag `android-v0.23.0` and asset `droppedneedle-android-0.23.0.apk`. For `0.23.0-beta.1`, use `android-v0.23.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
 
 ## How the clients fit together
 

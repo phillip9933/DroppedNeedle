@@ -72,7 +72,7 @@ export async function openPlayerDraft(
 				const item = cursor.result;
 				if (!item) return resolve();
 				const record = item.value;
-				// Compare old version 1 snapshots after applying the same field/header migration as saved layouts.
+				// Compare legacy row and coarse grid snapshots in the same format as the saved layout.
 				if (
 					typeof record?.baseline === 'string' &&
 					record.baseline !== baseline &&

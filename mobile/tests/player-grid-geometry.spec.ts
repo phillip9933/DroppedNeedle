@@ -14,10 +14,10 @@ test('preset has a headerless grid, five equal controls and free space for anoth
 	const layout = defaultGridLayout();
 	expect(isPlayerGrid(layout)).toBe(true);
 	expect(layout.some(({ id }) => id === 'player-heading')).toBe(false);
-	expect(layout.filter(({ grid }) => grid.y === 15).map(({ grid }) => grid.w)).toEqual([
-		3, 3, 3, 3, 3
+	expect(layout.filter(({ grid }) => grid.y === 30).map(({ grid }) => grid.w)).toEqual([
+		6, 6, 6, 6, 6
 	]);
-	expect(emptyGridSpace(layout, 3, 2)).toEqual({ x: 6, y: 18, w: 3, h: 2 });
+	expect(emptyGridSpace(layout, 6, 4)).toEqual({ x: 12, y: 36, w: 6, h: 4 });
 	const play = layout.find(({ id }) => id === 'player-toggle')!;
 	expect(gridFits(play.grid, layout)).toBe(false);
 	expect(gridFits(play.grid, layout, play.id)).toBe(true);
@@ -58,8 +58,30 @@ test('row conversion retains stacked content, relative column widths, custom tex
 	expect(converted.some(({ id }) => id === 'player-close')).toBe(false);
 });
 
+test('row-based drafts keep the old rounded row heights and column proportions', () => {
+	const field = (name: string, options: Partial<Section> = {}): Section => ({
+		id: 'player-' + name,
+		title: '',
+		preview: true,
+		...options
+	});
+	const migrated = toPlayerGrid([
+		field('close', { placement: 'header' }),
+		field('artwork', { width: 3 }),
+		field('lyrics', { sameRow: true, width: 1 }),
+		field('title')
+	]);
+	// On the 15 × 20 grid the three rows occupied 3, 14 and 3 cells and the artwork spanned 11 columns.
+	expect(migrated.map((s) => s.grid)).toEqual([
+		{ x: 0, y: 0, w: 30, h: 6 },
+		{ x: 0, y: 6, w: 22, h: 28 },
+		{ x: 22, y: 6, w: 8, h: 28 },
+		{ x: 0, y: 34, w: 30, h: 6 }
+	]);
+});
+
 test('invalid coordinates and overlapping placements do not become an active grid', () => {
-	const box = { x: 0, y: 0, w: 15, h: 20 };
+	const box = { x: 0, y: 0, w: 30, h: 40 };
 	for (const invalid of [
 		null,
 		{},
@@ -98,9 +120,16 @@ test('large legacy layouts retain custom fields deterministically and reject an 
 	expect(layout.filter((s) => s.id.startsWith('player-text')).map((s) => s.template)).toEqual(
 		old.map((s) => s.template)
 	);
+	const oversized = Array.from({ length: 301 }, (_, i) => ({
+		...old[0],
+		id: 'player-text-' + (i + 2)
+	}));
+	const largerGrid = toPlayerGrid(oversized);
+	expect(isPlayerGrid(largerGrid)).toBe(true);
+	expect(largerGrid.filter((item) => item.id.startsWith('player-text'))).toHaveLength(301);
 	expect(() =>
 		toPlayerGrid(
-			Array.from({ length: 301 }, (_, i) => ({ ...old[0], id: 'player-text-' + (i + 2) }))
+			Array.from({ length: 1201 }, (_, i) => ({ ...old[0], id: 'player-text-' + (i + 2) }))
 		)
 	).toThrow('more items');
 });
