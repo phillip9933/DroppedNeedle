@@ -542,7 +542,12 @@
 	style:--notice-height={(issue ? noticeHeight : 0) + 'px'}
 >
 	{#if baseVisible}
-		<header class="mast" inert={peekingCatalog} aria-hidden={peekingCatalog || undefined}>
+		<header
+			class="mast"
+			class:home-mast={tab === 'home' && panel === 'catalog'}
+			inert={peekingCatalog}
+			aria-hidden={peekingCatalog || undefined}
+		>
 			{#if catalogHeader}{@render catalogHeader()}{:else}
 				<span
 					class="brand-mark"
@@ -741,6 +746,12 @@
 	}
 	.shell:has(:global([data-part='layout-preview'])) > .mast {
 		display: none;
+	}
+	.mast.home-mast {
+		min-height: 44px;
+	}
+	.pad.base-page:has(:global([data-home-feed]:not([hidden]))) {
+		padding-top: 0;
 	}
 	.brand-mark {
 		width: 3.35rem;

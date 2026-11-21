@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import { Radio } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
@@ -60,7 +60,7 @@
 <button class="secondary" data-part="library-radio" disabled={busy} onclick={play}
 	><Radio size={16} aria-hidden="true" />{busy
 		? uiText('Starting radio…')
-		: uiText('Library radio')}</button
+		: tr('Play station', 'ステーションを再生')}</button
 >
 <HomePinButton {session} {pin} tracks={previous} />
 {#if notice}<p role="status">{notice}</p>{/if}

@@ -16,6 +16,10 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	const reads: string[] = [];
 	await page.addInitScript(
 		({ server }) => {
+			localStorage.setItem(
+				'dn.mobile.layout.v1.' + JSON.stringify([server, 'user', 'home']),
+				JSON.stringify([{ id: 'discover-radio_sections', preview: true }])
+			);
 			const ids = [
 				'top_picks',
 				'weekly_exploration',
@@ -28,7 +32,8 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 				'concerts',
 				'genre_list',
 				'discover_queue',
-				'playlist_discovery'
+				'playlist_discovery',
+				'radio_sections'
 			];
 			localStorage.setItem(
 				'dn.mobile.layout.v1.' + JSON.stringify([server, 'user', 'discover']),
@@ -320,6 +325,36 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 						}
 					},
 					{
+						key: 'radio_sections',
+						zone: 'essentials',
+						content: {
+							shape: 'shelves',
+							shelves: [
+								{
+									title: 'Radio: Crescent Trio',
+									type: 'albums',
+									radio_seed_type: 'artist',
+									radio_seed_id: artist,
+									items: [
+										{
+											kind: 'album',
+											musicbrainz_id: group,
+											title: 'Station album',
+											artist_name: artistName,
+											in_library: true,
+											requested: false
+										}
+									]
+								},
+								{
+									title: 'Radio: Blue',
+									type: 'tracks',
+									items: [{ kind: 'track', title: 'Station track', artist_name: artistName }]
+								}
+							]
+						}
+					},
+					{
 						key: 'weekly_exploration',
 						zone: 'essentials',
 						content: {
@@ -479,6 +514,18 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	await page.getByLabel('Username', { exact: true }).fill('listener');
 	await page.getByLabel('Password', { exact: true }).fill('fixture');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+	const station = page.getByRole('button', { name: 'Crescent Trio', exact: true });
+	await expect(station).toHaveAttribute('aria-expanded', 'false');
+	await expect(page.getByText('Station album')).toHaveCount(0);
+	await station.click();
+	await expect(page.getByRole('heading', { name: 'Albums', exact: true })).toBeVisible();
+	await expect(page.getByText('Station album')).toBeVisible();
+	await page.getByRole('button', { name: 'Blue', exact: true }).click();
+	await expect(page.getByText('Station album')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Play Station track' })).toBeVisible();
+	await page.getByRole('button', { name: 'Browse Radio stations' }).click();
+	await station.click();
+	await expect(page.getByRole('button', { name: 'Play station', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Discover', exact: true }).click({ timeout: 4000 });
 	await expect(page.getByRole('button', { name: 'Moonrise ' + artistName })).toBeVisible();
 	await page.getByRole('button', { name: 'Play Golden Hour' }).click();
@@ -532,7 +579,7 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	await expect(page.getByText('Artists you follow will appear here.')).toBeVisible();
 	await view('Genres');
 	await page.getByRole('button', { name: 'Art pop', exact: true }).click();
-	await page.getByRole('button', { name: 'Library radio' }).click();
+	await page.getByRole('button', { name: 'Play station' }).click();
 	await expect(page.getByText('No playable library tracks for this station.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Moonrise ' + artistName })).toBeVisible();
 	await page.getByRole('button', { name: artistName, exact: true }).click();
@@ -551,7 +598,7 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	await page.getByRole('button', { name: 'Play Blue Hour', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Blue Hour', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Close player' }).click();
-	await page.getByRole('button', { name: 'Library radio' }).click();
+	await page.getByRole('button', { name: 'Play station' }).click();
 	await expect(page.getByRole('heading', { name: 'Silver Skies', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Show play queue' }).click();
 	const queue = page.locator('[data-part="play-queue"]');

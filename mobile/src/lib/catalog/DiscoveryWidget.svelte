@@ -13,6 +13,7 @@
 		type WidgetResult
 	} from './discoveryWidgets';
 	import DiscoveryPreview from './DiscoveryPreview.svelte';
+	import RadioGuide from './RadioGuide.svelte';
 	import DiscoverDeck from './DiscoverDeck.svelte';
 	import DiscoverGenres from './DiscoverGenres.svelte';
 	let {
@@ -181,6 +182,16 @@
 				{onplay}
 				{active}
 				names={rows.flatMap((s) => s.genres)}
+			/>
+		{:else if id === 'discover-radio_sections'}<RadioGuide
+				shelves={rows}
+				{display}
+				{session}
+				{onopen}
+				{onartist}
+				{onplay}
+				onplaysong={playSong}
+				{ongenre}
 			/>
 		{:else}<DiscoveryPreview
 				{display}
