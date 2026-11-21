@@ -112,7 +112,9 @@ Open **Settings → Themes** to choose DN’s **Dark**, **Light**, **Midnight** 
 
 Under **Settings → Interface and navigation**, choose **Solid Theme Color** for opaque buttons and panels, **Glass** for a clear tint and reflective edge, or **Blur** for a frosted background with adjustable strength. Dock or float the navigation bar and pin up to five destinations, including individual Library categories and Settings. The menu icon on Home opens **Navigation**. Tap a destination there, or use the **Settings** groups below it. Choice fields expand in place. Select an option to apply it, or tap the field again or press Back to close it. Pinning Settings to the bar moves Home’s shortcut there. Screen transitions can use a quick or gentle fade, or be switched off. They respect the device’s reduced-motion preference.
 
-Swipe left on the expanded artwork or mini-player for the next track. Swipe right for the previous-track action. Tap the mini-player to open Now Playing. Pull the handle or pull down from the top of a bottom sheet to dismiss it.
+Drag the mini-player up to open Now Playing. On Home you can also pull up from the heading or from the end of the feed. Pull Now Playing up to see the queue or down to return to browsing. Pull down from the top of the queue to return to the player. These screens and bottom sheets follow your finger. You can hold them halfway, reverse direction, or flick to finish.
+
+Tap the mini-player to open it. Swipe left or right across the artwork or mini-player to skip forward or back. To dismiss a bottom sheet, pull its handle or drag down once its contents have scrolled to the top.
 
 Under **Settings → Interface and navigation → Mini-player**, choose whether to show the cover and a track progress line. The second line can show the artist, album, both, or be hidden. The two positions beside Play/Pause can each hold Previous, Next or Queue, or be left empty. Opening Queue here and pressing Back takes you to the same place in your library. These choices are saved for this DN account on this device.
 

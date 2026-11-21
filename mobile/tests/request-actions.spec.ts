@@ -1,5 +1,6 @@
 import { chooseOption, choiceList } from './fixtures/inlineChoice';
 import { verticalSwipe } from './fixtures/verticalSwipe';
+import { touchRange } from './fixtures/touchRange';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
@@ -793,6 +794,25 @@ test('pulling a review sheet returns one step, preserves inner scrolling and nev
 	await body.evaluate((el) => {
 		el.scrollTop = 0;
 	});
+	// Inspect a confirmation halfway, then change your mind without navigating back or submitting it.
+	const heading = modal.locator('h2');
+	const top = () => modal.evaluate((el) => el.getBoundingClientRect().top);
+	const origin = await top();
+	const touch = await touchRange(page);
+	try {
+		const { x, y } = await touch.point(heading);
+		await touch.hold(heading);
+		await touch.moveTo(x, y + 92);
+		await expect.poll(top).toBeGreaterThan(origin + 65);
+		await touch.moveTo(x, y + 18);
+		await expect.poll(top).toBeLessThan(origin + 32);
+		await touch.cancel();
+		await expect.poll(top).toBeCloseTo(origin, 0);
+		await expect(modal.getByRole('button', { name: 'Download anyway' })).toBeVisible();
+		expect(calls.filter((c) => c.endsWith('/pick'))).toHaveLength(0);
+	} finally {
+		await touch.close();
+	}
 	await verticalSwipe(page, rect.x + rect.width / 2, rect.y + 32, 85);
 	await expect(option).toBeVisible();
 	const header = (await modal.locator('h2').boundingBox())!;

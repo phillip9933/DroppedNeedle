@@ -302,7 +302,7 @@
 					</PreviewViewport>
 				</SelectionHost>
 			{/if}
-			<div hidden={!!expanded}>
+			<div hidden={!!expanded} data-home-feed={board === 'home' ? '' : undefined}>
 				{#if onrootback}<button class="text-button" onclick={onrootback}
 						><ArrowLeft size={17} />Back to Library</button
 					>{/if}

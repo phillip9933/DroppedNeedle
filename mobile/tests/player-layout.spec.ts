@@ -1,15 +1,16 @@
 import { chooseOption } from './fixtures/inlineChoice';
 import { verticalSwipe } from './fixtures/verticalSwipe';
+import { touchRange } from './fixtures/touchRange';
 import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { silentWav } from './fixtures/silentWav';
 import { openPlayerPlacement } from './fixtures/playerEditor';
 import { localSignIn } from './fixtures/localSignIn';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 const server = 'https://layout.example/dn';
 const otherServer = 'https://layout.example/elsewhere';
 const songs = ['Night Train', 'Day Train'];
-async function fixture(page: Page) {
+async function fixture(page: Page, songTitles = songs) {
 	const wav = silentWav(),
 		ratings: Record<string, number> = {},
 		favorites: Record<string, boolean> = {},
@@ -37,7 +38,7 @@ async function fixture(page: Page) {
 				items: [{ id: 'record', title: 'Railway', artist_name: 'The Lines', art_missing: true }],
 				next: null
 			});
-		const rows = songs.map((title, i) => ({
+		const rows = songTitles.map((title, i) => ({
 			id: 't' + i,
 			title,
 			artist_name: 'The Lines',
@@ -57,7 +58,7 @@ async function fixture(page: Page) {
 			sample_rate: 44100,
 			bit_depth: 16
 		}));
-		if (path === '/library/albums/match/record') return json({ items: rows, total: 2 });
+		if (path === '/library/albums/match/record') return json({ items: rows, total: rows.length });
 		if (path === '/library/tracks') {
 			if (url.searchParams.has('q')) lookups.push(url.searchParams.get('q')!);
 			return json({
@@ -1082,13 +1083,17 @@ test('touch users can fit the player, pull the queue down from a track and dismi
 	await verticalSwipe(page, grip.x + grip.width / 2, grip.y + grip.height / 2, 70);
 	await expect(details).toBeHidden();
 	await expect(title).toBeFocused();
-	const art = view.locator('.hero'),
-		rect = (await art.boundingBox())!;
+	const art = view.locator('.hero');
+	await art.tap({ trial: true });
+	const rect = (await art.boundingBox())!;
 	expect(rect.height).toBeGreaterThan(70);
 	await verticalSwipe(page, rect.x + rect.width / 2, rect.y + rect.height * 0.85, -70);
 	const queue = view.locator('[data-part=play-queue]');
 	await expect(queue).toBeVisible();
-	const row = (await queue.getByRole('button', { name: /Day Train/ }).boundingBox())!;
+	const dayTrain = queue.getByRole('button', { name: /Day Train/ });
+	await expect(dayTrain).toBeInViewport({ ratio: 1 });
+	await dayTrain.tap({ trial: true });
+	const row = (await dayTrain.boundingBox())!;
 	await verticalSwipe(page, row.x + row.width / 2, row.y + row.height / 2, 76);
 	await expect(queue).toBeHidden();
 	await expect(view.getByRole('heading', { name: 'Night Train' })).toBeVisible();
@@ -1102,6 +1107,307 @@ test('touch users can fit the player, pull the queue down from a track and dismi
 		72
 	);
 	await expect(page.locator('[data-part=mini-player]')).toBeVisible();
+});
+
+// Measure a visible landmark even while its incoming screen is inert. A closed screen is below the viewport.
+function screenTop(landmark: Locator) {
+	return landmark.evaluateAll((elements) => {
+		const rect = elements.map((el) => el.getBoundingClientRect()).find((r) => r.height > 0);
+		return rect?.top ?? innerHeight;
+	});
+}
+
+// Compare rendered pixels because inert incoming screens intentionally do not receive hit tests.
+async function patchDifference(
+	page: Page,
+	a: Buffer,
+	originA: { x: number; y: number },
+	b: Buffer,
+	originB: { x: number; y: number }
+) {
+	return page.evaluate(
+		async ({ a, originA, b, originB }) => {
+			async function patch(png: string, origin: { x: number; y: number }) {
+				const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+				const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+				const size = 14;
+				const context = new OffscreenCanvas(size, size).getContext('2d')!;
+				context.drawImage(
+					image,
+					Math.round(origin.x),
+					Math.round(origin.y),
+					size,
+					size,
+					0,
+					0,
+					size,
+					size
+				);
+				image.close();
+				return context.getImageData(0, 0, size, size).data;
+			}
+			const [first, second] = await Promise.all([patch(a, originA), patch(b, originB)]);
+			return first.reduce((sum, value, i) => sum + Math.abs(value - second[i]), 0) / first.length;
+		},
+		{ a: a.toString('base64'), originA, b: b.toString('base64'), originB }
+	);
+}
+
+test('a listener can drag up from an empty Home screen before playing a track', async ({
+	page
+}) => {
+	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'home']);
+	await page.addInitScript((key) => localStorage.setItem(key, '[]'), key);
+	await fixture(page);
+	await localSignIn(page, server, 'alex');
+	await expect(page.getByText('Choose sections for Home in Settings.')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Current track' })).toHaveCount(0);
+	const homeFrame = await page.screenshot();
+	const main = (await page.getByRole('main').boundingBox())!;
+	const x = main.x + main.width / 2,
+		y = main.y + main.height * 0.78;
+	await page.mouse.move(x, y);
+	await page.mouse.down();
+	await page.mouse.move(x, y - main.height / 2, { steps: 4 });
+	const incoming = await screenTop(page.locator('[data-part=now-playing]'));
+	expect(incoming).toBeGreaterThan(80);
+	expect(incoming).toBeLessThan(page.viewportSize()!.height - 80);
+	const arrow = page.locator('[data-section-id=player-close] svg');
+	async function arrowPatch() {
+		const box = (await arrow.boundingBox())!;
+		return { x: box.x + box.width / 2 - 7, y: box.y + box.height / 2 - 7 };
+	}
+	const held = await arrowPatch(),
+		heldFrame = await page.screenshot({
+			path: test.info().outputPath('empty-home-during-pull.png')
+		});
+	await page.mouse.up();
+	await expect(page.getByRole('heading', { name: 'Nothing playing' })).toBeInViewport();
+	await page.getByRole('button', { name: 'Close player' }).tap({ trial: true });
+	const open = await arrowPatch(),
+		playerFrame = await page.screenshot();
+	expect(await patchDifference(page, heldFrame, held, playerFrame, open)).toBeLessThan(8);
+	expect(await patchDifference(page, homeFrame, held, heldFrame, held)).toBeGreaterThan(12);
+	await page.getByRole('button', { name: 'Browse music' }).click();
+	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+});
+
+test('Home scrolling, dragging up to Now Playing and reversing a mini-player pull are independent', async ({
+	page
+}) => {
+	const height = 568;
+	await page.setViewportSize({ width: 390, height });
+	await fixture(page);
+	await play(page);
+	const art = page.locator('[data-section-id=player-artwork] [data-part=cover]');
+	async function coverPatch() {
+		const box = (await art.boundingBox())!;
+		return { x: box.x + box.width * 0.25, y: box.y + box.height * 0.2 };
+	}
+	await page
+		.getByRole('main')
+		.evaluate((el) =>
+			Promise.all(el.getAnimations().map((animation) => animation.finished)).then(() => undefined)
+		);
+	const openPatch = await coverPatch(),
+		playerFrame = await page.screenshot();
+	const expandedY = await screenTop(art);
+	await page.getByRole('button', { name: 'Close player' }).tap();
+	await page.getByRole('navigation', { name: 'Music' }).getByRole('button', { name: 'Home' }).tap();
+	const home = page.getByRole('heading', { name: 'Home', exact: true });
+	const main = page.getByRole('main');
+	const mini = page.getByRole('region', { name: 'Current track' });
+	const opener = mini.getByRole('button', { name: 'Open player for Night Train' });
+	await expect(home).toBeVisible();
+	const miniBox = (await mini.boundingBox())!;
+	const x = 12,
+		y = miniBox.y - 20;
+	const touch = await touchRange(page);
+	try {
+		await expect
+			.poll(() => main.evaluate((el) => el.scrollHeight - el.clientHeight))
+			.toBeGreaterThan(50);
+		await verticalSwipe(page, x, y, -75);
+		await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(20);
+		await expect(opener).toBeVisible();
+		await main.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+		const homeFrame = await page.screenshot();
+		const brand = (await page.getByRole('img', { name: 'DroppedNeedle' }).boundingBox())!;
+		const brandPatch = { x: brand.x + brand.width * 0.2, y: brand.y + brand.height * 0.3 };
+
+		await touch.holdAt(x, y);
+		await touch.moveTo(x, y - 160);
+		await expect.poll(() => screenTop(art)).toBeLessThan(height - 30);
+		const halfway = await screenTop(art);
+		expect(halfway).toBeGreaterThan(expandedY + 70);
+		const heldPatch = await coverPatch();
+		const heldFrame = await page.screenshot({
+			path: test.info().outputPath('home-during-pull.png')
+		});
+		expect(await patchDifference(page, playerFrame, openPatch, heldFrame, heldPatch)).toBeLessThan(
+			6
+		);
+		expect(await patchDifference(page, homeFrame, heldPatch, heldFrame, heldPatch)).toBeGreaterThan(
+			16
+		);
+		expect(await patchDifference(page, homeFrame, brandPatch, heldFrame, brandPatch)).toBeLessThan(
+			2
+		);
+		await touch.moveTo(x, y - 45);
+		await expect.poll(() => screenTop(art)).toBeGreaterThan(halfway + 55);
+		await touch.moveTo(x, y - 255);
+		await touch.lift();
+		await expect.poll(() => screenTop(art)).toBeCloseTo(expandedY, 0);
+		await expect(page.getByRole('heading', { name: 'Night Train' })).toBeVisible();
+
+		const start = await touch.point(art);
+		await touch.hold(art);
+		await touch.moveTo(start.x, start.y + 155);
+		await expect.poll(() => screenTop(art)).toBeGreaterThan(expandedY + 85);
+		await touch.cancel();
+		await expect.poll(() => screenTop(art)).toBeCloseTo(expandedY, 0);
+		await touch.hold(art);
+		await touch.moveTo(start.x, start.y + 255);
+		await touch.lift();
+		await expect(opener).toBeVisible();
+		await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(20);
+
+		const startMini = await touch.point(opener);
+		await page.mouse.move(startMini.x, startMini.y);
+		await page.mouse.down();
+		await page.mouse.move(startMini.x, startMini.y - 185, { steps: 4 });
+		await expect.poll(() => screenTop(art)).toBeLessThan(height - 50);
+		await page.mouse.move(startMini.x, startMini.y - 8, { steps: 4 });
+		await page.mouse.up();
+		await expect.poll(() => screenTop(art)).toBeGreaterThanOrEqual(height);
+		await expect(opener).toBeVisible();
+		await opener.tap();
+		await expect(page.getByRole('heading', { name: 'Night Train' })).toBeVisible();
+	} finally {
+		await touch.close();
+	}
+});
+
+test('the play queue follows the finger both ways, preserves scrolling and never plays a dragged track', async ({
+	page
+}) => {
+	const height = 740;
+	await page.setViewportSize({ width: 390, height });
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	await fixture(page, [...songs, ...Array.from({ length: 35 }, (_, i) => 'Rail stop ' + i)]);
+	await play(page);
+	const art = page.locator('[data-section-id=player-artwork] [data-part=cover]');
+	const queue = page.locator('[data-part=play-queue]');
+	const heading = queue.locator('h1');
+	const open = page.getByRole('button', { name: 'Show play queue' });
+	await open.tap();
+	await expect(queue.getByRole('button', { name: /Day Train/ })).toBeVisible();
+	const queueY = await screenTop(heading);
+	await page.getByRole('button', { name: 'Hide play queue' }).tap();
+	const artBox = (await art.boundingBox())!;
+	const x = artBox.x + artBox.width / 2,
+		y = artBox.y + artBox.height * 0.8;
+	const travel = Math.min(300, y - 12);
+	const touch = await touchRange(page);
+	try {
+		await touch.holdAt(x, y);
+		await touch.moveTo(x, y - travel);
+		await expect.poll(() => screenTop(heading)).toBeLessThan(height - 20);
+		const halfway = await screenTop(heading);
+		expect(halfway).toBeGreaterThan(queueY + 60);
+		await touch.moveTo(x, y - travel + 85);
+		await expect.poll(() => screenTop(heading)).toBeGreaterThan(halfway + 45);
+		await touch.cancel();
+		await expect(open).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Play queue' })).toBeHidden();
+		await open.tap();
+
+		const second = queue.getByRole('button', { name: /Day Train/ });
+		const start = await touch.point(second);
+		await touch.hold(second);
+		await touch.moveTo(start.x, start.y + 165);
+		await expect.poll(() => screenTop(heading)).toBeGreaterThan(queueY + 100);
+		await touch.moveTo(start.x, start.y + 22);
+		await expect.poll(() => screenTop(heading)).toBeLessThan(queueY + 50);
+		await touch.lift();
+		await expect.poll(() => screenTop(heading)).toBeCloseTo(queueY, 0);
+		const queueBox = (await queue.boundingBox())!;
+		await verticalSwipe(page, x, queueBox.y + queueBox.height * 0.75, -125);
+		const scroll = () => queue.evaluate((el) => el.scrollTop);
+		await expect.poll(scroll).toBeGreaterThan(50);
+		const scrolled = await scroll();
+		await verticalSwipe(page, x, queueBox.y + 90, 225);
+		await expect.poll(scroll).toBeLessThan(scrolled);
+		await expect(queue.getByRole('button', { name: /Night Train/ })).toHaveAttribute(
+			'aria-current',
+			'true'
+		);
+	} finally {
+		await touch.close();
+	}
+});
+
+test('track details reverse under the finger and finish sliding after release', async ({
+	page
+}) => {
+	const windowHeight = page.viewportSize()!.height;
+	await fixture(page);
+	await play(page);
+	const title = page.locator('[data-section-id=player-title] button');
+	await title.tap();
+	const details = page.getByRole('dialog', { name: 'Track details' });
+	const heading = details.getByRole('heading', { name: 'Track details' });
+	await expect(heading).toBeVisible();
+	await details.evaluate((el) =>
+		Promise.all(el.getAnimations().map((a) => a.finished)).then(() => undefined)
+	);
+	const rest = await screenTop(details);
+	const backdrop = () =>
+		details.evaluate((el) => Number(getComputedStyle(el, '::backdrop').opacity));
+	const openShade = await backdrop();
+	const touch = await touchRange(page);
+	try {
+		const { x, y } = await touch.point(heading);
+		await touch.hold(heading);
+		await touch.moveTo(x, y + 145);
+		await expect.poll(() => screenTop(details)).toBeGreaterThan(rest + 105);
+		await expect.poll(backdrop).toBeLessThan(openShade - 0.08);
+		const pulledShade = await backdrop();
+		await touch.moveTo(x, y + 35);
+		await expect.poll(() => screenTop(details)).toBeLessThan(rest + 55);
+		await expect.poll(backdrop).toBeGreaterThan(pulledShade + 0.06);
+		await touch.moveTo(x, y + 190);
+		const released = await screenTop(details);
+		// Sample rendered frames after the finger lifts. Removing a half-open sheet immediately looks like a jump.
+		const trace = await details.evaluateHandle((sheet) => {
+			const positions: number[] = [];
+			const finished = new Promise<void>((done) => {
+				function sample() {
+					if (!sheet.isConnected || !(sheet as HTMLDialogElement).open) return done();
+					positions.push(sheet.getBoundingClientRect().top);
+					requestAnimationFrame(sample);
+				}
+				sheet.addEventListener('touchend', () => requestAnimationFrame(sample), {
+					capture: true,
+					once: true
+				});
+			});
+			return { positions, finished };
+		});
+		await touch.lift();
+		await expect(details).toBeHidden();
+		const frames = await trace.evaluate(async ({ finished, positions }) => {
+			await finished;
+			return positions;
+		});
+		expect(frames.some((position) => position > released + 5 && position < windowHeight)).toBe(
+			true
+		);
+		await trace.dispose();
+		await expect(title).toBeFocused();
+	} finally {
+		await touch.close();
+	}
 });
 
 test('a saved full-screen lyrics field opens an accessible sheet and preserves the artwork', async ({

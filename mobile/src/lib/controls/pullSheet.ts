@@ -1,134 +1,131 @@
-type Pull = { dismiss: () => void; disabled?: boolean };
+import { motionDuration } from '../appearance/interface';
+import { bindVerticalDrag } from './verticalDrag';
 
-/** Pull the heading, or pull down from the top of the sheet's scrollable content. */
-export function pullSheet(sheet: HTMLDialogElement, options: Pull) {
-	const cleanup = new AbortController();
-	const passive = { passive: true, signal: cleanup.signal };
-	const active = { passive: false, signal: cleanup.signal };
-	let pointer: { id: number; y: number } | undefined;
-	let touch: Touch | undefined;
-	function finish() {
-		pointer = undefined;
-		touch = undefined;
-		sheet.style.removeProperty('--sheet-pull');
+/** The dialog stays modal until the drag finishes and its owner handles Back. */
+export function pullSheet(
+	sheet: HTMLDialogElement,
+	{ enabled, dismiss }: { enabled: () => boolean; dismiss: () => void }
+) {
+	let span = 1;
+	let revision = 0;
+	let settling = false;
+	let closing = false;
+	let disposed = false;
+
+	function measure() {
+		span = Math.max(1, sheet.getBoundingClientRect().height);
+		return span;
 	}
-	function move(y: number) {
-		sheet.style.setProperty('--sheet-pull', Math.max(0, y) + 'px');
+	function paint(progress: number) {
+		sheet.style.setProperty('--sheet-progress', String(Math.min(1, Math.max(0, progress))));
 	}
-	function release(y: number) {
-		finish();
-		if (!options.disabled && y >= 52) options.dismiss();
+	function renderedOffset() {
+		const transform = getComputedStyle(sheet).transform;
+		return transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42;
 	}
-	function target(event: Event) {
-		const el = event.target;
-		return !options.disabled && el instanceof Element && el.closest('dialog') === sheet ? el : null;
+	function hold() {
+		const progress = renderedOffset() / measure();
+		revision++;
+		settling = false;
+		sheet.style.removeProperty('--sheet-duration');
+		paint(progress);
+		return progress;
 	}
-	sheet.addEventListener(
-		'pointerdown',
-		(event) => {
-			const el = target(event);
-			if (
-				!event.isPrimary ||
-				event.button !== 0 ||
-				el?.closest('button,a,input,select,textarea') ||
-				!el?.closest('[data-sheet-handle]')
-			)
+	function settle(to: 0 | 1, then?: () => void) {
+		const from = hold();
+		const ticket = revision;
+		const ms = Math.round(motionDuration() * Math.sqrt(Math.min(1, Math.abs(to - from))));
+		if (ms && Math.abs(to - from) * span > 1) {
+			// Commit the exact held frame before handing the rest of the trip to the compositor.
+			sheet.getBoundingClientRect();
+			sheet.style.setProperty('--sheet-duration', ms + 'ms');
+			paint(to);
+			const move = sheet
+				.getAnimations()
+				.find((a) => 'transitionProperty' in a && a.transitionProperty === 'transform');
+			if (move) {
+				settling = true;
+				const finish = () => {
+					if (revision !== ticket) return;
+					settling = false;
+					sheet.style.removeProperty('--sheet-duration');
+					then?.();
+				};
+				void move.finished.then(finish, finish);
 				return;
-			pointer = { id: event.pointerId, y: event.clientY };
-			sheet.setPointerCapture(event.pointerId);
-		},
-		passive
-	);
-	sheet.addEventListener(
-		'pointermove',
-		(event) => {
-			if (pointer?.id === event.pointerId) move(event.clientY - pointer.y);
-		},
-		passive
-	);
-	sheet.addEventListener(
-		'pointerup',
-		(event) => {
-			if (pointer?.id === event.pointerId) release(event.clientY - pointer.y);
-		},
-		passive
-	);
-	sheet.addEventListener(
-		'pointercancel',
-		(event) => {
-			if (pointer?.id === event.pointerId) finish();
-		},
-		passive
-	);
-
-	sheet.addEventListener(
-		'touchstart',
-		(event) => {
-			if (pointer) return;
-			finish();
-			const el = target(event);
+			}
+		}
+		sheet.style.removeProperty('--sheet-duration');
+		paint(to);
+		then?.();
+	}
+	function close() {
+		if (disposed || closing || !enabled()) return;
+		closing = true;
+		drag.cancel();
+		settle(1, () => {
+			if (enabled()) dismiss();
+			closing = false;
+			// A review can return to its parent in this same dialog. Its header and scroll
+			// targets must be at rest as soon as the new step appears.
+			paint(0);
+		});
+	}
+	const drag = bindVerticalDrag(sheet, {
+		canStart(target, direction, origin) {
+			if (!enabled() || target.closest('dialog') !== sheet) return false;
+			if (target === sheet) {
+				const r = sheet.getBoundingClientRect();
+				if (origin.y < r.top || origin.y > r.bottom || origin.x < r.left || origin.x > r.right)
+					return false;
+			}
 			if (
-				!el ||
-				event.touches.length !== 1 ||
-				el.closest(
-					'input,select,textarea,[data-inline-choice],[contenteditable=true],[role=slider],[data-sheet-handle],[data-reorder-grip]'
+				target.closest(
+					'input,select,textarea,audio,video,[data-inline-choice],[contenteditable=true],[role=slider],[data-reorder-grip]'
 				)
 			)
-				return;
-			for (let node: Element | null = el; node && node !== sheet; node = node.parentElement) {
-				if (node.scrollTop > 1) return;
-			}
-			touch = event.touches[0];
+				return false;
+			if (direction === 'up' && (!settling || renderedOffset() < 1)) return false;
+			for (let el: Element | null = target; el && el !== sheet; el = el.parentElement)
+				if (el.scrollTop > 1) return false;
+			return 'down';
 		},
-		passive
-	);
-	function distance(point: Touch) {
-		if (!touch || touch.identifier !== point.identifier) return 0;
-		const x = Math.abs(point.clientX - touch.clientX),
-			y = point.clientY - touch.clientY;
-		if (y < -6 || (x > 10 && x > Math.abs(y) * 0.85)) {
-			finish();
-			return 0;
+		travel: measure,
+		start() {
+			closing = false;
+			return hold() * span;
+		},
+		move(_, distance) {
+			paint(distance / span);
+		},
+		release(_, committed) {
+			if (closing || disposed) return;
+			if (committed && enabled()) close();
+			else settle(0);
 		}
-		return y;
+	});
+	function ignoreClosingClick(event: MouseEvent) {
+		if (!closing) return;
+		event.preventDefault();
+		event.stopImmediatePropagation();
 	}
-	sheet.addEventListener(
-		'touchmove',
-		(event) => {
-			if (!touch) return;
-			if (event.touches.length !== 1 || !event.cancelable) return finish();
-			const y = distance(event.touches[0]);
-			if (y <= 12) return;
-			event.preventDefault();
-			move(y);
-		},
-		active
-	);
-	sheet.addEventListener(
-		'touchend',
-		(event) => {
-			if (!touch) return;
-			const y = event.changedTouches.length === 1 ? distance(event.changedTouches[0]) : 0;
-			if (y >= 52 && event.cancelable) event.preventDefault();
-			release(y);
-		},
-		active
-	);
-	sheet.addEventListener(
-		'touchcancel',
-		() => {
-			if (touch) finish();
-		},
-		passive
-	);
+	sheet.addEventListener('click', ignoreClosingClick, true);
+	paint(1);
+	settle(0);
 	return {
-		update(next: Pull) {
-			options = next;
-			if (next.disabled) finish();
+		close,
+		reset() {
+			drag.cancel();
+			closing = false;
+			settle(0);
 		},
 		destroy() {
-			cleanup.abort();
-			finish();
+			disposed = true;
+			revision++;
+			drag.destroy();
+			sheet.removeEventListener('click', ignoreClosingClick, true);
+			sheet.style.removeProperty('--sheet-duration');
+			sheet.style.removeProperty('--sheet-progress');
 		}
 	};
 }

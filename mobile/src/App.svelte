@@ -6,6 +6,7 @@
 	import { Menu } from '@lucide/svelte';
 	import Navigation from './lib/Navigation.svelte';
 	import {
+		cancelScreenMotion,
 		changeScreen,
 		interfacePreferences,
 		libraryDestinations,
@@ -27,6 +28,12 @@
 	import type { LibraryContinuation } from './lib/player/libraryWindow';
 	import { player, type PlayerTrack } from './lib/player';
 	import PlayerView from './lib/PlayerView.svelte';
+	import { PanelPull, type PlayerSurface } from './lib/player/panelPull.svelte';
+	import {
+		playerGestures,
+		type PlayerGestureActions,
+		type PullDirection
+	} from './lib/player/playerGestures';
 	import PlayerLibraryDetail from './lib/player/PlayerLibraryDetail.svelte';
 	import {
 		rememberQueueSource,
@@ -63,9 +70,21 @@
 	let main: HTMLElement;
 	let shell = $state<HTMLElement>();
 	let footerHeight = $state(0);
+	let noticeHeight = $state(0);
+	let artworkLyrics = $state(false);
+	let editingQueue = $state(false);
+	const pull = new PanelPull();
+	const surface = $derived<PlayerSurface>(
+		!related && (panel === 'player' || panel === 'queue') ? panel : 'base'
+	);
+	const peekingCatalog = $derived(surface !== 'base' && pull.includes('base'));
+	const baseVisible = $derived(surface === 'base' || peekingCatalog);
+	const layers = ['player', 'queue'] as const;
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<Catalog>();
-	const catalogHeader = $derived(panel === 'catalog' && session ? catalog?.getHeader() : undefined);
+	const catalogHeader = $derived(
+		(panel === 'catalog' || peekingCatalog) && session ? catalog?.getHeader() : undefined
+	);
 	const dockDestination = $derived.by((): Destination => {
 		if (panel === 'settings') return 'settings';
 		const category = related
@@ -82,8 +101,83 @@
 	function report(error: unknown) {
 		issue = error instanceof Error ? error.message : 'The app could not finish that action.';
 	}
-	function navigate(to: BrowseDestination, category?: Category) {
+	function switchPanel(update: () => void) {
+		const animate = !pull.route;
+		pull.clear();
 		changeScreen(() => {
+			update();
+			if (!inPlayer) {
+				artworkLyrics = false;
+				editingQueue = false;
+			}
+		}, animate);
+	}
+	function destination(direction: PullDirection): PlayerSurface | undefined {
+		if (surface === 'base') return direction === 'up' ? 'player' : undefined;
+		if (direction === 'down') return surface === 'queue' ? 'player' : 'base';
+		const state = get(player);
+		if (surface === 'player' && state.tracks[state.index]) return 'queue';
+	}
+	function panelHeight() {
+		if (!shell) return 1;
+		return Math.max(
+			1,
+			shell.clientHeight -
+				(parseFloat(getComputedStyle(shell).paddingTop) || 0) -
+				(issue ? noticeHeight : 0)
+		);
+	}
+	const gestures: PlayerGestureActions = {
+		up() {
+			if (surface === 'player') toggleQueue();
+			else if (related) returnToPlayer();
+			else openPanel('player', true);
+		},
+		down() {
+			if (surface === 'queue') {
+				queueFromMini = false;
+				toggleQueue();
+			} else closePanel();
+		},
+		canStart(target, direction, origin) {
+			if (!session || loading || document.querySelector('dialog[open]')) return false;
+			if (pull.route) return pull.route.direction;
+			if (!destination(direction)) return false;
+			if (surface !== 'base')
+				return target.closest('[data-panel-layer]')?.getAttribute('data-panel-layer') === surface;
+			if (target.closest('[data-part="mini-player"]')) return true;
+			if (panel !== 'catalog' || tab !== 'home') return false;
+			const feed = main.querySelector<HTMLElement>('[data-home-feed]');
+			if (!feed?.getClientRects().length) return false;
+			if (target.closest('.mast') || (feed.contains(target) && target.closest('h1'))) return true;
+			return (
+				main.contains(target) &&
+				(origin.pointerType === 'mouse' ||
+					main.scrollHeight - main.clientHeight - main.scrollTop < 2)
+			);
+		},
+		travel: () => pull.route?.height ?? panelHeight(),
+		start(direction) {
+			const to = pull.route?.to ?? destination(direction);
+			if (!to) return false;
+			const restoreScroll = !pull.route && to === 'base';
+			cancelScreenMotion();
+			const offset = pull.start(surface, to, direction, panelHeight());
+			if (restoreScroll)
+				void tick().then(() => {
+					if (peekingCatalog) main.scrollTo(0, catalogScroll);
+				});
+			return offset;
+		},
+		move(_direction, pixels) {
+			if (pull.route) pull.distance = pixels;
+		},
+		release(_direction, commit, navigate) {
+			pull.settle(commit, navigate);
+		}
+	};
+	function navigate(to: BrowseDestination, category?: Category) {
+		switchPanel(() => {
 			clearRelated();
 			catalogVisit++;
 			initialCategory = category;
@@ -140,7 +234,7 @@
 	}
 	function openCredit(kind: Credit, track: PlayerTrack, control: HTMLElement) {
 		if (!inPlayer || !session || related) return;
-		changeScreen(() => {
+		switchPanel(() => {
 			relatedScroll = main?.scrollTop ?? 0;
 			creditControl = control;
 			related = { kind, track, scope: queueScope };
@@ -150,7 +244,7 @@
 	function returnToPlayer() {
 		const control = creditControl,
 			offset = relatedScroll;
-		changeScreen(() => {
+		switchPanel(() => {
 			panel = 'player';
 			queueFromMini = false;
 			clearRelated();
@@ -167,7 +261,7 @@
 		fromMini = false,
 		returnOffset?: number
 	) {
-		changeScreen(() => {
+		switchPanel(() => {
 			if (next !== 'settings') clearRelated();
 			fromPlayer = false;
 			if (panel === 'catalog') {
@@ -185,7 +279,7 @@
 		});
 	}
 	function playerSettings() {
-		changeScreen(() => {
+		switchPanel(() => {
 			playerScroll = main?.scrollTop ?? 0;
 			fromPlayer = true;
 			settingsOrigin = panel === 'queue' ? 'queue' : 'player';
@@ -194,7 +288,7 @@
 		});
 	}
 	function finishPlayerLayout() {
-		changeScreen(() => {
+		switchPanel(() => {
 			queueFromMini = false;
 			panel = 'player';
 			focusMain(fromPlayer ? playerScroll : 0);
@@ -202,7 +296,7 @@
 		});
 	}
 	function closePanel() {
-		changeScreen(() => {
+		switchPanel(() => {
 			const closingSettings = panel === 'settings';
 			const target = closingSettings ? settingsOrigin : 'catalog';
 			if (target === 'catalog') clearRelated();
@@ -224,12 +318,16 @@
 			closePanel();
 			return;
 		}
-		changeScreen(() => {
+		switchPanel(() => {
 			panel = panel === 'queue' ? 'player' : 'queue';
 			focusMain();
 		});
 	}
 	function back() {
+		if (pull.route) {
+			pull.clear();
+			return true;
+		}
 		if (!window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true }))) return true;
 		if (related && inPlayer) {
 			returnToPlayer();
@@ -329,6 +427,9 @@
 	async function disconnect(expired = false) {
 		const previous = session;
 		if (!previous) return;
+		pull.clear();
+		artworkLyrics = false;
+		editingQueue = false;
 		session = null;
 		clearRelated();
 		rememberQueueSource(previous);
@@ -373,11 +474,15 @@
 		const openOffline = () => {
 			if (session && offlineSupported) navigate('offline');
 		};
+		const resetPull = () => pull.clear();
+		window.addEventListener('resize', resetPull);
 		window.addEventListener('dn-open-offline', openOffline);
 		window.addEventListener('dn-download-notification', openDownloadNotification);
 		window.addEventListener('dn-session-expired', expired);
 		window.addEventListener('keydown', key);
 		return () => {
+			pull.clear();
+			window.removeEventListener('resize', resetPull);
 			void listener?.then((handle) => handle.remove());
 			window.removeEventListener('dn-open-offline', openOffline);
 			window.removeEventListener('dn-download-notification', openDownloadNotification);
@@ -387,9 +492,17 @@
 	});
 </script>
 
-<div class="shell" data-part="app" bind:this={shell} style:--footer-height={footerHeight + 'px'}>
-	{#if !inPlayer || related}
-		<header class="mast">
+<div
+	class="shell"
+	data-part="app"
+	bind:this={shell}
+	use:playerGestures={gestures}
+	class:pulling={!!pull.route}
+	style:--footer-height={footerHeight + 'px'}
+	style:--notice-height={(issue ? noticeHeight : 0) + 'px'}
+>
+	{#if baseVisible}
+		<header class="mast" inert={peekingCatalog}>
 			{#if catalogHeader}{@render catalogHeader()}{:else}
 				<span
 					class="brand-mark"
@@ -410,7 +523,7 @@
 			{/if}
 		</header>
 	{/if}
-	{#if issue}<div class="notice">
+	{#if issue}<div class="notice" bind:clientHeight={noticeHeight}>
 			<p role="alert">{issue}</p>
 			<button class="text-button" onclick={() => (issue = '')}>Dismiss</button>
 		</div>{/if}
@@ -418,7 +531,7 @@
 		{#if loading}<p role="status" class="pad">Opening DroppedNeedle…</p>
 		{:else}
 			{#if session}
-				<div hidden={panel !== 'catalog'} class="pad">
+				<div hidden={panel !== 'catalog' && !peekingCatalog} inert={peekingCatalog} class="pad">
 					{#key catalogVisit}{#if tab === 'offline'}<OfflineLibrary
 								bind:this={offlineLibrary}
 								{session}
@@ -450,21 +563,36 @@
 						/>{/key}
 				</div>
 			{/if}
-			{#if inPlayer && session}
-				<div hidden={!!related}>
-					<PlayerView
-						oncredit={openCredit}
-						{session}
-						expanded={true}
-						queueOpen={panel === 'queue'}
-						ontogglequeue={toggleQueue}
-						onsettings={playerSettings}
-						onexpand={() => {}}
-						oncollapse={closePanel}
-						onerror={report}
-					/>
-				</div>
-				{#if related}<div class="pad">
+			{#if session}
+				{#each layers as layer (layer)}
+					{#if panel === layer || pull.includes(layer)}
+						<div
+							class="panel-layer"
+							data-panel-layer={layer}
+							hidden={!!related && !pull.includes(layer)}
+							inert={surface !== layer}
+							style:transform={pull.route
+								? 'translate3d(0,' + pull.top(layer) + 'px,0)'
+								: undefined}
+						>
+							<PlayerView
+								oncredit={openCredit}
+								{session}
+								expanded
+								bind:artworkLyrics
+								bind:editing={editingQueue}
+								transient={surface !== layer && surface !== 'base'}
+								queueOpen={layer === 'queue'}
+								ontogglequeue={toggleQueue}
+								onsettings={playerSettings}
+								onexpand={() => {}}
+								oncollapse={closePanel}
+								onerror={report}
+							/>
+						</div>
+					{/if}
+				{/each}
+				{#if inPlayer && related}<div class="pad">
 						<PlayerLibraryDetail
 							{session}
 							credit={related}
@@ -476,8 +604,8 @@
 			{/if}
 		{/if}
 	</main>
-	{#if session && (panel === 'catalog' || (inPlayer && related) || (panel === 'settings' && !fromPlayer && $interfacePreferences.tabs.includes('settings')))}
-		<footer bind:clientHeight={footerHeight}>
+	{#if session && (panel === 'catalog' || peekingCatalog || (inPlayer && related) || (panel === 'settings' && !fromPlayer && $interfacePreferences.tabs.includes('settings')))}
+		<footer bind:clientHeight={footerHeight} inert={peekingCatalog}>
 			<PlayerView
 				{session}
 				expanded={false}
@@ -489,17 +617,43 @@
 			<Navigation current={dockDestination} offline={offlineSupported} onnavigate={choose} />
 		</footer>
 	{/if}
+	{#if pull.route}<div class="pull-guard" aria-hidden="true"></div>{/if}
 </div>
 
 <style>
 	.shell {
 		position: relative;
+		isolation: isolate;
+		overflow: clip;
 		height: 100dvh;
 		display: flex;
 		flex-direction: column;
 		max-width: 52rem;
 		margin: auto;
 		padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+	}
+	.panel-layer {
+		height: 100%;
+		background: var(--bg);
+		transition-property: none;
+	}
+	.pulling .panel-layer {
+		position: absolute;
+		inset: calc(env(safe-area-inset-top) + var(--notice-height)) env(safe-area-inset-right) 0
+			env(safe-area-inset-left);
+		height: auto;
+		z-index: 2;
+		overflow: clip;
+		will-change: transform;
+	}
+	.pulling .panel-layer[data-panel-layer='queue'] {
+		z-index: 3;
+	}
+	/* A second touch can catch a moving screen without tapping a control underneath it. */
+	.pull-guard {
+		position: absolute;
+		inset: 0;
+		z-index: 4;
 	}
 	.mast {
 		display: flex;

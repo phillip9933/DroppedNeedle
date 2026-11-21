@@ -120,7 +120,7 @@
 		{#if timer}<small>{short}</small>{/if}
 	</button>{/if}
 {#if open}
-	<PlayerSheet title="Sleep timer" onclose={close}>
+	<PlayerSheet title="Sleep timer" {busy} onclose={close}>
 		<form
 			class="timer"
 			onsubmit={(e) => {

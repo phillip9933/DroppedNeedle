@@ -14,17 +14,21 @@ export async function touchRange(page: Page) {
 	function moveTo(x: number, y: number) {
 		return cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
 	}
+	function holdAt(x: number, y: number) {
+		return cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+	}
 	return {
 		point,
-		hold: async (item: Locator) =>
-			cdp.send('Input.dispatchTouchEvent', {
-				type: 'touchStart',
-				touchPoints: [await point(item)]
-			}),
+		holdAt,
+		hold: async (item: Locator) => {
+			const { x, y } = await point(item);
+			return holdAt(x, y);
+		},
 		move: async (item: Locator) =>
 			cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [await point(item)] }),
 		moveTo,
 		lift: () => cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
+		cancel: () => cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] }),
 		close: () => cdp.detach()
 	};
 }

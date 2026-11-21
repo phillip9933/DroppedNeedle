@@ -169,7 +169,7 @@ let animation: Animation | undefined;
 let departure: Animation | undefined;
 let visit = 0;
 
-function duration() {
+export function motionDuration() {
 	const motion = get(interfacePreferences).motion;
 	if (document.hidden || motion === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches)
 		return 0;
@@ -190,7 +190,7 @@ export function applyInterface() {
 		if (!(event.target instanceof Element) || !event.target.closest('[data-screen-link]')) return;
 		if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
 		const main = document.querySelector('main'),
-			ms = duration();
+			ms = motionDuration();
 		if (!main?.animate || !ms) return;
 		animation?.cancel();
 		departure?.cancel();
@@ -225,13 +225,18 @@ export function applyInterface() {
 	};
 }
 
-export function changeScreen(update: () => void) {
-	const id = ++visit;
+export function cancelScreenMotion() {
+	visit++;
 	departure?.cancel();
 	departure = undefined;
 	animation?.cancel();
+}
+
+export function changeScreen(update: () => void, animate = true) {
+	cancelScreenMotion();
+	const id = visit;
 	update();
-	const ms = duration();
+	const ms = animate ? motionDuration() : 0;
 	if (!ms) return;
 	void tick().then(() => {
 		if (id !== visit) return;
