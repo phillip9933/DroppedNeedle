@@ -448,6 +448,38 @@ for (const theme of ['dark', 'light', 'midnight']) {
 	});
 }
 
+test('an admin can read transfer progress and reach every request action with large text on a narrow phone', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 740 });
+	await connect(page, 'admin');
+	await page.addStyleTag({ content: 'html { font-size: 200% }' });
+	const views = page.getByRole('tablist', { name: 'Request views' });
+	for (const name of ['Activity', 'Downloads', 'Approvals']) {
+		const tab = views.getByRole('tab', { name, exact: true });
+		await tab.click();
+		const panel = page.getByRole('tabpanel', { name });
+		await expect(panel.getByRole('list').first()).toBeVisible();
+		const overflowing = await page.evaluate(() => {
+			const elements = document.querySelectorAll<HTMLElement>(
+				'[role="tab"], [role="tabpanel"] button, button[aria-label^="Refresh"], progress + span, nav[aria-label="Music"] button'
+			);
+			return Array.from(elements)
+				.filter((element) => element.checkVisibility() && element.getBoundingClientRect().width)
+				.filter((element) => {
+					const bounds = element.getBoundingClientRect();
+					return (
+						bounds.left < -1 ||
+						bounds.right > document.documentElement.clientWidth + 1 ||
+						element.scrollWidth > element.clientWidth + 1
+					);
+				})
+				.map((element) => element.getAttribute('aria-label') || element.textContent?.trim());
+		});
+		expect(overflowing).toEqual([]);
+	}
+});
+
 test('held files use only the chosen eligible file IDs and keep replacement and discard behind confirmation', async ({
 	page
 }) => {

@@ -1,21 +1,45 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
-	import { X } from '@lucide/svelte';
+	import { onMount, tick, type Snippet } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
+	import { ArrowLeft, X } from '@lucide/svelte';
 	import { pullSheet } from '../controls/pullSheet';
 	let {
 		title,
 		onclose,
+		context = '',
+		backLabel,
+		closeLabel,
+		scrollKey,
+		busy = false,
 		fullScreen = false,
 		children
 	}: {
 		title: string;
 		onclose: () => void;
+		context?: string;
+		backLabel?: string;
+		closeLabel?: string;
+		scrollKey?: string;
+		busy?: boolean;
 		fullScreen?: boolean;
 		children: Snippet;
 	} = $props();
 	let dialog: HTMLDialogElement;
-	let closeButton: HTMLButtonElement;
+	let closeButton: HTMLButtonElement, heading: HTMLHeadingElement, content: HTMLElement;
 	let outside = false;
+	const offsets = new SvelteMap<string, number>();
+	// Returning from a review step restores the previous list position.
+	$effect.pre(() => {
+		const page = scrollKey;
+		if (page === undefined) return;
+		void tick().then(() => {
+			content?.scrollTo(0, offsets.get(page) ?? 0);
+			heading?.focus({ preventScroll: true });
+		});
+		return () => {
+			if (content) offsets.set(page, content.scrollTop);
+		};
+	});
 	$effect(() => {
 		void title;
 		if (dialog?.open && !dialog.contains(document.activeElement))
@@ -28,7 +52,7 @@
 		if (!topmost()) return;
 		event.preventDefault();
 		event.stopImmediatePropagation();
-		onclose();
+		if (!busy) onclose();
 	}
 	function backdrop(event: PointerEvent) {
 		if (event.target !== dialog) return false;
@@ -43,7 +67,7 @@
 	onMount(() => {
 		const opener = document.activeElement;
 		dialog.showModal();
-		closeButton.focus({ preventScroll: true });
+		(scrollKey !== undefined ? heading : closeButton).focus({ preventScroll: true });
 		window.addEventListener('dn-back', dismiss, true);
 		return () => {
 			window.removeEventListener('dn-back', dismiss, true);
@@ -63,28 +87,35 @@
 	class:full={fullScreen}
 	aria-label={title}
 	data-part="player-sheet"
-	use:pullSheet={{ dismiss: onclose }}
+	use:pullSheet={{ dismiss: onclose, disabled: busy }}
 	oncancel={dismiss}
 	onpointerdown={(e) => (outside = backdrop(e))}
 	onpointerup={(e) => {
-		if (outside && backdrop(e)) onclose();
+		if (!busy && outside && backdrop(e)) onclose();
 		outside = false;
 	}}
 	onpointercancel={() => (outside = false)}
 >
 	<div class="sheet-heading" data-sheet-handle>
 		<div class="grip" data-sheet-grip><span></span></div>
-		<header>
-			<h2>{title}</h2>
+		<header class:drilldown={!!backLabel} class:review={scrollKey !== undefined}>
+			<div class="title">
+				<h2 bind:this={heading} tabindex="-1">{title}</h2>
+				{#if context}<small>{context}</small>{/if}
+			</div>
 			<button
 				class="icon-button"
-				aria-label={'Close ' + title}
+				aria-label={backLabel ?? closeLabel ?? 'Close ' + title}
 				bind:this={closeButton}
-				onclick={onclose}><X size={20} /></button
+				disabled={busy}
+				onclick={onclose}
+				>{#if backLabel}<ArrowLeft size={20} />{:else}<X size={20} />{/if}</button
 			>
 		</header>
 	</div>
-	<div class="sheet-content">{@render children()}</div>
+	<div class="sheet-content" class:body={scrollKey !== undefined} bind:this={content}>
+		{@render children()}
+	</div>
 </dialog>
 
 <style>
@@ -141,6 +172,28 @@
 		justify-content: space-between;
 		gap: var(--gap);
 		padding: 0 0.75rem 0.3rem 1.2rem;
+	}
+	header.drilldown {
+		justify-content: flex-start;
+	}
+	header.review,
+	.sheet-content.body {
+		padding-inline: min(1.2rem, 5vw);
+	}
+	header.review {
+		gap: min(var(--gap), 4vw);
+	}
+	.drilldown button {
+		order: -1;
+	}
+	.title {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	small {
+		display: block;
+		color: var(--muted);
+		line-height: 1.35;
 	}
 	h2 {
 		font-size: 1.15rem;

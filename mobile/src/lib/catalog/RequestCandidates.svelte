@@ -9,7 +9,17 @@
 		type SearchCandidate
 	} from './requestActions';
 	import ReviewSheet from './ReviewSheet.svelte';
-	import { ChevronRight } from '@lucide/svelte';
+	import {
+		CheckCheck,
+		ChevronRight,
+		CircleHelp,
+		Eye,
+		ListMusic,
+		RefreshCw,
+		SlidersHorizontal,
+		Square,
+		TriangleAlert
+	} from '@lucide/svelte';
 
 	let {
 		session,
@@ -31,10 +41,10 @@
 		submitting = $state(false);
 	let missing = false;
 	const tiers = {
-		recommended: 'Recommended match',
-		possible: 'Possible match',
-		refused: 'Outside download settings'
-	} satisfies Record<SearchCandidate['tier'], string>;
+		recommended: { label: 'Recommended match', icon: CheckCheck },
+		possible: { label: 'Possible match', icon: CircleHelp },
+		refused: { label: 'Outside download settings', icon: SlidersHorizontal }
+	} as const;
 	const refusalNames = {
 		quality_outside_range: 'Quality outside your configured range',
 		over_size_cap: 'Exceeds your size limit',
@@ -43,6 +53,26 @@
 		below_minimum_score: 'Below your minimum score'
 	} satisfies Record<NonNullable<SearchCandidate['refusal']>[number], string>;
 	const outsideSettings = $derived(typeof selected === 'object' && !!selected?.refusal?.length);
+	function source(candidate: SearchCandidate) {
+		return [candidate.source.replace(/^plugin:/, ''), candidate.username || candidate.indexer]
+			.filter(Boolean)
+			.join(' · ');
+	}
+	function fileSummary(candidate: SearchCandidate) {
+		const coverage =
+			candidate.tracks_matched != null && candidate.tracks_total
+				? candidate.tracks_matched + ' of ' + candidate.tracks_total + ' tracks'
+				: candidate.file_count
+					? candidate.file_count + (candidate.file_count === 1 ? ' file' : ' files')
+					: '';
+		return [
+			candidate.format,
+			coverage,
+			candidate.size_bytes ? Math.ceil(candidate.size_bytes / 1048576) + ' MiB' : ''
+		]
+			.filter(Boolean)
+			.join(' · ');
+	}
 
 	function back() {
 		if (selected) selected = null;
@@ -102,39 +132,45 @@
 		: 'Review matches'}
 	context={title}
 	onback={back}
-	backLabel={selected ? 'Back to matches' : 'Back to downloads'}
+	backLabel={selected ? 'Back to matches' : undefined}
+	closeLabel="Close"
+	scrollKey={selected && typeof selected === 'object'
+		? 'match-' + selected.candidate_index
+		: selected || 'matches'}
 	busy={submitting}
 >
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if selected}
 		{#if typeof selected === 'object'}
-			<div class="selected">
-				<h3>{selected.title}</h3>
-				<p>
-					{[
-						selected.source.replace(/^plugin:/, ''),
-						selected.username || selected.indexer,
-						selected.format
-					]
-						.filter(Boolean)
-						.join(' · ')}
-				</p>
-				<p>{selected.note?.text}</p>
+			<div class="selected settings-panel" data-surface="panel">
+				<h3 class="review-heading">{selected.title}</h3>
+				{#if source(selected)}<span class="review-meta">{source(selected)}</span>{/if}
+				{#if fileSummary(selected)}<span class="review-meta">{fileSummary(selected)}</span>{/if}
+				{#if selected.note?.text}<p>{selected.note.text}</p>{/if}
 			</div>
 			{#if selected.files.length}
-				<details class="files">
-					<summary>View files ({selected.files.length})</summary>
-					<ul>
+				<details class="settings-disclosure" data-surface="panel">
+					<summary
+						><span class="file-heading"
+							><ListMusic size={18} aria-hidden="true" />View files ({selected.files.length})</span
+						></summary
+					>
+					<ul class="review-files">
 						{#each selected.files as file, i (i)}<li>
 								{file.filename.split(/[\\/]/).pop() || file.filename}{#if file.bitrate}
-									<small>· {file.bitrate} kbps</small>{/if}
+									<small class="review-meta">{file.bitrate} kbps</small>{/if}
 							</li>{/each}
 					</ul>
 				</details>
 			{/if}
-			{#if selected.refusal?.length}<ul>
-					{#each selected.refusal as reason (reason)}<li>{refusalNames[reason]}</li>{/each}
-				</ul>{/if}
+			{#if selected.refusal?.length}
+				<div class="refusal">
+					<TriangleAlert size={18} aria-hidden="true" />
+					<ul>
+						{#each selected.refusal as reason (reason)}<li>{refusalNames[reason]}</li>{/each}
+					</ul>
+				</div>
+			{/if}
 		{:else}
 			<p>
 				{selected === 'watch'
@@ -142,7 +178,7 @@
 					: 'Stop this search without starting a download?'}
 			</p>
 		{/if}
-		<div class="actions confirm">
+		<div class="confirm">
 			<button class="primary" disabled={submitting} onclick={confirm}
 				>{selected === 'watch'
 					? 'Keep watching'
@@ -161,34 +197,30 @@
 				{#each ['recommended', 'possible', 'refused'] as const as tier (tier)}
 					{@const list = job.candidates.filter((c) => c.tier === tier)}
 					{#if list.length}
-						<section class="matches" aria-label={tiers[tier]}>
-							<h3>{tiers[tier]} <small>{list.length}</small></h3>
-							{#each list as candidate (candidate.candidate_index)}
-								<button class="secondary match" onclick={() => (selected = candidate)}>
-									<strong>{candidate.title}</strong><ChevronRight size={18} aria-hidden="true" />
-									<small
-										>{[
-											candidate.source.replace(/^plugin:/, ''),
-											candidate.username || candidate.indexer,
-											candidate.format,
-											candidate.tracks_matched != null && candidate.tracks_total
-												? candidate.tracks_matched + ' of ' + candidate.tracks_total + ' tracks'
-												: candidate.file_count
-													? candidate.file_count + ' files'
-													: null,
-											candidate.size_bytes
-												? Math.ceil(candidate.size_bytes / 1048576) + ' MiB'
-												: null
-										]
-											.filter(Boolean)
-											.join(' · ')}</small
-									>
-
-									{#if candidate.refusal?.length}<small
-											>{candidate.refusal.map((r) => refusalNames[r]).join(' · ')}</small
-										>{/if}
-								</button>
-							{/each}
+						{@const tierInfo = tiers[tier]}
+						<section class="review-section" aria-label={tierInfo.label}>
+							<h3 class="review-heading" data-tier={tier}>
+								<tierInfo.icon size={18} aria-hidden="true" />{tierInfo.label}
+								<span class="review-count">{list.length}</span>
+							</h3>
+							<div class="settings-list" data-surface="panel">
+								{#each list as candidate (candidate.candidate_index)}
+									<button class="settings-entry" onclick={() => (selected = candidate)}>
+										<span>
+											<strong>{candidate.title}</strong>
+											{#if source(candidate)}<span class="review-meta">{source(candidate)}</span
+												>{/if}
+											{#if fileSummary(candidate)}<span class="review-meta"
+													>{fileSummary(candidate)}</span
+												>{/if}
+											{#if candidate.refusal?.length}<span class="review-meta refusal-note"
+													>{candidate.refusal.map((r) => refusalNames[r]).join(' · ')}</span
+												>{/if}
+										</span>
+										<ChevronRight size={18} aria-hidden="true" />
+									</button>
+								{/each}
+							</div>
 						</section>
 					{/if}
 				{/each}
@@ -203,84 +235,68 @@
 								: 'The search has closed.'}
 				</p>{/if}
 		{/if}
-		<div class="actions">
-			{#if !loading && (!job || job.status === 'searching')}<button
-					class="secondary"
-					onclick={() => {
-						error = '';
-						void load();
-					}}>Check again</button
-				>{/if}
-			{#if job?.status === 'completed' && job.release_group_mbid}<button
-					class="secondary"
-					onclick={() => (selected = 'watch')}>None of these, keep watching</button
-				>{/if}
-			{#if job && ['searching', 'completed', 'failed'].includes(job.status)}<button
-					class="secondary"
-					onclick={() => (selected = 'stop')}>Stop search</button
-				>{/if}
-			<button class="text-button" onclick={close}>Close</button>
-		</div>
+		{#if !loading && (!job || ['searching', 'completed', 'failed'].includes(job.status))}
+			<div class="settings-list" data-surface="panel">
+				{#if !job || job.status === 'searching'}<button
+						class="settings-entry"
+						onclick={() => {
+							error = '';
+							void load();
+						}}><RefreshCw size={18} aria-hidden="true" /><span>Check again</span></button
+					>{/if}
+				{#if job?.status === 'completed' && job.release_group_mbid}<button
+						class="settings-entry"
+						onclick={() => (selected = 'watch')}
+						><Eye size={18} aria-hidden="true" /><span>None of these, keep watching</span
+						><ChevronRight size={16} aria-hidden="true" /></button
+					>{/if}
+				{#if job}<button class="settings-entry" onclick={() => (selected = 'stop')}
+						><Square size={16} aria-hidden="true" /><span>Stop search</span><ChevronRight
+							size={16}
+							aria-hidden="true"
+						/></button
+					>{/if}
+			</div>
+		{/if}
 	{/if}
 </ReviewSheet>
 
 <style>
-	.matches {
-		margin-block: var(--gap);
+	.review-heading[data-tier='recommended'] :global(svg) {
+		color: color-mix(in srgb, var(--color-success) 60%, var(--text));
 	}
-	h3 {
-		font-size: 1.05rem;
-		margin: 0.65rem 0;
+	.review-heading[data-tier='possible'] :global(svg),
+	.file-heading :global(svg) {
+		color: var(--accent);
 	}
-	h3 small {
-		font-weight: 400;
-		color: var(--muted);
+	.review-heading[data-tier='refused'] :global(svg),
+	.refusal :global(svg) {
+		color: color-mix(in srgb, var(--color-warning) 60%, var(--text));
 	}
-	.match {
-		width: 100%;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 0.1rem 0.5rem;
-		text-align: start;
-		overflow-wrap: anywhere;
-		background: var(--surface);
-		border: 1px solid var(--line);
-		padding: 0.65rem 0.75rem;
-		margin-bottom: 0.35rem;
-	}
-	.match small {
-		color: var(--muted);
-		grid-column: 1;
-		display: block;
-		font-size: 0.84rem;
-	}
-	.match :global(svg) {
-		grid-column: 2;
-		grid-row: 1/3;
-	}
-	.selected h3 {
-		font-size: 1.15rem;
+	.selected {
+		gap: 0.25rem;
 	}
 	.selected p {
-		margin: 0.4rem 0;
+		margin: 0.35rem 0 0;
 	}
-	.files {
-		margin-block: var(--gap);
-	}
-	.files summary {
-		min-height: 44px;
-		align-content: center;
-		cursor: pointer;
-	}
-	.files li {
-		overflow-wrap: anywhere;
-	}
-	.actions {
+	.refusal {
 		display: flex;
-		gap: 0.45rem;
-		flex-wrap: wrap;
-		margin: var(--gap) 0;
+		align-items: baseline;
+		gap: 0.6rem;
+	}
+	.refusal ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.refusal-note {
+		margin-top: 0.3rem;
+		color: var(--text);
+	}
+	.file-heading {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
 	}
 	.confirm button {
 		width: 100%;

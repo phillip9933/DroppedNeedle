@@ -162,7 +162,7 @@
 	font-size: 0.9rem;
 	font-weight: 600;
 }
-.settings-tabs button[aria-pressed='true'] {
+.settings-tabs button:is([aria-pressed='true'], [aria-selected='true']) {
 	background: var(--dn-action);
 	color: var(--dn-action-content);
 }
@@ -192,14 +192,13 @@
 }
 
 html[data-material='solid']
-	.settings
 	:is(
 		.settings-list,
 		.settings-panel,
 		.settings-facts,
 		.settings-disclosure,
 		.settings-tabs,
-		.shortcut
+		.settings .shortcut
 	) {
 	box-shadow: none;
 }

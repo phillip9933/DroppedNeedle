@@ -1,6 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ChevronRight } from '@lucide/svelte';
+	import {
+		ArrowDownToLine,
+		ChevronRight,
+		Disc3,
+		FileAudio,
+		FileInput,
+		Fingerprint,
+		FolderOpen,
+		Link2,
+		RefreshCw,
+		Replace,
+		Search,
+		Trash2,
+		TriangleAlert
+	} from '@lucide/svelte';
 	import { type Session } from '../connection';
 	import { errorMessage } from './catalog';
 	import type { Viewer } from './requestActions';
@@ -62,6 +76,17 @@
 		entries.filter((e) => e.files.some((f) => offered(e, f, 'recheck', viewer))).map((e) => e.id)
 	);
 	const selectedFiles = $derived(eligible(choice));
+	const origins = { download: 'Download', upload: 'Upload', import_folder: 'Import folder' };
+	const actionIcons = {
+		import: FileInput,
+		retry: RefreshCw,
+		use_this_version: Replace,
+		use_this_file: FileAudio,
+		recheck: Fingerprint,
+		get_from_album: ArrowDownToLine,
+		discard: Trash2,
+		match: Link2
+	};
 	const confirmTitles: Record<HeldAction, string> = {
 		import: 'Import selected files?',
 		retry: 'Retry the import?',
@@ -73,6 +98,14 @@
 		match: 'Confirm album match'
 	};
 	const rootTitle = $derived(title ? 'Held files for ' + title : 'Held files');
+	const context = $derived.by(() => {
+		if (!entry) return '';
+		if (step === 'files')
+			return [entry.artist_name, origins[entry.origin]].filter(Boolean).join(' · ');
+		if (step === 'edition')
+			return [entryTitle(entry), entry.artist_name].filter(Boolean).join(' · ');
+		return entryTitle(entry);
+	});
 	const heading = $derived(
 		step === 'bulk'
 			? 'Recheck held fingerprints?'
@@ -275,7 +308,7 @@
 
 <ReviewSheet
 	title={heading}
-	context={entry && step !== 'files' ? entryTitle(entry) : entry?.artist_name || ''}
+	{context}
 	backLabel={step === 'confirm'
 		? 'Back to review'
 		: entry && !taskId
@@ -291,25 +324,40 @@
 		<p>Ask DN to check up to 25 eligible files. Identified recordings can enter the library.</p>
 		<button class="primary" disabled={saving} onclick={bulk}>Confirm recheck</button>
 	{:else if !entry}
-		{#if !taskId && recheckIds.length}<button
-				class="secondary"
-				onclick={() => {
-					receipt = '';
-					step = 'bulk';
-				}}>Recheck held fingerprints</button
-			>{/if}
-		{#each entries as item (item.id)}
-			<button class="entry" onclick={() => select(item)}
-				><span
-					><strong>{entryTitle(item)}</strong><small
-						>{[item.artist_name, item.origin.replace('_', ' '), item.files.length + ' files']
-							.filter(Boolean)
-							.join(' · ')}</small
-					></span
-				><ChevronRight size={18} /></button
+		{#if entries.length}
+			<div class="settings-list" data-surface="panel">
+				{#each entries as item (item.id)}
+					<button class="settings-entry" onclick={() => select(item)}>
+						<FolderOpen size={20} aria-hidden="true" />
+						<span
+							><strong>{entryTitle(item)}</strong>
+							<small class="review-meta"
+								>{[
+									item.artist_name,
+									origins[item.origin],
+									item.files.length + (item.files.length === 1 ? ' file' : ' files')
+								]
+									.filter(Boolean)
+									.join(' · ')}</small
+							></span
+						>
+						<ChevronRight size={18} aria-hidden="true" />
+					</button>
+				{/each}
+			</div>
+		{:else if !error}<p>No held files to review.</p>{/if}
+		<div class="settings-actions">
+			{#if !taskId && recheckIds.length}<button
+					class="secondary"
+					onclick={() => {
+						receipt = '';
+						step = 'bulk';
+					}}><Fingerprint size={18} aria-hidden="true" />Recheck held fingerprints</button
+				>{/if}
+			<button class="text-button" onclick={() => load(true)}
+				><RefreshCw size={17} aria-hidden="true" />Refresh held files</button
 			>
-		{:else}{#if !error}<p>No held files to review.</p>{/if}{/each}
-		<button class="secondary" onclick={() => load(true)}>Refresh held files</button>
+		</div>
 	{:else if step === 'edition'}
 		<HeldEditionCheck
 			{session}
@@ -326,14 +374,20 @@
 		/>
 	{:else if step === 'confirm'}
 		<p>{effect(choice)}</p>
-		<ul>
+		<ul class="review-files">
 			{#each selectedFiles as file (file.id)}<li>{file.original_name}</li>{/each}
 		</ul>
-		<button class="primary" disabled={saving} onclick={confirm}
+		<button
+			class="primary"
+			class:destructive={choice === 'discard'}
+			disabled={saving}
+			onclick={confirm}
 			>{saving ? 'Working…' : 'Confirm ' + actionNames[choice].toLowerCase()}</button
 		>
 	{:else if step === 'match'}
 		<form
+			class="settings-panel"
+			data-surface="panel"
 			onsubmit={(e) => {
 				e.preventDefault();
 				void search();
@@ -351,150 +405,193 @@
 					}}
 				/></label
 			>
-			<button class="secondary" disabled={term.trim().length < 2}>Search albums</button>
+			<button class="secondary" disabled={term.trim().length < 2}
+				><Search size={18} aria-hidden="true" />Search albums</button
+			>
 		</form>
 		{#if searching}<p role="status">Searching albums…</p>
 		{:else if searched && !matches.length}<p>No albums found.</p>{/if}
-		{#each matches as album (album.musicbrainz_id)}
-			<button
-				class="entry"
-				onclick={() => {
-					selectedAlbum = album;
-					step = 'confirm';
-				}}
-				><span
-					><strong>{album.title}</strong><small
-						>{[album.artist, album.year].filter(Boolean).join(' · ')}</small
-					></span
-				><ChevronRight size={18} /></button
-			>
-		{/each}
-	{:else}
-		{#if entry.state !== 'held'}<p role="status">DN is already handling these files.</p>{/if}
-		<small
-			>{entry.origin.replace('_', ' ')}{#if entry.expires_at}
-				· Kept until {new Date(entry.expires_at).toLocaleString()}{/if}</small
-		>
-		{#if entry.next_retry_at}<p>
-				Next automatic retry {new Date(entry.next_retry_at).toLocaleString()}
-			</p>{/if}
-		{#if entry.files.length > 1}<button
-				class="text-button"
-				onclick={() =>
-					(checked = checked.length === entry!.files.length ? [] : entry!.files.map((f) => f.id))}
-				>{checked.length === entry.files.length ? 'Clear selection' : 'Select all files'}</button
-			>{/if}
-		{#each entry.files as file (file.id)}
-			<article>
-				<label class="pick"
-					><input
-						type="checkbox"
-						checked={checked.includes(file.id)}
-						onchange={() => toggle(file)}
-					/><strong>{file.track_title || file.original_name}</strong></label
-				>
-				{#if file.track_title && file.original_name !== file.track_title}<small
-						>{file.original_name}</small
-					>{/if}
-				<p>{file.reason_text} {file.reason_action}</p>
-				{#if file.duration_seconds || file.expected_duration_seconds}<small
-						>{[
-							file.duration_seconds && 'File length ' + Math.round(file.duration_seconds) + ' s',
-							file.expected_duration_seconds &&
-								'Expected ' + Math.round(file.expected_duration_seconds) + ' s'
-						]
-							.filter(Boolean)
-							.join(' · ')}</small
-					>{/if}
-				{#if file.reason_detail}<small>{file.reason_detail}</small>{/if}
-				{#if file.evidence_title || file.evidence_artist}<small
-						>Identified as {[file.evidence_title, file.evidence_artist]
-							.filter(Boolean)
-							.join(' · ')}</small
-					>{/if}
-				<HeldAudition {session} fileId={file.id} name={file.track_title || file.original_name} />
-			</article>
-		{/each}
-		{#if entry.state === 'held'}
-			<h3>Actions for selected files ({files.length})</h3>
-			<div class="actions">
-				{#if curator(viewer) && entry.check_album_id && editionIds.length}<button
-						class="secondary"
+		{#if matches.length}
+			<div class="settings-list" data-surface="panel">
+				{#each matches as album (album.musicbrainz_id)}
+					<button
+						class="settings-entry"
 						onclick={() => {
-							step = 'edition';
-						}}>Check album edition</button
-					>{/if}
-				{#each Object.keys(actionNames) as key (key)}
-					{@const action = key as HeldAction}
-					{@const count = eligible(action).length}
-					{#if count && (action !== 'get_from_album' || count === 1)}
-						<button class="secondary" onclick={() => choose(action)}
-							>{actionNames[action]} ({count})</button
+							selectedAlbum = album;
+							step = 'confirm';
+						}}
+					>
+						<Disc3 size={20} aria-hidden="true" />
+						<span
+							><strong>{album.title}</strong><small class="review-meta"
+								>{[album.artist, album.year].filter(Boolean).join(' · ')}</small
+							></span
 						>
-					{/if}
+						<ChevronRight size={18} aria-hidden="true" />
+					</button>
 				{/each}
 			</div>
+		{/if}
+	{:else}
+		{#if entry.state !== 'held'}<p role="status">DN is already handling these files.</p>{/if}
+		{#if entry.expires_at || entry.next_retry_at}<div class="review-meta">
+				{#if entry.expires_at}Kept until {new Date(entry.expires_at).toLocaleString()}{/if}
+				{#if entry.next_retry_at}<div>
+						Next automatic retry {new Date(entry.next_retry_at).toLocaleString()}
+					</div>{/if}
+			</div>{/if}
+		<section class="review-section" aria-label="Files to review">
+			<div class="files-heading">
+				<h3 class="review-heading">Files to review</h3>
+				{#if entry.files.length > 1}<button
+						class="text-button"
+						onclick={() =>
+							(checked =
+								checked.length === entry!.files.length ? [] : entry!.files.map((f) => f.id))}
+						>{checked.length === entry.files.length
+							? 'Clear selection'
+							: 'Select all files'}</button
+					>{/if}
+			</div>
+			<div class="settings-list" data-surface="panel">
+				{#each entry.files as file (file.id)}
+					<article class="held-file">
+						<label class="pick"
+							><input
+								type="checkbox"
+								checked={checked.includes(file.id)}
+								onchange={() => toggle(file)}
+							/><strong>{file.track_title || file.original_name}</strong></label
+						>
+						{#if file.track_title && file.original_name !== file.track_title}<small
+								>{file.original_name}</small
+							>{/if}
+						{#if file.reason_text || file.reason_action}<p class="hold-reason">
+								<TriangleAlert size={16} aria-hidden="true" /><span
+									>{file.reason_text} {file.reason_action}</span
+								>
+							</p>{/if}
+						{#if file.duration_seconds || file.expected_duration_seconds}<small
+								>{[
+									file.duration_seconds &&
+										'File length ' + Math.round(file.duration_seconds) + ' s',
+									file.expected_duration_seconds &&
+										'Expected ' + Math.round(file.expected_duration_seconds) + ' s'
+								]
+									.filter(Boolean)
+									.join(' · ')}</small
+							>{/if}
+						{#if file.reason_detail}<small>{file.reason_detail}</small>{/if}
+						{#if file.evidence_title || file.evidence_artist}<small
+								>Identified as {[file.evidence_title, file.evidence_artist]
+									.filter(Boolean)
+									.join(' · ')}</small
+							>{/if}
+						<HeldAudition
+							{session}
+							fileId={file.id}
+							name={file.track_title || file.original_name}
+						/>
+					</article>
+				{/each}
+			</div>
+		</section>
+		{#if entry.state === 'held'}
+			<section class="review-section" aria-label="File actions">
+				<h3 class="review-heading">
+					Actions for selected files <span class="review-count">{files.length}</span>
+				</h3>
+				{#if files.length}
+					<div class="settings-list" data-surface="panel">
+						{#if curator(viewer) && entry.check_album_id && editionIds.length}<button
+								class="settings-entry"
+								onclick={() => (step = 'edition')}
+								><Disc3 size={18} aria-hidden="true" /><span>Check album edition</span><ChevronRight
+									size={16}
+									aria-hidden="true"
+								/></button
+							>{/if}
+						{#each Object.keys(actionNames) as key (key)}
+							{@const action = key as HeldAction}
+							{@const count = eligible(action).length}
+							{@const Icon = actionIcons[action]}
+							{#if count && (action !== 'get_from_album' || count === 1)}
+								<button
+									class="settings-entry"
+									class:discard={action === 'discard'}
+									onclick={() => choose(action)}
+								>
+									<Icon size={18} aria-hidden="true" /><span>{actionNames[action]} ({count})</span
+									><ChevronRight size={16} aria-hidden="true" />
+								</button>
+							{/if}
+						{/each}
+					</div>
+				{:else}<small class="review-meta">Select a file to see its actions.</small>{/if}
+			</section>
 		{/if}
 	{/if}
 </ReviewSheet>
 
 <style>
-	.entry {
+	.files-heading {
 		display: flex;
-		width: 100%;
-		min-height: 52px;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.5rem;
-		text-align: start;
-		padding: 0.65rem 0.3rem;
-		border-bottom: 1px solid var(--line);
+		gap: 0 0.6rem;
 	}
-	small {
-		color: var(--muted);
+	.held-file {
+		padding: 0.55rem var(--gap);
+	}
+	.held-file > small {
 		display: block;
-		overflow-wrap: anywhere;
+		color: var(--muted);
+		font-size: 0.87rem;
+		line-height: 1.45;
 	}
-	.entry span,
-	article,
-	li {
-		min-width: 0;
-		overflow-wrap: anywhere;
+	.hold-reason {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		margin: 0.35rem 0;
 	}
-	article {
-		border-bottom: 1px solid var(--line);
-		padding: 0.5rem 0;
-	}
-	article p {
-		margin: 0.3rem 0;
+	.hold-reason :global(svg) {
+		margin-top: 0.2em;
+		color: color-mix(in srgb, var(--color-warning) 60%, var(--text));
 	}
 	.pick {
 		display: flex;
 		align-items: center;
-		gap: 0.55rem;
+		gap: 0.65rem;
 		min-height: 44px;
+		cursor: pointer;
+	}
+	.pick strong {
+		font-weight: 600;
 	}
 	.pick input {
-		width: 1.15rem;
-		height: 1.15rem;
+		width: 1.1rem;
+		height: 1.1rem;
+		padding: 0;
+		margin: 0;
+		accent-color: var(--accent);
 		flex: none;
-	}
-	form label {
-		display: grid;
-		gap: 0.3rem;
 	}
 	form input {
 		width: 100%;
+		min-width: 0;
 	}
 	form button {
-		margin: 0.5rem 0;
+		justify-self: start;
 	}
-	h3 {
-		font-size: 1rem;
+	.discard > :global(svg:first-child) {
+		color: color-mix(in srgb, var(--color-error) 65%, var(--text));
 	}
-	.actions {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
+	.destructive {
+		--action-fill: var(--color-error);
+		--dn-action: var(--color-error);
+		--dn-action-edge: var(--color-error);
+		--dn-action-content: var(--color-error-content);
 	}
 </style>

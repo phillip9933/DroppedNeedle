@@ -183,8 +183,7 @@
 	}
 </script>
 
-<section aria-label="Album edition review">
-	<p>{entry.artist_name} · {entry.album_title}</p>
+<section class="settings-stack" aria-label="Album edition review">
 	{#if loadError}<p role="alert">{loadError}</p>
 		<button class="secondary" onclick={() => refresh++}>Reload editions</button>
 	{:else if !status}<p role="status">Checking the library edition…</p>
@@ -209,26 +208,34 @@
 			<button class="secondary" onclick={() => refresh++}>Reload editions</button>
 		{:else if planning}<p role="status">Comparing tracks…</p>
 		{:else if plan}
-			<h3>{plan.edition.title}</h3>
-			<p>
-				{plan.kept_count} matched · {plan.missing_count} missing · {plan.extra_count} extra{plan.duplicate_count
-					? ' · ' + plan.duplicate_count + ' duplicates'
-					: ''}{plan.other_version_count
-					? ' · ' + plan.other_version_count + ' other versions'
-					: ''}
-			</p>
-			{#if plan.tracks.length}<details>
+			<div class="review-section">
+				<h3 class="review-heading">{plan.edition.title}</h3>
+				<p class="review-meta">
+					{plan.kept_count} matched · {plan.missing_count} missing · {plan.extra_count} extra{plan.duplicate_count
+						? ' · ' + plan.duplicate_count + ' duplicates'
+						: ''}{plan.other_version_count
+						? ' · ' + plan.other_version_count + ' other versions'
+						: ''}
+				</p>
+			</div>
+			{#if plan.tracks.length}<details class="settings-disclosure" data-surface="panel">
 					<summary>Edition tracks ({plan.tracks.length})</summary>
-					<ul>
-						{#each plan.tracks as track (track.disc_number + '.' + track.position)}<li>
-								{track.disc_number}.{track.position}
-								{track.title} · {track.local_track_id ? 'Matched' : 'Missing'}
+					<ul class="review-files">
+						{#each plan.tracks as track (track.disc_number + '.' + track.position)}<li
+								class="edition-track"
+							>
+								<span class="review-meta">{track.disc_number}.{track.position}</span>
+								<span
+									>{track.title}<small class="review-meta"
+										>{track.local_track_id ? 'Matched' : 'Missing'}</small
+									></span
+								>
 							</li>{/each}
 					</ul>
 				</details>{/if}
-			<details open>
+			<details class="settings-disclosure" data-surface="panel" open>
 				<summary>Held files to retry ({targets.length})</summary>
-				<ul>
+				<ul class="review-files">
 					{#each targets as file (file.id)}<li>{file.original_name}</li>{/each}
 				</ul>
 			</details>
@@ -258,13 +265,7 @@
 </section>
 
 <style>
-	section {
-		display: grid;
-		gap: 0.8rem;
-	}
-	p,
-	h3,
-	ul {
+	p {
 		margin: 0;
 	}
 	label {
@@ -275,15 +276,23 @@
 		width: 100%;
 		min-height: 44px;
 	}
-	summary {
-		cursor: pointer;
-		padding-block: 0.5rem;
-	}
-	li {
-		overflow-wrap: anywhere;
+	.edition-track {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: 0.6rem;
 	}
 	.override {
 		display: flex;
 		align-items: center;
+		gap: 0.65rem;
+		min-height: 44px;
+	}
+	.override input {
+		flex: none;
+		width: 1.1rem;
+		height: 1.1rem;
+		padding: 0;
+		margin: 0;
+		accent-color: var(--accent);
 	}
 </style>

@@ -33,6 +33,7 @@
 <style>
 	.navigation {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: stretch;
 		justify-content: space-evenly;
 		padding: 0.35rem;
@@ -42,8 +43,9 @@
 	}
 	nav button {
 		flex: 1;
-		min-width: 0;
+		min-width: max-content;
 		min-height: 50px;
+		padding-inline: 0.22rem;
 		display: grid;
 		place-content: center;
 		justify-items: center;

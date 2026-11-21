@@ -56,7 +56,9 @@ Layouts are stored on the phone for each DN server and account. **Settings → C
 
 Open a DN playlist and choose **Export playlist** to save an M3U8 or CSV file. This also works for playlists shared with you as a viewer. For M3U8 you can set the path prefix to match the music folder on the receiving device. The app remembers it for this DN account. Android opens the system file picker so you can choose the destination. DN reports how many unavailable entries it skipped.
 
-Under **Requests → Activity → Wanted watches**, see what DN is monitoring and manage watches your account can change. **Requests → Downloads** puts items needing a decision first, followed by in-progress transfers, queued work, scheduled retries, and download history. **Review matches** separates recommended and possible candidates from those outside your download settings. Select one to inspect its files and review the action.
+In **Requests**, switch between **Activity**, **Downloads**, and, for administrators, **Approvals**. Tap an album in Activity to open it, or use the three dots on a row for actions. Expand **Wanted watches** to see what DN is monitoring. You can filter and sort request history in place.
+
+**Downloads** puts items needing a decision first, followed by in-progress transfers, queued work, scheduled retries, and download history. Tap a row marked **Review matches** or **Review held files** to open it. Match review groups candidates by how well they fit your download settings. Tap a candidate to inspect its files before choosing it.
 
 **Review held files** opens files from that task inside the app. **Review all held files** opens the entries available to your account. Listen to the opening audio, inspect why a file was held, and select the files to act on. DN supplies the eligible actions. You can confirm a replacement or discard, and trusted listeners and administrators can match files to an album or check an edition. Edition review compares editions against the library, then retries the selected held files. Bulk imports, quality upgrades and advanced server administration are available in Web tools.
 

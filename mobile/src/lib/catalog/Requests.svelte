@@ -6,21 +6,21 @@
 	import WantedWatches from './WantedWatches.svelte';
 	import HeldReview from './HeldReview.svelte';
 	import RequestCandidates from './RequestCandidates.svelte';
+	import RequestRecord from './RequestRecord.svelte';
+	import PlayerSheet from '../player/PlayerSheet.svelte';
 	import {
-		ArrowDownToLine,
 		Check,
 		ChevronRight,
-		CircleAlert,
-		CircleCheck,
-		Clock3,
-		Ellipsis,
+		ExternalLink,
+		Eye,
+		FolderSearch,
 		ListFilter,
-		Minus,
 		RefreshCw
 	} from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import {
 		activeRequests,
+		cover,
 		requestHistory,
 		requestedAlbum,
 		statusLabel,
@@ -28,7 +28,6 @@
 		type Album,
 		type RequestItem
 	} from './catalog';
-	import PlaylistDialog from './PlaylistDialog.svelte';
 	import {
 		approvals,
 		requestViewer,
@@ -87,27 +86,6 @@
 		document.getElementById('requests-tab-' + next)?.focus();
 		switchView(next);
 	}
-	function statusCue(state: string) {
-		if (['imported', 'completed'].includes(state)) return { icon: CircleCheck, tone: 'success' };
-		if (['failed', 'rejected'].includes(state)) return { icon: CircleAlert, tone: 'error' };
-		if (
-			[
-				'incomplete',
-				'partial',
-				'awaiting_approval',
-				'awaiting_review',
-				'held_for_review',
-				'request_quota_full',
-				'storage_full',
-				'no_download_source'
-			].includes(state)
-		)
-			return { icon: CircleAlert, tone: 'warning' };
-		if (['processing', 'importing', 'downloading'].includes(state))
-			return { icon: ArrowDownToLine, tone: 'info' };
-		if (['cancelled', 'cancelling'].includes(state)) return { icon: Minus, tone: 'neutral' };
-		return { icon: Clock3, tone: 'neutral' };
-	}
 	function updateHistory() {
 		history = [];
 		pages = 1;
@@ -118,6 +96,31 @@
 	function closeReview(finished = false) {
 		if (finished && reviewing?.taskId) delete manualJobs[reviewing.taskId];
 		reviewing = null;
+	}
+	function downloadRow(task: Download, title: string) {
+		if (task.held_for_review && viewer && (viewer.role === 'admin' || viewer.id === task.user_id))
+			return { label: 'Review held files', open: () => (held = { taskId: task.id, title }) };
+		const jobId = task.search_job_id;
+		if (
+			task.status === 'queued' &&
+			jobId &&
+			task.candidate_index == null &&
+			viewer?.id === task.user_id
+		)
+			return { label: 'Review matches', open: () => (reviewing = { jobId, title }) };
+		const options = taskActions(
+			session,
+			viewer,
+			task,
+			(jobId) => {
+				if (mounted) {
+					manualJobs[task.id] = jobId;
+					reviewing = { jobId, title, taskId: task.id };
+				}
+			},
+			manualJobs[task.id]
+		);
+		return { actions: options.length ? () => open(title, options) : undefined };
 	}
 	const serverTools = $derived([
 		{ label: 'Manage wanted watches', route: '/requests?tab=wanted' },
@@ -212,6 +215,10 @@
 		selected = null;
 		actionError = '';
 	}
+	function backFromAction() {
+		if (selected && menu && menu.options.length > 1) selected = null;
+		else close();
+	}
 	async function confirm() {
 		if (!selected || sending) return;
 		sending = true;
@@ -251,7 +258,7 @@
 </script>
 
 <div class="heading">
-	<h1>Requests</h1>
+	<h1 class="screen-title">Requests</h1>
 	<button
 		class="icon-button"
 		aria-label={'Refresh ' + view}
@@ -262,7 +269,12 @@
 		}}><RefreshCw size={20} /></button
 	>
 </div>
-<div class="views" role="tablist" aria-label="Request views">
+<div
+	class="settings-tabs request-tabs"
+	data-surface="panel"
+	role="tablist"
+	aria-label="Request views"
+>
 	{#each tabs as tab, i (tab.id)}
 		<button
 			role="tab"
@@ -275,26 +287,18 @@
 		>
 	{/each}
 </div>
-<div id="requests-panel" role="tabpanel" tabindex="0" aria-labelledby={'requests-tab-' + view}>
+<div
+	class="panel"
+	id="requests-panel"
+	role="tabpanel"
+	tabindex="0"
+	aria-labelledby={'requests-tab-' + view}
+>
 	{#if profileError}<p role="alert">Could not load account permissions. {profileError}</p>{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if actionError}<p role="alert">{actionError}</p>{/if}
 	{#if receipt}<p role="status">{receipt}</p>{/if}
 
-	{#snippet actions(title: string, options: Action[])}
-		{#if options.length}
-			<button
-				class="icon-button"
-				aria-label={'Actions for ' + title}
-				onclick={() => open(title, options)}><Ellipsis size={18} /></button
-			>
-		{/if}
-	{/snippet}
-
-	{#snippet badge(label: string, state: string)}
-		{@const cue = statusCue(state)}
-		<span class="badge" data-tone={cue.tone}><cue.icon size={14} aria-hidden="true" />{label}</span>
-	{/snippet}
 	{#snippet progress(title: string, value: number)}
 		{@const percent = Math.min(100, Math.max(0, Math.round(value)))}
 		<div class="progress">
@@ -303,40 +307,32 @@
 		</div>
 	{/snippet}
 	{#snippet rows(items: RequestItem[], list: 'active' | 'history' | 'approvals')}
-		<ul class="records" data-part="request-list">
+		<ul class="record-list" data-part="request-list">
 			{#each items as r (r.request_kind + r.musicbrainz_id)}
 				{@const album = requestedAlbum(r)}
 				{@const title = r.track_title || r.album_title}
-				<li class="row">
-					<div class="item-line">
-						<div class="identity">
-							{#if album}<button
-									class="title-link"
-									onclick={() => onopen(album)}
-									aria-label={title + ', ' + statusLabel(r)}
-								>
-									<strong>{title}</strong><ChevronRight size={16} aria-hidden="true" /></button
-								>
-							{:else}<strong>{title}</strong>{/if}
-							<small
-								>{r.artist_name}{r.artist_name ? ' · ' : ''}{r.request_kind === 'track'
-									? 'Track'
-									: 'Album'}</small
-							>
-						</div>
-						{@render actions(title, requestActions(session, viewer, r, list === 'approvals'))}
-					</div>
-					{@render badge(statusLabel(r), r.waiting_reason || r.task_state || r.status)}
+				{@const options = requestActions(session, viewer, r, list === 'approvals')}
+				<RequestRecord
+					{session}
+					{title}
+					artist={r.artist_name}
+					kind={r.request_kind}
+					art={album?.art}
+					state={r.waiting_reason || r.task_state || r.status}
+					label={statusLabel(r)}
+					onopen={album ? () => onopen(album) : undefined}
+					onactions={options.length ? () => open(title, options) : undefined}
+				>
 					{#if r.progress != null && r.status === 'downloading'}{@render progress(
 							title,
 							r.progress
 						)}{/if}
-					{#if list === 'approvals' && r.requested_by_name}<small
-							>Requested by {r.requested_by_name}</small
+					{#if list === 'approvals' && r.requested_by_name}<span
+							>Requested by {r.requested_by_name}</span
 						>{/if}
 					{#if list === 'history' && (r.completed_at || r.requested_at)}
 						{@const time = new Date((r.completed_at || r.requested_at) * 1000)}
-						<small
+						<span
 							>{r.completed_at ? 'Finished' : 'Requested'}
 							<time datetime={time.toISOString()}
 								>{time.toLocaleDateString(undefined, {
@@ -344,18 +340,18 @@
 									month: 'short',
 									day: 'numeric'
 								})}</time
-							></small
+							></span
 						>
 					{/if}
 					{#if r.error_message}<p class="reason">{r.error_message}</p>{/if}
-				</li>
+				</RequestRecord>
 			{/each}
 		</ul>
 	{/snippet}
 
 	{#if view === 'requests'}
-		<details class="watchlist" bind:open={watchesOpen}>
-			<summary>Wanted watches</summary>
+		<details class="settings-disclosure" data-surface="panel" bind:open={watchesOpen}>
+			<summary><Eye size={19} aria-hidden="true" /><span>Wanted watches</span></summary>
 			{#if watchesOpen}<WantedWatches
 					{session}
 					{viewer}
@@ -372,9 +368,10 @@
 		{#if history.length || historyStatus || historySort || active.length || historyTotal}
 			<section aria-label="Request history">
 				<h2 class="section-title">History <span>{historyTotal}</span></h2>
-				<details class="filters">
+				<details class="settings-disclosure filters" data-surface="panel">
 					<summary
-						><ListFilter size={16} aria-hidden="true" />Filter and sort history{#if historyStatus || historySort}<Check
+						><ListFilter size={18} aria-hidden="true" /><span>Filter and sort history</span
+						>{#if historyStatus || historySort}<Check
 								size={15}
 								aria-label="Filters applied"
 							/>{/if}</summary
@@ -440,79 +437,56 @@
 				{busy ? 'Loading requests…' : 'No requests yet.'}
 			</p>{/if}
 	{:else if view === 'approvals'}
-		<h2 class="section-title">Awaiting approval <span>{pending.length}</span></h2>
-		{@render rows(pending, 'approvals')}
-		{#if !pending.length && !error}<p role="status">
-				{busy ? 'Loading approvals…' : 'No requests awaiting approval.'}
-			</p>{/if}
+		<section aria-label="Approvals">
+			<h2 class="section-title">Awaiting approval <span>{pending.length}</span></h2>
+			{#if pending.length}{@render rows(pending, 'approvals')}
+			{:else if !error}<p role="status">
+					{busy ? 'Loading approvals…' : 'No requests awaiting approval.'}
+				</p>{/if}
+		</section>
 	{:else}
-		{#if viewer}<button class="secondary held-list" onclick={() => (held = {})}
-				>Review all held files</button
-			>{/if}
+		{#if viewer}
+			<div class="settings-list" data-surface="panel">
+				<button class="settings-entry" onclick={() => (held = {})}>
+					<FolderSearch size={19} aria-hidden="true" /><span>Review all held files</span
+					><ChevronRight size={17} aria-hidden="true" />
+				</button>
+			</div>
+		{/if}
 		{#each downloadSections as [group, entries] (group)}
 			{@const visible = shown[group] ?? (group === 'Queued' ? 5 : 20)}
 			<section aria-label={group}>
 				<h2 class="section-title">{group} <span>{entries.length}</span></h2>
-				<ul class="records">
+				<ul class="record-list">
 					{#each entries.slice(0, visible) as task (task.id)}
 						{@const title = task.track_title || task.album_title}
 						{@const state = taskState(task)}
-						{@const label = state.charAt(0).toUpperCase() + state.slice(1).replaceAll('_', ' ')}
-						<li class="row" data-part="download-task">
-							<div class="item-line">
-								<div class="identity">
-									<strong>{title}</strong><small
-										>{task.artist_name}{task.artist_name ? ' · ' : ''}{task.download_type ===
-										'track'
-											? 'Track'
-											: 'Album'}</small
-									>
-								</div>
-
-								{#if task.held_for_review && viewer && (viewer.role === 'admin' || viewer.id === task.user_id)}
-									<button
-										class="secondary"
-										aria-label={'Review held files for ' + title}
-										onclick={() => (held = { taskId: task.id, title })}>Review held files</button
-									>
-								{:else if task.status === 'queued' && task.search_job_id && task.candidate_index == null && viewer?.id === task.user_id}
-									<button
-										class="secondary"
-										aria-label={'Review matches for ' + title}
-										onclick={() => {
-											reviewing = { jobId: task.search_job_id!, title };
-										}}>Review matches</button
-									>
-								{:else}
-									{@render actions(
-										title,
-										taskActions(
-											session,
-											viewer,
-											task,
-											(jobId) => {
-												if (mounted) {
-													manualJobs[task.id] = jobId;
-													reviewing = { jobId, title, taskId: task.id };
-												}
-											},
-											manualJobs[task.id]
-										)
-									)}
-								{/if}
-							</div>
-							{@render badge(label, state)}
+						{@const row = downloadRow(task, title)}
+						<RequestRecord
+							{session}
+							{title}
+							artist={task.artist_name}
+							kind={task.download_type}
+							art={cover(task.release_group_mbid)}
+							{state}
+							label={row.label ??
+								state.charAt(0).toUpperCase() + state.slice(1).replaceAll('_', ' ')}
+							onopen={row.open}
+							openLabel={row.label ? row.label + ' for ' + title : undefined}
+							onactions={row.actions}
+							download
+						>
 							{#if task.status === 'downloading'}
 								{@render progress(title, task.progress_percent)}
-								{#if task.files_total > 0}<small
-										>{task.files_completed} of {task.files_total} files</small
+								{#if task.files_total > 0}<span
+										>{task.files_completed} of {task.files_total} files</span
 									>{/if}
 							{/if}
 							{#if task.reason?.text}<p class="reason">{task.reason.text}</p>{/if}
-							{#if task.next_retry_at && task.retry_max > 0 && !task.held_for_review}<small
-									>Next retry {new Date(task.next_retry_at * 1000).toLocaleString()}</small
-								>{/if}
-						</li>
+							{#if task.next_retry_at && task.retry_max > 0 && !task.held_for_review}
+								<span>Next retry {new Date(task.next_retry_at * 1000).toLocaleString()}</span>
+							{/if}
+						</RequestRecord>
 					{/each}
 				</ul>
 				{#if entries.length > visible}
@@ -539,17 +513,21 @@
 				>
 			</div>
 		{/if}
-		<details class="server-tools">
-			<summary>More on your server</summary>
+		<details class="settings-disclosure server-tools" data-surface="panel">
+			<summary
+				><ExternalLink size={18} aria-hidden="true" /><span>More on your server</span></summary
+			>
 			<p>These tools open DroppedNeedle in your browser. Sign in there if prompted.</p>
 			{#each serverTools as tool (tool.label)}
 				<a
-					class="text-button"
+					class="settings-entry"
 					href={session.serverUrl + tool.route}
 					target="_blank"
 					rel="noopener noreferrer"
-					onclick={launchWeb}>{tool.label}</a
+					onclick={launchWeb}
 				>
+					<span>{tool.label}</span><ExternalLink size={16} aria-hidden="true" />
+				</a>
 			{/each}
 		</details>
 	{/if}
@@ -581,226 +559,152 @@
 	/>
 {/if}
 {#if menu}
-	<PlaylistDialog title={menu.title} onclose={close} busy={sending}>
-		{#if selected}<p>{selected.effect}</p>
-			<div class="actions">
-				<button class="secondary" disabled={sending} onclick={close}>Go back</button>
+	<PlayerSheet
+		title={selected?.label ?? menu.title}
+		context={selected && selected.label !== menu.title ? menu.title : ''}
+		backLabel={selected && menu.options.length > 1 ? 'Back to actions' : undefined}
+		closeLabel={selected ? 'Close confirmation' : 'Close actions'}
+		onclose={backFromAction}
+		busy={sending}
+	>
+		{#if selected}
+			<p class="effect">{selected.effect}</p>
+			<div class="settings-actions">
+				<button class="secondary" disabled={sending} onclick={backFromAction}>Go back</button>
 				<button class="primary" disabled={sending} onclick={confirm}>{selected.label}</button>
 			</div>
 		{:else}
 			<div class="choices">
 				{#each menu.options as option (option.label)}
-					<button class="secondary" onclick={() => (selected = option)}>{option.label}</button
-					>{/each}
-				<button class="text-button" onclick={close}>Close</button>
+					<button class="settings-entry" onclick={() => (selected = option)}>
+						<span>{option.label}</span><ChevronRight size={17} aria-hidden="true" />
+					</button>
+				{/each}
 			</div>
 		{/if}
-	</PlaylistDialog>
+	</PlayerSheet>
 {/if}
 
 <style>
-	.watchlist {
-		margin: var(--gap) 0;
-		border-block: 1px solid var(--line);
-		padding-bottom: 0.1rem;
-	}
-	.watchlist summary {
-		min-height: 44px;
-		align-content: center;
-		font-weight: 650;
-		cursor: pointer;
-	}
-	.server-tools {
-		margin-block: var(--gap);
-	}
-	.server-tools summary {
-		cursor: pointer;
-	}
-	.server-tools a {
-		display: block;
-		width: fit-content;
-	}
-	.server-tools p {
-		color: var(--muted);
-	}
-	.views {
-		display: flex;
-		gap: 0.25rem;
-		padding: 0.2rem;
-		border: 1px solid var(--line);
-		background: var(--surface);
-		border-radius: var(--radius);
-	}
-	.views button {
-		flex: 1;
-		min-width: 0;
-		min-height: 44px;
-		padding: 0.35rem 0.3rem;
-		font-size: 0.9rem;
-		color: var(--text);
-		border: 2px solid transparent;
-		border-radius: max(2px, calc(var(--radius) - 0.2rem));
-	}
-	.views button[aria-selected='true'] {
-		background: var(--bg);
-		color: var(--text);
-		border-color: currentColor;
-		font-weight: 750;
-	}
 	.heading,
 	.pagination,
-	.item-line,
 	.section-title,
-	.title-link,
 	.progress {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-	}
-	.heading,
-	.pagination,
-	.item-line {
 		justify-content: space-between;
+		gap: 0.65rem;
+	}
+	.heading {
+		margin: 0.35rem 0 1.2rem;
+		flex-wrap: wrap;
+	}
+	.heading .screen-title {
+		margin: 0;
+		max-width: 100%;
+		overflow-wrap: anywhere;
+	}
+	.heading button {
+		margin-inline-start: auto;
+	}
+	.request-tabs {
+		display: flex;
+		flex-wrap: wrap;
+	}
+	.request-tabs button {
+		flex: 1 1 max-content;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.request-tabs button[aria-selected='true'] {
+		font-weight: 720;
+	}
+	.panel {
+		display: grid;
+		min-width: 0;
+		gap: 1.25rem;
+		margin-top: 0.9rem;
+	}
+	.panel > *,
+	.filters label {
+		min-width: 0;
+	}
+	.panel p,
+	.effect {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	.panel .section-title {
+		margin: 0 0 0.45rem;
+		color: var(--heading);
+	}
+	.section-title span,
+	.progress span,
+	.pagination span {
+		color: var(--muted);
+		font-size: 0.85rem;
+		font-weight: 550;
+		font-variant-numeric: tabular-nums;
 	}
 	.section-title span {
-		font-size: 0.8rem;
-		font-variant-numeric: tabular-nums;
-		padding: 0.12rem 0.5rem;
-		border: 1px solid var(--line);
-		border-radius: 99rem;
-		font-weight: 600;
+		margin-inline-end: 0.35rem;
 	}
-	.pagination {
-		margin-block: var(--gap);
-	}
-	.records {
+	.record-list {
 		list-style: none;
 		margin: 0;
 		padding: 0;
-		border: 1px solid var(--line);
-		background: var(--surface);
-		border-radius: var(--radius);
 	}
-	.row {
-		padding: 0.7rem 0.85rem;
-		display: grid;
-		gap: 0.35rem;
-		min-width: 0;
-	}
-	.row + .row {
-		border-top: 1px solid var(--line);
-	}
-	.item-line {
-		align-items: flex-start;
-	}
-	.identity {
-		min-width: 0;
-	}
-	.identity strong,
-	.identity small,
-	.row > small {
-		display: block;
-		overflow-wrap: anywhere;
-	}
-	.identity strong {
-		font-size: 1rem;
-	}
-	.title-link {
-		text-align: start;
-		min-height: 44px;
-	}
-	.title-link strong {
-		text-decoration: underline;
-		text-underline-offset: 0.16rem;
-	}
-	.identity small,
-	.row > small {
-		color: var(--muted);
-	}
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35em;
-		justify-self: start;
-		font-size: 0.8rem;
-		font-weight: 650;
-		line-height: 1.3;
-		padding: 0.24rem 0.5rem;
-		border: 1px solid currentColor;
-		border-radius: 99rem;
-		background: var(--raised);
-		color: var(--text);
-	}
-	.badge[data-tone='info'] {
-		background: var(--color-info, var(--raised));
-		color: var(--color-info-content, var(--text));
-	}
-	.badge[data-tone='success'] {
-		background: var(--color-success, var(--raised));
-		color: var(--color-success-content, var(--text));
-	}
-	.badge[data-tone='warning'] {
-		background: var(--color-warning, var(--raised));
-		color: var(--color-warning-content, var(--text));
-	}
-	.badge[data-tone='error'] {
-		background: var(--color-error, var(--raised));
-		color: var(--color-error-content, var(--text));
+	.pagination {
+		flex-wrap: wrap;
 	}
 	.progress {
-		font-size: 0.82rem;
-		font-variant-numeric: tabular-nums;
+		gap: 0.55rem;
 	}
 	progress {
 		flex: 1;
 		min-width: 0;
-		height: 0.65rem;
-		accent-color: var(--text);
+		height: 0.4rem;
+		accent-color: var(--accent);
 	}
-	.row .reason {
-		margin: 0;
+	.panel .reason {
 		color: var(--text);
+	}
+	.settings-disclosure > summary span {
+		flex: 1;
+		min-width: 0;
 		overflow-wrap: anywhere;
-		font-size: 0.9rem;
 	}
-	.filters {
-		margin-bottom: 0.65rem;
-	}
-	.filters summary {
-		display: flex;
-		align-items: center;
-		gap: 0.45rem;
-		min-height: 44px;
-		width: fit-content;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.filters summary::after {
-		content: '▾';
-	}
-	.filters[open] summary::after {
-		content: '▴';
+	.settings-disclosure > summary::after {
+		flex-shrink: 0;
 	}
 	.filters > div {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin: 0.3rem 0 0.7rem;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+		align-items: start;
+		gap: 0.6rem;
 	}
 	.filters label {
 		display: grid;
-		flex: 1;
-		min-width: 7.5rem;
-		gap: 0.2rem;
-		font-size: 0.85rem;
+		gap: 0.25rem;
+		font-size: 0.88rem;
 	}
 	.filters select {
-		min-height: 44px;
-		padding: 0.4rem;
 		width: 100%;
+		min-height: 44px;
 	}
-	.choices {
-		display: grid;
-		gap: 0.4rem;
+	.server-tools p {
+		margin-bottom: 0.5rem;
+		font-size: 0.9rem;
+	}
+	.server-tools a,
+	.choices button {
+		padding-inline: 0;
+		border-top: 1px solid var(--line);
+	}
+	.choices button:first-child {
+		border-top: 0;
+	}
+	.effect {
+		margin-bottom: 0.85rem;
 	}
 </style>
