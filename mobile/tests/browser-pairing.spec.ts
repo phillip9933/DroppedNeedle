@@ -373,7 +373,7 @@ test('a download notification waits for browser sign-in and opens Offline music 
 
 	// A cold notification overrides this listener's saved Now Playing screen for this launch.
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
-	await page.getByRole('button', { name: 'Interface and navigation', exact: true }).click();
+	await page.getByRole('button', { name: 'Navigation bar and start screen', exact: true }).click();
 	await chooseOption(page.getByLabel('Start screen'), 'player');
 	await page.evaluate(() => {
 		sessionStorage.setItem('restored-song', 'Night service');
@@ -433,7 +433,9 @@ test('the chosen start screen works offline and opens a restored song without st
 	const heading = (name: string) => page.getByRole('heading', { name, exact: true });
 	const openInterface = async () => {
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();
-		await page.getByRole('button', { name: 'Interface and navigation', exact: true }).click();
+		await page
+			.getByRole('button', { name: 'Navigation bar and start screen', exact: true })
+			.click();
 	};
 	await expect(heading('Home')).toBeVisible();
 	await openInterface();
@@ -463,7 +465,7 @@ test('the chosen start screen works offline and opens a restored song without st
 	await page.reload();
 	await expect(heading('Home')).toBeVisible();
 	await openInterface();
-	await page.getByRole('button', { name: 'Restore interface defaults' }).click();
+	await page.getByRole('button', { name: 'Restore navigation defaults' }).click();
 	await page.reload();
 	await expect(heading('Offline music')).toBeVisible();
 });
@@ -475,7 +477,7 @@ test('download notification settings open on demand and reflect Android changes 
 	await deliverApproval(page);
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
-	await page.getByRole('button', { name: 'Offline and cache', exact: true }).click();
+	await page.getByRole('button', { name: 'Download preferences', exact: true }).click();
 	const group = page.getByRole('group', { name: 'Download notifications' });
 	await expect(group.getByRole('status')).toHaveText('Off for DroppedNeedle.');
 	expect(
@@ -508,7 +510,7 @@ test('Android offline history settings preserve pending listens until discard is
 	await deliverApproval(page);
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
-	await page.getByRole('button', { name: 'Offline and cache', exact: true }).click();
+	await page.getByRole('button', { name: 'Offline listening history', exact: true }).click();
 	const history = page.getByRole('group', { name: 'Offline listening history' }),
 		enabled = history.getByLabel('Record offline listens');
 	await expect(enabled).toBeChecked();
