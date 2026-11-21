@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type { Session } from '../connection';
 	import { albumTracks, type Album } from './catalog';
+	import { albumItem } from './libraryBrowse';
+	import { readBrowsePreferences } from './browsePreferences';
+	import BrowseEntries from './BrowseEntries.svelte';
 	import { useLibrarySelection } from './librarySelection.svelte';
 	import Cover from './Cover.svelte';
 	const selectable = useLibrarySelection();
@@ -15,37 +18,50 @@
 		strip?: boolean;
 		onopen: (album: Album) => void;
 	} = $props();
+	const settings = $derived(readBrowsePreferences(session, 'Albums'));
+	const items = $derived(albums.map(albumItem));
 </script>
 
-<div class="albums" class:strip data-part="album-grid">
-	{#each albums as album (album.localId || album.group)}
-		<button
-			use:selectable={{
-				id: 'album:' + (album.localId || album.group),
-				title: album.title,
-				tracks: (signal) => albumTracks(session, album, signal)
-			}}
-			class="album"
-			data-part="album-card"
-			onclick={() => onopen(album)}
-		>
-			<Cover {session} path={album.art} seed={album.group || album.localId || album.title} />
-			<strong>{album.title}</strong><span>{album.artist}</span>
-		</button>
-	{/each}
-</div>
+{#if strip}
+	<div class="strip" data-part="album-grid">
+		{#each albums as album (album.localId || album.group)}
+			<button
+				use:selectable={{
+					id: 'album:' + (album.localId || album.group),
+					title: album.title,
+					tracks: (signal) => albumTracks(session, album, signal)
+				}}
+				class="album"
+				data-part="album-card"
+				onclick={() => onopen(album)}
+			>
+				<Cover {session} path={album.art} seed={album.group || album.localId || album.title} />
+				<strong>{album.title}</strong><span>{album.artist}</span>
+			</button>
+		{/each}
+	</div>
+{:else}
+	<BrowseEntries
+		{session}
+		{items}
+		category="Albums"
+		albumGallery
+		layout={settings.layout}
+		columns={settings.columns}
+		compact={settings.compact}
+		open={(item) => {
+			if (item.album) onopen(item.album);
+		}}
+	/>
+{/if}
 
 <style>
-	.albums {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr));
-		gap: calc(var(--gap) * 1.4) var(--gap);
-	}
 	.strip {
 		display: grid;
 		grid-template-columns: none;
 		grid-auto-flow: column;
 		grid-auto-columns: clamp(7.5rem, 36%, 10rem);
+		gap: var(--gap);
 		overflow-x: auto;
 		overscroll-behavior-x: contain;
 		scroll-snap-type: x proximity;

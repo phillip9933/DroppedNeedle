@@ -89,6 +89,15 @@ export function trackItem(track: PlayerTrack): BrowseItem {
 		added: track.dateAdded
 	};
 }
+export function albumItem(album: Album): BrowseItem {
+	return {
+		id: 'album:' + (album.localId || album.group),
+		title: album.title,
+		subtitle: album.artist,
+		art: album.art,
+		album
+	};
+}
 export function trackOccurrences(tracks: PlayerTrack[]) {
 	const occurrences = new Map<string, number>();
 	return tracks.map((track) => {
@@ -264,16 +273,7 @@ export async function browsePage(
 		await rememberAlbumCounts(session, p.items);
 		return {
 			...p,
-			items: p.items.map((a) => {
-				const album = localAlbum(a);
-				return {
-					id: 'album:' + a.id,
-					title: album.title,
-					subtitle: album.artist,
-					art: album.art,
-					album
-				};
-			})
+			items: p.items.map((a) => albumItem(localAlbum(a)))
 		};
 	}
 	if (category === 'Artists') {

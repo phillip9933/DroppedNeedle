@@ -1,6 +1,10 @@
 <script lang="ts">
-	import { uiText, uiFormat } from '../i18n';
+	import { tr, uiText, uiFormat } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
+	import CollectionDisplayFields from '../catalog/CollectionDisplayFields.svelte';
+	import { categories, type Category } from '../catalog/libraryBrowse';
+	import { readBrowsePreferences, type CollectionEdits } from '../catalog/browsePreferences';
+	import type { Session } from '../connection';
 	import { tick, untrack } from 'svelte';
 	import { boardDisplay } from './display';
 	import FilterSectionDialog from './FilterSectionDialog.svelte';
@@ -16,15 +20,17 @@
 	} from './layout';
 	let {
 		board,
+		session,
 		sections,
 		filters,
 		onsave,
 		onback
 	}: {
 		board: Board;
+		session: Session;
 		filters: FilterSection[];
 		sections: Section[];
-		onsave: (items: Section[], filters?: FilterSection[]) => void;
+		onsave: (items: Section[], filters?: FilterSection[], pages?: CollectionEdits) => void;
 		onback: () => void;
 	} = $props();
 	function editable(section: Section): Section {
@@ -34,6 +40,10 @@
 	let saved = $state<FilterSection[]>(untrack(() => filters.slice())),
 		editing = $state<Partial<FilterSection> | null>(null);
 	let options = $state('');
+	let editingPages = $state(false);
+	let page = $state<Category>('Albums');
+	let pageEdits = $state<CollectionEdits>({});
+	const pageDisplay = $derived({ ...readBrowsePreferences(session, page), ...pageEdits[page] });
 	let filter = $state('');
 	let error = $state('');
 	let list: HTMLOListElement;
@@ -54,6 +64,7 @@
 		draft = next;
 	}
 	async function add(id: string) {
+		editingPages = false;
 		draft = [
 			...draft,
 			editable({ id, title: '', preview: true, filter: saved.find((f) => f.id === id) })
@@ -66,7 +77,11 @@
 	}
 	function save() {
 		try {
-			onsave(draft, board === 'discover' ? undefined : saved);
+			onsave(
+				draft,
+				board === 'discover' ? undefined : saved,
+				board === 'library' ? pageEdits : undefined
+			);
 		} catch {
 			error = 'Could not save this layout on the device. Your edits are still here.';
 		}
@@ -80,7 +95,38 @@
 	</div>
 	<h1>{uiText('Edit')} {uiText(boardNames[board])}</h1>
 	{#if error}<p role="alert">{error}</p>{/if}
-	<h2>{uiText('On this screen')}</h2>
+	{#if board === 'library'}
+		<details
+			class="settings-disclosure"
+			data-surface="panel"
+			bind:open={editingPages}
+			ontoggle={(e) => {
+				if (e.currentTarget.open) options = '';
+			}}
+		>
+			<summary>{tr('Library pages', 'ライブラリの各ページ')}</summary>
+			{#if editingPages}<div class="fields">
+					<label
+						>{tr('Library page', 'ライブラリのページ')}<InlineChoice selected={page}>
+							<select bind:value={page}>
+								{#each categories as category (category)}<option value={category}
+										>{uiText(category)}</option
+									>{/each}
+							</select>
+						</InlineChoice></label
+					>
+					<div class="display-options">
+						<CollectionDisplayFields
+							settings={pageDisplay}
+							onchange={(update) => {
+								pageEdits[page] = { ...pageEdits[page], ...update };
+							}}
+						/>
+					</div>
+				</div>{/if}
+		</details>
+	{/if}
+	<h2>{uiText(board === 'library' ? 'Library sections' : 'On this screen')}</h2>
 	{#if draft.length === 0}<p>{uiText('Add a section below to start your layout.')}</p>{/if}
 	<ol
 		class:settings-list={draft.length > 0}
@@ -108,8 +154,10 @@
 						class="tool"
 						aria-label={'Customize ' + name}
 						aria-expanded={options === item.id}
-						onclick={() => (options = options === item.id ? '' : item.id)}
-						><SlidersHorizontal size={17} /></button
+						onclick={() => {
+							editingPages = false;
+							options = options === item.id ? '' : item.id;
+						}}><SlidersHorizontal size={17} /></button
 					>
 					<button
 						class="tool"

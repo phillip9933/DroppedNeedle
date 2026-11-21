@@ -187,6 +187,135 @@ async function displayFixture(page: Page) {
 	await pct(page, 'Library').click();
 	return { walks, blocked, preventNetwork: () => (local = true) };
 }
+test('album display follows the listener into an artist’s releases, release filters and guest appearances', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 720 });
+	await displayFixture(page);
+	const releases = Array.from({ length: 8 }, (_, i) => ({
+		...album,
+		id: 'record-' + i,
+		title: 'Record ' + (i + 1)
+	}));
+	for (const path of ['albums', 'appearances'])
+		await page.route(fixtureServer + '/api/v3/library/artists/north/' + path + '?**', (route) =>
+			route.fulfill({ json: { items: releases, total: releases.length, next: null } })
+		);
+	const b = (name: string) => pct(page, name);
+	await b('Browse Albums').tap();
+	await b('Collection options').tap();
+	const results = page.locator('[data-part=category-items]:visible');
+	for (const columns of [1, 2, 3, 4, 5, 6]) {
+		await chooseOption(page.getByLabel('Grid columns'), String(columns));
+		expect(
+			await results.evaluate((list) => getComputedStyle(list).gridTemplateColumns.split(' ').length)
+		).toBe(columns);
+	}
+	await chooseOption(page.getByLabel('Grid columns'), '5');
+	await page.getByRole('checkbox', { name: 'Compact rows' }).check();
+	const compactGap = await results.evaluate((list) => getComputedStyle(list).rowGap);
+	await b('Back to Library').tap();
+	await b('Browse Artists').tap();
+	await b('North Shore').tap();
+	const gallery = page.locator('[data-part=local-artist-detail] [data-part=album-grid]');
+	const verifyGrid = async () => {
+		await expect(gallery.getByRole('button')).toHaveCount(8);
+		await expect(gallery).toHaveCSS('row-gap', compactGap);
+		const cards = await gallery.getByRole('button').evaluateAll((buttons) =>
+			buttons.map((button) => {
+				const { x, top, width } = button.getBoundingClientRect();
+				return { x, top, width };
+			})
+		);
+		expect(new Set(cards.map((r) => r.x)).size).toBe(5);
+		expect(cards[0].width).toBeGreaterThanOrEqual(44);
+		expect(cards[4].top).toBe(cards[0].top);
+		expect(cards[5].top).toBeGreaterThan(cards[0].top);
+	};
+	await verifyGrid();
+	await chooseOption(page.getByRole('combobox', { name: 'Release type' }), 'unknown');
+	await verifyGrid();
+	await chooseOption(page.getByLabel('Artist library view'), 'appearances');
+	await verifyGrid();
+	await b('Back to artists').tap();
+	await b('Back to Library').tap();
+	await b('Browse Albums').tap();
+	await b('Switch to list view').tap();
+	await b('Back to Library').tap();
+	await b('Browse Artists').tap();
+	await b('North Shore').tap();
+	await expect(gallery).toHaveAttribute('data-layout', 'list');
+	await expect(gallery.getByRole('button')).toHaveCount(8);
+	const cover = gallery.getByRole('button').first().locator('[data-part=cover]');
+	expect((await cover.boundingBox())!.width).toBeLessThan(60);
+});
+
+test('Library layout settings update the open collection, preserve its sorting and discard canceled display changes', async ({
+	page
+}) => {
+	await displayFixture(page);
+	const b = (name: string) => pct(page, name);
+	const result = page.locator('[data-part=category-items]:visible');
+	await b('Browse Albums').tap();
+	await b('Reverse sort order').tap();
+	const edit = async () => {
+		await b('Settings').tap();
+		await b('Edit Library layout').tap();
+		const details = page
+			.locator('details')
+			.filter({ has: page.getByText('Library pages', { exact: true }) });
+		await details.locator('summary').tap();
+		await chooseOption(details.getByLabel('Library page'), 'Albums');
+		return details;
+	};
+	let details = await edit();
+	await chooseOption(details.getByLabel('Grid columns'), '4');
+	await details.getByRole('checkbox', { name: 'Compact rows' }).check();
+	await b('Cancel').tap();
+	await b('Back').tap();
+	await expect(result).toHaveAttribute('data-columns', '2');
+	details = await edit();
+	await chooseOption(details.getByLabel('Grid columns'), '4');
+	await details.getByRole('checkbox', { name: 'Compact rows' }).check();
+	await chooseOption(details.getByLabel('Library page'), 'Artists');
+	await chooseOption(details.getByLabel('Grid columns'), '1');
+	await page.evaluate(() => {
+		const write = Storage.prototype.setItem;
+		Storage.prototype.setItem = function (key, value) {
+			if (key.startsWith('dn.mobile.boards.v2.')) {
+				Storage.prototype.setItem = write;
+				throw new DOMException('Device storage full', 'QuotaExceededError');
+			}
+			write.call(this, key, value);
+		};
+	});
+	await b('Save layout').tap();
+	await expect(page.getByRole('alert')).toContainText('Could not save this layout');
+	expect(
+		await page.evaluate((server) => {
+			const prefix = 'dn.mobile.library-browse.v1.';
+			const record = (name: string) =>
+				localStorage.getItem(prefix + JSON.stringify([server, 'member', name]));
+			return { columns: JSON.parse(record('Albums')!).columns, artists: record('Artists') };
+		}, fixtureServer)
+	).toEqual({ columns: 2, artists: null });
+	await b('Save layout').tap();
+	await b('Back').tap();
+	await expect(result).toHaveAttribute('data-columns', '4');
+	await b('Collection options').tap();
+	await expect(page.getByLabel('Grid columns')).toHaveAttribute('data-value', '4');
+	await expect(page.getByRole('checkbox', { name: 'Compact rows' })).toBeChecked();
+	await b('Back to Library').tap();
+	await b('Browse Artists').tap();
+	await expect(result).toHaveAttribute('data-columns', '1');
+	await b('Back to Library').tap();
+	const request = page.waitForRequest(
+		(r) => new URL(r.url()).pathname === '/api/v3/library/albums'
+	);
+	await b('Browse Albums').tap();
+	expect(new URL((await request).url()).searchParams.get('order')).toBe('desc');
+});
+
 test('catalog pages use themed controls, distinct layouts, real genre tracks and working playlist actions', async ({
 	page
 }, testInfo) => {

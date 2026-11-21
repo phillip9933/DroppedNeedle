@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tr, uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
+	import CollectionDisplayFields from './CollectionDisplayFields.svelte';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
@@ -125,7 +126,7 @@
 	);
 	const unit = $derived(category === 'Tracks' ? 'songs' : category.toLowerCase());
 	const searchLabel = $derived(tr('Search ' + category.toLowerCase(), uiText(category) + 'を検索'));
-	let settings = $state(untrack(() => readBrowsePreferences(session, category)));
+	let settings = $derived(readBrowsePreferences(session, category));
 	let filters = $state<BrowseFilters>(
 		untrack(() => ({
 			q: '',
@@ -210,8 +211,8 @@
 		savedFilter = $state<LibraryFilter | null>(null);
 
 	function preferences(p: Partial<BrowsePreferences>) {
-		settings = { ...settings, ...p };
-		saveBrowsePreferences(session, category, settings);
+		const next = { ...settings, ...p };
+		if (!saveBrowsePreferences(session, category, next)) settings = next;
 	}
 	$effect(() => {
 		const pinned = $pendingShortcut;
@@ -828,33 +829,7 @@
 		/>
 	{:else if panel === 'display'}
 		<div class="control-panel">
-			<label
-				>{uiText('Display')}<InlineChoice selected={settings.layout}
-					><select
-						value={settings.layout}
-						onchange={(e) => preferences({ layout: e.currentTarget.value as 'list' | 'grid' })}
-						><option value="grid">{uiText('Grid')}</option><option value="list"
-							>{uiText('List')}</option
-						></select
-					></InlineChoice
-				></label
-			>
-			{#if settings.layout === 'grid'}<label
-					>{uiText('Grid columns')}<InlineChoice selected={settings.columns}
-						><select
-							value={settings.columns}
-							onchange={(e) => preferences({ columns: Number(e.currentTarget.value) })}
-							>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option>{/each}</select
-						></InlineChoice
-					></label
-				>
-			{/if}<label class="check"
-				><input
-					type="checkbox"
-					checked={settings.compact}
-					onchange={(e) => preferences({ compact: e.currentTarget.checked })}
-				/>{uiText('Compact rows')}</label
-			>
+			<CollectionDisplayFields {settings} onchange={preferences} />
 			{#if category === 'Genres' && !available}<p class="index-note">
 					{uiText(
 						'The directory lists each track’s primary genre. Opening a genre includes other tracks DN has tagged with it.'
@@ -903,7 +878,7 @@
 		filters.sort === 'name' &&
 		(total ?? 0) > 30 &&
 		!host?.isSelecting()}
-	<div class:alphabet>
+	<div class:alphabet style:--result-columns={settings.layout === 'grid' ? settings.columns : 1}>
 		<div class="result-column">
 			<BrowseEntries
 				bind:this={results}
@@ -998,8 +973,15 @@
 
 <style>
 	.alphabet {
+		--alphabet-rail-width: 28px;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
+		/* The alphabet can use the page's end padding when it would shrink the tap targets. */
+		margin-inline-end: clamp(
+			calc(-1 * var(--gap)),
+			calc(100% - var(--result-columns) * 44px - var(--alphabet-rail-width)),
+			0px
+		);
 	}
 	.result-column {
 		min-width: 0;
@@ -1132,12 +1114,6 @@
 		font-size: 0.85rem;
 		display: grid;
 		gap: 0.2rem;
-	}
-	.control-panel .check {
-		display: flex;
-		gap: 0.35rem;
-		align-items: center;
-		min-height: 44px;
 	}
 	.count,
 	.notice {

@@ -98,7 +98,7 @@
 	}
 	.letters {
 		height: clamp(190px, 53dvh, 405px);
-		width: 28px;
+		width: var(--alphabet-rail-width);
 		display: flex;
 		flex-direction: column;
 		justify-content: space-around;

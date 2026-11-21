@@ -18,6 +18,7 @@
 		category,
 		layout,
 		columns,
+		albumGallery = false,
 		compact = false,
 		active = true,
 		inventory,
@@ -33,6 +34,7 @@
 		category: Category;
 		layout: 'list' | 'grid';
 		columns: number;
+		albumGallery?: boolean;
 		compact?: boolean;
 		active?: boolean;
 		inventory?: OfflineInventory;
@@ -61,7 +63,8 @@
 		pinned = $state(-1),
 		anchor = $state(-1);
 	const cols = $derived(layout === 'grid' ? columns : 1);
-	const virtual = $derived(items.length > 64 && metrics.pitch > 0);
+	// Discography selection ranges use all mounted album cards as their ordered collection.
+	const virtual = $derived(!albumGallery && items.length > 64 && metrics.pitch > 0);
 	const mounted = $derived.by(() => {
 		const start = virtual ? metrics.start : 0,
 			end = virtual ? metrics.end : items.length;
@@ -174,7 +177,7 @@
 			count: items.length,
 			columns: cols,
 			compact,
-			active,
+			active: active && !albumGallery,
 			layout,
 			onwindow: (w) => (metrics = w)
 		}}
@@ -186,7 +189,7 @@
 		use:focusNavigation
 		role="list"
 		aria-label={tr(category + ' results', uiText(category) + 'の一覧')}
-		data-part="category-items"
+		data-part={albumGallery ? 'album-grid' : 'category-items'}
 		data-loaded={items.length}
 		data-layout={layout}
 		data-columns={layout === 'grid' ? columns : 1}
@@ -217,9 +220,12 @@
 			>
 				<button
 					class="item"
+					data-part={albumGallery ? 'album-card' : undefined}
 					aria-label={item.track
 						? tr('Play ' + item.title, '「' + item.title + '」を再生')
-						: item.title}
+						: albumGallery
+							? undefined
+							: item.title}
 					aria-describedby={origins.length ? badgeId : undefined}
 					onclick={() => open(item)}
 					use:selectable={browseChoice(session, item)}
