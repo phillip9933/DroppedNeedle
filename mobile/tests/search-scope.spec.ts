@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { localSignIn } from './fixtures/localSignIn';
@@ -201,4 +202,112 @@ test('recent search history deduplicates submitted queries and stays within each
 	).toBeVisible();
 	await history.getByRole('button', { name: 'Clear history' }).click();
 	await expect(history).toHaveCount(0);
+});
+
+test('each search scope remembers its list, grid width and spacing for the signed-in listener', async ({
+	page
+}) => {
+	const server = 'https://display.example';
+	const albums = [
+		{ id: 'stations', title: 'Rail stations', artist: 'Rail quartet', art_missing: true }
+	];
+	const artists = [{ id: 'quartet', title: 'Rail quartet', art_missing: true }];
+	const localTrack = {
+		id: 'ride',
+		title: 'Rail ride',
+		artist: 'Rail quartet',
+		track: { album_title: 'Rail stations', duration_seconds: 151 },
+		art_missing: true
+	};
+	const remoteTrack = {
+		musicbrainz_id: 'remote-recording',
+		title: 'Rail routes',
+		artist: 'Rail quartet',
+		remote_track: { album_title: 'Routes', release_mbid: 'release', release_group_mbid: 'group' },
+		art_missing: true
+	};
+	const search = {
+		albums,
+		artists,
+		tracks: [localTrack, remoteTrack],
+		album_status: 'ok',
+		artist_status: 'ok',
+		track_status: 'ok'
+	};
+	let queries = 0,
+		requested = 0;
+	await page.route(server + '/api/v3/**', async (route) => {
+		const request = route.request(),
+			path = new URL(request.url()).pathname.slice('/api/v3'.length);
+		const json = (data: unknown) => route.fulfill({ json: data });
+		if (path === '/auth/providers') return json({ local: true, oidc: false });
+		if (path === '/auth/login') return json({ token: request.postDataJSON().username });
+		if (path === '/me')
+			return json({
+				id: request.headers().authorization.slice(7),
+				role: 'user',
+				display_name: 'Listener'
+			});
+		if (path === '/search') {
+			queries++;
+			return json(search);
+		}
+		if (path === '/search/artists') {
+			queries++;
+			return json({ status: 'ok', results: artists });
+		}
+		if (path === '/requests/tracks') {
+			requested++;
+			expect(request.postDataJSON()).toMatchObject({ recording_mbid: 'remote-recording' });
+			return json({ status: 'added' });
+		}
+		if (await emptyBoardRead(route)) return;
+		throw Error('Unexpected fixture request ' + path);
+	});
+	await page.setViewportSize({ width: 320, height: 700 });
+	async function open(account: string) {
+		await localSignIn(page, server, account);
+		await page
+			.getByRole('navigation', { name: 'Music' })
+			.getByRole('button', { name: 'Search' })
+			.click();
+		await page.getByRole('searchbox', { name: 'Search music' }).fill('rail');
+	}
+	const results = (name: string) => page.getByRole('list', { name, exact: true });
+	const settings = page.getByRole('button', { name: 'Search display' });
+	await open('alice');
+	const categories = page.getByRole('group', { name: 'Search category' });
+	const groups = ['Artists results', 'Albums results', 'Tracks results', 'Songs to request'];
+	for (const name of groups) await expect(results(name)).toHaveAttribute('data-layout', 'list');
+	await settings.click();
+	const before = queries;
+	await chooseOption(page.getByLabel('Display', { exact: true }), 'grid');
+	await chooseOption(page.getByLabel('Grid columns'), '6');
+	await page.getByLabel('Compact rows').check();
+	for (const name of groups) {
+		const group = results(name);
+		await expect(group).toHaveAttribute('data-columns', '6');
+		await expect(group).toHaveClass(/compact/);
+		expect(
+			await group.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)
+		).toBe(6);
+	}
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+	expect(queries).toBe(before);
+	const remote = results('Songs to request'),
+		request = remote.getByRole('button', { name: 'Request song Rail routes' });
+	await request.click();
+	await expect(remote.getByRole('button', { name: 'Requested Rail routes' })).toBeDisabled();
+	expect(requested).toBe(1);
+	await categories.getByRole('button', { name: 'Artists', exact: true }).click();
+	await expect(results('Artists results')).toHaveAttribute('data-columns', '3');
+	await chooseOption(page.getByLabel('Display', { exact: true }), 'list');
+	await categories.getByRole('button', { name: 'Top results', exact: true }).click();
+	await expect(results('Artists results')).toHaveAttribute('data-columns', '6');
+	await open('bob');
+	await expect(results('Artists results')).toHaveAttribute('data-layout', 'list');
+	await open('alice');
+	await expect(results('Artists results')).toHaveAttribute('data-columns', '6');
+	await categories.getByRole('button', { name: 'Artists', exact: true }).click();
+	await expect(results('Artists results')).toHaveAttribute('data-layout', 'list');
 });

@@ -230,12 +230,19 @@ export async function search(
 	});
 	const artists = result.artists
 		.filter((a) => a.musicbrainz_id || a.id)
-		.map((a) => ({ name: a.title, localId: a.id, mbid: a.musicbrainz_id }));
+		.map((a) => ({
+			name: a.title,
+			localId: a.id,
+			mbid: a.musicbrainz_id,
+			disambiguation: a.disambiguation,
+			artMissing: a.art_missing
+		}));
 	const recordings = result.tracks.flatMap((t) =>
 		!t.track && t.musicbrainz_id && t.remote_track
 			? [
 					{
 						requested: t.requested,
+						art: cover(t.remote_track.release_group_mbid, undefined, t.art_missing),
 						song: {
 							recording_mbid: t.musicbrainz_id,
 							artist_name: t.artist ?? '',

@@ -174,6 +174,15 @@ test('explicit offline Search finds saved metadata, local playlists, actions and
 	for (const cat of ['Tracks', 'Artists', 'Albums', 'Genres', 'Playlists'])
 		await expect(page.getByRole('region', { name: 'Device ' + cat.toLowerCase() })).toBeVisible();
 	await expect(page.getByText(/Hidden amber/)).toHaveCount(0);
+	const display = button(page, 'Search display');
+	await display.click();
+	await chooseOption(page.getByLabel('Display', { exact: true }), 'grid');
+	await chooseOption(page.getByLabel('Grid columns'), '4');
+	for (const cat of ['Tracks', 'Artists', 'Albums', 'Genres', 'Playlists'])
+		await expect(
+			page.getByRole('region', { name: 'Device ' + cat.toLowerCase() }).getByRole('list')
+		).toHaveAttribute('data-columns', '4');
+	await display.click();
 	await scope(page, 'Artists').click();
 	await expect(button(page, 'Search for Ámber Sound in Artists')).toBeVisible();
 	await button(page, 'Ámber Sound').click();

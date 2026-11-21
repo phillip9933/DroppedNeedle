@@ -1,13 +1,17 @@
 <script lang="ts">
 	import { uiText } from '../i18n';
-	import { ChevronRight, ListMusic, Tags } from '@lucide/svelte';
+	import { ChevronRight, Tags } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
 	import { searchGenres } from './discoveryWidgets';
 	import { playlists, type Playlist } from './playlists';
 
+	import { playlistItem } from './libraryBrowse';
+	import BrowseEntries from './BrowseEntries.svelte';
+	import type { CollectionDisplay } from './browsePreferences';
 	let {
 		session,
+		display,
 		scope,
 		term,
 		ongenre,
@@ -17,6 +21,7 @@
 		onready
 	}: {
 		session: Session;
+		display: CollectionDisplay;
 		scope: 'genres' | 'playlists';
 		term: string;
 		ongenre: (name: string) => void;
@@ -33,6 +38,10 @@
 	const query = $derived(term.trim().toLocaleLowerCase());
 	const matchingGenres = $derived(genres.filter((g) => g.toLocaleLowerCase().includes(query)));
 	const matchingLists = $derived(lists.filter((p) => p.name.toLocaleLowerCase().includes(query)));
+	const genreRows = $derived(
+		matchingGenres.map((name) => ({ id: 'genre:' + name, genre: name, title: name }))
+	);
+	const playlistRows = $derived(matchingLists.map(playlistItem));
 	$effect(() => {
 		const account = session,
 			kind = scope;
@@ -80,17 +89,28 @@
 {:else if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
 {:else if scope === 'genres'}
-	{#each matchingGenres as genre (genre)}<button class="item" onclick={() => ongenre(genre)}
-			><Tags size={18} /><span>{genre}</span><ChevronRight size={17} /></button
-		>{/each}
+	{#if genreRows.length}<BrowseEntries
+			{session}
+			{active}
+			{...display}
+			items={genreRows}
+			category="Genres"
+			open={(row) => ongenre(row.title)}
+		/>{/if}
 	{#if !query && !genres.length}<p>{uiText('Enter a genre name to browse.')}</p>{/if}
-{:else}
-	{#each matchingLists as p (p.id)}<button class="item" onclick={() => onplaylist(p)}
-			><ListMusic size={18} /><span>{p.name}</span><ChevronRight size={17} /></button
-		>{:else}<p>
-			{query ? uiText('No playlists match this search.') : uiText('No playlists available.')}
-		</p>{/each}
-{/if}
+{:else if playlistRows.length}<BrowseEntries
+		{session}
+		{active}
+		{...display}
+		items={playlistRows}
+		category="Playlists"
+		open={(row) => {
+			if (row.playlist) onplaylist(row.playlist);
+		}}
+	/>
+{:else}<p>
+		{query ? uiText('No playlists match this search.') : uiText('No playlists available.')}
+	</p>{/if}
 
 <style>
 	.item {

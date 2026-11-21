@@ -8,7 +8,7 @@
 	import type { SearchScope, OnPlay } from './catalog';
 	import { errorMessage } from './catalog';
 	import { browseChoice, type BrowseItem, type Category } from './libraryBrowse';
-	import { readBrowsePreferences } from './browsePreferences';
+	import type { CollectionDisplay } from './browsePreferences';
 	import { queueSizeCheck } from './libraryQueue';
 	import { playlistShuffle } from './browseActions';
 	import { tappedPlayback } from './browsePlayback';
@@ -24,6 +24,7 @@
 		model,
 		term,
 		scope,
+		display,
 		active,
 		limit = $bindable(48),
 		choose,
@@ -37,6 +38,7 @@
 		model: DeviceSearchIndex;
 		term: string;
 		scope: SearchScope;
+		display: CollectionDisplay;
 		active: boolean;
 		limit?: number;
 		choose: (scope: SearchScope) => void;
@@ -61,8 +63,7 @@
 		buckets
 			.map((b) => ({
 				...b,
-				shown: b.items.slice(0, scope === 'top' ? 4 : limit),
-				style: readBrowsePreferences(session, b.category)
+				shown: b.items.slice(0, scope === 'top' ? 4 : limit)
 			}))
 			.filter((b) => b.items.length)
 	);
@@ -207,9 +208,7 @@
 						items={group.shown}
 						total={group.items.length}
 						category={group.category}
-						layout={scope === 'top' ? 'list' : group.style.layout}
-						columns={group.style.columns}
-						compact={group.style.compact}
+						{...display}
 						{active}
 						localOnly
 						open={(row) => open(group.category, row)}
