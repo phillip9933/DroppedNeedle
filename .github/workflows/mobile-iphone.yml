@@ -36,7 +36,6 @@ jobs:
         working-directory: frontend
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: scripts/test-iphone.sh
       - run: pnpm build && pnpm exec cap sync ios
       - name: Build and launch on an iPhone simulator
         run: |
@@ -58,3 +57,6 @@ jobs:
         run: |
           node scripts/prepare-iphone-widget.mjs
           xcodebuild -project ios/App/AppWidgets.xcodeproj -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/iphone-widget-build" CODE_SIGNING_ALLOWED=NO build
+      - name: Test native playback and offline policies on macOS
+        if: ${{ !cancelled() }}
+        run: scripts/test-iphone.sh
