@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
+	import EditionPriority from './EditionPriority.svelte';
 	import { onMount } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, putJson, type Session } from '../connection';
@@ -34,7 +35,7 @@
 	const lists = [
 		{ key: 'status_order', label: 'Release statuses' },
 		{ key: 'format_order', label: 'Formats' },
-		{ key: 'countries', label: 'Country codes' }
+		{ key: 'countries', label: 'Countries' }
 	] as const;
 	const editionUrl = path('/api/v3/settings/edition-preferences'),
 		releaseUrl = path('/api/v3/settings/preferences');
@@ -42,14 +43,12 @@
 		draft = $state<S['EditionPreferences']>(),
 		releases = $state<S['UserPreferences']>(),
 		oldReleases = $state<S['UserPreferences']>();
-	let listText = $state({ status_order: '', format_order: '', countries: '' });
 	let busy = $state(false),
 		error = $state(''),
 		message = $state('');
 	function setEdition(e: S['EditionPreferences']) {
 		original = e;
 		draft = structuredClone(e);
-		for (const f of lists) listText[f.key] = e[f.key].join(', ');
 	}
 	function setReleases(p: S['UserPreferences']) {
 		oldReleases = p;
@@ -71,40 +70,40 @@
 		void read();
 	});
 	const avoids = ['live', 'compilation', 'remix', 'soundtrack', 'demo', 'dj-mix'];
-	const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
-	function parsed(value: string) {
-		return [
-			...new Set(
-				value
-					.split(',')
-					.map((v) => v.trim())
-					.filter(Boolean)
-			)
-		];
+	const releaseTypes = new Map([
+		['album', ['Album', 'アルバム']],
+		['ep', ['EP', 'EP']],
+		['single', ['Single', 'シングル']],
+		['broadcast', ['Broadcast', '放送']],
+		['other', ['Other', 'その他']],
+		['studio', ['Studio', 'スタジオ']],
+		['compilation', ['Compilation', 'コンピレーション']],
+		['soundtrack', ['Soundtrack', 'サウンドトラック']],
+		['spokenword', ['Spoken word', '朗読']],
+		['interview', ['Interview', 'インタビュー']],
+		['audio drama', ['Audio drama', 'オーディオドラマ']],
+		['live', ['Live', 'ライブ']],
+		['remix', ['Remix', 'リミックス']],
+		['dj-mix', ['DJ mix', 'DJ ミックス']],
+		['mixtape/street', ['Mixtape/street', 'ミックステープ']],
+		['demo', ['Demo', 'デモ']]
+	]);
+	function releaseType(value: string) {
+		const pair = releaseTypes.get(value);
+		return pair ? tr(pair[0], pair[1]) : value;
 	}
-	const edition = $derived(
-		draft
-			? {
-					...draft,
-					status_order: parsed(listText.status_order),
-					format_order: parsed(listText.format_order),
-					countries: parsed(listText.countries).map((v) => v.toUpperCase())
-				}
-			: undefined
-	);
-	const dirty = $derived(editions ? changed(original, edition) : changed(oldReleases, releases));
+	const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+	const dirty = $derived(editions ? changed(original, draft) : changed(oldReleases, releases));
 	async function save() {
 		if (!dirty || busy) return;
 		busy = true;
 		error = message = '';
 		try {
-			if (edition && original) {
-				if (edition.countries.some((c) => !/^[A-Z]{2}$/.test(c)))
-					throw Error('Use a two-letter code for each country.');
+			if (draft && original) {
 				const latest = await getJson<S['EditionPreferences']>(session, editionUrl);
 				const edits = Object.fromEntries(
-					Object.entries(edition).filter(([k, v]) =>
-						changed(v, original![k as keyof typeof edition])
+					Object.entries(draft).filter(([k, v]) =>
+						changed(v, original![k as keyof S['EditionPreferences']])
 					)
 				);
 				setEdition(await putJson(session, editionUrl, { ...latest, ...edits }));
@@ -119,7 +118,7 @@
 				}
 				setReleases(await putJson(session, releaseUrl, latest));
 			}
-			message = 'Server preferences saved.';
+			message = tr('Server preferences saved.', 'サーバー設定を保存しました。');
 		} catch (e) {
 			error = errorMessage(e);
 		} finally {
@@ -128,19 +127,32 @@
 	}
 </script>
 
-{#if draft}
+{#if draft && original}
 	<p>
-		{uiText(
-			'Set how this server chooses an edition. Put preferred values first in each comma-separated list.'
+		{tr(
+			'Put your preferred choices first. DroppedNeedle uses this order when more than one edition fits.',
+			'優先したい項目を上に並べてください。該当するエディションが複数ある場合、この順序で選ばれます。'
 		)}
 	</p>
+	{#each lists as f (f.key)}
+		<EditionPriority
+			kind={f.key}
+			title={f.label}
+			saved={original[f.key]}
+			values={draft[f.key]}
+			disabled={busy}
+			onchange={(values) => {
+				if (draft) draft[f.key] = values;
+			}}
+		/>
+	{/each}
+	<h2 id="edition-selection">{uiText('Edition selection')}</h2>
 	<fieldset
 		class="settings-panel"
 		data-surface="panel"
-		aria-label={uiText('Edition selection')}
+		aria-labelledby="edition-selection"
 		disabled={busy}
 	>
-		{#each lists as f (f.key)}<label>{f.label}<input bind:value={listText[f.key]} /></label>{/each}
 		<label
 			>{uiText('Release date')}<InlineChoice selected={draft.date}
 				><select bind:value={draft.date}
@@ -167,8 +179,9 @@
 		aria-labelledby="avoided-types"
 		disabled={busy}
 	>
-		{#each [...new Set([...avoids, ...draft.avoid_types])] as t (t)}<label class="check"
-				><input type="checkbox" value={t} bind:group={draft.avoid_types} />{t}</label
+		{#each [...new Set([...avoids, ...original.avoid_types, ...draft.avoid_types])] as t (t)}<label
+				class="check"
+				><input type="checkbox" value={t} bind:group={draft.avoid_types} />{releaseType(t)}</label
 			>{/each}
 		<label class="check"
 			><input type="checkbox" bind:checked={draft.manage_unconfirmed} />{uiText(
@@ -176,14 +189,13 @@
 			)}</label
 		>
 	</fieldset>
-{:else if releases}
+{:else if releases && oldReleases}
 	<p>{uiText('Choose which release types appear in server searches and on artist pages.')}</p>
 	{#each groups as g (g.key)}<h2 id={g.key}>{uiText(g.label)}</h2>
 		<fieldset class="settings-panel" data-surface="panel" aria-labelledby={g.key} disabled={busy}>
-			{#each [...new Set([...g.options, ...releases[g.key]])] as t (t)}<label class="check"
-					><input type="checkbox" value={t} bind:group={releases[g.key]} />{t === 'ep'
-						? 'EP'
-						: t[0].toUpperCase() + t.slice(1)}</label
+			{#each [...new Set([...g.options, ...oldReleases[g.key], ...releases[g.key]])] as t (t)}<label
+					class="check"
+					><input type="checkbox" value={t} bind:group={releases[g.key]} />{releaseType(t)}</label
 				>{/each}
 		</fieldset>{/each}
 {:else if busy}<p role="status">{uiText('Loading server preferences…')}</p>{/if}

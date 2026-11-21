@@ -1,11 +1,17 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { japaneseText, tr, uiText } from '../i18n';
 	import { Browser } from '@capacitor/browser';
 	import { ExternalLink } from '@lucide/svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import type { Session } from '../connection';
 	let { session, admin }: { session: Session; admin: boolean } = $props();
 	let filter = $state(''),
 		error = $state('');
+	const expanded = new SvelteSet<string>();
+	const collapsedResults = new SvelteSet<string>();
+	const query = $derived(filter.trim().normalize('NFKC').toLowerCase());
+	const heading = (title: string) =>
+		title === 'System' ? tr('System', 'システム') : uiText(title);
 	const tab = (label: string, id: string) => ({ label, route: '/settings?tab=' + id });
 	const groups = $derived(
 		[
@@ -94,18 +100,33 @@
 			.map((g) => ({
 				...g,
 				links: g.links.filter((l) =>
-					(g.title + ' ' + l.label).toLowerCase().includes(filter.trim().toLowerCase())
+					[
+						g.title,
+						g.title === 'System' ? 'システム' : japaneseText(g.title),
+						l.label,
+						japaneseText(l.label)
+					]
+						.join(' ')
+						.normalize('NFKC')
+						.toLowerCase()
+						.includes(query)
 				)
 			}))
 			.filter((g) => g.links.length)
 	);
+	function toggle(event: MouseEvent, title: string) {
+		event.preventDefault();
+		const choices = query ? collapsedResults : expanded;
+		if (choices.has(title)) choices.delete(title);
+		else choices.add(title);
+	}
 	async function open(e: MouseEvent, url: string) {
 		e.preventDefault();
 		error = '';
 		try {
 			await Browser.open({ url });
 		} catch {
-			error = 'Could not open the browser.';
+			error = tr('Could not open the browser.', 'ブラウザーを開けませんでした。');
 		}
 	}
 </script>
@@ -115,26 +136,40 @@
 	type="search"
 	aria-label={uiText('Find a web tool')}
 	placeholder={uiText('Find a web tool')}
-	bind:value={filter}
+	value={filter}
+	oninput={(event) => {
+		filter = event.currentTarget.value;
+		collapsedResults.clear();
+	}}
 />
 {#if error}<p role="alert">{error}</p>{/if}
 {#each groups as group (group.title)}
-	<h2>{uiText(group.title)}</h2>
-	<div class="settings-list" data-surface="panel">
-		{#each group.links as link (link.route)}<a
-				class="settings-entry"
-				href={session.serverUrl + link.route}
-				target="_blank"
-				rel="noopener noreferrer"
-				onclick={(e) => open(e, session.serverUrl + link.route)}
-				><span>{uiText(link.label)}</span><ExternalLink size={15} /></a
-			>{/each}
-	</div>
+	<details
+		class="settings-disclosure"
+		data-surface="panel"
+		open={query ? !collapsedResults.has(group.title) : expanded.has(group.title)}
+	>
+		<summary onclick={(event) => toggle(event, group.title)}>{heading(group.title)}</summary>
+		<div class="links">
+			{#each group.links as link (link.route)}<a
+					class="settings-entry"
+					href={session.serverUrl + link.route}
+					target="_blank"
+					rel="noopener noreferrer"
+					onclick={(e) => open(e, session.serverUrl + link.route)}
+					><span>{uiText(link.label)}</span><ExternalLink size={15} /></a
+				>{/each}
+		</div>
+	</details>
 {/each}
 {#if !groups.length}<p>{uiText('No matching tools.')}</p>{/if}
 
 <style>
 	input {
 		width: 100%;
+	}
+	.links > a {
+		border-block-start: 1px solid var(--line);
+		padding-inline: 0;
 	}
 </style>
