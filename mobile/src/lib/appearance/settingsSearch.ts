@@ -10,6 +10,7 @@ export const pageTitles = {
 	interface: 'Interface and navigation',
 	language: 'App language',
 	playback: 'Streaming and fades',
+	queue: 'Queue and autoplay',
 	offline: 'Offline and cache',
 	outputs: 'Cast and audio output',
 	equalizer: 'Equalizer',
@@ -49,6 +50,8 @@ const groups: Partial<Record<Page, string>> = {
 	home: 'pins sections shelves ホーム ピン',
 	library: 'filters sections shelves フィルター',
 	discover: 'sections shelves 表示',
+	queue:
+		'play queue autoplay similar library music extend playback when the queue ends up next 再生キュー 自動再生 関連する曲 似ている曲 再生を延長',
 	handoff: 'remote control devices transfer 引き継ぎ',
 	themes: 'appearance colors palette dark light midnight custom CSS テーマ 配色',
 	outputs: 'chromecast DLNA Sonos speaker audio output キャスト スピーカー',
@@ -117,15 +120,10 @@ const subsections: Entry[] = [
 	},
 	{
 		page: 'playback',
-		label: 'Play queue',
-		anchor: 'similar-autoplay',
-		terms: 'autoplay similar music up next 自動再生 次に再生'
-	},
-	{
-		page: 'playback',
 		label: 'Track fades',
 		anchor: 'track-fades-settings',
-		terms: 'smart fade in fade out transitions duration クロスフェード フェードイン フェードアウト'
+		terms:
+			'smart fade in fade out transitions duration fallback manual クロスフェード フェードイン フェードアウト スマートフェード 代替 手動'
 	},
 	{
 		page: 'offline',
@@ -233,7 +231,10 @@ export function findSettings(query: string, access: Access) {
 		if ((!access.signedIn && !publicPages.has(page)) || (adminPages.has(page) && !access.admin))
 			return false;
 		if ((page === 'updates' || page === 'equalizer' || android) && !access.android) return false;
-		if (((page === 'handoff' || account) && !access.account) || (page === 'handoff' && access.ios))
+		if (
+			((page === 'handoff' || account) && !access.account) ||
+			((page === 'handoff' || page === 'queue') && access.ios)
+		)
 			return false;
 		if (
 			(page === 'outputs' && !(access.android || access.ios)) ||

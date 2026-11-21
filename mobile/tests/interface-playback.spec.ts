@@ -575,6 +575,8 @@ test('DN conversion and local fades apply to playback through the normal album a
 		'2000'
 	);
 	await expect(page.getByRole('checkbox', { name: 'Smart fades' })).not.toBeChecked();
+	const fallbacks = page.getByRole('group', { name: 'Fallback fades', exact: true });
+	await expect(fallbacks).toHaveCount(0);
 	await page.evaluate(() => {
 		const original = Storage.prototype.setItem;
 		Storage.prototype.setItem = function (key, value) {
@@ -589,10 +591,11 @@ test('DN conversion and local fades apply to playback through the normal album a
 	await expect(page.getByRole('alert')).toContainText('Could not save fades');
 	await expect(page.getByRole('checkbox', { name: 'Smart fades' })).not.toBeChecked();
 	await page.getByRole('checkbox', { name: 'Smart fades' }).check();
+	await expect(fallbacks).toBeVisible();
 	await chooseOption(page.getByLabel('Wi-Fi audio format'), 'opus');
 	await chooseOption(page.getByLabel('Wi-Fi requested bitrate'), '128');
-	await chooseOption(page.getByLabel('Fade in', { exact: true }), '500');
-	await chooseOption(page.getByLabel('Fade out', { exact: true }), '4000');
+	await chooseOption(fallbacks.getByLabel('Fade in', { exact: true }), '500');
+	await chooseOption(fallbacks.getByLabel('Fade out', { exact: true }), '4000');
 	await back(page, 'Settings');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await page
@@ -614,6 +617,9 @@ test('DN conversion and local fades apply to playback through the normal album a
 	);
 	await expect(page.getByLabel('Fade in', { exact: true })).toHaveAttribute('data-value', '500');
 	await expect(page.getByRole('checkbox', { name: 'Smart fades' })).toBeChecked();
+	await expect(page.getByLabel('Fade out', { exact: true })).toHaveAttribute('data-value', '4000');
+	await page.getByRole('checkbox', { name: 'Smart fades' }).uncheck();
+	await expect(fallbacks).toHaveCount(0);
 	await expect(page.getByLabel('Fade out', { exact: true })).toHaveAttribute('data-value', '4000');
 	await chooseOption(page.getByLabel('Wi-Fi audio format'), 'original');
 });

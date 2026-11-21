@@ -11,6 +11,7 @@
 	import OfflineSettings from '../offline/OfflineSettings.svelte';
 	import { offlineSupported, preferredOffline } from '../offline/media';
 	import PlaybackSettings from '../player/PlaybackSettings.svelte';
+	import QueueSettings from '../player/QueueSettings.svelte';
 	import LinkedPlayers from '../../../../frontend/src/lib/features/player/components/LinkedPlayers.svelte';
 	import EqualizerSettings from '../player/EqualizerSettings.svelte';
 	import UpdateSettings from '../updates/UpdateSettings.svelte';
@@ -30,6 +31,7 @@
 		Download,
 		Info,
 		Layers,
+		ListMusic,
 		Music2
 	} from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -331,6 +333,14 @@
 								size={16}
 							/></button
 						>
+						{#if Capacitor.getPlatform() !== 'ios'}<button
+								class="settings-entry"
+								data-screen-link
+								onclick={() => open('queue')}
+								><ListMusic size={19} /><span>{uiText(pageTitles.queue)}</span><ChevronRight
+									size={16}
+								/></button
+							>{/if}
 						{#if offlineSupported}<button
 								class="settings-entry"
 								data-screen-link
@@ -420,6 +430,9 @@
 				{:else if page === 'interface'}<InterfaceSettings {session} offline={offlineSupported} />
 				{:else if page === 'offline' && session && offlineSupported}<OfflineSettings {session} />
 				{:else if page === 'playback' && session}<PlaybackSettings {session} />
+				{:else if page === 'queue' && session && Capacitor.getPlatform() !== 'ios'}<QueueSettings
+						{session}
+					/>
 				{:else if page === 'handoff' && session}<LinkedPlayers />
 				{:else if page === 'themes'}<ThemeSettings {session} />
 				{:else if page === 'updates' && android}<UpdateSettings
