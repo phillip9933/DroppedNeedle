@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { uiText, tr } from './i18n';
 
+	import { untrack } from 'svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
 	import { lyricPhrases } from './player/lyricWords';
 	import { soundSettings } from './player/sound';
@@ -28,7 +29,12 @@
 		error = $state(''),
 		busy = $state(false),
 		retry = $state(0);
-	let handledRetry = 0;
+	// Native snapshots can replace the track object every second, even while paused.
+	const identity = $derived(
+		JSON.stringify([session.serverUrl, session.userId ?? session.token, trackId])
+	);
+	let loadedIdentity = '',
+		handledRetry = 0;
 	let linesPanel = $state<HTMLDivElement>();
 	let following = $state(true);
 	let lines = $derived.by(() => {
@@ -151,17 +157,22 @@
 		};
 	}
 	$effect(() => {
-		const id = trackId,
-			account = session;
+		const key = identity;
+		const id = untrack(() => trackId),
+			account = untrack(() => session);
 		const attempt = retry;
 		if (sample) return;
-		const force = attempt !== handledRetry;
+		const changed = key !== loadedIdentity;
+		loadedIdentity = key;
+		const force = !changed && attempt !== handledRetry;
 		handledRetry = attempt;
 		const controller = new AbortController();
-		following = true;
+		if (changed) {
+			following = true;
+			lyrics = null;
+		}
 		busy = true;
 		error = '';
-		lyrics = null;
 		trackLyrics(account, id, controller.signal, force)
 			.then(
 				(v) => {
@@ -192,7 +203,9 @@
 {/snippet}
 
 <div class="lyrics-body" data-part="lyrics" data-gesture-scroll>
-	{#if busy}<p role="status">{uiText('Loading lyrics…')}</p>{:else if error}<p role="alert">
+	{#if busy && !lyrics}<p role="status">{uiText('Loading lyrics…')}</p>{:else if error && !lyrics}<p
+			role="alert"
+		>
 			{error}
 		</p>
 		<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
@@ -234,7 +247,8 @@
 	{:else if lyrics?.text}<p class="plain">{lyrics.text}</p>{:else}<p>
 			{uiText('No lyrics available.')}
 		</p>{/if}
-	{#if !busy && !sample && !error && lyrics}<button class="text-button" onclick={() => retry++}
+	{#if error && lyrics}<p role="alert">{error}</p>{/if}
+	{#if !sample && lyrics}<button class="text-button" disabled={busy} onclick={() => retry++}
 			>{uiText('Refresh lyrics')}</button
 		>{/if}
 </div>

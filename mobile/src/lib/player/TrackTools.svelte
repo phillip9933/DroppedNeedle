@@ -509,7 +509,7 @@
 					disabled={saving}
 					aria-label={'Rate ' + value + (value === 1 ? ' star' : ' stars')}
 					aria-pressed={rating === value}
-					onclick={() => rate(value)}
+					onclick={() => rate(rating === value ? 0 : value)}
 					><PlayerActionFace
 						section={mode === 'field' && section ? { ...section, showLabel: false } : undefined}
 						glyph={Star}
@@ -519,9 +519,6 @@
 					/></button
 				>
 			{/each}
-			{#if (rating ?? 0) > 0}<button class="text-button" disabled={saving} onclick={() => rate(0)}
-					>{uiText('Clear rating')}</button
-				>{/if}
 		</div>{/if}
 	{#if mode !== 'details' && fields.includes('player-quality') && (quality || sample)}<p>
 			{sample ? 'FLAC · 24-bit · 48 kHz' : quality}
