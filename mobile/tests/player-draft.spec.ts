@@ -24,7 +24,15 @@ async function edit(page: Page, account = 'alex', address = server) {
 	await localSignIn(page, address, account);
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'Edit Now Playing layout' }).click();
-	await expect(page.getByRole('heading', { name: 'Edit Now Playing' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Player layout' })).toBeVisible();
+}
+
+function tiles(page: Page) {
+	return page.locator('[data-player-grid] [data-section-id]');
+}
+async function remove(page: Page, name = 'Artwork') {
+	await page.getByRole('button', { name: 'Customize ' + name, exact: true }).click();
+	await page.getByRole('button', { name: 'Remove item', exact: true }).click();
 }
 
 test('an interrupted player edit reopens for its DN account and server until saved or canceled', async ({
@@ -32,12 +40,11 @@ test('an interrupted player edit reopens for its DN account and server until sav
 }) => {
 	await routes(page);
 	await edit(page);
-	const rows = page.locator('[data-layout-row]'),
-		add = page.getByRole('button', { name: 'Add row', exact: true });
+	const rows = tiles(page);
 	const notice = page.getByText('Recovered your unsaved layout.', { exact: true });
 	const initial = await rows.count();
-	await add.click();
-	await expect(rows).toHaveCount(initial + 1);
+	await remove(page);
+	await expect(rows).toHaveCount(initial - 1);
 	expect(await page.evaluate((k) => localStorage.getItem(k), saved)).toBeNull();
 
 	await edit(page, 'blair');
@@ -47,7 +54,7 @@ test('an interrupted player edit reopens for its DN account and server until sav
 	await expect(rows).toHaveCount(initial);
 	await expect(notice).toHaveCount(0);
 	await edit(page);
-	await expect(rows).toHaveCount(initial + 1);
+	await expect(rows).toHaveCount(initial - 1);
 	await expect(notice).toBeVisible();
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 	await expect(page.locator('[data-part=now-playing]')).toBeVisible();
@@ -55,13 +62,13 @@ test('an interrupted player edit reopens for its DN account and server until sav
 	await expect(rows).toHaveCount(initial);
 	await expect(notice).toHaveCount(0);
 
-	await add.click();
+	await remove(page);
 	await edit(page);
 	await expect(notice).toBeVisible();
 	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
 	await expect(page.locator('[data-part=now-playing]')).toBeVisible();
 	await edit(page);
-	await expect(rows).toHaveCount(initial + 1);
+	await expect(rows).toHaveCount(initial - 1);
 	await expect(notice).toHaveCount(0);
 });
 
@@ -70,9 +77,9 @@ test('failed layout saves retain the recoverable draft and a newer saved layout 
 }) => {
 	await routes(page);
 	await edit(page);
-	const rows = page.locator('[data-layout-row]'),
+	const rows = tiles(page),
 		initial = await rows.count();
-	await page.getByRole('button', { name: 'Add row', exact: true }).click();
+	await remove(page);
 	await page.evaluate((key) => {
 		const write = Storage.prototype.setItem;
 		Storage.prototype.setItem = function (k: string, v: string) {
@@ -84,10 +91,10 @@ test('failed layout saves retain the recoverable draft and a newer saved layout 
 	await expect(page.getByRole('alert')).toContainText('Your edits are still here');
 	await edit(page);
 	await expect(page.getByText('Recovered your unsaved layout.')).toBeVisible();
-	await expect(rows).toHaveCount(initial + 1);
+	await expect(rows).toHaveCount(initial - 1);
 	await page.evaluate((k) => localStorage.setItem(k, '[]'), saved);
 	await edit(page);
-	await expect(rows).toHaveCount(1);
+	await expect(page.getByRole('button', { name: 'Customize Artwork', exact: true })).toHaveCount(0);
 	await expect(page.getByText('Recovered your unsaved layout.')).toHaveCount(0);
 });
 
@@ -97,17 +104,17 @@ test('canceling an older editor keeps a newer edit made in a second window', asy
 }) => {
 	await routes(page);
 	await edit(page);
-	const original = await page.locator('[data-layout-row]').count();
-	await page.getByRole('button', { name: 'Add row', exact: true }).click();
+	const original = await tiles(page).count();
+	await remove(page);
 	const second = await context.newPage();
 	await routes(second);
 	await edit(second);
-	await expect(second.locator('[data-layout-row]')).toHaveCount(original + 1);
-	await second.getByRole('button', { name: 'Add row', exact: true }).click();
-	await expect(second.locator('[data-layout-row]')).toHaveCount(original + 2);
+	await expect(tiles(second)).toHaveCount(original - 1);
+	await remove(second, 'Track title');
+	await expect(tiles(second)).toHaveCount(original - 2);
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 	await edit(second);
-	await expect(second.locator('[data-layout-row]')).toHaveCount(original + 2);
+	await expect(tiles(second)).toHaveCount(original - 2);
 	await expect(second.getByText('Recovered your unsaved layout.')).toBeVisible();
 });
 
@@ -124,15 +131,15 @@ test('unavailable draft storage leaves layout editing and explicit Save usable',
 	});
 	await routes(page);
 	await edit(page);
-	const rows = page.locator('[data-layout-row]'),
+	const rows = tiles(page),
 		initial = await rows.count();
 	await expect(page.getByText(/could not keep a recovery copy/)).toHaveCount(0);
-	await page.getByRole('button', { name: 'Add row', exact: true }).click();
+	await remove(page);
 	await expect(page.getByText(/could not keep a recovery copy/)).toBeVisible();
 	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
 	await expect(page.locator('[data-part=now-playing]')).toBeVisible();
 	await edit(page);
-	await expect(rows).toHaveCount(initial + 1);
+	await expect(rows).toHaveCount(initial - 1);
 	await expect(page.getByText(/could not keep a recovery copy/)).toHaveCount(0);
 });
 

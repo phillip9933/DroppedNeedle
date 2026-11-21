@@ -1,6 +1,6 @@
 /** Reserve a usable artwork row, then fit unusually tall saved compositions into the available viewport. */
 export function fitPlayer(frame: HTMLElement, enabled: boolean) {
-	const canvas = frame.firstElementChild as HTMLElement;
+	let canvas = frame.firstElementChild as HTMLElement;
 	const player = frame.parentElement;
 	const viewport = frame.closest<HTMLElement>('[data-panel-layer]');
 	let scale = 1,
@@ -15,6 +15,10 @@ export function fitPlayer(frame: HTMLElement, enabled: boolean) {
 		schedule();
 	});
 	function observe() {
+		canvas = frame.firstElementChild as HTMLElement;
+		mutations.disconnect();
+		mutations.observe(frame, { childList: true });
+		mutations.observe(canvas, { childList: true });
 		observer.disconnect();
 		observer.observe(frame);
 		if (viewport) observer.observe(viewport);
@@ -62,7 +66,6 @@ export function fitPlayer(frame: HTMLElement, enabled: boolean) {
 		observe();
 		schedule();
 	}
-	mutations.observe(canvas, { childList: true });
 	update(enabled);
 	return {
 		update,

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import { saveCollectionEdits, type CollectionEdits } from '../catalog/browsePreferences';
@@ -17,21 +17,33 @@
 	import LayoutEditor from './LayoutEditor.svelte';
 	let { board, session, onback }: { board: LayoutTarget; session: Session; onback: () => void } =
 		$props();
+	let needsStarter = $state(false);
 	let filters = $state<FilterSection[]>([]);
 	let recovery = $state.raw<PlayerDraft>();
 	let owner = $state(''),
 		sections = $state<Section[]>([]),
 		error = $state('');
 	const listener = $derived(session.userId ? session : { ...session, userId: owner });
-	async function read() {
+	async function read(useStarter = false) {
 		error = '';
+		needsStarter = false;
 		try {
 			owner = await accountId(session);
 			if (board !== 'player') filters = savedSections(session.serverUrl, owner);
 			sections = loadLayout(session.serverUrl, owner, board);
-			if (board === 'player') recovery = await openPlayerDraft(session.serverUrl, owner, sections);
-		} catch {
-			error = 'Could not load this layout.';
+			if (board === 'player')
+				recovery = await openPlayerDraft(session.serverUrl, owner, sections, useStarter);
+		} catch (cause) {
+			needsStarter =
+				board === 'player' &&
+				cause instanceof Error &&
+				cause.message === 'This layout has more items than the player grid can hold.';
+			error = needsStarter
+				? tr(
+						'This saved layout has more than 300 items. Open the starter grid to design a replacement. Your saved player stays active until you save.',
+						'保存したレイアウトには300個を超える項目があります。新しいグリッドを保存するまで、現在のプレーヤーはそのまま使えます。'
+					)
+				: 'Could not load this layout.';
 		}
 	}
 	function persist(items: Section[], custom?: FilterSection[]) {
@@ -54,10 +66,9 @@
 </script>
 
 {#if error}<p role="alert">{error}</p>
-	<button class="text-button" onclick={read}>{uiText('Try again')}</button><button
-		class="text-button"
-		onclick={onback}>{uiText('Back')}</button
-	>
+	<button class="text-button" onclick={() => read(needsStarter)}
+		>{needsStarter ? tr('Use starter grid', '新しいグリッドで開始') : uiText('Try again')}</button
+	><button class="text-button" onclick={onback}>{uiText('Back')}</button>
 {:else if board === 'player' && recovery}
 	<PlayerComposer {recovery} {onback} onsave={persist} />
 {:else if board !== 'player' && owner}
