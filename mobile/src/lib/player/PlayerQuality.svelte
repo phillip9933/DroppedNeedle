@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { AudioLines } from '@lucide/svelte';
 	import type { PlaybackFormat, PlayerTrack } from '../player';
 	let {
@@ -17,8 +18,10 @@
 	const description = $derived(
 		[
 			codec
-				? (info ? '' : 'Source · ') + (lossless ? 'Lossless · ' : '') + codec
-				: 'Audio quality unavailable',
+				? (info ? '' : uiText('Source') + ' · ') +
+					(lossless ? uiText('Lossless') + ' · ' : '') +
+					codec
+				: uiText('Audio quality unavailable'),
 			info?.bitDepth ? info.bitDepth + '-bit' : '',
 			info?.sampleRate ? Number((info.sampleRate / 1000).toFixed(2)) + ' kHz' : '',
 			info?.bitrate ? info.bitrate + ' kbps' : ''

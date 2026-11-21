@@ -37,6 +37,7 @@ final class CastRelay implements Closeable {
         final InputStream input;
         final Closeable close;
         Runnable cancel;
+        String acceptRanges;
         Media(int status, String mime, long length, String contentRange, boolean ranges,
               InputStream input, Closeable close) {
             this.status = status;
@@ -71,6 +72,7 @@ final class CastRelay implements Closeable {
                     res.header("Content-Range"), "bytes".equalsIgnoreCase(res.header("Accept-Ranges"))
                     || res.code() == 206, head || res.body() == null ? null : res.body().byteStream(), res);
             media.cancel = call::cancel;
+            media.acceptRanges = res.header("Accept-Ranges");
             return media;
         };
     }

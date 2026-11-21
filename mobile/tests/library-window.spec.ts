@@ -158,7 +158,9 @@ test('whole-library shuffle preserves the server seed after network failure, the
 	await expect(queue.getByText('Tracks 150–300 of 76,003')).toBeVisible();
 	expect(after).toEqual(['first', cursor(200), cursor(200), cursor(200)]);
 	await button(page, 'Edit queue').click();
-	await expect(queue.getByText(/Editing this queue keeps the 151/)).toBeVisible();
+	await expect(
+		queue.getByText(/Removing or reordering original tracks keeps only the 151/)
+	).toBeVisible();
 	await button(page, 'Remove Record ' + num(150, true) + ' from queue').click();
 	await expect(queue.locator('li')).toHaveCount(150);
 	await expect(queue.getByText(/of 76,003/)).toHaveCount(0);
@@ -166,6 +168,38 @@ test('whole-library shuffle preserves the server seed after network failure, the
 		.getByRole('button', { name: new RegExp('Record ' + num(299, true) + ' Resident$') })
 		.click();
 	expect(after).toHaveLength(4);
+});
+
+test('an Up Next pick from a future page preserves the full library and both occurrences', async ({
+	page
+}) => {
+	const { queue } = await setup(page, false);
+	await page.route(
+		(url) => url.pathname.endsWith('/library/tracks') && url.searchParams.has('q'),
+		(route) => route.fulfill({ json: { items: [{ ...song(199, false), genre: 'Jazz' }] } })
+	);
+	await page.route(origin + '/api/v3/discover/radio/plan', (route) =>
+		route.fulfill({
+			json: {
+				tracks: [
+					{
+						in_library: true,
+						local_file_id: 'song-200',
+						track_name: 'Picked early',
+						artist_name: 'Resident'
+					}
+				]
+			}
+		})
+	);
+	await button(page, 'Similar tracks').click();
+	await button(page, 'Add to Up Next · Picked early').click();
+	await button(page, 'Close Similar tracks').click();
+	await expect(queue.locator('strong').nth(1)).toHaveText('Picked early');
+	await expect(queue.getByText('Tracks 1–200 of 76,003')).toBeVisible();
+	await queue.getByRole('button', { name: /Record 199 Resident$/ }).click();
+	await expect(queue.getByText('Tracks 150–300 of 76,003')).toBeVisible();
+	await expect(queue.getByRole('button', { name: /Record 200 Resident$/ })).toBeVisible();
 });
 
 test('pausing at the boundary prevents a delayed page from restarting audio', async ({ page }) => {

@@ -164,6 +164,65 @@ public final class PlaybackInterruptionTest {
         }
     }
 
+    @Test public void upNextPersistsDuplicatesAndResumesAlbumAfterTheNativePlayerAdvances() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        String address = "https://127.0.0.1:1", user = "picks-" + java.util.UUID.randomUUID(), token = "picks-fixture";
+        OfflineStore files = OfflineStore.forUser(app, address, user);
+        byte[] silence = OfflinePlaybackTest.wav();
+        JSArray album = new JSArray(), picks = new JSArray(), ids = new JSArray();
+        for (String id : new String[]{"opening", "closing", "choice"}) {
+            JSObject track = new JSObject();
+            track.put("id", id);
+            track.put("title", id);
+            track.put("artist", "Artist");
+            track.put("album", "Album");
+            track.put("streamUrl", address + "/api/v3/stream/local/" + id);
+            try (OfflineStore.Capture capture = files.begin(track, true, silence.length)) {
+                capture.write(silence, 0, silence.length);
+                capture.finish();
+            }
+            if ("choice".equals(id)) { picks.put(track); picks.put(track); }
+            else album.put(track);
+            ids.put(id);
+        }
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
+        try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
+            assertTrue(app.bindService(new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND),
+                    binding, Context.BIND_AUTO_CREATE));
+            try {
+                assertTrue(connected.await(10, TimeUnit.SECONDS));
+                instrumentation.runOnMainSync(() -> {
+                    try {
+                        playback.setQueue(address, token, user, album, 0, null, null, null, 0, false);
+                        playback.setQueue(address, token, user, picks, 0, "upNext", null);
+                    } catch (org.json.JSONException e) { throw new AssertionError(e); }
+                    assertEquals("[1,2]", playback.snapshot().optJSONArray("upNext").toString());
+                    assertEquals("closing", player.getMediaItemAt(3).mediaId);
+                });
+                CompletableFuture<org.json.JSONObject> stored = new CompletableFuture<>();
+                new SavedQueue(app).load(SavedQueue.key(okhttp3.HttpUrl.get(address).toString(), token), stored::complete);
+                assertEquals("[1,2]", stored.get(5, TimeUnit.SECONDS).getJSONArray("upNext").toString());
+                instrumentation.runOnMainSync(() -> playback.command("setPlaying", 1, -1));
+                await("First duplicate consumed alone", () -> player.getCurrentMediaItemIndex() == 1
+                        && "[2]".equals(playback.snapshot().optJSONArray("upNext").toString()));
+                await("Second duplicate consumed", () -> player.getCurrentMediaItemIndex() == 2
+                        && playback.snapshot().optJSONArray("upNext").length() == 0);
+                await("Album resumed after both picks", () -> player.getCurrentMediaItemIndex() == 3);
+                instrumentation.runOnMainSync(() -> {
+                    assertEquals("closing", playback.signalPath().optString("id"));
+                    assertEquals("downloaded", playback.signalPath().optJSONObject("delivery").optString("source"));
+                    player.seekTo(0, 0);
+                    assertEquals(0, playback.snapshot().optJSONArray("upNext").length());
+                });
+            } finally {
+                if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", -1, -1));
+                app.unbindService(binding);
+            }
+        } finally { files.remove(ids); }
+    }
+
     @Test public void smartFadeOverlapsTwoSavedTracksOnceAndHonorsAnEndOfTrackTimer() throws Exception {
         Context app = instrumentation.getTargetContext();
         String address = "https://127.0.0.1:1", user = "fade-" + java.util.UUID.randomUUID();

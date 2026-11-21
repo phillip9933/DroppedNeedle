@@ -87,6 +87,48 @@ test('shuffle keeps the active occurrence and a paused replacement can restore i
 	expect(result.other.hasPreviousQueue).toBe(false);
 });
 
+test('Up Next keeps picked occurrences in order through shuffle, previous queue and playback', async ({
+	page
+}) => {
+	const result = await page.evaluate(async (access) => {
+		const p = window.continuityPlayer,
+			[one, two, duplicate, three, four] = window.continuityTracks;
+		const queue = async (tracks: PlayerTrack[], placement?: 'next' | 'upNext') =>
+			p.setQueue({ ...access, tracks, placement, index: 0, playing: false });
+		const snapshot = async () => {
+			const s = await p.getState();
+			return {
+				titles: s.tracks.map((t) => t.title),
+				picked: (s.upNext ?? []).map((i) => s.tracks[i].title)
+			};
+		};
+		await queue([one, two, three, four]);
+		await queue([duplicate], 'upNext');
+		await queue([duplicate], 'upNext');
+		await queue([four], 'next');
+		const inserted = await snapshot();
+		await p.command({ action: 'prioritize', value: 5 });
+		await p.command({ action: 'shuffleUpcoming' });
+		const shuffled = await snapshot();
+		await queue([three]);
+		await p.command({ action: 'restorePreviousQueue' });
+		const restored = await snapshot();
+		await p.command({ action: 'shuffleUpcoming' });
+		await p.command({ action: 'skipTo', value: 2 });
+		await p.command({ action: 'skipTo', value: 0 });
+		const consumed = await snapshot();
+		await p.command({ action: 'clearUpcoming' });
+		return { inserted, shuffled, restored, consumed, cleared: await snapshot() };
+	}, access);
+	expect(result.inserted.titles).toEqual(['0', '4', '2', '2', '1', '3', '4']);
+	expect(result.inserted.picked).toEqual(['4', '2', '2']);
+	expect(result.shuffled.picked).toEqual(['4', '2', '2', '3']);
+	expect(result.shuffled.titles.slice(1, 5)).toEqual(result.shuffled.picked);
+	expect(result.restored).toEqual(result.shuffled);
+	expect(result.consumed.picked).toEqual(['2', '3']);
+	expect(result.cleared).toEqual({ titles: ['0'], picked: [] });
+});
+
 test('two possible upcoming orders alternate for one listener and undo preserves the queue', async ({
 	page
 }) => {
@@ -184,6 +226,54 @@ test('autoplay asks DN for fresh local recordings and cancels a pending plan on 
 	});
 	expect(last.playing).toBe(false);
 	expect(last.autoplayProblem).toBeUndefined();
+});
+
+test('signal path distinguishes the requested profile, live conversion and an original fallback', async ({
+	page
+}) => {
+	await page.evaluate((access) => {
+		const profile = { format: 'opus', rate: 96 };
+		localStorage.setItem(
+			'dn.mobile.stream.v2.' + JSON.stringify([access.serverUrl, access.userId]),
+			JSON.stringify({ wifi: profile, cellular: profile })
+		);
+	}, access);
+	let denyConversion = false;
+	await page.route(server + '/api/v3/stream/local/**', (route) => {
+		const requested = new URL(route.request().url()).searchParams.get('format');
+		if (denyConversion && requested === 'opus') return route.fulfill({ status: 409 });
+		return route.fulfill({
+			body: silentWav(),
+			contentType: 'audio/wav',
+			headers: {
+				'Access-Control-Expose-Headers': 'Accept-Ranges',
+				'Accept-Ranges': requested === 'raw' ? 'bytes' : 'none'
+			}
+		});
+	});
+	const play = () =>
+		page.evaluate(async (access) => {
+			const p = window.continuityPlayer;
+			await p.setQueue({ ...access, tracks: window.continuityTracks, index: 0 });
+			return p.command({ action: 'setPlaying', value: 0 });
+		}, access);
+	const converted = await play();
+	expect(converted.delivery).toMatchObject({
+		source: 'network',
+		requestedFormat: 'opus',
+		requestedRate: 96,
+		response: 'converted'
+	});
+	expect(converted.quality?.format).toBe('PCM');
+	denyConversion = true;
+	const fallback = await play();
+	expect(fallback.delivery).toMatchObject({
+		source: 'network',
+		requestedFormat: 'opus',
+		requestedRate: 96,
+		response: 'fallback'
+	});
+	expect(fallback.quality?.format).toBe('PCM');
 });
 
 test('offline listening and a DN without radio keep the completed queue available', async ({

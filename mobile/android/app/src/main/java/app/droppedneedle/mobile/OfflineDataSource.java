@@ -8,6 +8,7 @@ import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.FileDataSource;
 import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.datasource.TransferListener;
+import com.getcapacitor.JSObject;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -82,6 +83,12 @@ final class OfflineDataSource implements DataSource {
             originalFallback = true;
         }
         if (file == null && selection != null) selection.opened(representation);
+        if (file == null) timeline.delivery = StreamProfiles.networkDelivery(selection, representation, header("Accept-Ranges"), originalFallback);
+        else {
+            JSObject delivery = new JSObject();
+            delivery.put("source", store.playbackOrigin(url, file));
+            timeline.delivery = delivery;
+        }
         read = 0;
         if (file == null && store != null && store.cacheEnabled() && spec.position == 0
                 && spec.uri.getQueryParameter("start_seconds") == null && spec.length == C.LENGTH_UNSET

@@ -124,6 +124,79 @@ async function play(page: Page, user = 'alex', address = server) {
 		.click();
 }
 
+test('Japanese navigation keeps library titles that match interface labels in their original language', async ({
+	page
+}) => {
+	await fixture(page, ['Home', 'Settings']);
+	await localSignIn(page, server);
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page.getByRole('button', { name: 'App language', exact: true }).click();
+	await chooseOption(page.getByRole('combobox', { name: 'App language' }), 'ja');
+	await page.getByRole('button', { name: '戻る', exact: true }).click();
+	await page
+		.getByRole('navigation', { name: 'ナビゲーションのショートカット' })
+		.getByRole('button', { name: 'ホーム', exact: true })
+		.click();
+	await page
+		.getByRole('button', { name: /Railway/ })
+		.first()
+		.click();
+	await expect(page.getByRole('heading', { name: 'Railway' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'アルバムを再生' })).toBeVisible();
+	for (const title of ['Home', 'Settings'])
+		await expect(page.getByText(title, { exact: true })).toBeVisible();
+});
+
+test('signal path shows the library source separately from the observed stream, and suggestions join Up Next', async ({
+	page
+}) => {
+	await fixture(page);
+	let plans = 0;
+	await page.route(server + '/api/v3/discover/radio/plan', async (route) => {
+		plans++;
+		await route.fulfill({
+			json: {
+				tracks: [
+					{
+						in_library: true,
+						local_file_id: 'extra',
+						track_name: 'New music',
+						artist_name: 'Another artist'
+					}
+				]
+			}
+		});
+	});
+	await play(page);
+	await page.getByRole('button', { name: 'More actions', exact: true }).click();
+	await page.getByRole('button', { name: 'Signal path', exact: true }).click();
+	const signal = page.getByRole('dialog', { name: 'Signal path' });
+	await expect(
+		signal.locator('section').filter({ has: page.getByRole('heading', { name: 'Source file' }) })
+	).toContainText('FLAC · 44.1 kHz · 16-bit · 1021 kbps');
+	await expect(
+		signal.locator('section').filter({ has: page.getByRole('heading', { name: 'Playing stream' }) })
+	).toContainText('PCM');
+	await expect(signal.getByText('Network stream', { exact: true })).toBeVisible();
+	await expect(signal.getByText('Original file', { exact: true })).toBeVisible();
+	await expect(
+		signal.locator('section').filter({ has: page.getByRole('heading', { name: 'Output device' }) })
+	).toContainText('Not reported');
+	await signal.getByRole('button', { name: 'Close Signal path' }).click();
+	await page.getByRole('button', { name: 'Show play queue' }).click();
+	expect(plans).toBe(0);
+	await page.getByRole('button', { name: 'Similar tracks' }).click();
+	const preview = page.getByRole('dialog', { name: 'Similar tracks' });
+	await preview.getByRole('button', { name: 'Add to Up Next · New music' }).click();
+	await expect(preview.getByRole('status')).toContainText('New music');
+	await preview.getByRole('button', { name: 'Close Similar tracks' }).click();
+	const queue = page.locator('[data-part="play-queue"]');
+	await expect(queue.locator('strong')).toHaveText(['Night Train', 'New music', 'Day Train']);
+	await expect(queue.getByRole('heading')).toHaveText(['Up Next', 'Continue original queue']);
+	await expect(queue.locator('[aria-current="true"]')).toContainText('Night Train');
+	expect(plans).toBe(1);
+});
+
 async function addFeature(page: Page, name: string) {
 	await page.getByRole('button', { name: 'Add row', exact: true }).click();
 	await page
@@ -1965,4 +2038,35 @@ test('track details distinguish DN source format, actual playback and each devic
 	expect(reads).toEqual([]);
 	await page.keyboard.press('Escape');
 	await expect(title).toBeFocused();
+});
+
+test('enhanced lyrics highlight timestamped words on seek and leave untimed lines intact', async ({
+	page
+}) => {
+	await fixture(page);
+	await page.route('**/api/v3/library/tracks/*/lyrics', (route) =>
+		route.fulfill({
+			json: {
+				is_synced: true,
+				lines: [
+					{ start_seconds: 0, text: '<00:00.50>First <00:01.25>word<00:02.00>' },
+					{ start_seconds: 4, text: '普通の歌詞 <3' }
+				]
+			}
+		})
+	);
+	await play(page);
+	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();
+	const lines = page.getByRole('region', { name: 'Timed lyrics' });
+	const first = lines.getByRole('button', { name: 'Seek to lyric First word' });
+	await expect(first).toBeVisible();
+	const seek = page.getByRole('slider', { name: 'Playback position' });
+	await seek.fill('1.5');
+	await expect(first.locator('[data-active-word]')).toHaveText('word');
+	await seek.fill('0.6');
+	await expect(first.locator('[data-active-word]')).toHaveText('First ');
+	await seek.fill('2.5');
+	await expect(first.locator('[data-active-word]')).toHaveCount(0);
+	await lines.getByRole('button', { name: 'Seek to lyric 普通の歌詞 <3' }).click();
+	await expect(lines.locator('[aria-current=true]')).toHaveText('普通の歌詞 <3');
 });

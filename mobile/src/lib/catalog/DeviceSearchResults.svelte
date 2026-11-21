@@ -2,7 +2,7 @@
 	import { uiText } from '../i18n';
 	import { untrack } from 'svelte';
 	import type { Session } from '../connection';
-	import { player } from '../player';
+	import { player, placementMessage } from '../player';
 	import type { OfflineInventory } from '../offline/library';
 	import { type DeviceBucket, DeviceSearchIndex, deviceScopes } from './deviceSearch';
 	import type { SearchScope, OnPlay } from './catalog';
@@ -152,9 +152,9 @@
 			tracks.forEach(check);
 			if (type === 'shuffle') await shuffle.play(tracks, session, onplay);
 			else if (type === 'play') await onplay(tracks, 0);
-			else if (type === 'next' || type === 'end') {
+			else if (type === 'next' || type === 'upNext' || type === 'end') {
 				await player.enqueue(tracks, session, type);
-				notice = type === 'next' ? 'Added to play next.' : 'Added to queue.';
+				notice = placementMessage(type);
 			}
 		} catch (cause) {
 			error = errorMessage(cause);

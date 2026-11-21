@@ -18,6 +18,12 @@ On Android 8 or later, open **Settings → App → App updates**. You can also o
 
 The app checks the stable channel about once a day by default. Choose **Beta** to include prereleases, or enable **Download automatically on Wi-Fi** to have the APK ready for later. Open **App updates** to read the release notes, download the APK and install it. If Android asks for permission, allow installs from DroppedNeedle, return to the app and tap **Install update**. Android asks you to confirm the installation.
 
+## Find a setting or change language
+
+Use **Search settings** below the navigation shortcuts. Search in English or Japanese for a feature such as “fade”, “キューの先読み” or “EQ”. Selecting a result opens its settings section. Administrator controls appear for administrators.
+
+Under **Settings → App language**, choose **Device language**, **English** or **日本語**. Android 13 and newer also offer this choice in the system’s per-app language settings. Your library’s titles, artist names and lyrics keep their original spelling.
+
 ## Customize your screens
 
 Open **Settings → Screen layouts** and choose Home, Library, Discover, or Now Playing. Each screen has its own saved layout. **Restore default layout** loads a fresh draft, **Save layout** applies it, and **Cancel** discards it.
@@ -28,7 +34,11 @@ Each section can show its contents directly on the screen. Choose **List** or **
 
 Library shelves also work with music saved on this device. Add **Library genres** to Home or Library for a genre shelf. Saved song filters use local track details, and album or artist rules use matches DN has already confirmed. Recently added uses DN’s addition dates when available. Recently played and Discover recommendations need a connection.
 
+Open **Discover → Mix Builder** to build a mix from up to eight artists or up to eight albums. Give it a name to save the recipe and play a fresh selection from your DN library. Use **Pin to Home** on a mix, station, playlist, smart playlist, genre, artist, album or track. On Home, **Arrange pins** changes their order or removes one. Pins belong to the signed-in account on this device. You can play the tracks available on the phone when offline. Android Auto also shows supported Home pins in the same order.
+
 Open **Library** for Playlists, Artists, Albums, Tracks and Genres. Albums and playlists start as two-column grids, artists as three-column portraits, and tracks and genres as lists. Use the toolbar to sort, filter, search, select items, or switch views. **Collection options** controls the number of columns and spacing for that category. More items load as you scroll. Opening a detail and going back keeps your place. **Library sections** opens your custom shelves.
+
+Open an artist in Library or Discover to filter their discography to albums, EPs or singles. The Library view also lets you find other release types and records for which DN has no release type.
 
 Use **Library → Library sections → New filtered section**, or set filters while browsing and choose **Save filters as section**. For a five-star songs shelf, choose Songs, set the minimum rating to five and give it a name. Add the saved section to Home or Library in either screen’s layout editor. The two placements share the saved criteria and can use different row counts and display styles.
 
@@ -45,6 +55,10 @@ Tap a field to edit its padding, alignment or size. The padding field shows its 
 Swipe normally to scroll the editor. Hold a row or field until it lifts, then drag it to move it. The **Header** row accepts the same fields, column widths and spacing as any other row. **Done** closes the field or row settings. **Undo** and **Redo** let you step through the last 30 edits to the open draft. Placement controls also let you move a field without dragging. **Share player layout** lets you save the draft as a JSON file or copy its text. Choose a layout file or paste its JSON to review the rows and fields. **Load into editor** lets you try it, and **Save layout** applies it. File sharing works offline.
 
 Set the playback bar to a standard line, animated wave or the song’s measured waveform. Elapsed time, track length and time remaining can each be shown independently. On Android the waveform uses the saved file when available. Otherwise, choosing that style can read an additional stream using your Wi-Fi or cellular profile. The seek bar stays available if a waveform cannot be read. Add **Audio quality** to show the playing format and any reported sample rate, bit depth or bitrate. If only the library format is known, the readout identifies it as the source.
+
+Tap the quality badge or choose **More actions → Signal path** to trace the current song from its library file through streaming or device storage, decoding, sound processing and output. Android shows the quality requested for the connection and the format the player actually received. A receiver or DAC can leave parts of its output path unreported.
+
+When a synced lyric line contains word timestamps, the player highlights the current word and clears the highlight during a marked pause. Seeking the song updates the highlight in both the artwork view and the full-screen lyrics view. A line-timed lyric still follows the current line, and untimed lyrics can be read at any position.
 
 Layouts are stored on the phone for each DN server and account. **Settings → Content preferences** controls the account-wide visibility of DN’s Home and Discover content. Administrators can also configure sidebar visibility there. DN reports when a section depends on an unavailable integration.
 
@@ -86,6 +100,8 @@ Use **Shuffle playlist** to start a fresh order, including after closing and reo
 
 In **Play queue**, shuffle the upcoming songs and tap the shuffle control again to restore their order. The playing song stays at its current position. **Restore previous queue** brings back the queue you replaced. **Settings → Streaming and fades → Autoplay similar library music** continues a finished queue with songs from your DN library when DN can find a match.
 
+**Play next** inserts a song immediately after the playing one. **Add to Up Next** puts it after your other picks, and **Add to queue** appends it to the end. The queue shows your picks under **Up Next** and the original album, playlist or library order below. You can choose a song twice, shuffle the underlying queue, or reopen the app and keep your picks in order. Choose **Similar tracks** in the queue to pick individual suggestions from DN.
+
 **Playback speed** is available in **Streaming and fades** and in **More actions** on the player. On Android, **Volume normalization** applies track or album ReplayGain to local audio. Album mode uses track gain when the album tag is missing. Untagged songs keep their original level. Under **Settings → Equalizer**, enable a separate preset for the connected output to recall its curve when you reconnect.
 
 To move music between Android and the web, enable **Player handoff** in mobile Settings and in the web player's Profile on the same DN account. **Move queue there** and **Continue here** preserve the song, position, order and paused state for fully loaded queues of up to 2,000 local tracks. You can also pause, play or skip on the other device. Keep both players open and connected. This requires the matching DN server and web build.
@@ -107,6 +123,10 @@ In **Settings → Offline and cache**, choose **Pin a collection** to keep sever
 **Download quality** lets you keep originals or request MP3 or Opus at a chosen bitrate for new manual and automatic downloads. You can stream originals on Wi-Fi, stream at a different rate on cellular, and still keep compact downloads for travel. Existing complete downloads keep their format until removed and downloaded again.
 
 The same settings let you set storage limits, restrict transfers to unmetered connections or play only offline music. Manual downloads stay until you remove them. Playback cache keeps completed files under its own size limit. The player prefers a complete copy on the device.
+
+In **Settings → Offline and cache → Queue read-ahead**, choose how many upcoming tracks to cache and a transfer speed for Wi-Fi and cellular separately. Both start off. Read-ahead uses the playback cache budget and the streaming quality for the current network. Enabling cellular read-ahead allows it to use mobile data while ordinary downloads remain restricted to unmetered connections.
+
+**Complete downloads** saves available cover art and lyrics alongside manual and automatic downloads. Waveforms can also be prepared from the downloaded audio. **Refresh saved music** updates details from DN while preserving pending edits and the saved audio. To inspect the device’s status, open **Diagnostic report → Review report**. The preview contains app and OS versions, connection type, storage totals and pending activity counts. You choose whether to save the file or share it.
 
 Cover artwork and lyrics you have opened have separate device caches. Their settings show usage and let you change the limits or clear each cache for this account. Android’s lock screen and media notification can show a cover embedded in the saved song, even without a connection. Timed lyrics keep their seek controls offline. The browser preview uses IndexedDB for media and keeps sign-in in memory.
 
@@ -182,7 +202,7 @@ From `mobile/`, set `ANDROID_HOME` to your SDK directory and run the following w
 pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
 ```
 
-The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.18.0` uses tag `android-v0.18.0` and asset `droppedneedle-android-0.18.0.apk`. For `0.19.0-beta.1`, use `android-v0.19.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+The command checks the APK's signature, package, version and release build type, then copies it under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.19.0` uses tag `android-v0.19.0` and asset `droppedneedle-android-0.19.0.apk`. For `0.20.0-beta.1`, use `android-v0.20.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
 
 ## How the clients fit together
 

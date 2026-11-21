@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onDestroy, type Snippet } from 'svelte';
 	import {
 		CheckCheck,
@@ -11,7 +12,8 @@
 		ListEnd,
 		X
 	} from '@lucide/svelte';
-	import { player, type PlayerTrack } from '../player';
+	import { player, placementMessage, supportsUpNext, type PlayerTrack } from '../player';
+	import { tr } from '../i18n';
 	import type { Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
 	import { queueSizeCheck } from './libraryQueue';
@@ -111,7 +113,7 @@
 		group.message = '';
 		error = '';
 	}
-	type Action = 'play' | 'shuffle' | 'next' | 'queue' | 'playlist' | 'offline';
+	type Action = 'play' | 'shuffle' | 'next' | 'upNext' | 'queue' | 'playlist' | 'offline';
 	async function apply(action: Action) {
 		if (!group.selected.size || group.busy) return;
 		error = '';
@@ -155,9 +157,9 @@
 				);
 				if (!controller.signal.aborted) group.message = result.message;
 			} else {
-				await player.enqueue(tracks, session, action === 'next' ? 'next' : 'end');
-				if (!controller.signal.aborted)
-					group.message = action === 'next' ? 'Added to play next.' : 'Added to queue.';
+				const placement = action === 'queue' ? 'end' : action;
+				await player.enqueue(tracks, session, placement);
+				if (!controller.signal.aborted) group.message = placementMessage(placement);
 			}
 			if (!controller.signal.aborted) group.close();
 		} catch (e) {
@@ -179,7 +181,7 @@
 				class="select secondary"
 				aria-pressed={group.selecting}
 				onclick={toggleSelection}
-				aria-label="Select items"><ListChecks size={18} /> Select</button
+				aria-label={uiText('Select items')}><ListChecks size={18} /> {uiText('Select')}</button
 			>{/if}
 	</div>
 	{#if tools && (!group.selecting || externalToggle)}<div
@@ -194,72 +196,80 @@
 			data-selection-toolbar
 			data-surface="panel"
 			role="group"
-			aria-label="Selection actions"
+			aria-label={uiText('Selection actions')}
 		>
 			<div class="summary">
-				<button aria-label="Cancel selection" onclick={cancel}><X size={20} /></button><strong
-					aria-live="polite">{group.selected.size} selected</strong
-				>
+				<button aria-label={uiText('Cancel selection')} onclick={cancel}><X size={20} /></button
+				><strong aria-live="polite">{group.selected.size} {uiText('selected')}</strong>
 				<button
 					disabled={group.busy}
 					onclick={() => {
 						for (const item of group.listed()) group.selected.set(item.id, item);
-					}}><CheckCheck size={17} /> Select loaded</button
+					}}><CheckCheck size={17} /> {uiText('Select loaded')}</button
 				>
 				{#if group.selected.size}<button
 						disabled={group.busy}
-						onclick={() => group.selected.clear()}>Clear</button
+						onclick={() => group.selected.clear()}>{uiText('Clear')}</button
 					>{/if}
 			</div>
 			<div class="actions">
 				<button
 					class="secondary"
 					disabled={group.busy || !group.selected.size}
-					onclick={() => apply('play')}><Play size={17} />Play</button
+					onclick={() => apply('play')}><Play size={17} />{uiText('Play')}</button
 				>
 				<button
 					class="secondary"
 					disabled={group.busy || !group.selected.size}
-					onclick={() => apply('shuffle')}><Shuffle size={17} />Shuffle</button
+					onclick={() => apply('shuffle')}><Shuffle size={17} />{uiText('Shuffle')}</button
 				>
 				<button
 					class="secondary"
 					disabled={group.busy || !group.selected.size}
-					aria-label="Play next"
-					title="Play next"
+					aria-label={uiText('Play next')}
+					title={uiText('Play next')}
 					onclick={() => apply('next')}
-					><ListEnd size={17} /><span class="full-label">Play next</span><span class="short-label"
-						>Next</span
+					><ListEnd size={17} /><span class="full-label">{uiText('Play next')}</span><span
+						class="short-label">{uiText('Next')}</span
 					></button
 				>
+				{#if supportsUpNext}
+					<button
+						class="secondary"
+						disabled={group.busy || !group.selected.size}
+						onclick={() => apply('upNext')}
+					>
+						<ListPlus size={17} />{tr('Up Next', '次の再生リスト')}
+					</button>
+				{/if}
 				<button
 					class="secondary"
 					disabled={group.busy || !group.selected.size}
-					aria-label="Add to queue"
-					title="Add to queue"
+					aria-label={uiText('Add to queue')}
+					title={uiText('Add to queue')}
 					onclick={() => apply('queue')}
-					><ListPlus size={17} /><span class="full-label">Add to queue</span><span
-						class="short-label">Queue</span
+					><ListPlus size={17} /><span class="full-label">{uiText('Add to queue')}</span><span
+						class="short-label">{uiText('Queue')}</span
 					></button
 				>
 				{#if !localOnly}<button
 						class="secondary"
 						disabled={group.busy || !group.selected.size}
-						aria-label="Add to playlist"
-						title="Add to playlist"
+						aria-label={uiText('Add to playlist')}
+						title={uiText('Add to playlist')}
 						onclick={() => apply('playlist')}
-						><ListMusic size={17} /><span class="full-label">Add to playlist</span><span
-							class="short-label">Playlist</span
+						><ListMusic size={17} /><span class="full-label">{uiText('Add to playlist')}</span><span
+							class="short-label">{uiText('Playlist')}</span
 						></button
 					>
 				{/if}{#if offlineSupported && !localOnly}<button
 						class="secondary"
 						disabled={group.busy || !group.selected.size}
-						aria-label="Save offline"
-						title="Save offline"
+						aria-label={uiText('Save offline')}
+						title={uiText('Save offline')}
 						onclick={() => apply('offline')}
-						><Download size={17} /><span class="full-label">Save offline</span><span
-							class="short-label">Offline</span
+						><Download size={17} /><span class="full-label">{uiText('Save offline')}</span><span
+							class="short-label">{uiText('Offline')}</span
 						></button
 					>{/if}
 			</div>

@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { tr, uiText } from '../i18n';
 	import { onDestroy, onMount } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { CheckSquare, Download, Music2, Play, Trash2 } from '@lucide/svelte';
 	import type { Session } from '../connection';
-	import { player, type PlayerTrack } from '../player';
+	import { player, placementMessage, type PlayerTrack } from '../player';
 	import {
 		LibrarySelection,
 		trackChoice,
@@ -114,11 +115,11 @@
 
 <section
 	bind:this={section}
-	aria-label="Offline music"
+	aria-label={uiText('Offline music')}
 	data-selection-group
 	data-part="offline-music"
 >
-	<h1>Offline music</h1>
+	<h1>{uiText('Offline music')}</h1>
 	{#if Capacitor.getPlatform() === 'android' && session.userId}
 		{#key JSON.stringify([session.serverUrl, session.userId])}<ManualDownloads
 				serverUrl={session.serverUrl}
@@ -126,16 +127,16 @@
 			/>{/key}
 	{/if}
 	<FeedbackStatus {session} />
-	<div class="bar" role="group" aria-label="Offline collection">
+	<div class="bar" role="group" aria-label={uiText('Offline collection')}>
 		<button aria-pressed={view === 'downloaded'} onclick={() => choose('downloaded')}
-			>Saved downloads</button
+			>{uiText('Saved downloads')}</button
 		><button aria-pressed={view === 'automatic'} onclick={() => choose('automatic')}
-			>Automatic downloads</button
+			>{uiText('Automatic downloads')}</button
 		><button aria-pressed={view === 'cached'} onclick={() => choose('cached')}
-			>Playback cache</button
+			>{uiText('Playback cache')}</button
 		>
 	</div>
-	{#if loading}<p role="status">Reading offline music…</p>
+	{#if loading}<p role="status">{uiText('Reading offline music…')}</p>
 	{:else}
 		<div class="actions">
 			{#if selected}
@@ -144,14 +145,14 @@
 					onclick={() => {
 						selection.close();
 						remove = null;
-					}}>Cancel selection</button
+					}}>{uiText('Cancel selection')}</button
 				>
 				<button
 					class="secondary"
 					onclick={() => {
 						for (const i of matching)
 							selection.selected.set(i.track.id, trackChoice(i.track, i.track.id));
-					}}>Select all</button
+					}}>{uiText('Select all')}</button
 				>
 			{:else if matching.length}
 				<button
@@ -160,7 +161,7 @@
 						onplay(
 							matching.map((i) => i.track),
 							0
-						)}><Play size={16} />Play all</button
+						)}><Play size={16} />{uiText('Play all')}</button
 				>
 			{/if}
 			{#if matching.length}<button
@@ -170,21 +171,28 @@
 						remove = null;
 						if (selection.selecting) selection.close();
 						else selection.selecting = true;
-					}}><CheckSquare size={16} />Select songs</button
+					}}><CheckSquare size={16} />{uiText('Select songs')}</button
 				>{/if}
 		</div>
-		{#if selected}<div class="actions" role="group" aria-label="Selected offline songs">
-				<strong>{selected.length} selected</strong>
+		{#if selected}<div class="actions" role="group" aria-label={uiText('Selected offline songs')}>
+				<strong>{selected.length} {uiText('selected')}</strong>
 				<button
 					class="secondary"
 					disabled={!picked.length || busy}
-					onclick={() => run(() => onplay(picked, 0))}>Play selected</button
+					onclick={() => run(() => onplay(picked, 0))}>{uiText('Play selected')}</button
 				>
 				<button
 					class="secondary"
 					disabled={!picked.length || busy}
 					onclick={() => run(() => player.enqueue(picked, session, 'next'), 'Added to play next.')}
-					>Play next</button
+					>{uiText('Play next')}</button
+				>
+				<button
+					class="secondary"
+					disabled={!picked.length || busy}
+					onclick={() =>
+						run(() => player.enqueue(picked, session, 'upNext'), placementMessage('upNext'))}
+					>{tr('Add to Up Next', '次の再生リストに追加')}</button
 				>
 				{#if view !== 'downloaded'}<button
 						class="secondary"
@@ -194,20 +202,23 @@
 								const result = await saveOfflineTracks(session, picked);
 								if (result.failed) throw Error(result.message);
 								return result.message;
-							})}>Keep downloads</button
+							})}>{uiText('Keep downloads')}</button
 					>{/if}
 				<button
 					class="secondary"
 					disabled={!picked.length || busy}
-					onclick={() => (remove = Array.from(selected ?? []))}>Remove selected</button
+					onclick={() => (remove = Array.from(selected ?? []))}>{uiText('Remove selected')}</button
 				>
 			</div>{/if}
-		{#if remove}<div class="confirm" role="group" aria-label="Remove offline music">
+		{#if remove}<div class="confirm" role="group" aria-label={uiText('Remove offline music')}>
 				<p>
-					Remove {remove.length}
-					{remove.length === 1 ? 'offline copy' : 'offline copies'} from this device?
+					{uiText('Remove')}
+					{remove.length}
+					{remove.length === 1 ? uiText('offline copy') : uiText('offline copies')}
+					{uiText('from this device?')}
 				</p>
-				<button class="secondary" disabled={busy} onclick={() => (remove = null)}>Keep music</button
+				<button class="secondary" disabled={busy} onclick={() => (remove = null)}
+					>{uiText('Keep music')}</button
 				>
 				<button
 					class="primary"
@@ -215,13 +226,13 @@
 					onclick={() => {
 						const ids = remove ?? [];
 						void run(() => removeOffline(session, ids), 'Removed from this device.');
-					}}>Confirm removal</button
+					}}>{uiText('Confirm removal')}</button
 				>
 			</div>{/if}
 		<label
-			><span class="sr-only">Filter offline songs</span><input
+			><span class="sr-only">{uiText('Filter offline songs')}</span><input
 				type="search"
-				placeholder="Filter offline songs"
+				placeholder={uiText('Filter offline songs')}
 				bind:value={filter}
 			/></label
 		>
@@ -274,17 +285,19 @@
 				</li>
 			{:else}<li class="empty">
 					{filter
-						? 'No matching songs.'
+						? uiText('No matching songs.')
 						: view === 'downloaded'
-							? 'Choose Save offline on a library song or selection to keep it here.'
+							? uiText('Choose Save offline on a library song or selection to keep it here.')
 							: view === 'automatic'
-								? 'Choose a download source in Offline settings to keep songs here automatically.'
-								: 'Enable caching in Offline settings to keep completed streams here.'}
+								? uiText(
+										'Choose a download source in Offline settings to keep songs here automatically.'
+									)
+								: uiText('Enable caching in Offline settings to keep completed streams here.')}
 				</li>{/each}
 		</ul>
 	{/if}
 	{#if error}<p role="alert">{error}</p>
-		<button class="text-button" onclick={read}>Try again</button>{/if}
+		<button class="text-button" onclick={read}>{uiText('Try again')}</button>{/if}
 	{#if notice}<p role="status">{notice}</p>{/if}
 </section>
 

@@ -1,5 +1,10 @@
 <script lang="ts">
+	import { uiText, tr } from './i18n';
+
 	import { prefersReducedMotion } from 'svelte/motion';
+	import { lyricPhrases } from './player/lyricWords';
+	import { soundSettings } from './player/sound';
+
 	import type { components } from '../../../frontend/src/lib/api/v3/openapi';
 	import type { Session } from './connection';
 	import { trackLyrics } from './offline/lyrics';
@@ -8,12 +13,14 @@
 		session,
 		trackId,
 		position,
+		playing = false,
 		sample = false,
 		onseek
 	}: {
 		session: Session;
 		trackId: string;
 		position: number;
+		playing?: boolean;
 		sample?: boolean;
 		onseek?: (position: number) => void;
 	} = $props();
@@ -24,11 +31,86 @@
 	let handledRetry = 0;
 	let linesPanel = $state<HTMLDivElement>();
 	let following = $state(true);
+	let lines = $derived.by(() => {
+		let next: number | undefined;
+		return (lyrics?.lines ?? [])
+			.slice()
+			.reverse()
+			.map((line) => {
+				const phrases = lyricPhrases(line.text, line.start_seconds, next);
+				if (line.start_seconds != null) next = line.start_seconds;
+				return { ...line, phrases, display: phrases.map((p) => p.text).join('') };
+			})
+			.reverse();
+	});
+	const boundaries = $derived(
+		[
+			...new Set(
+				lines.flatMap((line) =>
+					line.phrases.flatMap((p) =>
+						p.start === undefined ? [] : p.end === undefined ? [p.start] : [p.start, p.end]
+					)
+				)
+			)
+		].sort((a, b) => a - b)
+	);
+	let wordPosition = $state(0),
+		rate = $state(1);
+	$effect(() => {
+		if (!boundaries.length) return;
+		let active = true;
+		function updateRate() {
+			void soundSettings()
+				.then((value) => {
+					if (active) rate = value.speed;
+				})
+				.catch(() => {});
+		}
+		updateRate();
+		window.addEventListener('dn-playback-speed', updateRate);
+		return () => {
+			active = false;
+			window.removeEventListener('dn-playback-speed', updateRate);
+		};
+	});
+	// Native snapshots arrive once a second. Wake only at upcoming word boundaries
+	// between snapshots, and re-anchor immediately when playback pauses or seeks.
+	$effect(() => {
+		const base = position,
+			stamps = boundaries,
+			speed = rate;
+		wordPosition = base;
+		if (!playing || !stamps.length) return;
+		const started = performance.now();
+		let timer: ReturnType<typeof setTimeout>;
+		let low = 0,
+			high = stamps.length;
+		while (low < high) {
+			const mid = (low + high) >>> 1;
+			if (stamps[mid] <= base) low = mid + 1;
+			else high = mid;
+		}
+		function schedule(index: number) {
+			const delay = ((stamps[index] - base) * 1000) / speed;
+			if (index >= stamps.length || delay > 1200) return;
+			timer = setTimeout(
+				() => {
+					wordPosition = Math.max(
+						stamps[index],
+						base + ((performance.now() - started) * speed) / 1000
+					);
+					schedule(index + 1);
+				},
+				Math.max(0, delay - (performance.now() - started))
+			);
+		}
+		schedule(low);
+		return () => clearTimeout(timer);
+	});
 	let current = $derived.by(() => {
-		const lines = lyrics?.lines ?? [];
 		for (let i = lines.length - 1; i >= 0; i--) {
 			const start = lines[i].start_seconds;
-			if (start != null && start <= position) return i;
+			if (start != null && start <= wordPosition) return i;
 		}
 		return -1;
 	});
@@ -98,29 +180,45 @@
 	});
 </script>
 
+{#snippet words(line: (typeof lines)[number], row: number)}
+	{#each line.phrases as phrase, n (n)}{#if phrase.start === undefined}{phrase.text}{:else}<span
+				class="lyric-word"
+				data-active-word={row === current &&
+				wordPosition >= phrase.start &&
+				(phrase.end === undefined || wordPosition < phrase.end)
+					? ''
+					: undefined}>{phrase.text}</span
+			>{/if}{/each}
+{/snippet}
+
 <div class="lyrics-body" data-part="lyrics" data-gesture-scroll>
-	{#if busy}<p role="status">Loading lyrics…</p>{:else if error}<p role="alert">{error}</p>
-		<button class="secondary" onclick={() => retry++}>Try again</button>
+	{#if busy}<p role="status">{uiText('Loading lyrics…')}</p>{:else if error}<p role="alert">
+			{error}
+		</p>
+		<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
 	{:else if sample}<p class="plain">
-			Our shadows cross the water<br />Where the evening current turns
+			{tr('Our shadows cross the water', 'ふたりの影が水面を渡る')}<br />{tr(
+				'Where the evening current turns',
+				'夕暮れの流れが変わるところ'
+			)}
 		</p>{:else if lyrics?.is_synced && lyrics.lines?.length}<div
 			class="lines"
 			bind:this={linesPanel}
 			use:watchReading
 			role="region"
-			aria-label="Timed lyrics"
+			aria-label={uiText('Timed lyrics')}
 		>
-			{#each lyrics.lines as line, i (i)}<p
+			{#each lines as line, i (i)}<p
 					class:active={i === current}
 					aria-current={i === current ? 'true' : undefined}
 				>
 					{#if line.start_seconds != null && onseek}<button
-							aria-label={'Seek to lyric ' + line.text}
+							aria-label={tr('Seek to lyric ' + line.display, 'この歌詞に移動：' + line.display)}
 							onclick={() => {
 								following = true;
 								onseek?.(line.start_seconds!);
-							}}>{line.text}</button
-						>{:else}{line.text}{/if}
+							}}>{@render words(line, i)}</button
+						>{:else}{@render words(line, i)}{/if}
 				</p>{/each}
 		</div>
 		{#if !following && current >= 0}<button
@@ -131,15 +229,25 @@
 							?.querySelector<HTMLButtonElement>('[aria-current=true] button')
 							?.focus({ preventScroll: true });
 					following = true;
-				}}>Follow current line</button
+				}}>{uiText('Follow current line')}</button
 			>{/if}
-	{:else if lyrics?.text}<p class="plain">{lyrics.text}</p>{:else}<p>No lyrics available.</p>{/if}
+	{:else if lyrics?.text}<p class="plain">{lyrics.text}</p>{:else}<p>
+			{uiText('No lyrics available.')}
+		</p>{/if}
 	{#if !busy && !sample && !error && lyrics}<button class="text-button" onclick={() => retry++}
-			>Refresh lyrics</button
+			>{uiText('Refresh lyrics')}</button
 		>{/if}
 </div>
 
 <style>
+	.active .lyric-word {
+		color: var(--text);
+	}
+	.active [data-active-word] {
+		color: var(--accent);
+		text-decoration: underline;
+		text-underline-offset: 0.16em;
+	}
 	.lines button {
 		text-align: var(--cell-align, start);
 		padding: 0.4rem 0;

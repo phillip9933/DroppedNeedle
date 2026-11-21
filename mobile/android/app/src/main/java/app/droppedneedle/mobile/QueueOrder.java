@@ -6,12 +6,91 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import org.json.JSONArray;
 
 /** Tracks occurrences by their local tag, since two queue entries can point at the same recording. */
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 final class QueueOrder {
     private ArrayList<MediaItem> original;
+    private final Set<Object> upNext = Collections.newSetFromMap(new IdentityHashMap<>());
+    // A listener may deliberately insert a track that a later DN page also contains.
+    // Keep these occurrences out of DN's pagination counts, even after they have played.
+    private final Set<Object> extras = Collections.newSetFromMap(new IdentityHashMap<>());
+
+    void reset() {
+        clear();
+        upNext.clear();
+        extras.clear();
+    }
+
+    void mark(List<MediaItem> entries) {
+        for (MediaItem entry : entries) upNext.add(key(entry));
+    }
+
+    void markExtras(List<MediaItem> entries) {
+        for (MediaItem entry : entries) extras.add(key(entry));
+    }
+
+    boolean isExtra(MediaItem entry) { return extras.contains(key(entry)); }
+
+    JSONArray extraIndices(Player player) {
+        JSONArray result = new JSONArray();
+        if (!extras.isEmpty()) for (int i = 0; i < player.getMediaItemCount(); i++)
+            if (isExtra(player.getMediaItemAt(i))) result.put(i);
+        return result;
+    }
+
+    void restoreExtras(List<MediaItem> tracks, JSONArray indices) {
+        extras.clear();
+        if (indices == null) return;
+        for (int i = 0; i < indices.length(); i++) {
+            int index = indices.optInt(i, -1);
+            if (index >= 0 && index < tracks.size()) extras.add(key(tracks.get(index)));
+        }
+    }
+
+    int insertion(Player player, String placement) {
+        if ("end".equals(placement)) return player.getMediaItemCount();
+        int at = player.getCurrentMediaItemIndex() + 1;
+        if ("upNext".equals(placement)) {
+            for (int i = at; i < player.getMediaItemCount(); i++)
+                if (upNext.contains(key(player.getMediaItemAt(i)))) at = i + 1;
+        }
+        return at;
+    }
+
+    void consume(Player player) {
+        if (upNext.isEmpty()) return;
+        for (int i = 0; i <= player.getCurrentMediaItemIndex() && i < player.getMediaItemCount(); i++)
+            upNext.remove(key(player.getMediaItemAt(i)));
+    }
+
+    void moving(Player player, int from, int to) {
+        if (from == to) return;
+        Object entry = key(player.getMediaItemAt(from));
+        if (to > player.getCurrentMediaItemIndex() && upNext.contains(key(player.getMediaItemAt(to))))
+            upNext.add(entry);
+        else upNext.remove(entry);
+    }
+
+    JSONArray pending(Player player) {
+        consume(player);
+        JSONArray indices = new JSONArray();
+        if (!upNext.isEmpty())
+            for (int i = player.getCurrentMediaItemIndex() + 1; i < player.getMediaItemCount(); i++)
+                if (upNext.contains(key(player.getMediaItemAt(i)))) indices.put(i);
+        return indices;
+    }
+
+    void restorePending(List<MediaItem> tracks, int current, JSONArray indices) {
+        upNext.clear();
+        if (indices == null) return;
+        for (int i = 0; i < indices.length(); i++) {
+            int index = indices.optInt(i, -1);
+            if (index > current && index < tracks.size()) upNext.add(key(tracks.get(index)));
+        }
+    }
 
     boolean shuffled() {
         return original != null;
@@ -34,21 +113,32 @@ final class QueueOrder {
 
     void toggle(Player player, FreshShuffle.History history) {
         int current = player.getCurrentMediaItemIndex(), count = player.getMediaItemCount();
+        ArrayList<MediaItem> priority = new ArrayList<>();
+        ArrayList<MediaItem> rest = new ArrayList<>();
+        for (int i = current + 1; i < count; i++) {
+            MediaItem entry = player.getMediaItemAt(i);
+            (upNext.contains(key(entry)) ? priority : rest).add(entry);
+        }
         if (original != null) {
             int normal = originalIndex(player.getCurrentMediaItem());
             if (normal >= 0) {
                 // Retain the playing occurrence on the Media3 timeline, including its decoder and seek position.
-                player.replaceMediaItems(current + 1, count, original.subList(normal + 1, original.size()));
-                player.replaceMediaItems(0, current, original.subList(0, normal));
+                ArrayList<MediaItem> before = new ArrayList<>();
+                for (int i = 0; i < original.size(); i++) {
+                    MediaItem entry = original.get(i);
+                    if (i == normal || upNext.contains(key(entry))) continue;
+                    (i < normal ? before : priority).add(entry);
+                }
+                player.replaceMediaItems(current + 1, count, priority);
+                player.replaceMediaItems(0, current, before);
             }
             clear();
-        } else if (count - current > 2) {
+        } else if (rest.size() >= 2) {
             original = new ArrayList<>();
             for (int i = 0; i < count; i++) original.add(player.getMediaItemAt(i));
-            List<MediaItem> suffix = original.subList(current + 1, count);
-            ArrayList<MediaItem> upcoming = new ArrayList<>(suffix);
-            FreshShuffle.draw(upcoming, item -> item.mediaId, history);
-            player.replaceMediaItems(current + 1, count, upcoming);
+            FreshShuffle.draw(rest, item -> item.mediaId, history);
+            priority.addAll(rest);
+            player.replaceMediaItems(current + 1, count, priority);
         }
     }
 
@@ -58,11 +148,12 @@ final class QueueOrder {
     }
 
     void remove(Player player, int from, int to) {
-        if (original == null || from == to)
-            return;
+        if (from == to) return;
         IdentityHashMap<Object, Boolean> removed = new IdentityHashMap<>();
         for (int i = from; i < to; i++) removed.put(key(player.getMediaItemAt(i)), true);
-        original.removeIf(item -> removed.containsKey(key(item)));
+        upNext.removeAll(removed.keySet());
+        extras.removeAll(removed.keySet());
+        if (original != null) original.removeIf(item -> removed.containsKey(key(item)));
     }
 
     JSONArray save(Player player) {
