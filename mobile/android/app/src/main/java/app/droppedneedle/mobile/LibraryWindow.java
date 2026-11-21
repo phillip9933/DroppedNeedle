@@ -24,6 +24,9 @@ final class LibraryWindow {
             "genre", "formats", "format_mode", "rating", "rating_mode", "favorites"));
     private static final String[][] METADATA = {{"duration_seconds", "duration"}, {"album_id", "albumId"},
             {"artist_id", "artistId"}, {"album_artist_name", "albumArtist"}, {"album_artist_id", "albumArtistId"},
+            {"artist_mbid", "artistMbid"}, {"recording_mbid", "recordingMbid"}, {"release_group_mbid", "releaseGroupMbid"},
+            {"replaygain_track_gain", "replayGainTrackDb"}, {"replaygain_album_gain", "replayGainAlbumDb"},
+            {"replaygain_track_peak", "replayGainTrackPeak"}, {"replaygain_album_peak", "replayGainAlbumPeak"},
             {"genre", "genre"}, {"year", "year"}, {"track_number", "trackNumber"}, {"disc_number", "discNumber"},
             {"date_added", "dateAdded"}, {"format", "format"}, {"favorite", "favorite"}};
 
@@ -145,7 +148,7 @@ final class LibraryWindow {
         return row.isNull(key) ? "" : row.optString(key);
     }
 
-    private static JSONObject track(HttpUrl base, String prefix, JSONObject row) throws JSONException {
+    static JSONObject track(HttpUrl base, String prefix, JSONObject row) throws JSONException {
         String id = row.getString("id"), album = text(row, "album_id"), group = text(row, "release_group_mbid");
         JSONObject track = new JSONObject()
                                    .put("id", id)
@@ -171,6 +174,7 @@ final class LibraryWindow {
         for (String[] name : METADATA)
             if (!row.isNull(name[0]))
                 track.put(name[1], row.get(name[0]));
+        if (!track.has("artistMbid") && !row.isNull("album_artist_mbid")) track.put("artistMbid", row.get("album_artist_mbid"));
         return track;
     }
 }

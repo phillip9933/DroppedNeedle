@@ -388,6 +388,186 @@ public final class PlaybackInterruptionTest {
         }
     }
 
+    @Test
+    public void naturalEndContinuesWithLibraryRadioAndRespectsAnExplicitPause() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        String address = "https://127.0.0.1:1", user = "radio-" + java.util.UUID.randomUUID();
+        OfflineStore files = OfflineStore.forUser(app, address, user);
+        byte[] silence = OfflinePlaybackTest.wav();
+        JSArray first = new JSArray();
+        org.json.JSONArray ids = new org.json.JSONArray();
+        for (String id : new String[] {"first", "second"}) {
+            JSObject track = new JSObject();
+            track.put("id", id);
+            track.put("title", id);
+            track.put("artist", "Fixture");
+            track.put("album", "Studio");
+            track.put("genre", "Jazz");
+            track.put("streamUrl", address + "/api/v3/stream/local/" + id);
+            if (id.equals("first"))
+                first.put(track);
+            try (OfflineStore.Capture capture = files.begin(track, true, silence.length)) {
+                capture.write(silence, 0, silence.length);
+                capture.finish();
+            }
+            ids.put(id);
+        }
+        CountDownLatch planned = new CountDownLatch(1), delayed = new CountDownLatch(1),
+                       release = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        org.json.JSONObject added = new org.json.JSONObject()
+                                            .put("in_library", true)
+                                            .put("local_file_id", "second")
+                                            .put("artist_mbid", "11111111-1111-1111-1111-111111111111")
+                                            .put("track_name", "Second")
+                                            .put("artist_name", "Fixture");
+        String payload = new org.json.JSONObject().put("tracks", new org.json.JSONArray().put(added)).toString();
+        okhttp3.OkHttpClient synthetic =
+                new okhttp3.OkHttpClient.Builder()
+                        .addInterceptor(chain -> {
+                            if (calls.incrementAndGet() == 1)
+                                planned.countDown();
+                            else {
+                                delayed.countDown();
+                                try {
+                                    if (!release.await(10, TimeUnit.SECONDS))
+                                        throw new java.io.IOException("Fixture timed out.");
+                                } catch (InterruptedException e) {
+                                    throw new java.io.IOException(e);
+                                }
+                            }
+                            return new okhttp3.Response.Builder()
+                                    .request(chain.request())
+                                    .protocol(okhttp3.Protocol.HTTP_1_1)
+                                    .code(200)
+                                    .message("Fixture")
+                                    .body(okhttp3.ResponseBody.create(
+                                            okhttp3.MediaType.get("application/json"), payload))
+                                    .build();
+                        })
+                        .build();
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
+        java.lang.reflect.Field client = PlaybackService.class.getDeclaredField("playbackHttp");
+        client.setAccessible(true);
+        java.lang.reflect.Field path = PlaybackService.class.getDeclaredField("playbackNetwork");
+        path.setAccessible(true);
+        java.util.concurrent.atomic.AtomicReference<StreamProfiles.Path> originalPath =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<okhttp3.OkHttpClient> original =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
+            assertTrue(
+                    app.bindService(new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND),
+                            binding, Context.BIND_AUTO_CREATE));
+            try {
+                assertTrue(connected.await(10, TimeUnit.SECONDS));
+                instrumentation.runOnMainSync(() -> {
+                    try {
+                        original.set((okhttp3.OkHttpClient) client.get(playback));
+                        client.set(playback, synthetic);
+                        // A synthetic DN server, like the cached audio, is available even on an isolated emulator.
+                        originalPath.set((StreamProfiles.Path) path.get(playback));
+                        path.set(playback, StreamProfiles.Path.WIFI);
+                        playback.autoplaySetting(address, user, true);
+                        playback.setQueue(address, "fixture", user, first, 0, null, null);
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                });
+                assertTrue("The service requested its first radio plan at natural end",
+                        planned.await(10, TimeUnit.SECONDS));
+                assertTrue("The recommended cached WAV played through to its end",
+                        delayed.await(10, TimeUnit.SECONDS));
+                instrumentation.runOnMainSync(() -> {
+                    assertEquals(1, player.getCurrentMediaItemIndex());
+                    assertEquals("second", player.getCurrentMediaItem().mediaId);
+                    assertTrue(playback.snapshot().optBoolean("playing"));
+                    playback.command("setPlaying", 0, -1);
+                    assertFalse(playback.snapshot().optBoolean("playing"));
+                });
+                release.countDown();
+                instrumentation.waitForIdleSync();
+                instrumentation.runOnMainSync(() -> assertFalse(player.getPlayWhenReady()));
+            } finally {
+                release.countDown();
+                if (playback != null)
+                    instrumentation.runOnMainSync(() -> {
+                        playback.autoplaySetting(address, user, false);
+                        playback.command("clear", -1, -1);
+                        try {
+                            if (original.get() != null)
+                                client.set(playback, original.get());
+                            if (originalPath.get() != null)
+                                path.set(playback, originalPath.get());
+                        } catch (IllegalAccessException e) {
+                            throw new AssertionError(e);
+                        }
+                    });
+                app.unbindService(binding);
+            }
+        } finally {
+            release.countDown();
+            files.remove(ids);
+            synthetic.dispatcher().executorService().shutdownNow();
+        }
+    }
+
+    @Test
+    public void restoringAReplacedPausedQueueKeepsItsCursorShuffleAndAccount() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        String address = "https://127.0.0.1:1";
+        JSArray tracks = new JSArray(), replacement = new JSArray();
+        for (int i = 0; i < 5; i++) {
+            String id = i == 2 ? "s0" : "s" + i;
+            JSObject row = new JSObject();
+            row.put("id", id);
+            row.put("title", "Occurrence " + i);
+            row.put("album", "Album");
+            row.put("artist", "Fixture");
+            row.put("streamUrl", address + "/api/v3/stream/local/" + id);
+            tracks.put(row);
+            if (i == 0)
+                replacement.put(row);
+        }
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = connection(connected);
+        try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+            awaitAppReady(activity);
+            assertTrue(
+                    app.bindService(new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND),
+                            binding, Context.BIND_AUTO_CREATE));
+            try {
+                assertTrue(connected.await(10, TimeUnit.SECONDS));
+                instrumentation.runOnMainSync(() -> {
+                    try {
+                        playback.setQueue(address, "timer-fixture", "A", tracks, 2, null, null, null, 3.5, false);
+                        playback.command("shuffleUpcoming", 0, -1);
+                        playback.setQueue(
+                                address, "timer-fixture", "A", replacement, 0, null, null, null, 0, false);
+                        assertTrue(playback.snapshot().optBoolean("hasPreviousQueue"));
+                        playback.command("restorePreviousQueue", 0, -1);
+                        assertEquals("s0", player.getCurrentMediaItem().mediaId);
+                        assertEquals(2, player.getCurrentMediaItemIndex());
+                        assertEquals(3500, player.getCurrentPosition());
+                        assertFalse(player.getPlayWhenReady());
+                        assertTrue(playback.snapshot().optBoolean("shuffled"));
+                        playback.setQueue(
+                                address, "timer-fixture", "B", replacement, 0, null, null, null, 0, false);
+                        assertFalse(playback.snapshot().optBoolean("hasPreviousQueue"));
+                    } catch (org.json.JSONException error) {
+                        throw new AssertionError(error);
+                    }
+                });
+            } finally {
+                if (playback != null)
+                    instrumentation.runOnMainSync(() -> playback.command("clear", -1, -1));
+                app.unbindService(binding);
+            }
+        }
+    }
+
     // Startup intentionally clears orphaned playback before rendering the signed-out form.
     private void awaitAppReady(ActivityScenario<MainActivity> activity) throws Exception {
         long end = SystemClock.elapsedRealtime() + 10_000;

@@ -1,6 +1,12 @@
 package app.droppedneedle.mobile;
 
 import android.content.Context;
+import android.media.AudioDeviceInfo;
+import android.media.AudioRouting;
+import android.media.AudioTrack;
+import android.os.Build;
+import android.os.Looper;
+import android.os.Handler;
 import android.content.SharedPreferences;
 import android.media.audiofx.AudioEffect;
 import android.media.audiofx.Equalizer;
@@ -15,16 +21,110 @@ final class PlaybackEqualizer {
     private final SharedPreferences preferences;
     private int session;
     private Equalizer effect;
+    private AudioTrack routeTrack;
+    private String outputId = "", outputName = "";
+    private boolean closed;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final AudioRouting.OnRoutingChangedListener routeListener = source -> {
+        if (source == routeTrack) readRoute();
+    };
 
     PlaybackEqualizer(Context context) {
         preferences = context.getSharedPreferences("dn_playback_equalizer", Context.MODE_PRIVATE);
     }
 
+    void monitor(AudioTrack track) {
+        if (closed || routeTrack == track)
+            return;
+        if (routeTrack != null)
+            routeTrack.removeOnRoutingChangedListener(routeListener);
+        routeTrack = track;
+        routeTrack.addOnRoutingChangedListener(routeListener, main);
+        readRoute();
+    }
+
+    private void readRoute() {
+        if (routeTrack == null)
+            return;
+        AudioDeviceInfo device = routeTrack.getRoutedDevice();
+        if (device == null)
+            return; // AudioTrack reports its actual route once output has started.
+        String name = device.getProductName() == null ? "" : device.getProductName().toString();
+        String address = "";
+        if (Build.VERSION.SDK_INT >= 28) {
+            try {
+                address = device.getAddress();
+            } catch (
+                    SecurityException unavailable) { /* Use the product name when Android withholds its address. */
+            }
+        }
+        String id = java.util.UUID
+                            .nameUUIDFromBytes((device.getType() + ":" + (address.isEmpty() ? name : address))
+                                            .getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                            .toString();
+        switch (device.getType()) {
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:
+                name = "Phone speaker";
+                break;
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
+                name = "Phone earpiece";
+                break;
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+                name = "Wired headphones";
+                break;
+        }
+        route(id, name.isEmpty() ? "Audio output" : name);
+    }
+    void route(String id, String name) {
+        if (id.equals(outputId))
+            return;
+        outputId = id;
+        outputName = name;
+        if (effect != null && effect.hasControl())
+            restore();
+        else if (preferences.getBoolean(key("enabled"), false))
+            attach();
+    }
+    private boolean assigned() { return !outputId.isEmpty() && preferences.contains(outputId + ".curve"); }
+    private String key(String field) { return assigned() ? outputId + "." + field : field; }
+    private void verifyOutput(String expected) {
+        if (expected != null && !expected.equals(outputId)) throw new IllegalArgumentException("The active audio output changed.");
+    }
+
+    JSObject assign(String expected, boolean enable) {
+        if (expected == null || expected.isEmpty())
+            throw new IllegalArgumentException("Choose an active audio output.");
+        verifyOutput(expected);
+        if (enable != assigned()) {
+            SharedPreferences.Editor edit = preferences.edit();
+            for (String field : new String[] {"enabled", "curve", "preset"}) {
+                if (!enable)
+                    edit.remove(outputId + "." + field);
+                else if (field.equals("enabled"))
+                    edit.putBoolean(outputId + ".enabled", preferences.getBoolean("enabled", false));
+                else
+                    edit.putString(outputId + "." + field,
+                            preferences.getString(field, field.equals("preset") ? "Flat" : "{}"));
+            }
+            edit.apply();
+            if (effect != null && effect.hasControl())
+                restore();
+        }
+        return read();
+    }
+    void close() {
+        closed = true;
+        if (routeTrack != null)
+            routeTrack.removeOnRoutingChangedListener(routeListener);
+        routeTrack = null;
+        release();
+    }
     void setSession(int next) {
         if (session == next) return;
         release();
         session = next;
-        if (preferences.getBoolean("enabled", false)) attach();
+        if (preferences.getBoolean(key("enabled"), false)) attach();
     }
 
     void release() {
@@ -55,13 +155,13 @@ final class PlaybackEqualizer {
 
     private void restore() {
         try {
-            JSONObject curve = new JSONObject(preferences.getString("curve", "{}"));
+            JSONObject curve = new JSONObject(preferences.getString(key("curve"), "{}"));
             short[] range = effect.getBandLevelRange();
             for (short i = 0; i < effect.getNumberOfBands(); i++) {
                 int stored = curve.optInt(Integer.toString(effect.getCenterFreq(i)), 0);
                 effect.setBandLevel(i, (short) Math.max(range[0], Math.min(range[1], stored)));
             }
-            if (effect.setEnabled(preferences.getBoolean("enabled", false)) != AudioEffect.SUCCESS)
+            if (effect.setEnabled(preferences.getBoolean(key("enabled"), false)) != AudioEffect.SUCCESS)
                 discardEffect();
         } catch (RuntimeException | JSONException error) {
             discardEffect();
@@ -95,7 +195,12 @@ final class PlaybackEqualizer {
             result.put("levels", levels);
             result.put("minimum", (int) range[0]);
             result.put("maximum", (int) range[1]);
-            result.put("preset", preferences.getString("preset", "Flat"));
+            result.put("preset", preferences.getString(key("preset"), "Flat"));
+            if (!outputId.isEmpty()) {
+                JSObject output=new JSObject();
+                output.put("id",outputId); output.put("name",outputName); output.put("assigned",assigned());
+                result.put("output",output);
+            }
             return result;
         } catch (RuntimeException error) {
             discardEffect();
@@ -104,6 +209,11 @@ final class PlaybackEqualizer {
     }
 
     JSObject configure(boolean enabled, String preset, JSONArray centers, JSONArray levels) throws JSONException {
+        return configure(enabled,preset,centers,levels,null);
+    }
+
+    JSObject configure(boolean enabled,String preset,JSONArray centers,JSONArray levels,String expected) throws JSONException {
+        verifyOutput(expected);
         JSObject current = read();
         if (!current.getBoolean("available")) return current;
         short count = effect.getNumberOfBands();
@@ -132,8 +242,8 @@ final class PlaybackEqualizer {
             if (effect != null && effect.hasControl()) restore();
             throw error;
         }
-        preferences.edit().putBoolean("enabled", enabled).putString("curve", curve.toString())
-                .putString("preset", preset == null ? "" : preset).apply();
+        preferences.edit().putBoolean(key("enabled"), enabled).putString(key("curve"), curve.toString())
+                .putString(key("preset"), preset == null ? "" : preset).apply();
         return read();
     }
 }

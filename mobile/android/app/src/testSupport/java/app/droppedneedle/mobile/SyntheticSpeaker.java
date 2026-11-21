@@ -27,7 +27,13 @@ final class SyntheticSpeaker implements Closeable {
     volatile String lastBody = "", contentRange = "";
     final String service = "urn:schemas-upnp-org:service:AVTransport:1";
 
-    SyntheticSpeaker() throws IOException {
+    final String sonosId;
+    volatile String groups = "";
+    volatile int volume = 27;
+
+    SyntheticSpeaker() throws IOException { this(""); }
+    SyntheticSpeaker(String sonosId) throws IOException {
+        this.sonosId=sonosId;
         listener.bind(new InetSocketAddress(loopback, 0));
         worker = new Thread(() -> {
             try {
@@ -61,12 +67,18 @@ final class SyntheticSpeaker implements Closeable {
         }
         String reply;
         if (request.equals("GET /renderer/description.xml HTTP/1.1")) {
-            reply = "<root xmlns='urn:schemas-upnp-org:device-1-0'><device>"
-                    + "<deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType><friendlyName>Test speaker</friendlyName>"
-                    + "<serviceList><service><serviceType>" + service + "</serviceType><controlURL>transport</controlURL>"
-                    + "</service></serviceList></device></root>";
+            String transport="<device><deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType><friendlyName>Test speaker</friendlyName>"
+                    + "<serviceList><service><serviceType>" + service + "</serviceType><controlURL>transport</controlURL></service>"
+                    + (sonosId.isEmpty()?"": "<service><serviceType>"+DlnaRenderer.VOLUME+"1</serviceType><controlURL>volume</controlURL></service>")
+                    + "</serviceList></device>";
+            String root=sonosId.isEmpty()?transport:"<device><deviceType>" + DlnaRenderer.ZONE_PLAYER + "1</deviceType><manufacturer>Sonos</manufacturer>"
+                    + "<roomName>Room " + sonosId + "</roomName><UDN>uuid:" + sonosId + "</UDN><serviceList><service><serviceType>"
+                    + DlnaRenderer.GROUPS + "1</serviceType><controlURL>groups</controlURL></service></serviceList>"
+                    + "<deviceList>" + transport + "</deviceList></device>";
+            reply="<root xmlns='urn:schemas-upnp-org:device-1-0'>"+root+"</root>";
         } else {
-            if (!request.equals("POST /renderer/transport HTTP/1.1")) throw new AssertionError("Invalid control URL");
+            String path= action.equals("GetZoneGroupState") ? "groups" : action.endsWith("Volume") ? "volume" : "transport";
+            if (!request.equals("POST /renderer/" + path + " HTTP/1.1")) throw new AssertionError("Invalid control URL");
             byte[] body = new byte[length];
             new java.io.DataInputStream(in).readFully(body);
             String xml = new String(body, StandardCharsets.UTF_8);
@@ -74,6 +86,16 @@ final class SyntheticSpeaker implements Closeable {
                 throw new AssertionError("Private source was disclosed");
             String fields = "";
             switch (action) {
+                case "GetZoneGroupState":
+                    if (xml.contains("InstanceID")) throw new AssertionError("Topology commands have no transport instance.");
+                    fields="<ZoneGroupState>" + groups.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;") + "</ZoneGroupState>";
+                    break;
+                case "GetVolume": case "SetVolume":
+                    if (!element(xml,"Channel").equals("Master") || !element(xml,"InstanceID").equals("0")) throw new AssertionError();
+                    if (action.equals("SetVolume")) volume=Integer.parseInt(element(xml,"DesiredVolume"));
+                    else fields="<CurrentVolume>"+volume+"</CurrentVolume>";
+                    break;
+                case "BecomeCoordinatorOfStandaloneGroup": uri=""; break;
                 case "SetAVTransportURI":
                     uri = element(xml, "CurrentURI");
                     metadata = element(xml, "CurrentURIMetaData");

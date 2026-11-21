@@ -27,16 +27,28 @@ final class DlnaRenderer extends NetworkRenderer {
     static final String ZONE_PLAYER = "urn:schemas-upnp-org:device:ZonePlayer:";
     private static final String TRANSPORT = "urn:schemas-upnp-org:service:AVTransport:";
     private static final int XML_LIMIT = 192 * 1024;
+    static final String GROUPS = "urn:schemas-upnp-org:service:ZoneGroupTopology:";
+    static final String VOLUME = "urn:schemas-upnp-org:service:RenderingControl:";
+    final String sonosId;
+    private final Endpoint groups, volume;
+    private static final class Endpoint {
+        final URI uri;
+        final String service;
+        Endpoint(URI uri,String service) { this.uri = uri; this.service = service; }
+    }
     private final URI control;
     private final String service;
     private final SocketFactory sockets;
 
     private DlnaRenderer(InetAddress local, InetAddress peer, SocketFactory sockets, URI control,
-                         String service, String name) {
+                         String service, String name, String sonosId, Endpoint groups, Endpoint volume) {
         super(local, peer, name);
         this.sockets = sockets;
         this.control = control;
         this.service = service;
+        this.sonosId = sonosId;
+        this.groups = groups;
+        this.volume = volume;
     }
 
     static DlnaRenderer describe(InetAddress local, InetAddress peer, SocketFactory sockets,
@@ -46,12 +58,18 @@ final class DlnaRenderer extends NetworkRenderer {
         String base = text(description.getDocumentElement(), "URLBase");
         if (!base.isEmpty()) address = endpoint(peer, address, base);
         NodeList devices = description.getElementsByTagNameNS("*", "device");
-        String room = "";
+        String room = "", uuid = "";
+        Endpoint topology = null;
         for (int i = 0; i < devices.getLength(); i++) {
             Element device = (Element) devices.item(i);
             if (text(device, "deviceType").startsWith(ZONE_PLAYER)
                     && text(device, "manufacturer").toLowerCase(Locale.ROOT).contains("sonos")) {
                 room = text(device, "roomName");
+                String udn = text(device,"UDN").replaceFirst("(?i)^uuid:","");
+                if (udn.matches("RINCON_[A-Za-z0-9]{8,48}")) {
+                    uuid = udn;
+                    topology = service(device,peer,address,GROUPS);
+                }
                 break;
             }
         }
@@ -66,10 +84,62 @@ final class DlnaRenderer extends NetworkRenderer {
                 if (!type.matches(TRANSPORT + "[1-9][0-9]?")) continue;
                 URI control = endpoint(peer, address, text((Element) n, "controlURL"));
                 String name = room.isEmpty() ? text(device, "friendlyName") : room;
-                return new DlnaRenderer(local, peer, sockets, control, type, name);
+                return new DlnaRenderer(local, peer, sockets, control, type, name,uuid,topology,
+                        uuid.isEmpty() ? null : service(device,peer,address,VOLUME));
             }
         }
         throw new IOException("This device has no audio transport.");
+    }
+
+    private static Endpoint service(Element device, InetAddress peer, URI base, String prefix) throws IOException {
+        Element list = child(device, "serviceList");
+        if (list == null)
+            return null;
+        for (Node node = list.getFirstChild(); node != null; node = node.getNextSibling()) {
+            if (!(node instanceof Element e) || !"service".equals(e.getLocalName()))
+                continue;
+            String type = text(e, "serviceType");
+            if (type.matches(prefix + "[1-9][0-9]?"))
+                return new Endpoint(endpoint(peer, base, text(e, "controlURL")), type);
+        }
+        return null;
+    }
+    boolean hasGroups() {
+        return groups != null && !sonosId.isEmpty();
+    }
+    Document topology() throws IOException {
+        if (!hasGroups())
+            throw new IOException("This speaker does not provide Sonos groups.");
+        String xml = field(command(groups.uri, groups.service, "GetZoneGroupState", ""), "ZoneGroupState");
+        if (xml.isEmpty())
+            throw new IOException("The speaker did not return its group membership.");
+        return parse(xml);
+    }
+    int volume() throws IOException {
+        if (volume == null)
+            return -1;
+        String v = field(
+                command(volume.uri, volume.service, "GetVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel>"),
+                "CurrentVolume");
+        if (!v.matches("[0-9]{1,3}") || Integer.parseInt(v) > 100)
+            throw new IOException("Speaker volume is unavailable.");
+        return Integer.parseInt(v);
+    }
+    void setVolume(int level) throws IOException {
+        if (volume == null || level < 0 || level > 100)
+            throw new IOException("Choose a speaker volume between 0 and 100.");
+        command(volume.uri, volume.service, "SetVolume",
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>" + level + "</DesiredVolume>");
+    }
+    void join(String coordinator) throws IOException {
+        if (!hasGroups() || coordinator == null || !coordinator.matches("RINCON_[A-Za-z0-9]{8,48}"))
+            throw new IOException("Choose a Sonos group on this network.");
+        action("SetAVTransportURI",
+                "<CurrentURI>x-rincon:" + coordinator + "</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>");
+    }
+    void ungroup() throws IOException {
+        if (hasGroups())
+            action("BecomeCoordinatorOfStandaloneGroup", "");
     }
 
     private static URI endpoint(InetAddress peer, URI base, String value) throws IOException {
@@ -127,10 +197,13 @@ final class DlnaRenderer extends NetworkRenderer {
     }
 
     private Document action(String name, String arguments) throws IOException {
+        return command(control,service,name,"<InstanceID>0</InstanceID>" + arguments);
+    }
+    private Document command(URI control,String service,String name,String arguments) throws IOException {
         String body = "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope "
                 + "xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" "
                 + "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:" + name
-                + " xmlns:u=\"" + service + "\"><InstanceID>0</InstanceID>" + arguments + "</u:"
+                + " xmlns:u=\"" + service + "\">" + arguments + "</u:"
                 + name + "></s:Body></s:Envelope>";
         return exchange(local, peer, sockets, control, service + "#" + name, body);
     }

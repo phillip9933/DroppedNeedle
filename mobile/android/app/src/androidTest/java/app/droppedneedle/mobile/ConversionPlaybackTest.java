@@ -243,4 +243,31 @@ public final class ConversionPlaybackTest {
             source.close();
         }
     }
+    @Test public void completedMp3AndOpusDownloadsServeLocalByteSeeksOffline() throws Exception {
+        for (String format : new String[]{"mp3","opus"}) {
+            byte[] audio = sample(format);
+            OfflineStore store = OfflineStore.forUser(context,ADDRESS,UUID.randomUUID().toString());
+            JSONObject track = new JSONObject().put("id","track").put("title","Offline");
+            try (OfflineStore.Capture output = store.begin(track,true,audio.length)) {
+                output.write(audio,0,audio.length);
+                output.finish(format.equals("mp3") ? "audio/mpeg" : "audio/ogg");
+            }
+            store.configure(store.options().put("offlineOnly",true));
+            OfflineDataSource.Library library = new OfflineDataSource.Library() {
+                public OfflineStore store() { return store; }
+                public JSONObject metadata(String id) { return track; }
+            };
+            OfflineDataSource source = new OfflineDataSource(library,() -> { throw new AssertionError("Offline seek reached the network"); },new ConversionSource.Timeline(180000));
+            try {
+                int offset = audio.length / 2;
+                DataSpec request = new DataSpec.Builder().setUri(STREAM + "?format=mp3&max_bitrate=192").setPosition(offset).build();
+                assertEquals(audio.length - offset,source.open(request));
+                byte[] data = new byte[8];
+                assertEquals(8,source.read(data,0,8));
+                assertArrayEquals(java.util.Arrays.copyOfRange(audio,offset,offset+8),data);
+                assertEquals("file",source.getUri().getScheme());
+            } finally { source.close(); store.remove(new org.json.JSONArray().put("track")); }
+        }
+    }
+
 }

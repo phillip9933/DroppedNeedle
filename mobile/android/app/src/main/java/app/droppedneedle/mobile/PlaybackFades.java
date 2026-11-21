@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 final class PlaybackFades implements Player.Listener {
     private static final long PREPARE_AHEAD_MS = 45_000;
     private final Player player;
+    private final PlaybackSound sound;
     private final Context context;
     private final SharedPreferences preferences;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -41,6 +42,7 @@ final class PlaybackFades implements Player.Listener {
         final MediaItem from, to;
         TrackWaveform.Job job;
         ExoPlayer tail;
+        final PlaybackSound.GainProcessor gain = new PlaybackSound.GainProcessor();
         int overlap, start;
         boolean measured;
         Boundary(MediaItem from, MediaItem to) { this.from = from; this.to = to; }
@@ -51,6 +53,11 @@ final class PlaybackFades implements Player.Listener {
     }
 
     PlaybackFades(Context context, Player player, Supplier<SmartFadeAudio.Reader> analysis, BooleanSupplier permitsMix) {
+        this(context, player, analysis, permitsMix, new PlaybackSound(context));
+    }
+
+    PlaybackFades(Context context, Player player, Supplier<SmartFadeAudio.Reader> analysis, BooleanSupplier permitsMix, PlaybackSound sound) {
+        this.sound = sound;
         this.player = player;
         this.context = context.getApplicationContext();
         this.analysis = analysis;
@@ -172,7 +179,8 @@ final class PlaybackFades implements Player.Listener {
         } else {
             try {
                 pair.start = edge.windowMs - overlap;
-                ExoPlayer tail = new ExoPlayer.Builder(context).setAudioAttributes(AudioAttributes.DEFAULT, false).build();
+                pair.gain.factor = sound.factor(pair.from);
+                ExoPlayer tail = new ExoPlayer.Builder(context, PlaybackSound.renderers(context,pair.gain,null)).setAudioAttributes(AudioAttributes.DEFAULT, false).build();
                 pair.tail = tail;
                 if (player instanceof ExoPlayer) {
                     int id = ((ExoPlayer) player).getAudioSessionId();
@@ -288,6 +296,11 @@ final class PlaybackFades implements Player.Listener {
     }
     private static void level(Player deck, float volume) {
         if (deck.getVolume() != volume) deck.setVolume(volume);
+    }
+
+    void gainChanged() {
+        if (upcoming != null) upcoming.gain.factor = sound.factor(upcoming.from);
+        if (mixing != null) mixing.gain.factor = sound.factor(mixing.from);
     }
 
     void release() {

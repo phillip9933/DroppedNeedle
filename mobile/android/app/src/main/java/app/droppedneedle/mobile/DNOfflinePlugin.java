@@ -85,7 +85,7 @@ public final class DNOfflinePlugin extends Plugin {
     }
     @PluginMethod
     public void options(PluginCall call) {
-        execute(call, storage, OfflineStore::options);
+        execute(call, storage, s -> { PinnedDownloadWorker.schedule(getContext(),s); return s.options(); });
     }
     @PluginMethod public void historySettings(PluginCall call) {
         execute(call, storage, s -> OfflinePlayHistory.settings(getContext(), s));
@@ -109,7 +109,8 @@ public final class DNOfflinePlugin extends Plugin {
     public void configure(PluginCall call) {
         execute(call, storage, s -> {
             boolean offline = s.offlineOnly(), unmetered = s.unmeteredOnly();
-            JSONObject options = s.configure(call.getObject("options"));
+            JSONObject options = s.configure(call.getObject("options"), call.getBoolean("clearUnpinned",false));
+            PinnedDownloadWorker.schedule(getContext(),s);
             if (offline != s.offlineOnly() || unmetered != s.unmeteredOnly()) ManualDownloads.get(getContext()).policyChanged(s);
             return options;
         });
@@ -186,6 +187,19 @@ public final class DNOfflinePlugin extends Plugin {
     public void clearAutomaticPlaylist(PluginCall call) {
         execute(call, storage, s -> s.clearAutomaticPlaylist(call.getString("source")));
     }
+    @PluginMethod
+    public void syncCollections(PluginCall call) {
+        execute(call, transfers, store -> {
+            HeadsetAccount owner = HeadsetAccount.read(getContext());
+            if (owner == null
+                    || !store.account.equals(
+                            OfflineStore.forUser(getContext(), owner.server.toString(), owner.userId).account))
+                throw new IOException("Reconnect to DN to update offline collections.");
+            return new PinnedDownloads(
+                    getContext(), store, owner, http, () -> HeadsetAccount.read(getContext()), () -> false)
+                    .sync();
+        });
+    }
     static final class MissingOriginal extends IOException {
         static final String CODE = "DN_AUDIO_NOT_FOUND";
         MissingOriginal() { super("DN could not find this audio file."); }
@@ -195,7 +209,7 @@ public final class DNOfflinePlugin extends Plugin {
         int status = response.code();
         if (source != null && source.startsWith("playlist:") && (status == 404 || status == 410)) throw new MissingOriginal();
         ResponseBody body = response.body();
-        if (status != 200 || body == null || !OfflineStore.isAudio(response.header("Content-Type")))
+        if (DownloadRepresentation.mime(response) == null)
             throw new IOException("DN could not serve this audio file (HTTP " + status + ").");
         return body;
     }
@@ -217,12 +231,9 @@ public final class DNOfflinePlugin extends Plugin {
             String token = call.getString("token");
             if (token == null || token.isEmpty())
                 throw new IllegalArgumentException("Reconnect to DN to download.");
-            Request req = new Request.Builder()
-                                  .url(s.original(id).newBuilder().addQueryParameter("format", "raw").build())
-                                  .header("Authorization", "Bearer " + token)
-                                  .header("Accept-Encoding", "identity")
-                                  .build();
-            try (Response response = http.newCall(req).execute()) {
+            StreamProfiles.Quality quality = s.downloadQuality();
+            try (Response response = DownloadRepresentation.open(s.original(id), token, quality.format, quality.rate,
+                    request -> http.newCall(request).execute())) {
                 ResponseBody body = originalAudio(response, source);
                 try (OfflineStore.Capture capture = s.begin(track, source == null ? OfflineStore.DOWNLOAD : OfflineStore.AUTOMATIC, source, body.contentLength());
                         InputStream input = body.byteStream()) {
@@ -234,7 +245,7 @@ public final class DNOfflinePlugin extends Plugin {
                     int count;
                     while ((count = input.read(buf)) != -1)
                         capture.write(buf, 0, count);
-                    capture.finish();
+                    capture.finish(DownloadRepresentation.mime(response));
                 }
             }
             return null;

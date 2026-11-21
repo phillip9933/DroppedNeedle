@@ -49,6 +49,23 @@ public final class PlaybackEqualizerTest {
             JSObject restored = eq.read();
             assertTrue(restored.getBoolean("enabled"));
             assertEquals(gain, restored.getJSONArray("levels").getInt(0));
+            eq.route("headphones","Headphones");
+            assertFalse(eq.read().getJSONObject("output").getBoolean("assigned"));
+            eq.assign("headphones",true);
+            JSONArray headphones = new JSONArray(levels.toString());
+            headphones.put(0,0);
+            eq.configure(true,"Headphones",centers,headphones,"headphones");
+            eq.route("speaker","Phone speaker");
+            assertEquals(gain,eq.read().getJSONArray("levels").getInt(0));
+            try {
+                eq.configure(false,"stale",centers,headphones,"headphones");
+                fail("Routing changed while editing the headphones.");
+            } catch (IllegalArgumentException expected) {}
+            eq.route("headphones","Headphones");
+            assertEquals("Headphones",eq.read().getString("preset"));
+            assertEquals(0,eq.read().getJSONArray("levels").getInt(0));
+            eq.assign("headphones",false);
+            assertEquals(gain,eq.read().getJSONArray("levels").getInt(0));
             assertFalse(eq.configure(false, "", centers, levels).getBoolean("enabled"));
         } finally {
             eq.release();

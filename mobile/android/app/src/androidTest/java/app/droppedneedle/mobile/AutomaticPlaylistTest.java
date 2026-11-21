@@ -141,4 +141,33 @@ public final class AutomaticPlaylistTest {
         store.configure(next.put("offlineOnly", false));
         assertTrue(plan(second, new JSONArray().put("excluded"), false).isEmpty());
     }
+    @Test public void pinnedUnionAndExplicitLastRemovalKeepManualAndOtherAccounts() throws Exception {
+        configure(store, first);
+        assertEquals("original",store.downloadQuality().format);
+        assertEquals("playlist",store.effectivePins().getJSONObject(0).getString("kind"));
+        save(store,"manual",OfflineStore.DOWNLOAD,null);
+        save(store,"shared",OfflineStore.AUTOMATIC,first);
+        save(store,"obsolete",OfflineStore.AUTOMATIC,first);
+        configure(other,first);
+        save(other,"obsolete",OfflineStore.AUTOMATIC,first);
+        JSONArray pins = new JSONArray().put(new JSONObject().put("kind","artist").put("name","One").put("id","one"))
+                .put(new JSONObject().put("kind","playlist").put("name","Two").put("id","two"));
+        JSONObject options = store.options().put("autoDownload","off").put("offlinePins",pins)
+                .put("downloadQuality",new JSONObject().put("format","opus").put("rate",96));
+        store.configure(options);
+        assertEquals(2,store.effectivePins().length());
+        long generation = store.autoGeneration();
+        store.prunePinned(generation,"shared"::equals);
+        assertTrue(store.hasAudio("shared") && store.hasAudio("manual") && other.hasAudio("obsolete"));
+        assertFalse(store.hasAudio("obsolete"));
+        try (OfflineStore.Capture saving = store.begin(track("pending"),OfflineStore.AUTOMATIC,OfflinePins.SOURCE,AUDIO.length)) {
+            saving.write(AUDIO,0,AUDIO.length);
+            store.configure(options.put("offlinePins",new JSONArray()),true);
+            assertThrows(IOException.class,saving::finish);
+        }
+        assertFalse(store.hasAudio("shared") || store.hasAudio("pending"));
+        assertTrue(store.hasAudio("manual"));
+        assertEquals("opus",store.downloadQuality().format);
+    }
+
 }
