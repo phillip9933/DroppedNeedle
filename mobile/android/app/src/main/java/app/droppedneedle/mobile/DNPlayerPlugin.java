@@ -177,6 +177,7 @@ public final class DNPlayerPlugin extends Plugin {
     }
 
     @PluginMethod public void getState(PluginCall call) { execute(call, p -> call.resolve(p.snapshot())); }
+    @PluginMethod public void signalPath(PluginCall call) { execute(call, p -> call.resolve(p.signalPath())); }
 
     @PluginMethod public void waveform(PluginCall call) {
         execute(call, p -> p.readWaveform(call.getString("trackId", ""), call.getString("request", ""), call::resolve));

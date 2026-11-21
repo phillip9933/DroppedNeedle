@@ -76,6 +76,40 @@ final class PlaybackEqualizer {
         }
         route(id, name.isEmpty() ? "Audio output" : name);
     }
+
+    void describeOutput(JSObject result) {
+        // Asking for the signal path must never attach an effect or change playback.
+        if (effect == null) result.put("equalizer", false);
+        else try {
+            if (effect.hasControl()) result.put("equalizer", effect.getEnabled());
+        } catch (RuntimeException unavailable) { /* The audio session may have already closed. */ }
+        AudioTrack track = routeTrack;
+        if (track == null || track.getState() == AudioTrack.STATE_UNINITIALIZED) return;
+        try {
+            AudioDeviceInfo device = track.getRoutedDevice();
+            if (device == null) return;
+            int rate = track.getSampleRate();
+            if (rate > 0) result.put("outputRate", rate);
+            String name = device.getProductName() == null ? "" : device.getProductName().toString();
+            if (!name.isEmpty()) result.put("destination", name);
+            switch (device.getType()) {
+                case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: result.put("route", "speaker"); break;
+                case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE: result.put("route", "earpiece"); break;
+                case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+                case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: result.put("route", "wired"); break;
+                case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+                case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+                case AudioDeviceInfo.TYPE_BLE_HEADSET:
+                case AudioDeviceInfo.TYPE_BLE_SPEAKER: result.put("route", "bluetooth"); break;
+                case AudioDeviceInfo.TYPE_USB_DEVICE:
+                case AudioDeviceInfo.TYPE_USB_ACCESSORY:
+                case AudioDeviceInfo.TYPE_USB_HEADSET: result.put("route", "usb"); break;
+                case AudioDeviceInfo.TYPE_HDMI:
+                case AudioDeviceInfo.TYPE_HDMI_ARC:
+                case AudioDeviceInfo.TYPE_HDMI_EARC: result.put("route", "hdmi"); break;
+            }
+        } catch (RuntimeException unavailable) { /* Device was detached between the two reads. */ }
+    }
     void route(String id, String name) {
         if (id.equals(outputId))
             return;

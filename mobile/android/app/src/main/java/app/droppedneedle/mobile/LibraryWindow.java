@@ -28,7 +28,8 @@ final class LibraryWindow {
             {"replaygain_track_gain", "replayGainTrackDb"}, {"replaygain_album_gain", "replayGainAlbumDb"},
             {"replaygain_track_peak", "replayGainTrackPeak"}, {"replaygain_album_peak", "replayGainAlbumPeak"},
             {"genre", "genre"}, {"year", "year"}, {"track_number", "trackNumber"}, {"disc_number", "discNumber"},
-            {"date_added", "dateAdded"}, {"format", "format"}, {"favorite", "favorite"}};
+            {"date_added", "dateAdded"}, {"format", "format"}, {"favorite", "favorite"},
+            {"sample_rate", "sourceSampleRate"}, {"bit_depth", "sourceBitDepth"}, {"bit_rate", "sourceBitrate"}};
 
     final JSONObject filters;
     final String after;

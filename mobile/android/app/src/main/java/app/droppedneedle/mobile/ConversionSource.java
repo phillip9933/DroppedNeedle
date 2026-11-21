@@ -1,6 +1,7 @@
 package app.droppedneedle.mobile;
 
 import android.net.Uri;
+import com.getcapacitor.JSObject;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.DataReader;
@@ -26,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.WeakHashMap;
 import org.json.JSONObject;
 
 /** DN live conversions restart at a time. Direct responses and offline files use Media3's normal byte seeking. */
@@ -35,11 +37,17 @@ final class ConversionSource implements MediaSource.Factory {
         DataSource create(Timeline timeline);
     }
     private final Streams streams;
+    private final Map<Object, Timeline> timelines = new WeakHashMap<>();
     private DrmSessionManagerProvider drm;
     private LoadErrorHandlingPolicy policy;
 
     ConversionSource(Streams streams) {
         this.streams = streams;
+    }
+    @Nullable
+    synchronized JSObject delivery(Object occurrence) {
+        Timeline timeline = timelines.get(occurrence);
+        return timeline == null ? null : timeline.delivery;
     }
 
     @Override
@@ -47,6 +55,7 @@ final class ConversionSource implements MediaSource.Factory {
         Object tag = item.localConfiguration.tag;
         double seconds = tag instanceof JSONObject ? ((JSONObject) tag).optDouble("duration", 0) : 0;
         Timeline timeline = new Timeline(seconds > 0 ? Math.round(seconds * 1_000_000) : C.TIME_UNSET);
+        if (tag != null) synchronized (this) { timelines.put(tag, timeline); }
         ProgressiveMediaSource.Factory factory = new ProgressiveMediaSource.Factory(
                 () -> streams.create(timeline), playerId -> new Reader(timeline));
         if (drm != null)
@@ -72,6 +81,7 @@ final class ConversionSource implements MediaSource.Factory {
 
     /** A byte address identifies both a new conversion and the bytes consumed on a subsequent read retry. */
     static final class Timeline implements SeekMap {
+        volatile JSObject delivery;
         // The gateway can never serve a local audio file at this offset (one exbibyte).
         private static final long FIRST_SEGMENT = 1L << 60;
         private static final long BLOCK = 1L << 40;

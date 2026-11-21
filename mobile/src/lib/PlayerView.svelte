@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { uiText, uiFormat, tr } from './i18n';
+
 	import {
 		ListMusic,
+		ListPlus,
 		EllipsisVertical,
 		MicVocal,
 		Info,
@@ -22,6 +25,9 @@
 	import PlayerSheet from './player/PlayerSheet.svelte';
 	import PlayerProgress from './player/PlayerProgress.svelte';
 	import PlayerQuality from './player/PlayerQuality.svelte';
+	import SignalPath from './player/SignalPath.svelte';
+	import AutoplaySuggestions from './player/AutoplaySuggestions.svelte';
+
 	import EqualizerSettings from './player/EqualizerSettings.svelte';
 	import SoundSettings from './player/SoundSettings.svelte';
 	import type { Snippet } from 'svelte';
@@ -40,7 +46,7 @@
 		trackToolFields,
 		usesFieldCaption
 	} from './player/layout';
-	import { player, queueOrder, type PlayerTrack } from './player';
+	import { player, queueOrder, supportsUpNext, type PlayerTrack } from './player';
 	import ReorderList from './controls/ReorderList.svelte';
 	import { defaultMiniPlayer, readMiniPlayer, type MiniButton } from './appearance/interface';
 	import { swipeTracks } from './player/swipeTracks';
@@ -137,7 +143,9 @@
 		};
 	});
 	let pending = $state(false);
-	let sheet = $state<'more' | 'details' | 'equalizer' | 'lyrics' | null>(null);
+	let sheet = $state<'more' | 'details' | 'equalizer' | 'lyrics' | 'signal' | 'suggestions' | null>(
+		null
+	);
 	let sheetTrigger: HTMLElement | undefined;
 	function openSheet(name: Exclude<typeof sheet, null>) {
 		if (editor) return;
@@ -163,6 +171,10 @@
 	}
 	let preview = $state<number | null>(null);
 	const track = $derived($store.tracks[$store.index]);
+	const upNext = $derived(new Set($store.upNext ?? []));
+	const canShuffle = $derived(
+		$store.shuffled || $store.tracks.length - $store.index - 1 - upNext.size >= 2
+	);
 	const duration = $derived($store.duration || track?.duration || 0);
 	const art = $derived(
 		track?.artworkUrl?.startsWith(session.serverUrl + '/')
@@ -193,6 +205,11 @@
 	);
 	const swipeAction = $derived(editor ? undefined : skip);
 	const queueOffset = $derived(libraryWindow?.offset ?? 0);
+	const queueNumbers = $derived.by(() => {
+		const extras = new Set(libraryWindow?.extras);
+		let position = queueOffset;
+		return $store.tracks.map((_, index) => (extras.has(index) ? '+' : String(++position)));
+	});
 	const shuffleLabel = $derived(
 		$store.shuffled
 			? 'Restore original order'
@@ -207,7 +224,7 @@
 		elapsed: stamp(clock),
 		duration: stamp(duration),
 		remaining: stamp(Math.max(0, duration - clock)),
-		position: String(queueOffset + $store.index + 1),
+		position: queueNumbers[$store.index] ?? '',
 		count: String(libraryWindow?.total ?? $store.tracks.length)
 	});
 	async function edit(call: () => Promise<void>) {
@@ -245,22 +262,22 @@
 {#snippet previous(section?: Section)}
 	<button
 		class="skip player-control"
-		aria-label="Previous track"
+		aria-label={uiText('Previous track')}
 		onclick={() => action(player.previous)}
 	>
-		<PlayerActionFace {section} glyph={SkipBack} size={28} label="Previous" />
+		<PlayerActionFace {section} glyph={SkipBack} size={28} label={uiText('Previous')} />
 	</button>
 {/snippet}
 {#snippet toggle(section?: Section)}
 	<button
 		class="play player-control"
-		aria-label={$store.playing ? 'Pause' : 'Play'}
+		aria-label={$store.playing ? uiText('Pause') : uiText('Play')}
 		onclick={() => action(player.toggle)}
 	>
 		<PlayerActionFace
 			{section}
 			glyph={$store.playing ? Pause : Play}
-			label={$store.playing ? 'Pause' : 'Play'}
+			label={$store.playing ? uiText('Pause') : uiText('Play')}
 			size={36}
 			fill
 			playback={$store.playing ? 'pause' : 'play'}
@@ -270,11 +287,11 @@
 {#snippet nextTrack(section?: Section)}
 	<button
 		class="skip player-control"
-		aria-label="Next track"
+		aria-label={uiText('Next track')}
 		disabled={!canGoNext}
 		onclick={() => action(player.next)}
 	>
-		<PlayerActionFace {section} glyph={SkipForward} size={28} label="Next" />
+		<PlayerActionFace {section} glyph={SkipForward} size={28} label={uiText('Next')} />
 	</button>
 {/snippet}
 {#snippet repeat(label: boolean, section?: Section)}
@@ -296,16 +313,16 @@
 {#snippet shuffle(label: boolean, section?: Section)}
 	<button
 		class="repeat player-control"
-		aria-label={shuffleLabel}
+		aria-label={uiText(shuffleLabel)}
 		aria-pressed={$store.shuffled}
-		disabled={(!$store.shuffled && $store.tracks.length - $store.index <= 2) || pending}
+		disabled={!canShuffle || pending}
 		onclick={() => edit(player.shuffleUpcoming)}
 	>
 		<PlayerActionFace
 			{section}
 			glyph={Shuffle}
 			size={18}
-			label={shuffleLabel}
+			label={uiText(shuffleLabel)}
 			defaultLabel={label}
 		/>
 	</button>
@@ -315,21 +332,21 @@
 		<button
 			class="mini-control"
 			data-mini-action="queue"
-			aria-label="Open play queue"
+			aria-label={uiText('Open play queue')}
 			onclick={ontogglequeue}
 		>
-			<PlayerActionFace glyph={ListMusic} label="Queue" />
+			<PlayerActionFace glyph={ListMusic} label={uiText('Queue')} />
 		</button>
 	{:else if button === 'next' || button === 'previous'}
 		<button
 			class="mini-control"
-			aria-label={button === 'next' ? 'Next track' : 'Previous track'}
+			aria-label={button === 'next' ? uiText('Next track') : uiText('Previous track')}
 			disabled={button === 'next' && !canGoNext}
 			onclick={() => skip(button)}
 		>
 			<PlayerActionFace
 				glyph={button === 'next' ? SkipForward : SkipBack}
-				label={button === 'next' ? 'Next' : 'Previous'}
+				label={button === 'next' ? uiText('Next') : uiText('Previous')}
 			/>
 		</button>
 	{/if}
@@ -349,7 +366,7 @@
 					: 'now-playing'}
 		aria-label={previewOnly ? 'Now Playing layout preview' : 'Now playing'}
 	>
-		{#if queueOpen && track}<h1 class="queue-heading">Play queue</h1>{/if}
+		{#if queueOpen && track}<h1 class="queue-heading">{uiText('Play queue')}</h1>{/if}
 		<div class="player-frame" use:fitPlayer={!queueOpen && !!track}>
 			<div
 				class="player-canvas"
@@ -510,11 +527,12 @@
 																		{session}
 																		trackId={track.id}
 																		position={$store.position}
+																		playing={$store.playing}
 																		onseek={(p) => action(() => player.seek(p))}
 																	/>
 																{:else if editor}<img
 																		class="sample-art"
-																		alt="Album artwork"
+																		alt={uiText('Album artwork')}
 																		src={sampleArt}
 																	/>
 																{:else}<Cover
@@ -528,7 +546,9 @@
 																<h1 class="lines">
 																	{#if editor}{track.title}{:else}<button
 																			class="credit-link"
-																			aria-label={'Track details for ' + track.title}
+																			aria-label={uiFormat('Track details for {song}', {
+																				song: track.title
+																			})}
 																			onclick={() => openSheet('details')}>{track.title}</button
 																		>{/if}
 																</h1>
@@ -618,11 +638,14 @@
 																	)}
 																{:else}{@render shuffle(false, section)}{/if}
 															</div>
-														{:else if section.id === 'player-quality'}<PlayerQuality
-																{track}
-																quality={$store.quality}
-																sample={!!editor}
-															/>
+														{:else if section.id === 'player-quality'}
+															{#if editor}<PlayerQuality {track} sample />
+															{:else}<button
+																	class="signal-button"
+																	aria-label={tr('Open signal path', '信号経路を開く')}
+																	onclick={() => openSheet('signal')}
+																	><PlayerQuality {track} quality={$store.quality} /></button
+																>{/if}
 														{:else if trackToolFields.some((f) => f.id === section.id)}{#key section.id + track.id}<TrackTools
 																	{section}
 																	{session}
@@ -636,13 +659,13 @@
 														{:else if section.id === 'player-lyrics'}<div class="field-controls">
 																<button
 																	class="icon-button player-action player-control"
-																	aria-label="Lyrics"
+																	aria-label={uiText('Lyrics')}
 																	aria-pressed={artworkLyrics || sheet === 'lyrics'}
 																	onclick={() => toggleLyrics(section)}
 																	><PlayerActionFace
 																		{section}
 																		glyph={MicVocal}
-																		label="Lyrics"
+																		label={uiText('Lyrics')}
 																	/></button
 																>
 															</div>
@@ -650,12 +673,12 @@
 																<button
 																	class="icon-button player-action player-control"
 																	aria-haspopup="dialog"
-																	aria-label="More actions"
+																	aria-label={uiText('More actions')}
 																	onclick={() => openSheet('more')}
 																	><PlayerActionFace
 																		{section}
 																		glyph={EllipsisVertical}
-																		label="More actions"
+																		label={uiText('More actions')}
 																	/></button
 																>
 															</div>
@@ -685,8 +708,8 @@
 																		</button>
 																	{:else}<p>
 																			{libraryWindow?.more
-																				? 'Loading upcoming tracks…'
-																				: 'End of the queue.'}
+																				? uiText('Loading upcoming tracks…')
+																				: uiText('End of the queue.')}
 																		</p>{/each}
 																{/if}
 															</div>
@@ -723,34 +746,44 @@
 			<div role="status">
 				<p>{libraryWindow.problem}</p>
 				<button class="secondary" onclick={() => action(player.retryLibraryWindow)}
-					>Retry library queue</button
+					>{uiText('Retry library queue')}</button
 				>
 			</div>
 		{/if}
 
 		{#if queueOpen && track}
 			<div class="queue-tools">
+				{#if supportsUpNext && $store.autoplay !== undefined}
+					<button class="text-button" onclick={() => openSheet('suggestions')}
+						>{tr('Similar tracks', '似た曲')}</button
+					>
+				{/if}
 				{#if !rows[0].some((s) => s.id === 'player-sleep')}<SleepTimer
 						queueControl
 						timer={$store.sleepTimer}
 					/>{/if}
 				<button
 					class="secondary player-control"
-					aria-label={shuffleLabel}
+					aria-label={uiText(shuffleLabel)}
 					aria-pressed={$store.shuffled}
-					disabled={(!$store.shuffled && $store.tracks.length - $store.index <= 2) || pending}
+					disabled={!canShuffle || pending}
 					onclick={() => edit(player.shuffleUpcoming)}
-					><PlayerActionFace glyph={Shuffle} size={19} label={shuffleLabel} defaultLabel /></button
+					><PlayerActionFace
+						glyph={Shuffle}
+						size={19}
+						label={uiText(shuffleLabel)}
+						defaultLabel
+					/></button
 				>
 				<button class="text-button" aria-pressed={editing} onclick={() => (editing = !editing)}
-					>{editing ? 'Done' : 'Edit queue'}</button
+					>{editing ? uiText('Done') : uiText('Edit queue')}</button
 				>
 			</div>
 			{#if $store.autoplayProblem}
 				<div role="status">
 					<p>{$store.autoplayProblem}</p>
 					<button class="text-button" onclick={() => action(player.retryAutoplay)}
-						>Retry similar music</button
+						>{uiText('Retry similar music')}</button
 					>
 				</div>
 			{/if}
@@ -761,23 +794,27 @@
 								type="checkbox"
 								checked={$store.autoplay}
 								onchange={(event) => action(() => player.setAutoplay(event.currentTarget.checked))}
-							/> Autoplay similar library music</label
+							/>
+							{uiText('Autoplay similar library music')}</label
 						>
 					{/if}
 					{#if $store.hasPreviousQueue}
 						<button
 							class="text-button"
 							disabled={pending}
-							onclick={() => edit(player.restorePreviousQueue)}>Restore previous queue</button
+							onclick={() => edit(player.restorePreviousQueue)}
+							>{uiText('Restore previous queue')}</button
 						>
 					{/if}
 					<button class="text-button" onclick={() => (saveQueue = [...$store.tracks])}
-						>{libraryWindow ? 'Save loaded tracks to playlist' : 'Save queue to playlist'}</button
+						>{libraryWindow
+							? uiText('Save loaded tracks to playlist')
+							: uiText('Save queue to playlist')}</button
 					>
 					<button
 						class="text-button"
 						disabled={pending || ($store.index + 1 >= $store.tracks.length && !libraryWindow?.more)}
-						onclick={() => edit(player.clearUpcoming)}>Clear upcoming</button
+						onclick={() => edit(player.clearUpcoming)}>{uiText('Clear upcoming')}</button
 					>
 				</div>{/if}
 			<div
@@ -790,10 +827,16 @@
 			>
 				{#if libraryWindow}
 					<p>
-						Tracks {queueOffset + 1}–{libraryWindow.loaded} of {libraryWindow.total.toLocaleString()}
+						{uiText('Tracks')}
+						{queueOffset + 1}–{libraryWindow.loaded}
+						{uiText('of')}
+						{libraryWindow.total.toLocaleString()}
 					</p>
 					{#if editing}<p>
-							Editing this queue keeps the {$store.tracks.length} tracks shown here.
+							{tr(
+								`Removing or reordering original tracks keeps only the ${$store.tracks.length} tracks shown here.`,
+								`元の曲を削除・並べ替えると、表示中の ${$store.tracks.length} 曲だけがキューに残ります。`
+							)}
 						</p>{/if}
 				{/if}
 				<ReorderList
@@ -806,22 +849,39 @@
 						<ol>
 							{#each $store.tracks as item, i (item.id + ':' + i)}
 								<li data-reorder-row={i}>
+									{#if upNext.size && i > $store.index && (i === $store.index + 1 || upNext.has(i) !== upNext.has(i - 1))}
+										<h3 class="queue-group-heading">
+											{upNext.has(i)
+												? tr('Up Next', '次の再生リスト')
+												: tr('Continue original queue', '元のキューの続き')}
+										</h3>
+									{/if}
 									<button
 										class:current={i === $store.index}
 										aria-current={i === $store.index ? 'true' : undefined}
 										onclick={() => action(() => player.skipTo(i))}
 									>
 										{#if i === $store.index}<AudioLines size={18} />{:else}<span
-												>{queueOffset + i + 1}</span
+												>{queueNumbers[i]}</span
 											>{/if}
 										<span><strong>{item.title}</strong><small>{item.artist}</small></span>
 									</button>
 									{#if editing}
 										<div class="edit-tools">
+											{#if supportsUpNext && i > $store.index && !upNext.has(i)}
+												<button
+													disabled={pending}
+													aria-label={tr('Add to Up Next', '次の再生リストに追加') +
+														' · ' +
+														item.title}
+													onclick={() => edit(() => player.prioritize(i, queueOrder($store)))}
+													><ListPlus size={18} /></button
+												>
+											{/if}
 											{@render grip(i, item.title, pending)}
 											<button
 												disabled={pending}
-												aria-label={'Remove ' + item.title + ' from queue'}
+												aria-label={uiFormat('Remove {song} from queue', { song: item.title })}
 												onclick={() => edit(() => player.remove(i))}><Minus size={18} /></button
 											>
 										</div>
@@ -833,8 +893,8 @@
 				</ReorderList>
 			</div>
 		{:else if !track}
-			<h1>Nothing playing</h1>
-			<button class="secondary" onclick={oncollapse}>Browse music</button>
+			<h1>{uiText('Nothing playing')}</h1>
+			<button class="secondary" onclick={oncollapse}>{uiText('Browse music')}</button>
 		{/if}
 
 		{#if $store.error}<p role="alert">{$store.error}</p>{/if}
@@ -842,12 +902,16 @@
 	{#if sheet && track && !editor}
 		<PlayerSheet
 			title={sheet === 'more'
-				? 'More actions'
+				? uiText('More actions')
 				: sheet === 'details'
-					? 'Track details'
+					? uiText('Track details')
 					: sheet === 'lyrics'
-						? 'Lyrics'
-						: 'Equalizer'}
+						? uiText('Lyrics')
+						: sheet === 'suggestions'
+							? tr('Similar tracks', '似た曲')
+							: sheet === 'signal'
+								? tr('Signal path', '信号経路')
+								: uiText('Equalizer')}
 			fullScreen={sheet === 'lyrics'}
 			onclose={() => (sheet = null)}
 		>
@@ -855,7 +919,17 @@
 					{session}
 					trackId={track.id}
 					position={$store.position}
+					playing={$store.playing}
 					onseek={(p) => action(() => player.seek(p))}
+				/>
+			{:else if sheet === 'suggestions'}{#key session.serverUrl + ':' + (session.userId ?? '') + ':' + track.id}<AutoplaySuggestions
+						{session}
+						tracks={$store.tracks}
+					/>{/key}
+			{:else if sheet === 'signal'}<SignalPath
+					{track}
+					quality={$store.quality}
+					delivery={$store.delivery}
 				/>
 			{:else if sheet === 'equalizer'}<EqualizerSettings />
 			{:else if sheet === 'details'}{#key track.id}<TrackTools
@@ -864,6 +938,7 @@
 						mode="details"
 						artwork={art}
 						playback={$store.quality}
+						onsignal={() => openSheet('signal')}
 						{duration}
 						fields={[]}
 					/>{/key}
@@ -877,29 +952,34 @@
 							fields={['player-favorite', 'player-playlist', 'player-download', 'player-rating']}
 						/>{/key}
 					<button class="sheet-action" onclick={() => openSheet('details')}
-						><Info />Track details</button
+						><Info />{uiText('Track details')}</button
+					>
+					<button class="sheet-action" onclick={() => openSheet('signal')}
+						><AudioLines />{tr('Signal path', '信号経路')}</button
 					>
 					{#if track.artist && oncredit}<button
 							class="sheet-action"
 							onclick={(e) => visitCredit('artist', e.currentTarget)}
-							><UserRound />Go to artist</button
+							><UserRound />{uiText('Go to artist')}</button
 						>{/if}
 					{#if track.album && oncredit}<button
 							class="sheet-action"
-							onclick={(e) => visitCredit('album', e.currentTarget)}><Disc3 />Go to album</button
+							onclick={(e) => visitCredit('album', e.currentTarget)}
+							><Disc3 />{uiText('Go to album')}</button
 						>{/if}
 					<SleepTimer timer={$store.sleepTimer} />
 					{#if Capacitor.getPlatform() !== 'ios'}<SoundSettings speedOnly />{/if}
 					{#if Capacitor.getPlatform() === 'android'}<button
 							class="sheet-action"
-							onclick={() => openSheet('equalizer')}><SlidersHorizontal />Equalizer</button
+							onclick={() => openSheet('equalizer')}
+							><SlidersHorizontal />{uiText('Equalizer')}</button
 						>{/if}
 					{#if onsettings}<button
 							class="sheet-action"
 							onclick={() => {
 								sheet = null;
 								onsettings?.();
-							}}><SlidersHorizontal />Edit player layout</button
+							}}><SlidersHorizontal />{uiText('Edit player layout')}</button
 						>{/if}
 				</div>
 			{/if}
@@ -911,13 +991,13 @@
 			onclose={() => (saveQueue = null)}
 		/>{/if}
 {:else if track}
-	<section data-part="mini-player" class="mini" aria-label="Current track">
+	<section data-part="mini-player" class="mini" aria-label={uiText('Current track')}>
 		<button
 			class="open-mini"
 			use:swipeTracks={swipeAction}
 			data-mini-action="player"
 			onclick={onexpand}
-			aria-label={'Open player for ' + track.title}
+			aria-label={uiFormat('Open player for {song}', { song: track.title })}
 			aria-describedby={secondary ? secondaryId : undefined}
 		>
 			{#if compact.artwork}<span class="mini-art"
@@ -931,19 +1011,19 @@
 		{@render compactButton(compact.before)}
 		<button
 			class="mini-control"
-			aria-label={$store.playing ? 'Pause' : 'Play'}
+			aria-label={$store.playing ? uiText('Pause') : uiText('Play')}
 			onclick={() => action(player.toggle)}
 		>
 			<PlayerActionFace
 				glyph={$store.playing ? Pause : Play}
-				label={$store.playing ? 'Pause' : 'Play'}
+				label={$store.playing ? uiText('Pause') : uiText('Play')}
 			/>
 		</button>
 		{@render compactButton(compact.after)}
 		{#if compact.progress && Number.isFinite(duration) && duration > 0}
 			<progress
 				class="mini-progress"
-				aria-label="Track progress"
+				aria-label={uiText('Track progress')}
 				max={duration}
 				value={clock}
 				aria-valuetext={stamp(clock) + ' of ' + stamp(duration)}
@@ -1453,6 +1533,21 @@
 	}
 	.queue li {
 		border-bottom: 1px solid var(--line);
+		flex-wrap: wrap;
+	}
+	.queue-group-heading {
+		flex-basis: 100%;
+		margin: 0.8rem 0 0;
+		color: var(--accent);
+		font-size: 0.9rem;
+	}
+	.signal-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: inherit;
+		max-width: 100%;
+		min-height: 40px;
+		padding: 0;
 	}
 	.queue li > button {
 		display: flex;

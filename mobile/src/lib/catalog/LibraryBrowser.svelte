@@ -27,7 +27,7 @@
 		X
 	} from '@lucide/svelte';
 	import type { Session } from '../connection';
-	import { player, type PlayerTrack } from '../player';
+	import { player, placementMessage, type PlayerTrack } from '../player';
 	import type { Album, OnPlay } from './catalog';
 	import { errorMessage } from './catalog';
 	import { createPlaylist, type Playlist } from './playlists';
@@ -511,7 +511,7 @@
 			jumpNotice = '';
 		}
 	}
-	type Action = 'open' | 'play' | 'shuffle' | 'next' | 'end' | 'playlist' | 'offline';
+	type Action = 'open' | 'play' | 'shuffle' | 'next' | 'upNext' | 'end' | 'playlist' | 'offline';
 	function open(row: BrowseItem) {
 		context = null;
 		returnItem = row.id;
@@ -614,9 +614,9 @@
 			signal.throwIfAborted();
 			finish?.();
 			if (action === 'play' || action === 'shuffle') await onplay(tracks, 0);
-			else if (action === 'next' || action === 'end') {
+			else if (action === 'next' || action === 'upNext' || action === 'end') {
 				await player.enqueue(tracks, session, action);
-				receipt = action === 'next' ? 'Added to play next.' : 'Added to queue.';
+				receipt = placementMessage(action);
 			} else if (action === 'playlist') addTo = tracks;
 			else if (action === 'offline') {
 				const result = await saveOfflineTracks(

@@ -85,10 +85,11 @@ public final class StreamProfilesTest {
         profiles.set(quality("mp3", 192), quality("opus", 128));
         List<Uri> requests = new CopyOnWriteArrayList<>();
         byte[] bytes = {1, 2, 3, 4};
+        ConversionSource.Timeline timeline = new ConversionSource.Timeline(C.TIME_UNSET);
         OfflineDataSource playing = new OfflineDataSource(null, () -> new ByteArrayDataSource(uri -> {
             requests.add(uri);
             return bytes;
-        }), new ConversionSource.Timeline(C.TIME_UNSET), profiles.track());
+        }), timeline, profiles.track());
         path.set(StreamProfiles.Path.OFFLINE);
         try {
             playing.open(new DataSpec(ONE));
@@ -105,6 +106,12 @@ public final class StreamProfilesTest {
         assertEquals(requests.get(0), requests.get(1));
         assertEquals("opus", requests.get(1).getQueryParameter("format"));
         assertEquals("128", requests.get(1).getQueryParameter("max_bitrate"));
+        assertEquals("network", timeline.delivery.optString("source"));
+        assertEquals("cellular", timeline.delivery.optString("network"));
+        assertEquals("cellular", timeline.delivery.optString("profile"));
+        assertEquals("opus", timeline.delivery.optString("requestedFormat"));
+        assertEquals(128, timeline.delivery.optInt("requestedRate"));
+        assertFalse(timeline.delivery.has("response")); // The fixture supplies no DN response headers.
         assertEquals(TWO, profiles.track().forRequest(TWO));
     }
 

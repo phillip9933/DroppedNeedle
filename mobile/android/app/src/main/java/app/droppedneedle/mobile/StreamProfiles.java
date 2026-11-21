@@ -7,6 +7,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import androidx.annotation.Nullable;
+import com.getcapacitor.JSObject;
 import java.io.IOException;
 import okhttp3.HttpUrl;
 import org.json.JSONException;
@@ -101,23 +102,50 @@ final class StreamProfiles {
     /** Keep one representation for decoder ranges, retries and the renderer's HEAD and GET requests. */
     final class Selection {
         private Uri opened;
+        private Path network;
+        private String profile;
+        private Uri requested;
         synchronized Uri forRequest(Uri address) throws IOException {
             if (opened != null) return opened;
             Path path = connection.read();
+            network = path;
+            requested = address;
             if (path == Path.OFFLINE) throw new IOException("Reconnect to stream this song, or choose a saved download.");
             String stored = key == null ? null : prefs.getString(key, null);
             if (stored == null) return address; // Older saved queues carry their original quality on the URI.
             try {
                 JSONObject pair = new JSONObject(stored);
-                return new Quality(pair.getJSONObject(path == Path.WIFI ? "wifi" : "cellular")).apply(address);
+                profile = path == Path.WIFI ? "wifi" : "cellular";
+                requested = new Quality(pair.getJSONObject(profile)).apply(address);
+                return requested;
             } catch (JSONException damaged) {
                 return ConversionSource.original(address);
             }
         }
         synchronized void opened(Uri representation) { opened = representation; }
+        synchronized void describe(JSObject result) {
+            if (network != null) result.put("network", network.value);
+            if (profile != null) result.put("profile", profile);
+            if (requested == null) return;
+            result.put("requestedFormat", ConversionSource.requested(requested) ? requested.getQueryParameter("format") : "original");
+            String rate = requested.getQueryParameter("max_bitrate");
+            if (rate != null && rate.matches("[0-9]{1,3}")) result.put("requestedRate", Integer.parseInt(rate));
+        }
     }
 
     Selection track() { return new Selection(); }
+
+    static JSObject networkDelivery(@Nullable Selection selection, Uri representation, String ranges, boolean fallback) {
+        JSObject result = new JSObject();
+        result.put("source", "network");
+        if (selection != null) selection.describe(result);
+        if (fallback || !ConversionSource.requested(representation)
+                && ("opus".equals(result.optString("requestedFormat")) || "mp3".equals(result.optString("requestedFormat"))))
+            result.put("response", "fallback");
+        else if (!ConversionSource.requested(representation) || "bytes".equalsIgnoreCase(ranges)) result.put("response", "original");
+        else if ("none".equalsIgnoreCase(ranges)) result.put("response", "converted");
+        return result;
+    }
 
     Runnable watch(Runnable changed) {
         SharedPreferences.OnSharedPreferenceChangeListener listener = (prefs, updated) -> {

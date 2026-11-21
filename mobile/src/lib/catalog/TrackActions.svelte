@@ -3,7 +3,14 @@
 	import { onDestroy } from 'svelte';
 	import { saveOfflineTracks, offlineSupported, offlineInventory } from '../offline/media';
 	import { Ellipsis, EllipsisVertical } from '@lucide/svelte';
-	import { player, type PlayerTrack } from '../player';
+	import {
+		player,
+		placementMessage,
+		supportsUpNext,
+		type PlayerTrack,
+		type QueuePlacement
+	} from '../player';
+	import { tr } from '../i18n';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
 	import AddToPlaylist from './AddToPlaylist.svelte';
@@ -90,13 +97,13 @@
 			busy = false;
 		}
 	}
-	async function enqueue(placement: 'next' | 'end') {
+	async function enqueue(placement: QueuePlacement) {
 		busy = true;
 		error = '';
 		try {
 			await player.enqueue(tracks, session, placement);
 			menu = null;
-			message = placement === 'next' ? 'Added to play next.' : 'Added to queue.';
+			message = placementMessage(placement);
 		} catch (e) {
 			error = errorMessage(e);
 		} finally {
@@ -131,6 +138,9 @@
 					ondone={() => (menu = null)}
 				/>{/if}
 			<button disabled={busy} onclick={() => enqueue('next')}>{uiText('Play next')}</button>
+			{#if supportsUpNext}<button disabled={busy} onclick={() => enqueue('upNext')}
+					>{tr('Add to Up Next', '次の再生リストに追加')}</button
+				>{/if}
 			<button disabled={busy} onclick={() => enqueue('end')}>{uiText('Add to queue')}</button>
 			{#if !localOnly}<button disabled={busy} onclick={() => (menu = 'playlist')}
 					>{uiText('Add to playlist')}</button

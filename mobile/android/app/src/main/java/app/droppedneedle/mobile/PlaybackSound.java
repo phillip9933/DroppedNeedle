@@ -40,6 +40,7 @@ final class PlaybackSound {
     float speed() {
         return speed;
     }
+    String replayGainMode() { return mode; }
 
     JSObject configure(@Nullable Double rate, @Nullable String gainMode) {
         if (rate != null && rate != 0.5 && rate != 0.75 && rate != 1 && rate != 1.25 && rate != 1.5 && rate != 1.75

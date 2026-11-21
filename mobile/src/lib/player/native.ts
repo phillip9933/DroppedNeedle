@@ -1,5 +1,5 @@
 import { registerPlugin } from '@capacitor/core';
-import type { PlaybackBridge, PlayerAccess, PlayerState } from '../player';
+import type { PlaybackBridge, PlaybackDelivery, PlayerAccess, PlayerState } from '../player';
 import type { Network, Profiles, TrackFades } from './streaming';
 import type { SoundSettings } from './sound';
 import type { EqualizerBridge } from './equalizer';
@@ -15,6 +15,17 @@ export type SonosRoom = {
 	volume?: number;
 };
 type OutputState = { destination: string };
+export type SignalOutput = {
+	delivery?: PlaybackDelivery;
+	id?: string;
+	remote?: boolean;
+	destination?: string;
+	route?: 'speaker' | 'earpiece' | 'wired' | 'bluetooth' | 'usb' | 'hdmi';
+	outputRate?: number;
+	equalizer?: boolean;
+	replayGain?: SoundSettings['replayGain'];
+	speed?: number;
+};
 interface OutputBridge {
 	outputState(): Promise<OutputState>;
 	findOutputs(): Promise<{ devices: OutputDevice[] }>;
@@ -35,6 +46,7 @@ export const nativePlayer = registerPlugin<
 		EqualizerBridge &
 		OutputBridge &
 		FadeBridge & {
+			signalPath(): Promise<SignalOutput>;
 			shuffleSelection(options: {
 				serverUrl: string;
 				userId: string;

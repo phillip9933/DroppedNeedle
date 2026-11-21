@@ -151,6 +151,9 @@ export function localSong(t: Schema['TrackView'], artist = '') {
 		discNumber: t.disc_number ?? undefined,
 		dateAdded: t.date_added ?? undefined,
 		format: t.format || undefined,
+		sourceSampleRate: t.sample_rate || undefined,
+		sourceBitDepth: t.bit_depth || undefined,
+		sourceBitrate: t.bit_rate || undefined,
 		favorite: t.favorite
 	};
 }

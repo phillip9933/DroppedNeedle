@@ -116,6 +116,9 @@ public final class PlaybackService extends MediaLibraryService {
     private Runnable stopReadAheadWatch;
     private OkHttpClient playbackHttp;
     private ExoPlayer localPlayback;
+    private ConversionSource audioSource;
+    private Object castOccurrence;
+    private java.util.concurrent.atomic.AtomicReference<JSObject> castDelivery;
     private Runnable stopFadeProfileWatch, stopFadeOfflineWatch;
     private ConnectivityManager connectivity;
     private StreamProfiles.Path playbackNetwork;
@@ -175,7 +178,11 @@ public final class PlaybackService extends MediaLibraryService {
         state.put("index", player.getCurrentMediaItemIndex());
         state.put("position", Math.max(0, player.getCurrentPosition()));
         state.put("repeat", repeatMode());
-        if (pager.attached()) state.put("continuation", pager.saved());
+        state.put("upNext", order.pending(player));
+        if (pager.attached()) {
+            state.put("continuation", pager.saved());
+            state.put("libraryExtras", order.extraIndices(player));
+        }
         if (includeTracks) {
             state.put("tracks", queueTracks());
             if (order.shuffled()) state.put("shuffleOrder", order.save(player));
@@ -207,7 +214,7 @@ public final class PlaybackService extends MediaLibraryService {
                 }).build();
         playbackHttp = http;
         OkHttpDataSource.Factory source = new OkHttpDataSource.Factory(http);
-        ConversionSource audioSource = new ConversionSource(timeline -> {
+        audioSource = new ConversionSource(timeline -> {
             Access current = access;
             DataSource.Factory stream = current == null ? source : new OkHttpDataSource.Factory(http)
                     .setDefaultRequestProperties(Collections.singletonMap("Authorization", "Bearer " + current.token));
@@ -224,6 +231,9 @@ public final class PlaybackService extends MediaLibraryService {
         localPlayback = local;
         player = new RoutedPlayer(this, local, item -> {
             Access owner = access;
+            castOccurrence = trackIdentity(item);
+            java.util.concurrent.atomic.AtomicReference<JSObject> observed = new java.util.concurrent.atomic.AtomicReference<>();
+            castDelivery = observed;
             Uri canonical = item.localConfiguration.uri;
             String url = canonical.toString();
             StreamProfiles.Selection stream = owner == null ? null : owner.profiles.track();
@@ -235,7 +245,16 @@ public final class PlaybackService extends MediaLibraryService {
                 }
                 if (owner.offline != null) {
                     File file = owner.offline.playable(url);
-                    if (file != null) return CastRelay.fromFile(file, CastRelay.audioType(file)).open(range, head);
+                    if (file != null) {
+                        CastRelay.Media media = CastRelay.fromFile(file, CastRelay.audioType(file)).open(range, head);
+                        if (!head && media.status >= 200 && media.status < 300) {
+                            JSObject delivery = new JSObject();
+                            delivery.put("source", owner.offline.playbackOrigin(url, file));
+                            delivery.put("mime", media.mime);
+                            observed.set(delivery);
+                        }
+                        return media;
+                    }
                     if (owner.offline.offlineOnly()) throw new IOException("This song is not saved on this device.");
                 }
                 Uri selected = stream.forRequest(canonical);
@@ -245,7 +264,14 @@ public final class PlaybackService extends MediaLibraryService {
                     selected = ConversionSource.original(canonical);
                     media = CastRelay.fromDn(http, selected.toString(), owner.token).open(range, head);
                 }
-                if (media.status >= 200 && media.status < 300) stream.opened(selected);
+                if (media.status >= 200 && media.status < 300) {
+                    stream.opened(selected);
+                    if (!head) {
+                        JSObject delivery = StreamProfiles.networkDelivery(stream, selected, media.acceptRanges, false);
+                        delivery.put("mime", media.mime);
+                        observed.set(delivery);
+                    }
+                }
                 return media;
             };
         });
@@ -270,7 +296,7 @@ public final class PlaybackService extends MediaLibraryService {
         });
         player.remoteAdvance = item -> sleep.changedTrack(trackIdentity(item), true);
         pager = new LibraryQueuePager(new LibraryQueuePager.Host() {
-            @Override public JSArray tracks() { return queueTracks(); }
+            @Override public JSArray tracks() { return queueTracks(true); }
             @Override public int index() { return player.getCurrentMediaItemIndex(); }
             @Override public int count() { return player.getMediaItemCount(); }
             @Override public boolean active() { return showsPauseControl(); }
@@ -332,6 +358,7 @@ public final class PlaybackService extends MediaLibraryService {
                         Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_REPEAT_MODE_CHANGED,
                         Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) updateReadAhead();
                 sleep.check();
+                if (!changingWindow && events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) order.consume(source);
                 if (pendingCarTrack != null && events.contains(Player.EVENT_TIMELINE_CHANGED)
                         && source.getMediaItemCount() > 0 && pendingCarTrack == trackIdentity(source.getMediaItemAt(0))) {
                     pendingCarTrack = null;
@@ -440,7 +467,7 @@ public final class PlaybackService extends MediaLibraryService {
         cancelHeadset();
         cancelRadio();
         detachWindow();
-        order.clear();
+        order.reset();
         sleep.changedTrack(null);
         remember(next, checked);
         attach(next);
@@ -509,7 +536,7 @@ public final class PlaybackService extends MediaLibraryService {
         try {
             remember(owner, newItems);
             rememberPruned(prefix);
-            if (restart) order.clear();
+            if (restart) order.reset();
             else {
                 order.remove(player, 0, prefix);
                 order.insert(newItems, null);
@@ -551,6 +578,8 @@ public final class PlaybackService extends MediaLibraryService {
         if (queue == null || index < 0 || index >= queue.length()) {
             throw new IllegalArgumentException("Choose a track to play.");
         }
+        if (placement != null && !placement.equals("next") && !placement.equals("upNext") && !placement.equals("end"))
+            throw new IllegalArgumentException("Unknown queue placement.");
         cancelHeadset();
         generation++;
         Access next = new Access(this, address, token, userId);
@@ -566,11 +595,24 @@ public final class PlaybackService extends MediaLibraryService {
         if (window != null && placement != null) throw new IllegalArgumentException("Invalid initial library queue.");
         remember(owner, items);
         if (append) {
-            int at = "next".equals(placement) ? player.getCurrentMediaItemIndex() + 1 : player.getMediaItemCount();
+            int at = order.insertion(player, placement);
             cancelRadio();
-            detachWindow();
-            order.insert(items, "next".equals(placement) ? player.getCurrentMediaItem() : null);
+            boolean priority = !"end".equals(placement);
+            boolean resume = priority && pager.waiting() && at == player.getMediaItemCount();
+            if (!priority) detachWindow();
+            else if (pager.attached()) {
+                if (resume) pager.cancelAdvance();
+                order.markExtras(items);
+            }
+            order.insert(items, priority ? player.getMediaItemAt(at - 1) : null);
+            if (priority) order.mark(items);
             player.addMediaItems(at, items);
+            if (resume) {
+                sleep.changedTrack(trackIdentity(items.get(0)), true);
+                player.seekTo(at, 0);
+                player.prepare();
+                player.play();
+            }
             save(true);
             return;
         }
@@ -578,7 +620,8 @@ public final class PlaybackService extends MediaLibraryService {
                 && java.util.Objects.equals(access.userId, next.userId);
         previousQueue = same && player.getMediaItemCount() > 0 ? archive(true) : null;
         cancelRadio();
-        order.clear();
+        order.reset();
+        if (placement != null && !"end".equals(placement)) order.mark(items.subList(index + 1, items.size()));
         changingWindow = true;
         try {
             int repeat = repeatMode();
@@ -650,7 +693,9 @@ public final class PlaybackService extends MediaLibraryService {
             throw new JSONException("Invalid saved cursor");
         ArrayList<MediaItem> checked = items(next, queue);
         LibraryWindow window;
-        try { window = LibraryWindow.parse(record.optJSONObject("continuation"), checked.size()); }
+        org.json.JSONArray extras = record.optJSONArray("libraryExtras");
+        try { window = LibraryWindow.parse(record.optJSONObject("continuation"),
+                checked.size() - (extras == null ? 0 : extras.length())); }
         catch (JSONException badCursor) { window = null; }
         if (headset && (next.offline.offlineOnly() || StreamProfiles.active(this) == StreamProfiles.Path.OFFLINE)
                 && next.offline.playable(checked.get(index).localConfiguration.uri.toString()) == null)
@@ -660,6 +705,8 @@ public final class PlaybackService extends MediaLibraryService {
         pager.attach(window, next.base, next.apiPath, next.token);
         setRepeat(repeat);
         order.restore(checked,record.optJSONArray("shuffleOrder"));
+        order.restorePending(checked, index, record.optJSONArray("upNext"));
+        order.restoreExtras(checked, window == null ? null : extras);
         heard = record.optJSONArray("heard");
         if (heard == null) heard = new org.json.JSONArray();
         previousQueue = record.optJSONObject("previousQueue");
@@ -936,7 +983,7 @@ public final class PlaybackService extends MediaLibraryService {
             revision = null;
             previousQueue = null;
             heard = new org.json.JSONArray();
-            order.clear();
+            order.reset();
             autoplay = false;
             queueKey = null;
             sleep.cancel();
@@ -962,10 +1009,15 @@ public final class PlaybackService extends MediaLibraryService {
             return persisted;
         }
         if (count == 0) return persisted;
-        boolean edit = "clearUpcoming".equals(action) || "shuffleUpcoming".equals(action)
+        if ("prioritize".equals(action) && (value != item || item <= player.getCurrentMediaItemIndex() || item >= count))
+            throw new IllegalArgumentException("Choose an upcoming track.");
+        boolean edit = "clearUpcoming".equals(action) || "shuffleUpcoming".equals(action) || "prioritize".equals(action)
                 || "move".equals(action) && item >= 0 && item < count && to >= 0 && to < count
                 || "remove".equals(action) && item >= 0 && item < count;
-        if (edit && !"shuffleUpcoming".equals(action)) detachWindow();
+        boolean editsPicks = "remove".equals(action) && item >= 0 && item < count && order.isExtra(player.getMediaItemAt(item))
+                || "move".equals(action) && item >= 0 && item < count && to >= 0 && to < count
+                    && order.isExtra(player.getMediaItemAt(item)) && order.isExtra(player.getMediaItemAt(to));
+        if (edit && !"shuffleUpcoming".equals(action) && !"prioritize".equals(action) && !editsPicks) detachWindow();
         generation++;
         switch (action) {
             case "cycleRepeat":
@@ -987,7 +1039,22 @@ public final class PlaybackService extends MediaLibraryService {
                 } finally { changingWindow = false; }
                 break;
             case "move":
-                if (item >= 0 && item < count && to >= 0 && to < count) { order.clear(); player.moveMediaItem(item, to); }
+                if (item >= 0 && item < count && to >= 0 && to < count) {
+                    order.moving(player, item, to);
+                    order.clear();
+                    player.moveMediaItem(item, to);
+                }
+                break;
+            case "prioritize":
+                int target = order.insertion(player, "upNext");
+                MediaItem entry = player.getMediaItemAt(item);
+                boolean extra = order.isExtra(entry);
+                order.remove(player, item, item + 1);
+                if (item < target) target--;
+                order.insert(Collections.singletonList(entry), player.getMediaItemAt(target > item ? target : target - 1));
+                order.mark(Collections.singletonList(entry));
+                if (extra) order.markExtras(Collections.singletonList(entry));
+                if (item != target) player.moveMediaItem(item, target);
                 break;
             case "remove":
                 if (item >= 0 && item < count) {
@@ -1050,9 +1117,12 @@ public final class PlaybackService extends MediaLibraryService {
                 && player.getPlayerError() == null && player.getPlaybackState() != Player.STATE_ENDED;
     }
 
-    private JSArray queueTracks() {
+    private JSArray queueTracks() { return queueTracks(false); }
+
+    private JSArray queueTracks(boolean libraryOnly) {
         JSArray tracks = new JSArray();
         for (int i = 0; i < player.getMediaItemCount(); i++) {
+            if (libraryOnly && order.isExtra(player.getMediaItemAt(i))) continue;
             MediaItem item = player.getMediaItemAt(i);
             tracks.put(item.localConfiguration.tag);
         }
@@ -1098,6 +1168,24 @@ public final class PlaybackService extends MediaLibraryService {
         return out;
     }
 
+    JSObject signalPath() {
+        JSObject result = new JSObject();
+        MediaItem current = player.getCurrentMediaItem();
+        if (current == null) return result;
+        result.put("id", current.mediaId);
+        if (!player.destination().isEmpty()) {
+            result.put("remote", true);
+            result.put("destination", player.destination());
+            if (castDelivery != null && castOccurrence == trackIdentity(current)) result.put("delivery", castDelivery.get());
+            return result;
+        }
+        equalizer.describeOutput(result);
+        result.put("delivery", audioSource.delivery(trackIdentity(current)));
+        result.put("speed", localPlayback.getPlaybackParameters().speed);
+        result.put("replayGain", sound.replayGainMode());
+        return result;
+    }
+
     JSObject snapshot() {
         sleep.check();
         JSArray tracks = queueTracks();
@@ -1108,7 +1196,12 @@ public final class PlaybackService extends MediaLibraryService {
         if (player.remoteDuration() > 0) duration = player.remoteDuration() / 1000.0;
         JSObject result = new JSObject();
         int repeat = repeatMode();
-        if (pager.attached()) result.put("libraryWindow", pager.status(tracks.length()));
+        if (pager.attached()) {
+            org.json.JSONArray extras = order.extraIndices(player);
+            JSObject window = pager.status(tracks.length() - extras.length());
+            if (extras.length() > 0) window.put("extras", extras);
+            result.put("libraryWindow", window);
+        }
         JSObject timer = new JSObject();
         long remaining = sleep.remaining();
         if (sleep.tracks() > 0) {
@@ -1121,6 +1214,7 @@ public final class PlaybackService extends MediaLibraryService {
         }
         result.put("sleepTimer", timer.length() > 0 ? timer : JSONObject.NULL);
         result.put("quality", currentQuality());
+        result.put("upNext", order.pending(player));
         result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
         result.put("tracks", tracks);
         result.put("shuffled", order.shuffled());

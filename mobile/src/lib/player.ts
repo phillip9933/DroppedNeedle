@@ -5,6 +5,7 @@ import type { LibraryContinuation, LibraryWindowStatus } from './player/libraryW
 import { browserPlayer } from './player/browser';
 import type { EqualizerBridge } from './player/equalizer';
 import { nativePlayer as native } from './player/native';
+import { tr } from './i18n';
 
 export interface PlayerTrack {
 	id: string;
@@ -32,6 +33,9 @@ export interface PlayerTrack {
 	dateAdded?: number;
 	favorite?: boolean;
 	format?: string;
+	sourceSampleRate?: number;
+	sourceBitDepth?: number;
+	sourceBitrate?: number;
 	rating?: number;
 }
 
@@ -41,7 +45,14 @@ export interface PlayerAccess {
 	token: string;
 }
 
-export type QueuePlacement = 'next' | 'end';
+export type QueuePlacement = 'next' | 'upNext' | 'end';
+export const supportsUpNext = Capacitor.getPlatform() !== 'ios';
+export function placementMessage(placement: QueuePlacement) {
+	if (placement === 'upNext') return tr('Added to Up Next.', '次の再生リストに追加しました。');
+	return placement === 'next'
+		? tr('Added to play next.', '次に再生する曲に追加しました。')
+		: tr('Added to queue.', 'キューに追加しました。');
+}
 export type RepeatMode = 'off' | 'all' | 'one';
 
 export type SleepTimerState =
@@ -55,8 +66,18 @@ export type PlaybackFormat = {
 	bitDepth?: number;
 	bitrate?: number;
 };
+export type PlaybackDelivery = {
+	mime?: string;
+	source: 'network' | 'device' | 'cached' | 'downloaded' | 'automatic';
+	network?: 'wifi' | 'cellular' | 'unknown' | 'offline';
+	profile?: 'wifi' | 'cellular';
+	requestedFormat?: string;
+	requestedRate?: number;
+	response?: 'original' | 'fallback' | 'converted';
+};
 
 export interface PlayerState {
+	upNext?: number[];
 	shuffled?: boolean;
 	hasPreviousQueue?: boolean;
 	autoplay?: boolean;
@@ -64,6 +85,7 @@ export interface PlayerState {
 	libraryWindow?: LibraryWindowStatus | null;
 	sleepTimer?: SleepTimerState | null;
 	quality?: PlaybackFormat | null;
+	delivery?: PlaybackDelivery;
 	repeat: RepeatMode;
 	tracks: PlayerTrack[];
 	index: number;
@@ -81,6 +103,7 @@ export type PlayerAction =
 	| 'previous'
 	| 'clear'
 	| 'move'
+	| 'prioritize'
 	| 'remove'
 	| 'clearUpcoming'
 	| 'shuffleUpcoming'
@@ -128,6 +151,7 @@ let sequence = 0,
 const queueEdits = new Set<PlayerAction>([
 	'clear',
 	'move',
+	'prioritize',
 	'remove',
 	'clearUpcoming',
 	'shuffleUpcoming',
@@ -185,15 +209,20 @@ export function queueOrder(state: PlayerState) {
 	]);
 }
 
-async function moveQueueEntry(from: number, to: number, expected?: string) {
-	if (expected === undefined) return command('move', from, to);
+async function editOccurrence(
+	action: 'move' | 'prioritize',
+	from: number,
+	to?: number,
+	expected?: string
+) {
+	if (expected === undefined) return command(action, from, to);
 	let moved = false;
 	await update(async () => {
 		const current = await backend.getState();
 		if (queueOrder(current) !== expected) return current;
 		queueRevision++;
 		window.dispatchEvent(new Event('dn-playback-intent'));
-		const next = await backend.command({ action: 'move', value: from, to });
+		const next = await backend.command({ action, value: from, to });
 		moved = true;
 		return next;
 	});
@@ -297,7 +326,9 @@ export const player = {
 	retryAutoplay: () => command('retryAutoplay'),
 	enqueue: (tracks: PlayerTrack[], access: PlayerAccess, placement: QueuePlacement = 'end') =>
 		submitTracks(tracks, 0, access, placement),
-	move: moveQueueEntry,
+	move: (from: number, to: number, expected?: string) => editOccurrence('move', from, to, expected),
+	prioritize: (index: number, expected?: string) =>
+		editOccurrence('prioritize', index, undefined, expected),
 	remove: (index: number) => command('remove', index),
 	shuffleUpcoming: () => command('shuffleUpcoming'),
 	clearUpcoming: () => command('clearUpcoming'),

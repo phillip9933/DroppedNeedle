@@ -17,6 +17,7 @@ export interface LibraryContinuation {
 	total: number;
 }
 export interface LibraryWindowStatus {
+	extras?: number[];
 	loaded: number;
 	total: number;
 	offset: number;
