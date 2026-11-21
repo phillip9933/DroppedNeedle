@@ -18,7 +18,7 @@ import {
 	startRadioHydration
 } from '$lib/features/player/playback/radioQueueHydrator';
 import { recordingFor } from '$lib/features/player/playback/queueHelpers';
-import type { QueueItem } from '$lib/features/player/playback/types';
+import { localGainTags, type QueueItem } from '$lib/features/player/playback/types';
 import type {
 	RadioPlanRequest,
 	RadioPlanResponse,
@@ -46,6 +46,9 @@ export function planTrackToQueueItem(
 	if (track.in_library && track.local_file_id) {
 		return {
 			trackSourceId: track.local_file_id,
+			localGain: localGainTags(track),
+			localArtistMbid: track.artist_mbid,
+			localReleaseGroupMbid: track.album_mbid ?? undefined,
 			trackName: track.track_name,
 			artistName: track.artist_name,
 			trackNumber: 0,

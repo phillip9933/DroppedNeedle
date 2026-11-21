@@ -51,6 +51,7 @@
 	import ScrobblingDiscoveryCard from '$lib/features/profile/components/ScrobblingDiscoveryCard.svelte';
 	import SpotifyConnectionCard from '$lib/features/profile/components/SpotifyConnectionCard.svelte';
 	import ProfileConnectApps from '$lib/features/profile/components/ProfileConnectApps.svelte';
+	import LinkedPlayers from '$lib/features/player/components/LinkedPlayers.svelte';
 	import '$lib/features/profile/components/profile.css';
 	import SpotifyIcon from '$lib/media/icons/SpotifyIcon.svelte';
 	import JumpTabs, { type JumpSection } from '$lib/ui/JumpTabs.svelte';
@@ -157,6 +158,7 @@
 		return [
 			{ id: 'account', label: 'Account', icon: UserCog },
 			{ id: 'connect-apps', label: 'Connect Apps', icon: Waypoints },
+			{ id: 'player-handoff', label: 'Player handoff', icon: RadioTower },
 			{ id: 'appearance', label: 'Appearance', icon: SunMoon },
 			{ id: 'sessions', label: 'Sessions', icon: KeyRound },
 			{ id: 'connected-services', label: 'Connected Services', icon: Link2 },
@@ -339,6 +341,17 @@
 						{/if}
 					{/snippet}
 					<ProfileConnectApps />
+				</ProfileSection>
+
+				<ProfileSection
+					id="player-handoff"
+					title="Player handoff"
+					icon={RadioTower}
+					blurb="Move your queue between signed-in DN players and control their playback."
+					open={isOpen('player-handoff')}
+					ontoggle={(open) => setOpen('player-handoff', open)}
+				>
+					<LinkedPlayers />
 				</ProfileSection>
 
 				<ProfileSection

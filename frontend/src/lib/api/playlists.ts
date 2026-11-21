@@ -1,6 +1,6 @@
 import { v3 } from '$lib/api/v3/endpoint';
 import { api } from '$lib/api/client';
-import type { QueueItem } from '$lib/features/player/playback/types';
+import type { QueueItem, ReplayGainTags } from '$lib/features/player/playback/types';
 import type { components } from '$lib/api/v3/openapi';
 import { toPageDetail } from '$lib/features/playlists/queries/playlistV3Adapter';
 import { downloadBlob } from '$lib/utils/blobDownload';
@@ -8,9 +8,12 @@ import { downloadBlob } from '$lib/utils/blobDownload';
 type Schemas = components['schemas'];
 
 // The contract's rows with dates as ISO strings and every optional field filled.
-export type PlaylistTrack = Required<Omit<Schemas['PlaylistTrack'], 'created_at'>> & {
-	created_at: string;
-};
+export type PlaylistTrack = Required<
+	Omit<Schemas['PlaylistTrack'], 'created_at' | keyof ReplayGainTags>
+> &
+	ReplayGainTags & {
+		created_at: string;
+	};
 
 export type PlaylistSummary = Required<
 	Omit<Schemas['PlaylistSummary'], 'created_at' | 'updated_at' | 'is_redacted'>

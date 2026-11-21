@@ -106,6 +106,20 @@ describe('a track the browser cannot play', () => {
 		vi.restoreAllMocks();
 	});
 
+	it('accepts a paused handoff at its offset without sounding the first frame', async () => {
+		const { element, loads } = fakeElement(() => true);
+		const play = vi.spyOn(element, 'play');
+		await playerStore.playQueue([item('first', 'alac'), item('second', 'alac')], 1, false, {
+			seconds: 42,
+			playing: false
+		});
+		expect(playerStore.currentIndex).toBe(1);
+		expect(playerStore.progress).toBe(42);
+		expect(playerStore.playbackState).toBe('paused');
+		expect(loads.at(-1)).toBe('/api/v3/stream/local/second?format=flac&start_seconds=42');
+		expect(play).not.toHaveBeenCalled();
+	});
+
 	it('plays a lossless file as FLAC, with its length and seeking', async () => {
 		const { element, loads } = fakeElement(() => true);
 

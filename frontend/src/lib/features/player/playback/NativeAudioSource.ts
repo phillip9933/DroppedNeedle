@@ -196,6 +196,10 @@ export class NativeAudioSource implements PlaybackSource {
 		void this.playWithEngineResume();
 	}
 
+	playConfirmed(): Promise<void> {
+		return this.playWithEngineResume(true);
+	}
+
 	pause(): void {
 		this.audio.pause();
 	}
@@ -310,9 +314,10 @@ export class NativeAudioSource implements PlaybackSource {
 		this.stallTimeoutHandle = null;
 	}
 
-	private async playWithEngineResume(): Promise<void> {
+	private async playWithEngineResume(confirm = false): Promise<void> {
 		try {
-			await resumeAudioEngine();
+			if (confirm) void resumeAudioEngine();
+			else await resumeAudioEngine();
 		} catch {
 			// Keep native playback attempt alive even if Web Audio resume fails.
 		}
@@ -321,7 +326,10 @@ export class NativeAudioSource implements PlaybackSource {
 		} catch (err: unknown) {
 			const name = err instanceof DOMException || err instanceof Error ? err.name : '';
 			// A new load interrupted this play: a seek or a track change, not a failure.
-			if (name === 'AbortError') return;
+			if (name === 'AbortError') {
+				if (confirm) throw err;
+				return;
+			}
 			if (name === 'NotAllowedError') {
 				this.emitError('AUTOPLAY_BLOCKED', 'Playback failed. Browser may be blocking autoplay.');
 			} else {
@@ -331,6 +339,7 @@ export class NativeAudioSource implements PlaybackSource {
 				);
 			}
 			this.emitStateChange('error');
+			if (confirm) throw err;
 		}
 	}
 

@@ -45,6 +45,10 @@ export function privatePlaylistLine(stub: { track_count: number; owner_name?: st
 /** V3 track row to the page track shape. */
 export function toPageTrack(track: PlaylistTrackV3): PlaylistTrack {
 	return {
+		replaygain_track_gain: track.replaygain_track_gain,
+		replaygain_album_gain: track.replaygain_album_gain,
+		replaygain_track_peak: track.replaygain_track_peak,
+		replaygain_album_peak: track.replaygain_album_peak,
 		id: track.id,
 		position: track.position,
 		track_name: track.track_name,

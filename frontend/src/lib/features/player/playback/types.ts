@@ -27,6 +27,28 @@ export type YouTubeTrackLink = {
 };
 
 export type TrackView = components['schemas']['TrackView'];
+export type ReplayGainTags = Pick<
+	TrackView,
+	| 'replaygain_track_gain'
+	| 'replaygain_album_gain'
+	| 'replaygain_track_peak'
+	| 'replaygain_album_peak'
+>;
+export function localGainTags(track: ReplayGainTags): ReplayGainTags | undefined {
+	const {
+		replaygain_track_gain,
+		replaygain_album_gain,
+		replaygain_track_peak,
+		replaygain_album_peak
+	} = track;
+	if (replaygain_track_gain == null && replaygain_album_gain == null) return undefined;
+	return {
+		replaygain_track_gain,
+		replaygain_album_gain,
+		replaygain_track_peak,
+		replaygain_album_peak
+	};
+}
 
 export type PlaybackState =
 	'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'buffering' | 'error';
@@ -46,6 +68,8 @@ export interface PlaybackSource {
 		duration?: number;
 	}): Promise<void>;
 	play(): void;
+	/** Resolves when the browser accepts play, or rejects if a user gesture is required. */
+	playConfirmed?(): Promise<void>;
 	pause(): void;
 	seekTo(seconds: number): void;
 	setVolume(level: number): void;
@@ -90,6 +114,9 @@ export type PlaybackMeta = {
 };
 
 export interface QueueItem {
+	localGain?: ReplayGainTags;
+	localArtistMbid?: string;
+	localReleaseGroupMbid?: string;
 	/** Source-specific item identifier (Jellyfin item ID, local file ID, or YouTube video ID). */
 	trackSourceId: string;
 	trackName: string;

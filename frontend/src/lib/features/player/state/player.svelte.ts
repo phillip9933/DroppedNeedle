@@ -452,7 +452,11 @@ function createPlayerStore() {
 		return { source, loadUrl: url };
 	}
 
-	async function loadQueueItem(index: number, kind: LoadKind = 'fresh'): Promise<void> {
+	async function loadQueueItem(
+		index: number,
+		kind: LoadKind = 'fresh',
+		start?: { seconds: number; playing: boolean }
+	): Promise<void> {
 		const item = queue[index];
 		if (!item) return;
 		const gen = beginLoad(LOAD_PHASE[kind]);
@@ -462,7 +466,7 @@ function createPlayerStore() {
 		const prevProgress = progress,
 			prevItem = currentSource ? (queue[currentIndex] ?? null) : null;
 		// A reload of the same track picks up where the listener was.
-		const resumeAt = kind === 'fresh' ? 0 : prevProgress;
+		const resumeAt = start?.seconds ?? (kind === 'fresh' ? 0 : prevProgress);
 		currentIndex = index;
 		playbackState = 'loading';
 		progress = 0;
@@ -501,7 +505,8 @@ function createPlayerStore() {
 		currentSource = source;
 		nowPlaying = buildNowPlayingMetadata(queue[index] ?? item);
 		persist();
-		subscribeToSource(source, gen);
+		let acceptingTransfer = !!start;
+		subscribeToSource(source, gen, () => acceptingTransfer);
 		source.setVolume(volume);
 		try {
 			const activeItem = queue[index] ?? item;
@@ -511,7 +516,7 @@ function createPlayerStore() {
 				format: activeItem.format
 			});
 			void session.begin(sessionKeyFor(activeItem));
-			if (isCurrent(gen) && activeItem.sourceType !== 'youtube') {
+			if (isCurrent(gen) && !start && activeItem.sourceType !== 'youtube') {
 				source.play();
 			}
 			await loadPromise;
@@ -519,14 +524,30 @@ function createPlayerStore() {
 				source.seekTo(resumeAt);
 				progress = resumeAt;
 			}
-			if (isCurrent(gen) && activeItem.sourceType === 'youtube') {
-				source.play();
+			if (isCurrent(gen)) {
+				if (start?.playing && source.playConfirmed) await source.playConfirmed();
+				else if (start?.playing || (!start && activeItem.sourceType === 'youtube')) source.play();
+				else if (start) {
+					playbackState = 'paused';
+					persist();
+				}
 			}
 		} catch (e) {
+			if (start) {
+				const blocked = e instanceof DOMException && e.name === 'NotAllowedError';
+				if (isCurrent(gen)) playbackState = blocked ? 'paused' : 'error';
+				if (blocked)
+					throw Error('Queue received. Press Play in this browser to start listening.', {
+						cause: e
+					});
+				throw e;
+			}
 			handleTrackError(
 				gen,
 				e instanceof Error ? { code: 'LOAD_ERROR', message: e.message } : undefined
 			);
+		} finally {
+			acceptingTransfer = false;
 		}
 	}
 
@@ -654,7 +675,11 @@ function createPlayerStore() {
 		if (url) void api.head(url).catch(() => {});
 	}
 
-	function subscribeToSource(source: PlaybackSource, gen: number): void {
+	function subscribeToSource(
+		source: PlaybackSource,
+		gen: number,
+		acceptingTransfer?: () => boolean
+	): void {
 		source.onStateChange((state) => {
 			if (!isCurrent(gen)) return;
 			playbackState = state;
@@ -701,6 +726,7 @@ function createPlayerStore() {
 			}
 		});
 		source.onError((error) => {
+			if (acceptingTransfer?.()) return;
 			if (!isCurrent(gen)) return;
 			handleTrackError(gen, error);
 		});
@@ -816,7 +842,12 @@ function createPlayerStore() {
 			persist();
 		},
 
-		playQueue(items: QueueItem[], startIndex: number = 0, shuffle: boolean = false): void {
+		playQueue(
+			items: QueueItem[],
+			startIndex: number = 0,
+			shuffle: boolean = false,
+			start?: { seconds: number; playing: boolean }
+		): void | Promise<void> {
 			if (items.length === 0) return;
 			if (!items.some((item) => item.playlistTrackId?.startsWith('radio:'))) {
 				radioSession.end();
@@ -831,7 +862,8 @@ function createPlayerStore() {
 			unplayable = {};
 			// So the queue can mark what will not play before it is reached.
 			if (items.some(needsConversion)) void readConversion();
-			void loadQueueItem(s.startIndex);
+			const load = loadQueueItem(s.startIndex, 'fresh', start);
+			if (start) return load;
 		},
 
 		nextTrack(): void {

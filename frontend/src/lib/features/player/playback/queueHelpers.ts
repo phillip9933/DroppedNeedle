@@ -8,6 +8,7 @@ import type {
 import type { RemoteTrack } from '$lib/features/remote-library/queries/types';
 import type { PlaylistTrack } from '$lib/api/playlists';
 import { getCoverUrl } from '$lib/utils/errorHandling';
+import { localGainTags } from './types';
 
 /** The key a remote track streams by: Plex streams a media part, the others the item. */
 export function remoteStreamKey(track: RemoteTrack): string | null {
@@ -239,6 +240,7 @@ export function playlistTrackToQueueItem(track: PlaylistTrack): QueueItem | null
 	return {
 		trackSourceId,
 		trackName: track.track_name,
+		localGain: localGainTags(track),
 		artistName: track.artist_name,
 		trackNumber: track.track_number ?? track.position,
 		discNumber: track.disc_number ?? 1,
@@ -261,6 +263,10 @@ export function buildDiscoveryQueueFromLocal(tracks: TrackView[]): QueueItem[] {
 	return tracks.map((t) => ({
 		trackSourceId: t.id,
 		trackName: t.title,
+		localGain: localGainTags(t),
+		localArtistMbid: t.artist_mbid ?? undefined,
+		localReleaseGroupMbid: t.release_group_mbid ?? undefined,
+		recordingIds: recordingFor('local', t.recording_mbid),
 		artistName: t.artist_name,
 		trackNumber: t.track_number,
 		discNumber: normalizeDiscNumber(t.disc_number),

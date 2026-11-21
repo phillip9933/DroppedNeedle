@@ -40,6 +40,8 @@
 	import { playedAlbumHref, playedArtistHref } from '$lib/utils/entityRoutes';
 	import { getLyricsQuery } from '$lib/features/player/queries/lyrics.svelte';
 	import { authStore } from '$lib/stores/authStore.svelte';
+	import { untrack } from 'svelte';
+	import { connectWebDevice } from '../queries/deviceControl';
 	import { navidromeFolderScope } from '$lib/features/remote-library/queries/RemoteQueries.svelte';
 	import {
 		X,
@@ -61,6 +63,10 @@
 		Star
 	} from 'lucide-svelte';
 
+	$effect(() => {
+		const owner = authStore.user?.id;
+		if (owner) return untrack(() => connectWebDevice(owner));
+	});
 	const floor = $derived(skipByRating.floor);
 	const floorLabel = $derived(
 		floor.minStars > 0 ? `Skip by rating: ${floor.minStars} stars and up` : 'Skip by rating'
