@@ -326,6 +326,17 @@ test('the queue editor restores the album order and saves similar music for the 
 	await expect(autoplay).not.toBeChecked();
 	await autoplay.check();
 	await expect(autoplay).toBeChecked();
+	await page.getByRole('button', { name: 'Close player', exact: true }).click();
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	const queueSettings = page.getByRole('button', { name: 'Queue and autoplay', exact: true });
+	await queueSettings.click();
+	await expect(autoplay).toBeChecked();
+	await autoplay.uncheck();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await page.getByRole('searchbox', { name: 'Search settings' }).fill('自動再生');
+	await queueSettings.click();
+	await expect(autoplay).toBeEnabled();
+	await expect(autoplay).not.toBeChecked();
 });
 test('timed lyrics follow playback inside their panel and let listeners read ahead until they resume', async ({
 	page

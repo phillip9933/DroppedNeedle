@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import SoundSettings from './SoundSettings.svelte';
 	import { onMount } from 'svelte';
-	import { player } from '../player';
 	import { Capacitor } from '@capacitor/core';
 	import type { Session } from '../connection';
 	import { errorMessage } from '../catalog/catalog';
@@ -83,22 +82,7 @@
 			saving = false;
 		}
 	}
-	let autoplay = $state(false),
-		autoplayBusy = $state(true),
-		autoplayError = $state('');
-	async function autoplaySetting(enabled?: boolean) {
-		autoplayBusy = true;
-		try {
-			autoplay = (await player.autoplaySetting(session, enabled)).enabled;
-			autoplayError = '';
-		} catch (e) {
-			autoplayError = errorMessage(e);
-		} finally {
-			autoplayBusy = false;
-		}
-	}
 	onMount(() => {
-		if (Capacitor.getPlatform() !== 'ios') void autoplaySetting();
 		profiles = streamProfiles(session);
 		void readConversion();
 		let generation = 0;
@@ -203,29 +187,6 @@
 	{#if Capacitor.getPlatform() !== 'ios'}
 		<h2 id="audio-playback">{uiText('Audio playback')}</h2>
 		<SoundSettings />
-		<h2 id="similar-autoplay">{uiText('Play queue')}</h2>
-		<div
-			class="settings-panel"
-			data-surface="panel"
-			role="group"
-			aria-labelledby="similar-autoplay"
-		>
-			<label class="smart-fades"
-				><input
-					type="checkbox"
-					checked={autoplay}
-					disabled={autoplayBusy}
-					onchange={(e) => void autoplaySetting(e.currentTarget.checked)}
-				/>
-				{uiText('Autoplay similar library music')}</label
-			>
-			<p>
-				{uiText(
-					'When the queue ends, continue with related songs from your DroppedNeedle library.'
-				)}
-			</p>
-			{#if autoplayError}<p role="alert">{autoplayError}</p>{/if}
-		</div>
 	{/if}
 	<h2 id="track-fades-settings">{uiText('Track fades')}</h2>
 	<div
@@ -234,27 +195,12 @@
 		role="group"
 		aria-labelledby="track-fades-settings"
 	>
-		{#each fadeEdges as edge (edge.key)}
-			<label>
-				{uiText(edge.label)}
-				<InlineChoice selected={fades[edge.key]} label={uiText(edge.label)}
-					><select
-						value={fades[edge.key]}
-						disabled={loadingFades || saving}
-						onchange={(e) => fade({ [edge.key]: Number(e.currentTarget.value) })}
-					>
-						{#each fadeLengths as ms (ms)}<option value={ms}
-								>{ms ? ms / 1000 + ' seconds' : uiText('Off')}</option
-							>{/each}
-					</select></InlineChoice
-				>
-			</label>
-		{/each}
-		<label class="smart-fades"
+		<label
 			><input
 				type="checkbox"
 				checked={fades.smart}
 				disabled={loadingFades || saving}
+				aria-describedby="smart-fades-help"
 				onchange={(e) => {
 					const requested = e.currentTarget.checked;
 					e.currentTarget.checked = fades.smart;
@@ -263,11 +209,35 @@
 			/>
 			{uiText('Smart fades')}</label
 		>
-		<p>
+		<p id="smart-fades-help">
 			{uiText(
-				'Overlap quiet endings and intros, or line up a clear, steady beat between tracks. Transitions last up to eight seconds. Consecutive album tracks play through. If analysis is unavailable, your manual fades apply.'
+				'Blend quiet endings and intros or match steady beats for up to eight seconds. Consecutive album tracks and songs with no suitable blend play straight through.'
 			)}
 		</p>
+		<fieldset class="fade-lengths" aria-describedby={fades.smart ? 'fade-lengths-help' : undefined}>
+			<legend>{fades.smart ? uiText('Fallback fades') : uiText('Manual fades')}</legend>
+			{#if fades.smart}<p id="fade-lengths-help">
+					{uiText(
+						'These times apply at the start and end of the queue and whenever the player can’t prepare a smart transition.'
+					)}
+				</p>{/if}
+			{#each fadeEdges as edge (edge.key)}
+				<label>
+					{uiText(edge.label)}
+					<InlineChoice selected={fades[edge.key]} label={uiText(edge.label)}
+						><select
+							value={fades[edge.key]}
+							disabled={loadingFades || saving}
+							onchange={(e) => fade({ [edge.key]: Number(e.currentTarget.value) })}
+						>
+							{#each fadeLengths as ms (ms)}<option value={ms}
+									>{ms ? tr(ms / 1000 + ' seconds', ms / 1000 + ' 秒') : uiText('Off')}</option
+								>{/each}
+						</select></InlineChoice
+					>
+				</label>
+			{/each}
+		</fieldset>
 	</div>
 	{#if fadeError}<p role="alert">{fadeError}</p>{/if}
 </section>
@@ -277,10 +247,21 @@
 		display: grid;
 		gap: 0.35rem;
 	}
-	.smart-fades {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
+	.fade-lengths {
+		display: grid;
+		gap: 0.75rem;
+		min-width: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.fade-lengths legend {
+		float: left;
+		width: 100%;
+		padding: 0.75rem 0 0;
+		border-top: 1px solid var(--line);
+		color: var(--heading);
+		font-weight: 600;
 	}
 	.connection {
 		color: var(--text);
