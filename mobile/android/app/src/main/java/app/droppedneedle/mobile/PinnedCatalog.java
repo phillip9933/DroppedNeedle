@@ -88,7 +88,15 @@ final class PinnedCatalog {
     private void entity(String field, String id) throws IOException, JSONException {
         pages("tracks", new JSONObject().put(field, id).put("sort", "album").put("order", "asc"), 0, this::track);
     }
+    void refreshTracks(JSONObject filters, Set<String> wanted) throws IOException, JSONException {
+        pages("tracks", filters, 0, row -> {
+            if (wanted.remove(id(row))) track(row);
+        }, wanted::isEmpty);
+    }
     private void pages(String group, JSONObject filters, int top, Sink sink) throws IOException, JSONException {
+        pages(group, filters, top, sink, () -> false);
+    }
+    private void pages(String group, JSONObject filters, int top, Sink sink, java.util.function.BooleanSupplier done) throws IOException, JSONException {
         HttpUrl.Builder address =
                 at("library/" + group).addQueryParameter("limit", Integer.toString(top == 0 ? 100 : top));
         for (Iterator<String> keys = filters.keys(); keys.hasNext();) {
@@ -117,6 +125,7 @@ final class PinnedCatalog {
                 sink.row(row);
             }
             seen += items.length();
+            if (done.getAsBoolean()) return;
             if (seen > total)
                 throw incomplete();
             after = page.isNull("next") ? null : required(page, "next");

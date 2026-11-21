@@ -25,6 +25,8 @@ import org.json.JSONObject;
 public final class DNOfflinePlugin extends Plugin {
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final ExecutorService transfers = Executors.newSingleThreadExecutor();
+    private record Reviewed(String owner, String text) {}
+    private volatile Reviewed reviewed;
     private final OkHttpClient http = new OkHttpClient.Builder()
                                               .followRedirects(false)
                                               .followSslRedirects(false)
@@ -53,6 +55,12 @@ public final class DNOfflinePlugin extends Plugin {
         OfflineStore.mediaChanged = changed;
         OfflinePlayHistory.changed = historyChanged;
         ManualDownloads.get(getContext()).changed = manualChanged;
+        storage.execute(() -> {
+            HeadsetAccount account = HeadsetAccount.read(getContext());
+            if (account == null) return;
+            OfflineStore store = OfflineStore.forUser(getContext(),account.server.toString(),account.userId);
+            if (store != null && !store.pendingCompanions().isEmpty()) DownloadCompanionWorker.schedule(getContext(),store);
+        });
     }
 
     private interface Task {
@@ -83,6 +91,65 @@ public final class DNOfflinePlugin extends Plugin {
     public void snapshot(PluginCall call) {
         execute(call, storage, OfflineStore::snapshot);
     }
+    @PluginMethod public void companion(PluginCall call) {
+        execute(call,storage,s -> {
+            String kind = call.getString("kind"), key = call.getString("key");
+            String value = null;
+            if ("artwork".equals(kind)) value = s.companions().cover(OfflineCompanions.coverPath(key));
+            else if ("lyrics".equals(kind) && OfflineStore.validTrackId(key) && s.hasAudio(key))
+                value = s.companions().field(OfflineStore.digest(key),"lyrics");
+            return new JSONObject().put("source",value);
+        });
+    }
+    @PluginMethod public void diagnostics(PluginCall call) {
+        execute(call,storage,s -> {
+            ManualDownloadQueue.Counts counts = ManualDownloads.get(getContext()).counts(s);
+            int history = OfflinePlayHistory.settings(getContext(),s).getInt("pending");
+            String text = s.diagnostics(StreamProfiles.active(getContext()),counts.pending(),counts.failed(),history).toString(2);
+            reviewed = new Reviewed(s.account,text);
+            return new JSONObject().put("text",text);
+        });
+    }
+    private String reviewed(PluginCall call) throws IOException {
+        Reviewed report = reviewed;
+        OfflineStore store = OfflineStore.forUser(getContext(),call.getString("serverUrl"),call.getString("userId"));
+        if (report == null || store == null || !store.account.equals(report.owner()) || !report.text().equals(call.getString("text")))
+            throw new IOException("Review the report again before exporting.");
+        return report.text();
+    }
+    @PluginMethod public void shareDiagnostics(PluginCall call) {
+        main.post(() -> {
+            try {
+                String text = reviewed(call);
+                android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,text);
+                getActivity().startActivity(android.content.Intent.createChooser(share,null));
+                call.resolve();
+            } catch (Exception unavailable) { call.reject("Review the report again or use Save file."); }
+        });
+    }
+    @PluginMethod public void saveDiagnostics(PluginCall call) {
+        main.post(() -> {
+            try {
+                reviewed(call);
+                startActivityForResult(call,DNPlaylistExportPlugin.destination("application/json","droppedneedle-diagnostics.json"),"diagnosticChosen");
+            } catch (Exception unavailable) { call.reject("Review the report and choose a writable destination."); }
+        });
+    }
+    @com.getcapacitor.annotation.ActivityCallback
+    void diagnosticChosen(PluginCall call, androidx.activity.result.ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() == Activity.RESULT_CANCELED) { call.resolve(new JSObject().put("saved",false)); return; }
+        storage.execute(() -> {
+            try {
+                byte[] bytes = reviewed(call).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                android.net.Uri uri = result.getData() == null ? null : result.getData().getData();
+                if (result.getResultCode() != Activity.RESULT_OK) throw new IOException();
+                DNPlaylistExportPlugin.writeDocument(getContext().getContentResolver(),uri,new android.os.CancellationSignal(),out -> out.write(bytes));
+                call.resolve(new JSObject().put("saved",true));
+            } catch (Exception unavailable) { call.reject("The report could not be saved at this location."); }
+        });
+    }
     @PluginMethod
     public void options(PluginCall call) {
         execute(call, storage, s -> { PinnedDownloadWorker.schedule(getContext(),s); return s.options(); });
@@ -111,6 +178,7 @@ public final class DNOfflinePlugin extends Plugin {
             boolean offline = s.offlineOnly(), unmetered = s.unmeteredOnly();
             JSONObject options = s.configure(call.getObject("options"), call.getBoolean("clearUnpinned",false));
             PinnedDownloadWorker.schedule(getContext(),s);
+            if (!s.pendingCompanions().isEmpty()) DownloadCompanionWorker.schedule(getContext(),s);
             if (offline != s.offlineOnly() || unmetered != s.unmeteredOnly()) ManualDownloads.get(getContext()).policyChanged(s);
             return options;
         });
@@ -198,6 +266,21 @@ public final class DNOfflinePlugin extends Plugin {
             return new PinnedDownloads(
                     getContext(), store, owner, http, () -> HeadsetAccount.read(getContext()), () -> false)
                     .sync();
+        });
+    }
+    @PluginMethod public void refreshMetadata(PluginCall call) {
+        execute(call,transfers,store -> {
+            org.json.JSONArray ids = call.getArray("observedIds");
+            java.util.Set<String> observed = new java.util.HashSet<>();
+            if (ids != null) for (int i=0;i<ids.length();i++) {
+                String id = ids.optString(i);
+                if (OfflineStore.validTrackId(id)) observed.add(id);
+            }
+            HeadsetAccount owner = HeadsetAccount.read(getContext());
+            if (owner == null || !store.account.equals(OfflineStore.forUser(getContext(),owner.server.toString(),owner.userId).account))
+                throw new IOException("Reconnect to DN to refresh saved music.");
+            return new PinnedDownloads(getContext(),store,owner,http,() -> HeadsetAccount.read(getContext()),() -> Thread.currentThread().isInterrupted())
+                    .refreshMetadata(observed);
         });
     }
     static final class MissingOriginal extends IOException {

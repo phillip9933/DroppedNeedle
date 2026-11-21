@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { tr, uiText, uiFormat } from '../i18n';
+
 	import InlineChoice from '../controls/InlineChoice.svelte';
+	import AndroidCacheSettings from './AndroidCacheSettings.svelte';
 	import { onMount } from 'svelte';
 	import { online } from 'svelte/reactivity/window';
 	import { rememberedPlaylistNames } from '../catalog/playlistOffline';
@@ -211,9 +214,9 @@
 	});
 </script>
 
-{#if loading}<p role="status">Reading device storage…</p>
+{#if loading}<p role="status">{uiText('Reading device storage…')}</p>
 {:else}
-	<h2 id="offline-playback">Playback</h2>
+	<h2 id="offline-playback">{uiText('Playback')}</h2>
 	<fieldset
 		class="settings-panel"
 		data-surface="panel"
@@ -225,20 +228,22 @@
 				type="checkbox"
 				checked={options.offlineOnly}
 				onchange={(e) => change({ ...options, offlineOnly: e.currentTarget.checked })}
-			/>Play only offline music</label
+			/>{uiText('Play only offline music')}</label
 		>
 		<label
 			><input
 				type="checkbox"
 				checked={options.autoCache}
 				onchange={(e) => change({ ...options, autoCache: e.currentTarget.checked })}
-			/>Cache songs during playback</label
+			/>{uiText('Cache songs during playback')}</label
 		>
 		<p>
-			Completed streams stay available offline. Older cached songs are removed when the cache fills.
+			{uiText(
+				'Completed streams stay available offline. Older cached songs are removed when the cache fills.'
+			)}
 		</p>
 		<label
-			>Playback cache limit<InlineChoice selected={options.cacheMiB}
+			>{uiText('Playback cache limit')}<InlineChoice selected={options.cacheMiB}
 				><select
 					value={options.cacheMiB}
 					onchange={(e) => change({ ...options, cacheMiB: Number(e.currentTarget.value) })}
@@ -253,11 +258,15 @@
 					type="checkbox"
 					checked={options.unmeteredOnly}
 					onchange={(e) => change({ ...options, unmeteredOnly: e.currentTarget.checked })}
-				/>Download and cache only on unmetered networks</label
+				/>{tr(
+					'Use only unmetered networks for downloads and played-song caching',
+					'ダウンロードと再生済み曲のキャッシュには非従量制回線のみを使用'
+				)}</label
 			>{/if}
 	</fieldset>
 	{#if nativeOffline}
-		<h2 id="download-quality">Download quality</h2>
+		<AndroidCacheSettings {session} {options} {change} {busy} />
+		<h2 id="download-quality">{uiText('Download quality')}</h2>
 		<fieldset
 			class="settings-panel"
 			data-surface="panel"
@@ -265,7 +274,7 @@
 			disabled={busy}
 		>
 			<label
-				>File format<InlineChoice selected={quality.format}
+				>{uiText('File format')}<InlineChoice selected={quality.format}
 					><select
 						value={quality.format}
 						onchange={(e) =>
@@ -274,14 +283,14 @@
 								downloadQuality: { ...quality, format: e.currentTarget.value as Format }
 							})}
 					>
-						<option value="original">Original file</option><option value="mp3">MP3</option><option
-							value="opus">Opus</option
-						>
+						<option value="original">{uiText('Original file')}</option><option value="mp3"
+							>MP3</option
+						><option value="opus">Opus</option>
 					</select></InlineChoice
 				></label
 			>
 			{#if quality.format !== 'original'}<label
-					>Download bitrate<InlineChoice selected={quality.rate}
+					>{uiText('Download bitrate')}<InlineChoice selected={quality.rate}
 						><select
 							value={quality.rate}
 							onchange={(e) =>
@@ -295,16 +304,18 @@
 					></label
 				>{/if}
 			<p>
-				Applies to new manual and automatic downloads.
-				{#if conversion === 'off'}This DN server has conversion turned off. Downloads use the
-					original file.
-				{:else if conversion === 'unavailable'}This DN server reports that ffmpeg is unavailable.
-					Downloads use the original file.
-				{:else}DN serves the original file when conversion is unavailable.{/if}
+				{uiText('Applies to new manual and automatic downloads.')}
+				{#if conversion === 'off'}{uiText(
+						'This DN server has conversion turned off. Downloads use the original file.'
+					)}
+				{:else if conversion === 'unavailable'}{uiText(
+						'This DN server reports that ffmpeg is unavailable. Downloads use the original file.'
+					)}
+				{:else}{uiText('DN serves the original file when conversion is unavailable.')}{/if}
 			</p>
 		</fieldset>
 	{/if}
-	<h2 id="auto-download-options">Automatic downloads</h2>
+	<h2 id="auto-download-options">{uiText('Automatic downloads')}</h2>
 	<fieldset
 		class="settings-panel"
 		data-surface="panel"
@@ -321,21 +332,22 @@
 			{#if syncIssue}<p role="status">{syncIssue}</p>{/if}
 		{:else}
 			<label
-				>Download source<InlineChoice selected={showPicker ? 'playlist' : options.autoDownload}
+				>{uiText('Download source')}<InlineChoice
+					selected={showPicker ? 'playlist' : options.autoDownload}
 					><select
 						value={showPicker ? 'playlist' : options.autoDownload}
 						onchange={(e) => chooseSource(e.currentTarget.value)}
 					>
-						<option value="off">Off</option>
-						<option value="recent">Recently added songs</option>
-						<option value="favorites">Favorite songs</option>
-						<option value="playlist">DN playlist</option>
+						<option value="off">{uiText('Off')}</option>
+						<option value="recent">{uiText('Recently added songs')}</option>
+						<option value="favorites">{uiText('Favorite songs')}</option>
+						<option value="playlist">{uiText('DN playlist')}</option>
 					</select></InlineChoice
 				></label
 			>
 			{#if showPicker}
 				<label
-					>DN playlist<InlineChoice selected={selectedId ?? ''}
+					>{uiText('DN playlist')}<InlineChoice selected={selectedId ?? ''}
 						><select
 							value={selectedId ?? ''}
 							onchange={(e) => {
@@ -343,32 +355,39 @@
 								if (source) void change({ ...options, autoDownload: source });
 							}}
 						>
-							<option value="" disabled>Choose a playlist</option>
+							<option value="" disabled>{uiText('Choose a playlist')}</option>
 							{#if selectedId && !choices.some((p) => p.id === selectedId)}<option
-									value={selectedId}>Selected playlist</option
+									value={selectedId}>{uiText('Selected playlist')}</option
 								>{/if}
 							{#each choices as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
 						</select></InlineChoice
 					></label
 				>
 				{#if playlistError}<p role="status">{playlistError}</p>
-					<button class="text-button" onclick={() => listRetry++}>Refresh playlist list</button>
-				{:else if listLoading}<p role="status">Reading playlists…</p>
+					<button class="text-button" onclick={() => listRetry++}
+						>{uiText('Refresh playlist list')}</button
+					>
+				{:else if listLoading}<p role="status">{uiText('Reading playlists…')}</p>
 				{:else if !choices.length}<p>
-						{useNetwork ? 'No DN playlists available.' : 'Reconnect to DN to choose a playlist.'}
+						{useNetwork
+							? uiText('No DN playlists available.')
+							: uiText('Reconnect to DN to choose a playlist.')}
 					</p>{/if}
 				{#if selectedId}
 					{#if syncIssue}<p role="status">{syncIssue}</p>{/if}
 					{#if confirmPlaylist}<p>
-							Turn off automatic downloads and remove all automatic copies for this account?
-							Manually saved songs and the playback cache will stay.
+							{uiText(
+								'Turn off automatic downloads and remove all automatic copies for this account? Manually saved songs and the playback cache will stay.'
+							)}
 						</p>
-						<button class="secondary" onclick={() => (confirmPlaylist = false)}>Cancel</button>
+						<button class="secondary" onclick={() => (confirmPlaylist = false)}
+							>{uiText('Cancel')}</button
+						>
 						<button class="secondary" onclick={clearPlaylist}
-							>Turn off and remove automatic copies</button
+							>{uiText('Turn off and remove automatic copies')}</button
 						>
 					{:else}<button class="text-button" onclick={() => (confirmPlaylist = true)}
-							>Remove automatic playlist downloads</button
+							>{uiText('Remove automatic playlist downloads')}</button
 						>{/if}
 				{/if}
 			{/if}
@@ -376,12 +395,16 @@
 		{#if options.autoDownload !== 'off' || hasPins}
 			{#if !nativeOffline}<p>
 					{selectedId
-						? 'Keep playable songs in playlist order within your download limit. The app checks DN when you return.'
-						: 'Keep up to 25 of the most recently added songs from this source while the app is open.'}
-					Songs you remove stay excluded until you save them yourself.
+						? uiText(
+								'Keep playable songs in playlist order within your download limit. The app checks DN when you return.'
+							)
+						: uiText(
+								'Keep up to 25 of the most recently added songs from this source while the app is open.'
+							)}
+					{uiText('Songs you remove stay excluded until you save them yourself.')}
 				</p>{/if}
 			<label
-				>Automatic download limit<InlineChoice selected={options.downloadMiB}
+				>{uiText('Automatic download limit')}<InlineChoice selected={options.downloadMiB}
 					><select
 						value={options.downloadMiB}
 						onchange={(e) => change({ ...options, downloadMiB: Number(e.currentTarget.value) })}
@@ -393,12 +416,12 @@
 				></label
 			>
 			<button class="secondary" disabled={options.offlineOnly || syncing} onclick={sync}
-				>Update automatic downloads</button
+				>{uiText('Update automatic downloads')}</button
 			>
 		{/if}
 	</fieldset>
 	{#if Capacitor.getPlatform() === 'android'}
-		<h2 id="download-notifications">Download notifications</h2>
+		<h2 id="download-notifications">{uiText('Download notifications')}</h2>
 		<fieldset class="settings-panel" data-surface="panel" aria-labelledby="download-notifications">
 			<DownloadNotifications />
 		</fieldset>
@@ -406,18 +429,18 @@
 	{/if}
 	<ViewedMediaSettings {session} kind="artwork" />
 	<ViewedMediaSettings {session} kind="lyrics" />
-	<h2>On this device</h2>
+	<h2>{uiText('On this device')}</h2>
 	<dl class="settings-facts" data-surface="panel">
 		<div>
-			<dt>Saved downloads</dt>
+			<dt>{uiText('Saved downloads')}</dt>
 			<dd>{storageSize(saved)}</dd>
 		</div>
 		<div>
-			<dt>Automatic downloads</dt>
+			<dt>{uiText('Automatic downloads')}</dt>
 			<dd>{storageSize(automatic)}</dd>
 		</div>
 		<div>
-			<dt>Playback cache</dt>
+			<dt>{uiText('Playback cache')}</dt>
 			<dd>{storageSize(cached)}</dd>
 		</div>
 	</dl>
@@ -425,19 +448,20 @@
 		<button
 			class="secondary"
 			disabled={busy}
-			onclick={() => window.dispatchEvent(new Event('dn-open-offline'))}>Open offline music</button
+			onclick={() => window.dispatchEvent(new Event('dn-open-offline'))}
+			>{uiText('Open offline music')}</button
 		>
 		{#if confirming}<p>
-				Clear {storageSize(cached)} of cached music? Saved downloads will stay on this device.
+				{uiFormat('Clear {size} of cached music? Saved downloads will stay on this device.', {
+					size: storageSize(cached)
+				})}
 			</p>
-			<button class="secondary" onclick={() => (confirming = false)}>Cancel</button><button
-				class="primary"
-				onclick={clear}>Confirm clear cache</button
-			>
+			<button class="secondary" onclick={() => (confirming = false)}>{uiText('Cancel')}</button
+			><button class="primary" onclick={clear}>{uiText('Confirm clear cache')}</button>
 		{:else}<button
 				class="text-button"
 				disabled={busy || !cached}
-				onclick={() => (confirming = true)}>Clear playback cache</button
+				onclick={() => (confirming = true)}>{uiText('Clear playback cache')}</button
 			>{/if}
 	</div>
 {/if}
@@ -447,6 +471,6 @@
 		onclick={() => {
 			error = '';
 			void read();
-		}}>Try again</button
+		}}>{uiText('Try again')}</button
 	>{/if}
 {#if receipt}<p role="status">{receipt}</p>{/if}

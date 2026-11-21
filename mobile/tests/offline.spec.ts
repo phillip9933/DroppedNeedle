@@ -406,7 +406,7 @@ test('saved audio keeps viewed timed lyrics usable after restarting in airplane 
 	expect(reads).toBe(1);
 });
 
-test('Android keeps the legacy source when another collection is pinned and separates download quality', async ({
+test('Android keeps source, quality and read-ahead independent and requires a reviewed diagnostic export', async ({
 	page
 }) => {
 	await fixture(page);
@@ -423,6 +423,10 @@ test('Android keeps the legacy source when another collection is pinned and sepa
 				'snapshot',
 				'configure',
 				'syncCollections',
+				'refreshMetadata',
+				'diagnostics',
+				'shareDiagnostics',
+				'saveDiagnostics',
 				'addListener',
 				'removeListener',
 				'historySettings',
@@ -476,6 +480,12 @@ test('Android keeps the legacy source when another collection is pinned and sepa
 						};
 					}
 					if (plugin === 'DNOffline') {
+						if (method === 'refreshMetadata') return { updated: 4, unavailable: 1 };
+						if (method === 'diagnostics') return { text: '{"cachedTracks":4}' };
+						if (method === 'shareDiagnostics' || method === 'saveDiagnostics') {
+							sessionStorage.setItem(method, String(args.text));
+							return { saved: true };
+						}
 						if (method === 'configure') {
 							settings = args.options as Record<string, unknown>;
 							sessionStorage.setItem('offlineFixtureOptions', JSON.stringify(settings));
@@ -501,6 +511,26 @@ test('Android keeps the legacy source when another collection is pinned and sepa
 	await login(page);
 	await options(page);
 	await expect(page.getByRole('button', { name: 'Unpin Favorite songs' })).toBeVisible();
+	await chooseOption(page.getByRole('combobox', { name: 'Wi-Fi tracks ahead' }), '5');
+	await chooseOption(page.getByRole('combobox', { name: 'Cellular tracks ahead' }), '1');
+	await chooseOption(page.getByRole('combobox', { name: 'Cellular read-ahead speed' }), '128');
+	await expect(
+		page.getByText('Cellular read-ahead uses mobile data', { exact: false })
+	).toBeVisible();
+	await page.getByRole('button', { name: 'Refresh saved music' }).click();
+	await expect(page.getByText('Updated 4 tracks. 1 unavailable on DN.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Share report' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Review report' }).click();
+	await expect(page.locator('pre').filter({ hasText: '"cachedTracks":4' })).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('shareDiagnostics'))).toBeNull();
+	await page.getByRole('button', { name: 'Save file' }).click();
+	expect(await page.evaluate(() => sessionStorage.getItem('saveDiagnostics'))).toBe(
+		'{"cachedTracks":4}'
+	);
+	await page.getByRole('button', { name: 'Share report' }).click();
+	expect(await page.evaluate(() => sessionStorage.getItem('shareDiagnostics'))).toBe(
+		'{"cachedTracks":4}'
+	);
 	await chooseOption(page.getByRole('combobox', { name: 'File format' }), 'opus');
 	await chooseOption(page.getByRole('combobox', { name: 'Download bitrate' }), '96');
 	await page.getByRole('button', { name: 'Pin a collection' }).click();
@@ -512,6 +542,9 @@ test('Android keeps the legacy source when another collection is pinned and sepa
 		JSON.parse(sessionStorage.getItem('offlineFixtureOptions') || '{}')
 	);
 	expect(stored.autoDownload).toBe('off');
+	expect([stored.readAheadWifi, stored.readAheadCellular, stored.readAheadCellularKiBps]).toEqual([
+		5, 1, 128
+	]);
 	expect(stored.downloadQuality).toEqual({ format: 'opus', rate: 96 });
 	expect(stored.offlinePins.map((p: { kind: string }) => p.kind)).toEqual(['favorites', 'artist']);
 	await page.getByRole('button', { name: 'Unpin Favorite songs' }).click();

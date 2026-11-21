@@ -52,6 +52,71 @@ final class PinnedDownloads {
                 || !store.permittedNetwork() || !owner.matches(login.get()))
             throw new IOException("Automatic downloads paused.");
     }
+    private boolean permitted() {
+        return !stopped.getAsBoolean() && generation == store.autoGeneration() && !store.offlineOnly()
+                && store.permittedNetwork() && owner.matches(login.get());
+    }
+    private void companions(JSONObject track, boolean refresh) {
+        OfflineCompanions.prepare(store, owner, track, this::request, this::permitted, refresh);
+    }
+
+    JSONObject refreshMetadata() throws IOException, JSONException {
+        return refreshMetadata(java.util.Collections.emptySet());
+    }
+    JSONObject refreshMetadata(Set<String> observed) throws IOException, JSONException {
+        check();
+        JSONArray saved = store.snapshot().getJSONArray("items");
+        java.util.Map<String,Long> revisions = new java.util.HashMap<>();
+        java.util.Map<String,Set<String>> albums = new java.util.HashMap<>();
+        for (int i=0;i<saved.length();i++) {
+            JSONObject item = saved.getJSONObject(i), track = item.getJSONObject("track");
+            String id = track.getString("id");
+            revisions.put(id,store.itemRevision(id));
+            String album = track.optString("albumId","");
+            if (!album.isEmpty()) albums.computeIfAbsent(album,key -> new HashSet<>()).add(id);
+        }
+        int[] updated = {0};
+        JSONObject confirmed = new JSONObject();
+        Set<String> remaining = new HashSet<>(revisions.keySet());
+        java.util.List<JSONObject> batch = new java.util.ArrayList<>();
+        PinnedCatalog catalog = new PinnedCatalog(owner.server,this::read, track -> {
+            batch.add(track);
+            remaining.remove(track.getString("id"));
+            if (batch.size() == 100) updated[0] += refreshBatch(batch,revisions,observed,confirmed);
+        });
+        // Small collections usually resolve in a handful of album pages. For larger libraries
+        // one paginated pass avoids an individual request for every retained album.
+        if (albums.size() <= 8) for (var album : albums.entrySet()) {
+            catalog.refreshTracks(new JSONObject().put("album_id",album.getKey()),album.getValue());
+        }
+        if (!remaining.isEmpty()) catalog.refreshTracks(new JSONObject(),new HashSet<>(remaining));
+        updated[0] += refreshBatch(batch,revisions,observed,confirmed);
+        return new JSONObject().put("updated",updated[0]).put("unavailable",remaining.size()).put("confirmed",confirmed);
+    }
+    private int refreshBatch(java.util.List<JSONObject> batch, java.util.Map<String,Long> revisions, Set<String> observed, JSONObject confirmed) throws IOException, JSONException {
+        if (batch.isEmpty()) return 0;
+        JSONArray ids = new JSONArray();
+        for (JSONObject track : batch) ids.put(track.getString("id"));
+        JSONObject scores = ratings(ids);
+        int updated = 0;
+        for (JSONObject track : batch) {
+            check();
+            String id = track.getString("id");
+            if (scores != null) track.put("rating",scores.optInt(id,0));
+            if (store.updateMetadata(track,revisions.get(id))) {
+                updated++;
+                if (observed.contains(id)) {
+                    JSONObject facts = new JSONObject();
+                    if (scores != null) facts.put("rating",track.getInt("rating"));
+                    if (track.opt("favorite") instanceof Boolean value) facts.put("favorite",value);
+                    if (facts.length() > 0) confirmed.put(id,facts);
+                }
+                companions(track,true);
+            }
+        }
+        batch.clear();
+        return updated;
+    }
     private Response request(Request request) throws IOException {
         check();
         current = http.newCall(request);
@@ -162,8 +227,6 @@ final class PinnedDownloads {
                         JSONObject track = new JSONObject(rows.getString(0));
                         String id = track.getString("id");
                         long revision = store.itemRevision(id);
-                        if (!store.needsAutomaticCopy(id))
-                            continue;
                         if (rows.getPosition() > ratedThrough) {
                             int position = rows.getPosition();
                             JSONArray ids = new JSONArray();
@@ -176,8 +239,10 @@ final class PinnedDownloads {
                         }
                         if (ratings != null)
                             track.put("rating", ratings.optInt(id, 0));
-                        if (store.keepExisting(id, OfflinePins.SOURCE, track))
+                        if (!store.needsAutomaticCopy(id) || store.keepExisting(id, OfflinePins.SOURCE, track)) {
+                            store.updateMetadata(track, revision);
                             continue;
+                        }
                         try (Response audio = DownloadRepresentation.open(
                                      store.original(id), owner.token, quality.format, quality.rate, this::request)) {
                             String mime = DownloadRepresentation.mime(audio);

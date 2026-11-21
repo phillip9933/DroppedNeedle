@@ -69,6 +69,12 @@ final class TrackWaveform {
             try {
                 job.check();
                 File file = owner.offline == null ? null : owner.offline.artworkSource(stream.toString());
+                String id = file == null ? null : owner.offline.trackId(stream.toString());
+                long revision = id == null ? 0 : owner.offline.itemRevision(id);
+                if (id != null) {
+                    String ready = owner.offline.companions().field(OfflineStore.digest(id), "peaks");
+                    if (ready != null) { values = new JSArray(ready); return; }
+                }
                 if (file == null) {
                     if (!owner.allowsOnlineMedia()) throw new IOException("Not available offline.");
                     temporary = File.createTempFile("dn-wave-", ".audio", directory);
@@ -83,6 +89,8 @@ final class TrackWaveform {
                     file = temporary;
                 }
                 for (float peak : decode(file, seconds, job)) values.put((double) peak);
+                if (id != null && owner.offline.downloadWaveforms() && values.length() == BINS)
+                    owner.offline.putCompanions(id, revision, null, null, null, values.toString());
             } catch (IOException | org.json.JSONException | RuntimeException ignored) {
                 // An unavailable waveform leaves the normal seek control and playback operational.
             } finally {
@@ -129,7 +137,7 @@ final class TrackWaveform {
 
     static float[] decode(File file, double seconds) throws IOException { return decode(file, seconds, new Job("local")); }
 
-    private static float[] decode(File file, double seconds, Job job) throws IOException {
+    static float[] decode(File file, double seconds, Job job) throws IOException {
         MediaExtractor source = new MediaExtractor();
         try {
             source.setDataSource(file.getAbsolutePath());

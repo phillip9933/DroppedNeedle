@@ -2,6 +2,7 @@ import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { DnError, getJson, type Session } from '../connection';
 import { path } from '../catalog/catalog';
 import { preferredOffline } from './media';
+import { companion } from './companions';
 import { cachedValue, storeValue, removeCachedValue } from './viewedMedia';
 
 type Lyrics = components['schemas']['LyricsView'];
@@ -25,9 +26,13 @@ export async function trackLyrics(
 	refresh: boolean
 ) {
 	const stored = await cachedValue(session, 'lyrics', track).catch(() => undefined);
-	const lyrics = readStored(stored?.source);
+	const prepared = stored?.source
+		? undefined
+		: await companion(session, 'lyrics', track).catch(() => undefined);
+	const lyrics = readStored(stored?.source ?? prepared);
 	signal.throwIfAborted();
 	if (!navigator.onLine || (await preferredOffline(session).catch(() => false))) {
+		if (prepared === 'null') return null;
 		if (!lyrics) throw new Error('Lyrics for this track have not been saved on this device.');
 		return lyrics;
 	}

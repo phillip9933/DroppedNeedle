@@ -112,6 +112,8 @@ public final class PlaybackService extends MediaLibraryService {
     private PlaybackFades fades;
     private PlaybackSleepTimer sleep;
     private final TrackWaveform waveforms = new TrackWaveform();
+    private final QueueReadAhead readAhead = new QueueReadAhead();
+    private Runnable stopReadAheadWatch;
     private OkHttpClient playbackHttp;
     private ExoPlayer localPlayback;
     private Runnable stopFadeProfileWatch, stopFadeOfflineWatch;
@@ -123,6 +125,7 @@ public final class PlaybackService extends MediaLibraryService {
         private void networkChanged() {
             main.post(() -> {
                 StreamProfiles.Path now = StreamProfiles.active(PlaybackService.this);
+                updateReadAhead();
                 if (playbackNetwork != now) {
                     playbackNetwork = now;
                     if (now == StreamProfiles.Path.OFFLINE && radio != null) {
@@ -325,6 +328,9 @@ public final class PlaybackService extends MediaLibraryService {
         });
         player.addListener(new Player.Listener() {
             @Override public void onEvents(Player source, Player.Events events) {
+                if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_TIMELINE_CHANGED,
+                        Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_REPEAT_MODE_CHANGED,
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) updateReadAhead();
                 sleep.check();
                 if (pendingCarTrack != null && events.contains(Player.EVENT_TIMELINE_CHANGED)
                         && source.getMediaItemCount() > 0 && pendingCarTrack == trackIdentity(source.getMediaItemAt(0))) {
@@ -607,8 +613,9 @@ public final class PlaybackService extends MediaLibraryService {
         access = next;
         autoplay = autoplaySetting(next.base.toString(), next.userId, null);
         stopFadeWatches();
-        stopFadeProfileWatch = next.profiles.watch(fades::sourceChanged);
+        stopFadeProfileWatch = next.profiles.watch(() -> { fades.sourceChanged(); updateReadAhead(); });
         if (next.offline != null) {
+            stopReadAheadWatch = next.offline.watchReadAhead(this::updateReadAhead);
             boolean[] online = {next.allowsOnlineMedia()};
             stopFadeOfflineWatch = next.offline.watchOfflineMode(() -> {
                 boolean enabled = next.allowsOnlineMedia();
@@ -617,7 +624,12 @@ public final class PlaybackService extends MediaLibraryService {
         }
         fades.sourceChanged();
     }
+    private void updateReadAhead() {
+        if (player != null && playbackHttp != null) readAhead.update(this, access, player, playbackHttp);
+    }
     private void stopFadeWatches() {
+        readAhead.cancel();
+        if (stopReadAheadWatch != null) { stopReadAheadWatch.run(); stopReadAheadWatch = null; }
         if (stopFadeProfileWatch != null) { stopFadeProfileWatch.run(); stopFadeProfileWatch = null; }
         if (stopFadeOfflineWatch != null) { stopFadeOfflineWatch.run(); stopFadeOfflineWatch = null; }
     }
@@ -1125,6 +1137,7 @@ public final class PlaybackService extends MediaLibraryService {
     }
 
     @Override public void onDestroy() {
+        readAhead.close();
         if (connectivity != null) connectivity.unregisterNetworkCallback(playbackConnectivity);
         stopFadeWatches();
         waveforms.close();

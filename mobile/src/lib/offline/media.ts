@@ -1,6 +1,7 @@
 import { rememberPinnedPlaylists } from '../catalog/playlistOffline';
 import { refreshPinRules } from './collectionPins';
 import { Capacitor } from '@capacitor/core';
+import { tr } from '../i18n';
 import { combineSignals } from '../abortSignals';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { DnError, getJson, postJson, type Session } from '../connection';
@@ -133,10 +134,20 @@ export async function saveOfflineTracks(
 		const { saved, queued, alreadyQueued, failed } = result;
 		const count = (n: number) => n.toLocaleString() + (n === 1 ? ' song' : ' songs');
 		const message = [
-			saved && count(saved) + ' saved offline.',
-			queued && count(queued) + ' queued for download.',
-			alreadyQueued && count(alreadyQueued) + ' already in the download queue.',
-			failed && count(failed) + ' could not be saved. ' + result.status.lastError
+			saved && tr(count(saved) + ' saved offline.', saved + ' 曲をオフライン用に保存しました。'),
+			queued &&
+				tr(
+					count(queued) + ' queued for download.',
+					queued + ' 曲をダウンロードキューに追加しました。'
+				),
+			alreadyQueued &&
+				tr(
+					count(alreadyQueued) + ' already in the download queue.',
+					alreadyQueued + ' 曲はすでにダウンロード待ちです。'
+				),
+			failed &&
+				tr(count(failed) + ' could not be saved. ', failed + ' 曲を保存できませんでした。') +
+					result.status.lastError
 		]
 			.filter(Boolean)
 			.join(' ');
@@ -162,7 +173,10 @@ export async function saveOfflineTracks(
 					saved++;
 				} catch (e) {
 					failed++;
-					lastError = e instanceof Error ? e.message : 'Download failed.';
+					lastError =
+						e instanceof Error
+							? e.message
+							: tr('Download failed.', 'ダウンロードできませんでした。');
 				}
 				onprogress?.(saved + failed, unique.length);
 			}
@@ -170,12 +184,19 @@ export async function saveOfflineTracks(
 	} finally {
 		if (--activeBatches === 0) window.dispatchEvent(new Event(mediaChanged));
 	}
-	const success = saved + (saved === 1 ? ' song saved offline.' : ' songs saved offline.');
+	const success = tr(
+		saved + (saved === 1 ? ' song saved offline.' : ' songs saved offline.'),
+		saved + ' 曲をオフライン用に保存しました。'
+	);
 	return {
 		saved,
 		queued: 0,
 		failed,
-		message: failed ? (saved ? success + ' ' : '') + failed + ' failed. ' + lastError : success
+		message: failed
+			? (saved ? success + ' ' : '') +
+				tr(failed + ' failed. ', failed + ' 曲を保存できませんでした。') +
+				lastError
+			: success
 	};
 }
 const syncs = new Map<string, { pending: Promise<number>; abort: AbortController }>();
