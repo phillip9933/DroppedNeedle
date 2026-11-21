@@ -282,6 +282,12 @@ test('a newer rating survives an in-flight PUT and a rejected favorite is retrie
 		.toEqual([2]);
 	await dialog.getByRole('button', { name: 'Rate 4 stars', exact: true }).click();
 	await dialog.getByRole('button', { name: 'Rate 5 stars', exact: true }).click();
+	// Keep the older request in flight until the latest edit reaches the device outbox.
+	await expect
+		.poll(async () =>
+			(await changes(page)).filter((r) => r.field === 'rating').map((r) => [r.value, r.state])
+		)
+		.toEqual([[5, 'pending']]);
 	env.resumeRating();
 	await expect
 		.poll(() => env.writes.filter((r) => r.field === 'rating').map((r) => r.value))
