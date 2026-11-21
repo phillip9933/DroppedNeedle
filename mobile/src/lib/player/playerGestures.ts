@@ -1,80 +1,72 @@
-type Vertical = { up?: () => void; down?: () => void };
-/** Leave sliders, scrollable content and interactive controls to their native gestures. */
-export function playerGestures(node: HTMLElement, actions: Vertical | undefined) {
-	let start: Touch | undefined;
-	let edgeOnly = false;
-	const cleanup = new AbortController();
-	const passive = { passive: true, signal: cleanup.signal };
-	const active = { passive: false, signal: cleanup.signal };
-	const reset = () => {
-		start = undefined;
-		edgeOnly = false;
-	};
-	node.addEventListener(
-		'touchstart',
-		(e) => {
-			reset();
+import {
+	bindVerticalDrag,
+	type PullDirection,
+	type VerticalDragOptions
+} from '../controls/verticalDrag';
+
+export type { PullDirection, PullOrigin } from '../controls/verticalDrag';
+export type PlayerGestureActions = {
+	up?: () => void;
+	down?: () => void;
+	canStart?: VerticalDragOptions['canStart'];
+	start?: VerticalDragOptions['start'];
+	move?: VerticalDragOptions['move'];
+	travel?: VerticalDragOptions['travel'];
+	release?: (direction: PullDirection, committed: boolean, action: () => void) => void;
+};
+
+const reserved =
+	'input,select,textarea,dialog,[contenteditable=true],[role=slider],[data-inline-choice],[data-layout-drag],[data-reorder-grip],[data-selection-group].choosing';
+const dragButtons = [
+	'[data-mini-action="player"]',
+	'[data-panel-layer="player"] .credit-link',
+	'[data-board="home"] [data-widget] > h2 > button',
+	'[data-board="home"] [data-preview-item] > .body',
+	'[data-board="home"] [data-part="album-card"]'
+].join(',');
+
+export function playerGestures(node: HTMLElement, actions: PlayerGestureActions | undefined) {
+	let current: { actions: PlayerGestureActions; navigate: () => void } | undefined;
+	const drag = bindVerticalDrag(node, {
+		canStart(target, direction, origin) {
+			if (!actions || target.closest(reserved)) return false;
+			const scroller = target.closest<HTMLElement>('[data-gesture-scroll]');
+			if (scroller && (!scroller.hasAttribute('data-pull-dismiss') || scroller.scrollTop > 1))
+				return false;
+			const button = target.closest('button,a,summary,[role=button]');
 			if (
-				!actions ||
-				e.touches.length !== 1 ||
-				!(e.target instanceof Element) ||
-				e.target.closest(
-					'input,select,textarea,dialog,[data-inline-choice],[data-layout-drag],[data-reorder-grip]'
-				)
+				button &&
+				!button.matches(dragButtons) &&
+				!(scroller && button.matches('[data-reorder-row] > button'))
 			)
-				return;
-			const scroller = e.target.closest<HTMLElement>('[data-gesture-scroll]');
-			if (scroller) {
-				if (!scroller.hasAttribute('data-pull-dismiss') || scroller.scrollTop > 1) return;
-				edgeOnly = true;
-			} else if (e.target.closest('button,a,summary')) return;
-			start = e.touches[0];
+				return false;
+			const allowed = actions.canStart?.(target, direction, origin) ?? true;
+			if (!allowed) return false;
+			const logical = allowed === true ? direction : allowed;
+			return actions[logical] && (!scroller || logical === 'down') ? logical : false;
 		},
-		passive
-	);
-	function delta(t: Touch) {
-		if (!start || t.identifier !== start.identifier) return 0;
-		const x = Math.abs(t.clientX - start.clientX),
-			y = t.clientY - start.clientY;
-		if (x > 10 && x > Math.abs(y) * 0.85) {
-			reset();
-			return 0;
+		start(direction, target, origin) {
+			const navigate = actions?.[direction];
+			if (!navigate || !actions) return false;
+			const offset = actions.start?.(direction, target, origin);
+			if (offset !== false) current = { actions, navigate };
+			return offset;
+		},
+		travel: (direction) => actions?.travel?.(direction) ?? node.getBoundingClientRect().height,
+		move: (direction, distance) => current?.actions.move?.(direction, distance),
+		release(direction, committed) {
+			const gesture = current;
+			current = undefined;
+			if (gesture?.actions.release) gesture.actions.release(direction, committed, gesture.navigate);
+			else if (committed) gesture?.navigate();
 		}
-		if (edgeOnly && y < -6) reset();
-		return start ? y : 0;
-	}
-	node.addEventListener(
-		'touchmove',
-		(e) => {
-			if (e.touches.length !== 1) return reset();
-			const y = delta(e.touches[0]);
-			if (Math.abs(y) > 12 && (y > 0 ? actions?.down : actions?.up) && e.cancelable)
-				e.preventDefault();
-		},
-		active
-	);
-	node.addEventListener(
-		'touchend',
-		(e) => {
-			const y =
-				e.touches.length === 0 && e.changedTouches.length === 1 ? delta(e.changedTouches[0]) : 0;
-			reset();
-			const action = y >= 56 ? actions?.down : y <= -56 ? actions?.up : undefined;
-			if (!action || e.defaultPrevented) return;
-			if (e.cancelable) e.preventDefault();
-			action();
-		},
-		active
-	);
-	node.addEventListener('touchcancel', reset, passive);
+	});
 	return {
-		update(next: Vertical | undefined) {
-			// Native polls replace track objects while a finger is down. Only a change of screen actions cancels the swipe.
-			if (actions?.up !== next?.up || actions?.down !== next?.down) reset();
+		update(next: PlayerGestureActions | undefined) {
+			// Playback polling can replace callback objects while the same screen is under the finger.
+			if (!next || !!next.up !== !!actions?.up || !!next.down !== !!actions?.down) drag.cancel();
 			actions = next;
 		},
-		destroy() {
-			cleanup.abort();
-		}
+		destroy: drag.destroy
 	};
 }

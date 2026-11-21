@@ -26,7 +26,8 @@
 	} = $props();
 	let dialog: HTMLDialogElement;
 	let closeButton: HTMLButtonElement, heading: HTMLHeadingElement, content: HTMLElement;
-	let outside = false;
+	let pull: ReturnType<typeof pullSheet> | undefined;
+	let backdropPointer: number | undefined;
 	const offsets = new SvelteMap<string, number>();
 	// Returning from a review step restores the previous list position.
 	$effect.pre(() => {
@@ -45,6 +46,9 @@
 		if (dialog?.open && !dialog.contains(document.activeElement))
 			closeButton.focus({ preventScroll: true });
 	});
+	$effect(() => {
+		if (busy) pull?.reset();
+	});
 	function topmost() {
 		return Array.from(document.querySelectorAll('dialog[open]')).at(-1) === dialog;
 	}
@@ -52,7 +56,7 @@
 		if (!topmost()) return;
 		event.preventDefault();
 		event.stopImmediatePropagation();
-		if (!busy) onclose();
+		pull?.close();
 	}
 	function backdrop(event: PointerEvent) {
 		if (event.target !== dialog) return false;
@@ -68,14 +72,18 @@
 		const opener = document.activeElement;
 		dialog.showModal();
 		(scrollKey !== undefined ? heading : closeButton).focus({ preventScroll: true });
+		pull = pullSheet(dialog, { enabled: () => !busy && topmost(), dismiss: () => onclose() });
 		window.addEventListener('dn-back', dismiss, true);
 		return () => {
 			window.removeEventListener('dn-back', dismiss, true);
+			pull?.destroy();
+			pull = undefined;
 			dialog.close();
+			const remaining = Array.from(document.querySelectorAll('dialog[open]')).at(-1);
 			if (
 				opener instanceof HTMLElement &&
 				opener.isConnected &&
-				!document.querySelector('dialog[open]')
+				(!remaining || remaining.contains(opener))
 			)
 				opener.focus({ preventScroll: true });
 		};
@@ -87,14 +95,17 @@
 	class:full={fullScreen}
 	aria-label={title}
 	data-part="player-sheet"
-	use:pullSheet={{ dismiss: onclose, disabled: busy }}
 	oncancel={dismiss}
-	onpointerdown={(e) => (outside = backdrop(e))}
-	onpointerup={(e) => {
-		if (!busy && outside && backdrop(e)) onclose();
-		outside = false;
+	onpointerdown={(e) => {
+		if (e.isPrimary) backdropPointer = e.button === 0 && backdrop(e) ? e.pointerId : undefined;
 	}}
-	onpointercancel={() => (outside = false)}
+	onpointerup={(e) => {
+		if (e.pointerId === backdropPointer && backdrop(e)) pull?.close();
+		if (e.isPrimary) backdropPointer = undefined;
+	}}
+	onpointercancel={(e) => {
+		if (e.isPrimary) backdropPointer = undefined;
+	}}
 >
 	<div class="sheet-heading" data-sheet-handle>
 		<div class="grip" data-sheet-grip><span></span></div>
@@ -108,7 +119,7 @@
 				aria-label={backLabel ?? closeLabel ?? 'Close ' + title}
 				bind:this={closeButton}
 				disabled={busy}
-				onclick={onclose}
+				onclick={() => pull?.close()}
 				>{#if backLabel}<ArrowLeft size={20} />{:else}<X size={20} />{/if}</button
 			>
 		</header>
@@ -122,7 +133,11 @@
 	dialog {
 		box-sizing: border-box;
 		position: fixed;
-		translate: 0 var(--sheet-pull, 0px);
+		--sheet-progress: 0;
+		--sheet-duration: 0ms;
+		--sheet-easing: cubic-bezier(0.2, 0.75, 0.25, 1);
+		transform: translateY(calc(var(--sheet-progress) * 100%));
+		transition: transform var(--sheet-duration) var(--sheet-easing);
 		inset: auto 0 0;
 		width: min(100%, 36rem);
 		max-width: none;
@@ -139,7 +154,7 @@
 	dialog[open] {
 		display: flex;
 		flex-direction: column;
-		animation: sheet-in 160ms ease-out;
+		will-change: transform;
 	}
 	dialog.full {
 		height: calc(100dvh - env(safe-area-inset-top));
@@ -147,10 +162,17 @@
 	}
 	dialog::backdrop {
 		background: color-mix(in srgb, var(--bg) 62%, transparent);
+		opacity: calc(1 - var(--sheet-progress, 0));
+		transition: opacity var(--sheet-duration, 0ms) var(--sheet-easing, ease-out);
 	}
 	.sheet-heading {
 		touch-action: none;
 		flex: none;
+		user-select: none;
+		cursor: grab;
+	}
+	.sheet-heading:active {
+		cursor: grabbing;
 	}
 	.grip {
 		display: grid;
@@ -209,20 +231,5 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-	}
-	@keyframes sheet-in {
-		from {
-			transform: translateY(28%);
-			opacity: 0;
-		}
-		to {
-			transform: translateY(0);
-			opacity: 1;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		dialog[open] {
-			animation: none;
-		}
 	}
 </style>

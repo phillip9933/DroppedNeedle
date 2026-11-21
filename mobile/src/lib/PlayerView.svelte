@@ -19,7 +19,6 @@
 	} from '@lucide/svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { fitPlayer } from './player/fitPlayer';
-	import { playerGestures } from './player/playerGestures';
 	import PlayerSheet from './player/PlayerSheet.svelte';
 	import PlayerProgress from './player/PlayerProgress.svelte';
 	import PlayerQuality from './player/PlayerQuality.svelte';
@@ -61,6 +60,9 @@
 	let {
 		session,
 		expanded,
+		transient = false,
+		artworkLyrics = $bindable(false),
+		editing = $bindable(false),
 		queueOpen = false,
 		ontogglequeue,
 		onsettings,
@@ -72,6 +74,9 @@
 	}: {
 		session: Session;
 		expanded: boolean;
+		transient?: boolean;
+		artworkLyrics?: boolean;
+		editing?: boolean;
 		queueOpen?: boolean;
 		ontogglequeue?: () => void;
 		onsettings?: () => void;
@@ -87,8 +92,7 @@
 			rowControls?: Snippet<[number]>;
 		};
 	} = $props();
-	let editing = $state(false),
-		saveQueue = $state<PlayerTrack[] | null>(null);
+	let saveQueue = $state<PlayerTrack[] | null>(null);
 	let loaded = $state(defaults('player'));
 	// A draft without editing overlays uses the same sample music in a read-only player.
 	const composing = $derived(!!editor?.overlay);
@@ -132,7 +136,6 @@
 	});
 	let pending = $state(false);
 	let sheet = $state<'more' | 'details' | 'equalizer' | 'lyrics' | null>(null);
-	let artworkLyrics = $state(false);
 	let sheetTrigger: HTMLElement | undefined;
 	function openSheet(name: Exclude<typeof sheet, null>) {
 		if (editor) return;
@@ -323,13 +326,13 @@
 		class:sample={composing}
 		class:queue-page={queueOpen}
 		class:empty-player={!track}
-		use:playerGestures={editor
-			? undefined
-			: {
-					down: queueOpen ? ontogglequeue : oncollapse,
-					up: !queueOpen && track ? ontogglequeue : undefined
-				}}
-		data-part={previewOnly ? 'draft-player' : composing ? 'sample-player' : 'now-playing'}
+		data-part={previewOnly
+			? 'draft-player'
+			: composing
+				? 'sample-player'
+				: transient
+					? 'player-preview'
+					: 'now-playing'}
 		aria-label={previewOnly ? 'Now Playing layout preview' : 'Now playing'}
 	>
 		<div class="player-frame" use:fitPlayer={!queueOpen && !!track}>
@@ -862,7 +865,6 @@
 		<button
 			class="open-mini"
 			use:swipeTracks={swipeAction}
-			data-screen-link
 			data-mini-action="player"
 			onclick={onexpand}
 			aria-label={'Open player for ' + track.title}
@@ -954,21 +956,6 @@
 	.performance.queue-page .player-canvas,
 	.performance.empty-player .player-canvas {
 		height: auto;
-	}
-	@keyframes queue-in {
-		from {
-			transform: translateY(2rem);
-			opacity: 0;
-		}
-		to {
-			transform: translateY(0);
-			opacity: 1;
-		}
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.performance.queue-page .queue {
-			animation: queue-in 160ms ease-out;
-		}
 	}
 	.performance.queue-page .queue {
 		min-height: 0;

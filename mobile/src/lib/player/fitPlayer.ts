@@ -2,7 +2,7 @@
 export function fitPlayer(frame: HTMLElement, enabled: boolean) {
 	const canvas = frame.firstElementChild as HTMLElement;
 	const player = frame.parentElement;
-	const viewport = player?.dataset.part === 'now-playing' ? frame.closest('main') : null;
+	const viewport = frame.closest<HTMLElement>('[data-panel-layer]');
 	let scale = 1,
 		scheduled = 0;
 	const observer = new ResizeObserver(() => {
