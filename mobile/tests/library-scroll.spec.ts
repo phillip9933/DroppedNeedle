@@ -282,6 +282,35 @@ test('a long scrolling and selecting session mounts a bounded number of track ro
 	);
 	await info.attach('scroll-profile', { path: output, contentType: 'application/json' });
 });
+test('six album and artist columns fit beside the alphabet on a narrow phone at every theme spacing', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 720 });
+	await connect(page, 180);
+	for (const category of ['Albums', 'Artists']) {
+		await button(page, 'Browse ' + category).tap();
+		await button(page, 'Collection options').tap();
+		await chooseOption(page.getByLabel('Grid columns'), '6');
+		await button(page, 'Collection options').tap();
+		const rail = page.getByRole('slider', { name: 'Jump to letter' });
+		await expect(rail).toBeVisible();
+		for (let spacing = 8; spacing <= 24; spacing++) {
+			await page.evaluate(
+				(n) => document.documentElement.style.setProperty('--gap', n + 'px'),
+				spacing
+			);
+			const first = (await index(page).locator('[data-browse-index="0"] .item').boundingBox())!;
+			const last = (await index(page).locator('[data-browse-index="5"] .item').boundingBox())!;
+			const alphabet = (await rail.boundingBox())!;
+			expect(first.width).toBeGreaterThanOrEqual(44);
+			expect(last.y).toBe(first.y);
+			expect(last.x + last.width).toBeLessThanOrEqual(alphabet.x + 1);
+			expect(alphabet.x + alphabet.width).toBeLessThanOrEqual(320);
+		}
+		await button(page, 'Back to Library').tap();
+	}
+});
+
 test('grid drill-down and Back retain the row, keyboard focus, layout and active filters', async ({
 	page
 }) => {

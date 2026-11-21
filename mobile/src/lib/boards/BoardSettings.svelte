@@ -2,6 +2,7 @@
 	import { uiText } from '../i18n';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
+	import { saveCollectionEdits, type CollectionEdits } from '../catalog/browsePreferences';
 	import {
 		accountId,
 		loadLayout,
@@ -21,6 +22,7 @@
 	let owner = $state(''),
 		sections = $state<Section[]>([]),
 		error = $state('');
+	const listener = $derived(session.userId ? session : { ...session, userId: owner });
 	async function read() {
 		error = '';
 		try {
@@ -41,8 +43,9 @@
 			custom ? { before: filters, after: custom } : undefined
 		);
 	}
-	function save(items: Section[], custom?: FilterSection[]) {
-		persist(items, custom);
+	function save(items: Section[], custom?: FilterSection[], pages?: CollectionEdits) {
+		if (pages) saveCollectionEdits(listener, pages, () => persist(items, custom));
+		else persist(items, custom);
 		onback();
 	}
 	onMount(() => {
@@ -58,5 +61,5 @@
 {:else if board === 'player' && recovery}
 	<PlayerComposer {recovery} {onback} onsave={persist} />
 {:else if board !== 'player' && owner}
-	<LayoutEditor {board} {sections} {filters} {onback} onsave={save} />
+	<LayoutEditor {board} session={listener} {sections} {filters} {onback} onsave={save} />
 {:else}<p role="status">{uiText('Loading layout…')}</p>{/if}
