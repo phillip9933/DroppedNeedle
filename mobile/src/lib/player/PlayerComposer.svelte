@@ -1151,6 +1151,7 @@
 						</button>
 					</div>
 				</div>{/if}{/snippet}
+		<div class="row-shortcuts">{uiText('Edit player rows')}</div>
 		<div class="row-strip" aria-label={uiText('Edit player rows')}>
 			{#each rows as group, r (group[0].id)}{@render rowControls(r)}{/each}
 		</div>
@@ -1639,6 +1640,11 @@
 	}
 	.drop[data-edge='below'] {
 		bottom: 0;
+	}
+	.row-shortcuts {
+		font-size: 0.8rem;
+		color: var(--muted);
+		margin: 0.35rem 0 0.15rem;
 	}
 	.row-strip {
 		display: flex;

@@ -474,7 +474,8 @@ test('current track tools rate, favorite and inspect DN audio and save songs whi
 	);
 	expect(calls.ratings).toEqual({ t0: 4 });
 	expect(calls.favorites).toEqual({ t0: true });
-	await page.getByRole('button', { name: 'Clear rating' }).click();
+	await expect(page.getByRole('button', { name: 'Clear rating' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Rate 4 stars' }).click();
 	await expect.poll(() => calls.ratings.t0).toBe(0);
 	await page.getByRole('button', { name: 'Close More actions' }).click();
 	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();

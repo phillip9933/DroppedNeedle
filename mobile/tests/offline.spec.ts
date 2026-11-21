@@ -406,14 +406,8 @@ test('saved audio keeps viewed timed lyrics usable after restarting in airplane 
 	expect(reads).toBe(1);
 });
 
-test('Android keeps source, quality and read-ahead independent and requires a reviewed diagnostic export', async ({
-	page
-}) => {
-	await fixture(page);
-	await page.route(server + '/api/v3/library/artists**', (route) =>
-		route.fulfill({ json: { items: [{ id: 'north', name: 'North' }], total: 1, next: null } })
-	);
-	await page.addInitScript(() => {
+async function androidBridge(page: Page, pausedTrack = false) {
+	await page.addInitScript((preview) => {
 		const methods: Record<string, string[]> = {
 			App: ['getLaunchUrl', 'addListener', 'removeListener'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
@@ -495,6 +489,28 @@ test('Android keeps source, quality and read-ahead independent and requires a re
 						if (method === 'syncCollections') return { saved: 0 };
 						return settings;
 					}
+					if (plugin === 'DNPlayer' && preview && (method === 'getState' || method === 'restore')) {
+						sessionStorage.setItem(
+							'nativeSnapshots',
+							String(Number(sessionStorage.getItem('nativeSnapshots') || 0) + 1)
+						);
+						return {
+							tracks: [
+								{
+									id: 't0',
+									title: 'Held over',
+									artist: 'North',
+									album: 'Pacific Lines',
+									streamUrl: '/api/v3/stream/local/t0'
+								}
+							],
+							index: 0,
+							playing: false,
+							position: 0,
+							duration: 190,
+							repeat: 'off'
+						};
+					}
 					return {
 						tracks: [],
 						index: -1,
@@ -507,7 +523,17 @@ test('Android keeps source, quality and read-ahead independent and requires a re
 				}
 			}
 		});
-	});
+	}, pausedTrack);
+}
+
+test('Android keeps source, quality and read-ahead independent and requires a reviewed diagnostic export', async ({
+	page
+}) => {
+	await fixture(page);
+	await page.route(server + '/api/v3/library/artists**', (route) =>
+		route.fulfill({ json: { items: [{ id: 'north', name: 'North' }], total: 1, next: null } })
+	);
+	await androidBridge(page);
 	await login(page);
 	await options(page);
 	await expect(page.getByRole('button', { name: 'Unpin Favorite songs' })).toBeVisible();
@@ -551,4 +577,51 @@ test('Android keeps source, quality and read-ahead independent and requires a re
 	await page.getByRole('button', { name: 'Unpin North' }).click();
 	await expect(page.getByRole('button', { name: 'Unpin North' })).toHaveCount(0);
 	expect(await page.evaluate(() => sessionStorage.getItem('offlineFixtureCleanup'))).toBe('true');
+});
+
+test('a paused Android player keeps the same lyrics panel and reading position across native snapshots and refresh', async ({
+	page
+}) => {
+	await fixture(page);
+	await androidBridge(page, true);
+	let reads = 0;
+	let finishRefresh: (() => void) | undefined;
+	await page.route(server + '/api/v3/library/tracks/t0/lyrics', async (route) => {
+		reads++;
+		if (reads === 2)
+			await new Promise<void>((r) => {
+				finishRefresh = r;
+			});
+		await route.fulfill({
+			json: {
+				is_synced: true,
+				lines: Array.from({ length: 100 }, (_, i) => ({ text: 'Lyric ' + i, start_seconds: i }))
+			}
+		});
+	});
+	await login(page);
+	await page.getByRole('button', { name: 'Open player for Held over' }).click();
+	await page.getByRole('button', { name: 'Lyrics', exact: true }).click();
+	const lines = page.getByRole('region', { name: 'Timed lyrics' });
+	await expect(lines).toBeVisible();
+	await lines.hover();
+	await page.mouse.wheel(0, 350);
+	await expect(page.getByRole('button', { name: 'Follow current line' })).toBeVisible();
+	await expect.poll(() => lines.evaluate((el) => el.scrollTop)).toBeGreaterThan(250);
+	const node = await lines.elementHandle();
+	const count = () => page.evaluate(() => Number(sessionStorage.getItem('nativeSnapshots')));
+	const start = await count();
+	await expect.poll(count).toBeGreaterThan(start + 1);
+	await expect(page.getByRole('button', { name: 'Follow current line' })).toBeVisible();
+	expect(await node!.evaluate((el) => el.isConnected && el.scrollTop > 250)).toBe(true);
+	expect(reads).toBe(1);
+	await page.getByRole('button', { name: 'Refresh lyrics' }).click();
+	try {
+		await expect.poll(() => reads).toBe(2);
+		expect(await node!.evaluate((el) => el.isConnected && el.scrollTop > 250)).toBe(true);
+	} finally {
+		finishRefresh?.();
+	}
+	await expect(page.getByRole('button', { name: 'Refresh lyrics' })).toBeEnabled();
+	expect(await node!.evaluate((el) => el.isConnected && el.scrollTop > 250)).toBe(true);
 });
