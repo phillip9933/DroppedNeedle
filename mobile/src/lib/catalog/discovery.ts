@@ -1,6 +1,6 @@
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { getJson, putJson, postJson, type Session } from '../connection';
-import { cover, path, playerTrack, type Album } from './catalog';
+import { radioSong, cover, path, playerTrack, type Album } from './catalog';
 
 type Schema = components['schemas'];
 export type DiscoverArtistRef = { id: string; name: string; localOnly?: boolean };
@@ -311,18 +311,7 @@ export async function libraryRadio(session: Session, seedType: RadioSeed, seedId
 			count: 25
 		} satisfies Schema['RadioPlanRequest']
 	);
-	return plan.tracks.flatMap((track) =>
-		track.in_library && track.local_file_id?.trim()
-			? [
-					playerTrack(
-						track.local_file_id,
-						track.track_name,
-						track.artist_name,
-						track.album_name ?? '',
-						cover(track.album_mbid),
-						track.duration_s
-					)
-				]
-			: []
+	return plan.tracks.flatMap((t) =>
+		t.in_library && t.local_file_id?.trim() ? [radioSong(t, t.local_file_id)] : []
 	);
 }

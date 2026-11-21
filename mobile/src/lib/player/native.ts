@@ -1,13 +1,26 @@
 import { registerPlugin } from '@capacitor/core';
 import type { PlaybackBridge, PlayerAccess, PlayerState } from '../player';
 import type { Network, Profiles, TrackFades } from './streaming';
+import type { SoundSettings } from './sound';
 import type { EqualizerBridge } from './equalizer';
 
-export type OutputDevice = { id: string; name: string };
+export type OutputDevice = { id: string; name: string; sonos?: boolean };
+export type SonosRoom = {
+	id: string;
+	name: string;
+	coordinator?: string;
+	groupName: string;
+	leaders: string[];
+	members: number;
+	volume?: number;
+};
 type OutputState = { destination: string };
 interface OutputBridge {
 	outputState(): Promise<OutputState>;
 	findOutputs(): Promise<{ devices: OutputDevice[] }>;
+	sonosRooms(): Promise<{ rooms: SonosRoom[] }>;
+	setSonosGroup(options: { id: string; coordinator?: string }): Promise<void>;
+	setSonosVolume(options: { id: string; volume: number }): Promise<void>;
 	castTo(options: { id: string }): Promise<OutputState>;
 	googleCast(): Promise<OutputState>;
 	stopCasting(): Promise<OutputState>;
@@ -22,6 +35,7 @@ export const nativePlayer = registerPlugin<
 		EqualizerBridge &
 		OutputBridge &
 		FadeBridge & {
+			soundSettings(options: Partial<SoundSettings>): Promise<SoundSettings>;
 			restore(access: PlayerAccess & { profiles: Profiles }): Promise<PlayerState>;
 			getStreamNetwork(): Promise<{ network: Network }>;
 			setStreamProfiles(

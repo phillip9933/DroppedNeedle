@@ -16,6 +16,7 @@ test.beforeEach(async ({ page }) => {
 			Browser: ['open'],
 			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
 			CapacitorHttp: ['request', 'get'],
+			DNLauncher: ['pinPlaylist', 'takePlaylist'],
 			DNOffline: [
 				'snapshot',
 				'options',
@@ -191,6 +192,21 @@ test.beforeEach(async ({ page }) => {
 						}
 						return;
 					}
+					if (plugin === 'DNLauncher') {
+						if (
+							opts.userId !== 'fixture-id' ||
+							opts.serverUrl !== 'https://library.example/dn' ||
+							'token' in opts
+						)
+							throw Error('Wrong shortcut account');
+						if (method === 'pinPlaylist') {
+							sessionStorage.setItem('pinned', opts.id);
+							return {};
+						}
+						const id = sessionStorage.getItem('shortcut-launch');
+						sessionStorage.removeItem('shortcut-launch');
+						return { id };
+					}
 					if (plugin === 'Browser') {
 						sessionStorage.setItem('browser-url', opts.url);
 						return;
@@ -261,6 +277,28 @@ test.beforeEach(async ({ page }) => {
 							(opts.url.endsWith('/home') || opts.url.endsWith('/discover'))
 						)
 							data = { sections: [] };
+						else if (opts.url.endsWith('/playlists'))
+							data = {
+								playlists: [
+									{
+										id: 'night',
+										name: 'Night drive',
+										cover_urls: [],
+										track_count: 0,
+										is_owner: true
+									}
+								]
+							};
+						else if (opts.url.endsWith('/playlists/night'))
+							data = {
+								id: 'night',
+								name: 'Night drive',
+								cover_urls: [],
+								track_count: 0,
+								is_owner: true,
+								is_redacted: false,
+								tracks: []
+							};
 						else if (opts.url.includes('/library/albums')) data = { items: [], next: null };
 						else throw new Error('Unexpected test request.');
 						return { status: 200, headers: { 'Content-Type': 'application/json' }, data };
@@ -356,6 +394,29 @@ test('a download notification waits for browser sign-in and opens Offline music 
 	await page.evaluate(() => window.dispatchEvent(new Event('dn-download-notification')));
 	await expect(heading('Home')).toBeVisible();
 	expect(await page.evaluate(() => sessionStorage.getItem('notification-opens'))).toBe('3');
+});
+
+test('pinning a playlist opens its detail on cold and warm Android launcher taps', async ({
+	page
+}) => {
+	await page.addInitScript(() => sessionStorage.setItem('reconnected', '1'));
+	await deliverApproval(page);
+	const button = (name: string) => page.getByRole('button', { name, exact: true });
+	await button('Library').click();
+	await button('Browse Playlists').click();
+	await button('More options for Night drive').click();
+	await button('Pin to home screen').click();
+	await expect(page.getByText('Confirm the playlist shortcut in your launcher.')).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('pinned'))).toBe('playlist:night');
+	await page.evaluate(() => sessionStorage.setItem('shortcut-launch', 'playlist:night'));
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'Night drive' })).toBeVisible();
+	await button('Home').click();
+	await page.evaluate(() => {
+		sessionStorage.setItem('shortcut-launch', 'playlist:night');
+		window.dispatchEvent(new Event('dn-playlist-shortcut'));
+	});
+	await expect(page.getByRole('heading', { name: 'Night drive' })).toBeVisible();
 });
 
 test('the chosen start screen works offline and opens a restored song without starting playback', async ({

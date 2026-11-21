@@ -40,6 +40,7 @@ function webPalettes() {
 }
 export default defineConfig({
 	plugins: [svelte()],
+	resolve: { dedupe: ['svelte'] },
 	base: './',
 	define: { __DN_WEB_PALETTES__: JSON.stringify(webPalettes()) },
 	esbuild: { tsconfigRaw: { compilerOptions: { target: 'ES2022' } } }

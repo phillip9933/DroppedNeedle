@@ -218,9 +218,9 @@ export function localBrowse(
 		group.localTracks?.sort(deviceTrackOrder({ ...f, sort: 'album', order: 'asc' }));
 	return sorted([...groups.values()], f);
 }
-export function localPage(items: BrowseItem[], after?: string | null): BrowsePage {
+export function localPage(items: BrowseItem[], after?: string | null, size = 48): BrowsePage {
 	const start = Number(after) || 0,
-		end = start + 48;
+		end = start + size;
 	return {
 		items: items.slice(start, end),
 		total: items.length,
@@ -236,16 +236,17 @@ export async function browsePage(
 	signal: AbortSignal,
 	available?: PlayerTrack[],
 	progress?: (n: number, total: number) => void,
-	snapshot?: BrowseSnapshot
+	snapshot?: BrowseSnapshot,
+	pageSize?: number
 ): Promise<BrowsePage> {
-	if (snapshot?.items) return localPage(snapshot.items, after);
+	if (snapshot?.items) return localPage(snapshot.items, after, pageSize);
 	const present = (all: BrowseItem[]) => {
 		if (snapshot) snapshot.items = all;
-		return localPage(all, after);
+		return localPage(all, after, pageSize);
 	};
 	if (available && category !== 'Playlists')
 		return present(localBrowse(category, available, filters));
-	const params = { ...requestFilters(filters), limit: 30, after: after ?? undefined };
+	const params = { ...requestFilters(filters), limit: pageSize ?? 30, after: after ?? undefined };
 	if (category === 'Albums') {
 		const p = await getJson<Schema['AlbumPage']>(
 			session,

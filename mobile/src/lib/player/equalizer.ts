@@ -17,12 +17,14 @@ export interface EqualizerState {
 	minimum: number;
 	maximum: number;
 	preset: string;
+	output?: { id: string; name: string; assigned: boolean };
 }
 export type EqualizerResult = EqualizerState | { available: false; reason: string };
 export interface EqualizerBridge {
 	getEqualizer(): Promise<EqualizerResult>;
+	setEqualizerOutput(options: { outputId: string; assigned: boolean }): Promise<EqualizerResult>;
 	setEqualizer(
-		value: Pick<EqualizerState, 'enabled' | 'centers' | 'levels' | 'preset'>
+		value: Pick<EqualizerState, 'enabled' | 'centers' | 'levels' | 'preset'> & { outputId?: string }
 	): Promise<EqualizerResult>;
 }
 

@@ -5,6 +5,7 @@
 	import PlayerActionFace from './PlayerActionFace.svelte';
 	import { Cast, ChevronRight, Speaker } from '@lucide/svelte';
 	import ReviewSheet from '../catalog/ReviewSheet.svelte';
+	import SonosControls from './SonosControls.svelte';
 	import { airplay, nativeOutput as player, type OutputDevice } from './native';
 
 	let {
@@ -117,22 +118,23 @@
 						>
 					{/if}
 				</div>
-				{#if !destination}
-					<h3>Other network speakers</h3>
-					<div class="settings-panel" data-surface="panel">
-						<p>Find speakers and TVs that support UPnP or DLNA on this Wi-Fi network.</p>
-						{#each devices as device (device.id)}
+				<h3>Other network speakers</h3>
+				<div class="settings-panel" data-surface="panel">
+					<p>Find speakers and TVs that support UPnP or DLNA on this Wi-Fi network.</p>
+					{#if !destination}{#each devices as device (device.id)}
 							<button class="secondary" disabled={busy} onclick={() => select(device.id)}
 								><Speaker size={18} />{device.name}</button
 							>
-						{/each}
-						{#if searched && devices.length === 0}<p role="status">
-								No compatible receivers found.
-							</p>{/if}
-						<button class="secondary" disabled={busy} onclick={search}
-							>{searched ? 'Search again' : 'Find network speakers'}</button
-						>
-					</div>
+						{/each}{/if}
+					{#if searched && devices.length === 0}<p role="status">
+							No compatible receivers found.
+						</p>{/if}
+					<button class="secondary" disabled={busy} onclick={search}
+						>{searched ? 'Search again' : 'Find network speakers'}</button
+					>
+				</div>
+				{#if devices.some((d) => d.sonos)}{#key devices}<SonosControls />{/key}{/if}
+				{#if !destination}
 					<h3>Cast display</h3>
 					<div class="settings-panel" data-surface="panel">
 						<p>

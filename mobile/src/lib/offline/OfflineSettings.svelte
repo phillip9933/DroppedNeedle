@@ -10,6 +10,8 @@
 	import ViewedMediaSettings from './ViewedMediaSettings.svelte';
 	import AndroidHistorySettings from './AndroidHistorySettings.svelte';
 	import DownloadNotifications from './DownloadNotifications.svelte';
+	import OfflineCollections from './OfflineCollections.svelte';
+	import { conversionState, original, rates, type Format } from '../player/streaming';
 	import {
 		cacheSizes,
 		clearAutomatic,
@@ -42,9 +44,30 @@
 		listRetry = $state(0),
 		listLoading = $state(false);
 	let choices = $state.raw<{ id: string; name: string }[]>([]);
+	const quality = $derived(options.downloadQuality ?? original);
+	const hasPins = $derived((options.offlinePins?.length ?? 0) > 0);
 	const selectedId = $derived(playlistId(options.autoDownload));
 	const showPicker = $derived(picking || selectedId !== null);
 	const useNetwork = $derived(!options.offlineOnly && online.current);
+	let conversion = $state<'on' | 'off' | 'unavailable'>();
+	$effect(() => {
+		const owner = session;
+		if (!nativeOffline || !useNetwork) {
+			conversion = undefined;
+			return;
+		}
+		let current = true;
+		void conversionState(owner)
+			.then((value) => {
+				if (current) conversion = value.conversion;
+			})
+			.catch(() => {
+				if (current) conversion = undefined;
+			});
+		return () => {
+			current = false;
+		};
+	});
 	const canSelect = (p: { id: string }) =>
 		playlistSource(p.id) !== null && !p.id.includes('/') && !p.id.includes('\\');
 	$effect(() => {
@@ -115,7 +138,7 @@
 			loading = false;
 		}
 	}
-	async function change(next: OfflineOptions) {
+	async function change(next: OfflineOptions, clearUnpinned = false) {
 		if (busy) return;
 		busy = true;
 		++syncVisit;
@@ -126,13 +149,19 @@
 		try {
 			const changedSource =
 				options.autoDownload !== next.autoDownload ||
+				JSON.stringify(options.offlinePins) !== JSON.stringify(next.offlinePins) ||
 				options.downloadMiB !== next.downloadMiB ||
 				(options.offlineOnly && !next.offlineOnly) ||
 				(options.unmeteredOnly && !next.unmeteredOnly);
-			await configureOffline(session, next);
+			await configureOffline(session, next, clearUnpinned);
 			await read();
 			busy = false;
-			if (changedSource && next.autoDownload !== 'off' && !next.offlineOnly) await sync();
+			if (
+				changedSource &&
+				(next.autoDownload !== 'off' || next.offlinePins?.length) &&
+				!next.offlineOnly
+			)
+				await sync();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not save this setting.';
 		} finally {
@@ -227,6 +256,54 @@
 				/>Download and cache only on unmetered networks</label
 			>{/if}
 	</fieldset>
+	{#if nativeOffline}
+		<h2 id="download-quality">Download quality</h2>
+		<fieldset
+			class="settings-panel"
+			data-surface="panel"
+			aria-labelledby="download-quality"
+			disabled={busy}
+		>
+			<label
+				>File format<InlineChoice selected={quality.format}
+					><select
+						value={quality.format}
+						onchange={(e) =>
+							change({
+								...options,
+								downloadQuality: { ...quality, format: e.currentTarget.value as Format }
+							})}
+					>
+						<option value="original">Original file</option><option value="mp3">MP3</option><option
+							value="opus">Opus</option
+						>
+					</select></InlineChoice
+				></label
+			>
+			{#if quality.format !== 'original'}<label
+					>Download bitrate<InlineChoice selected={quality.rate}
+						><select
+							value={quality.rate}
+							onchange={(e) =>
+								change({
+									...options,
+									downloadQuality: { ...quality, rate: Number(e.currentTarget.value) }
+								})}
+						>
+							{#each rates as rate (rate)}<option value={rate}>{rate} kbps</option>{/each}
+						</select></InlineChoice
+					></label
+				>{/if}
+			<p>
+				Applies to new manual and automatic downloads.
+				{#if conversion === 'off'}This DN server has conversion turned off. Downloads use the
+					original file.
+				{:else if conversion === 'unavailable'}This DN server reports that ffmpeg is unavailable.
+					Downloads use the original file.
+				{:else}DN serves the original file when conversion is unavailable.{/if}
+			</p>
+		</fieldset>
+	{/if}
 	<h2 id="auto-download-options">Automatic downloads</h2>
 	<fieldset
 		class="settings-panel"
@@ -234,65 +311,75 @@
 		aria-labelledby="auto-download-options"
 		disabled={busy}
 	>
-		<label
-			>Download source<InlineChoice selected={showPicker ? 'playlist' : options.autoDownload}
-				><select
-					value={showPicker ? 'playlist' : options.autoDownload}
-					onchange={(e) => chooseSource(e.currentTarget.value)}
-				>
-					<option value="off">Off</option>
-					<option value="recent">Recently added songs</option>
-					<option value="favorites">Favorite songs</option>
-					<option value="playlist">DN playlist</option>
-				</select></InlineChoice
-			></label
-		>
-		{#if showPicker}
+		{#if nativeOffline}
+			<OfflineCollections
+				{options}
+				{session}
+				online={!!useNetwork}
+				onpins={(pins) => change({ ...options, autoDownload: 'off', offlinePins: pins }, true)}
+			/>
+			{#if syncIssue}<p role="status">{syncIssue}</p>{/if}
+		{:else}
 			<label
-				>DN playlist<InlineChoice selected={selectedId ?? ''}
+				>Download source<InlineChoice selected={showPicker ? 'playlist' : options.autoDownload}
 					><select
-						value={selectedId ?? ''}
-						onchange={(e) => {
-							const source = playlistSource(e.currentTarget.value);
-							if (source) void change({ ...options, autoDownload: source });
-						}}
+						value={showPicker ? 'playlist' : options.autoDownload}
+						onchange={(e) => chooseSource(e.currentTarget.value)}
 					>
-						<option value="" disabled>Choose a playlist</option>
-						{#if selectedId && !choices.some((p) => p.id === selectedId)}<option value={selectedId}
-								>Selected playlist</option
-							>{/if}
-						{#each choices as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+						<option value="off">Off</option>
+						<option value="recent">Recently added songs</option>
+						<option value="favorites">Favorite songs</option>
+						<option value="playlist">DN playlist</option>
 					</select></InlineChoice
 				></label
 			>
-			{#if playlistError}<p role="status">{playlistError}</p>
-				<button class="text-button" onclick={() => listRetry++}>Refresh playlist list</button>
-			{:else if listLoading}<p role="status">Reading playlists…</p>
-			{:else if !choices.length}<p>
-					{useNetwork ? 'No DN playlists available.' : 'Reconnect to DN to choose a playlist.'}
-				</p>{/if}
-			{#if selectedId}
-				{#if syncIssue}<p role="status">{syncIssue}</p>{/if}
-				{#if confirmPlaylist}<p>
-						Turn off automatic downloads and remove all automatic copies for this account? Manually
-						saved songs and the playback cache will stay.
-					</p>
-					<button class="secondary" onclick={() => (confirmPlaylist = false)}>Cancel</button>
-					<button class="secondary" onclick={clearPlaylist}
-						>Turn off and remove automatic copies</button
-					>
-				{:else}<button class="text-button" onclick={() => (confirmPlaylist = true)}
-						>Remove automatic playlist downloads</button
-					>{/if}
+			{#if showPicker}
+				<label
+					>DN playlist<InlineChoice selected={selectedId ?? ''}
+						><select
+							value={selectedId ?? ''}
+							onchange={(e) => {
+								const source = playlistSource(e.currentTarget.value);
+								if (source) void change({ ...options, autoDownload: source });
+							}}
+						>
+							<option value="" disabled>Choose a playlist</option>
+							{#if selectedId && !choices.some((p) => p.id === selectedId)}<option
+									value={selectedId}>Selected playlist</option
+								>{/if}
+							{#each choices as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+						</select></InlineChoice
+					></label
+				>
+				{#if playlistError}<p role="status">{playlistError}</p>
+					<button class="text-button" onclick={() => listRetry++}>Refresh playlist list</button>
+				{:else if listLoading}<p role="status">Reading playlists…</p>
+				{:else if !choices.length}<p>
+						{useNetwork ? 'No DN playlists available.' : 'Reconnect to DN to choose a playlist.'}
+					</p>{/if}
+				{#if selectedId}
+					{#if syncIssue}<p role="status">{syncIssue}</p>{/if}
+					{#if confirmPlaylist}<p>
+							Turn off automatic downloads and remove all automatic copies for this account?
+							Manually saved songs and the playback cache will stay.
+						</p>
+						<button class="secondary" onclick={() => (confirmPlaylist = false)}>Cancel</button>
+						<button class="secondary" onclick={clearPlaylist}
+							>Turn off and remove automatic copies</button
+						>
+					{:else}<button class="text-button" onclick={() => (confirmPlaylist = true)}
+							>Remove automatic playlist downloads</button
+						>{/if}
+				{/if}
 			{/if}
 		{/if}
-		{#if options.autoDownload !== 'off'}
-			<p>
-				{selectedId
-					? 'Keep playable songs in playlist order within your download limit. The app checks DN when you return.'
-					: 'Keep up to 25 of the most recently added songs from this source while the app is open.'}
-				Songs you remove stay excluded until you save them yourself.
-			</p>
+		{#if options.autoDownload !== 'off' || hasPins}
+			{#if !nativeOffline}<p>
+					{selectedId
+						? 'Keep playable songs in playlist order within your download limit. The app checks DN when you return.'
+						: 'Keep up to 25 of the most recently added songs from this source while the app is open.'}
+					Songs you remove stay excluded until you save them yourself.
+				</p>{/if}
 			<label
 				>Automatic download limit<InlineChoice selected={options.downloadMiB}
 					><select

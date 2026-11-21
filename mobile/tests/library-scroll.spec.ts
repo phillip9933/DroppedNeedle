@@ -5,6 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { touchRange } from './fixtures/touchRange';
 import { localSignIn } from './fixtures/localSignIn';
+import { seedOfflineMusic } from './fixtures/offlineMusic';
 const server = 'https://large-library.example',
 	wav = fileURLToPath(
 		new URL('../../server/tests/fixtures/library/management_full.wav', import.meta.url)
@@ -12,6 +13,61 @@ const server = 'https://large-library.example',
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const index = (page: Page) => page.locator('[data-part=category-items]:visible');
 const label = (n: number) => String(n).padStart(5, '0');
+test('the alphabet jumps across opaque pages and stays available for downloaded albums', async ({
+	page
+}) => {
+	await connect(page, 600);
+	const requests: string[] = [];
+	await page.route(server + '/api/v3/library/albums?**', async (r) => {
+		const q = new URL(r.request().url()).searchParams;
+		const start = Number(q.get('after')?.split('/')[1]) || 0;
+		expect(q.get('after')).toBe(start ? 'page/' + start : null);
+		requests.push(q.get('after') ?? 'first');
+		const end = Math.min(600, start + Number(q.get('limit')));
+		return r.fulfill({
+			json: {
+				items: Array.from({ length: end - start }, (_, n) => ({
+					id: 'a' + (start + n),
+					title: (start + n < 520 ? 'Archive' : 'Zen') + ' ' + label(start + n),
+					artist_name: 'Band',
+					art_missing: true
+				})),
+				total: 600,
+				next: end < 600 ? 'page/' + end : null
+			}
+		});
+	});
+	await button(page, 'Browse Albums').click();
+	const rail = page.getByRole('slider', { name: 'Jump to letter' });
+	await rail.focus();
+	await rail.press('Z');
+	await expect(button(page, 'Zen 00520')).toBeInViewport();
+	expect(requests).toContain('page/430');
+	await rail.press('Q');
+	await expect(page.getByText('No albums starting with Q.')).toBeVisible();
+	await button(page, 'Back to Library').click();
+	await seedOfflineMusic(
+		page,
+		server,
+		'listener',
+		true,
+		Array.from({ length: 100 }, (_, i) => ({
+			origin: 'downloaded' as const,
+			track: {
+				id: 'local' + i,
+				title: 'Music ' + i,
+				artist: 'Band',
+				album: (i < 90 ? 'Archive' : 'Zen') + ' ' + label(i),
+				albumId: 'l' + i,
+				streamUrl: '/api/v3/stream/local/local' + i
+			}
+		}))
+	);
+	await button(page, 'Browse Albums').click();
+	await rail.focus();
+	await rail.press('Z');
+	await expect(button(page, 'Zen 00090')).toBeInViewport();
+});
 async function connect(page: Page, size = 3025) {
 	const requests: URL[] = [],
 		streams: string[] = [];

@@ -1,3 +1,5 @@
+import { rememberPinnedPlaylists } from '../catalog/playlistOffline';
+import { refreshPinRules } from './collectionPins';
 import { Capacitor } from '@capacitor/core';
 import { combineSignals } from '../abortSignals';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
@@ -40,6 +42,7 @@ function account(session: OfflineAccount) {
 }
 export async function offlineSnapshot(session: OfflineAccount): Promise<OfflineSnapshot> {
 	const state = await backend().snapshot(account(session));
+	if (state.pinnedPlaylists?.length) rememberPinnedPlaylists(session, state.pinnedPlaylists);
 	return { ...state, items: await overlayFeedback(session, state.items).catch(() => state.items) };
 }
 export async function offlineInventory(session: OfflineAccount) {
@@ -60,11 +63,16 @@ export async function preferredOffline(session: OfflineAccount) {
 	if (!offlineSupported || !session.userId) return false;
 	return (await backend().options(account(session))).offlineOnly;
 }
-export async function configureOffline(session: OfflineAccount, options: OfflineOptions) {
+export async function configureOffline(
+	session: OfflineAccount,
+	options: OfflineOptions,
+	clearUnpinned = false
+) {
 	const existing = await backend().options(account(session));
-	const next = await backend().configure({ ...account(session), options });
+	const next = await backend().configure({ ...account(session), options, clearUnpinned });
 	if (
 		existing.autoDownload !== next.autoDownload ||
+		JSON.stringify(existing.offlinePins) !== JSON.stringify(next.offlinePins) ||
 		existing.offlineOnly !== next.offlineOnly ||
 		existing.downloadMiB !== next.downloadMiB ||
 		existing.unmeteredOnly !== next.unmeteredOnly
@@ -257,7 +265,18 @@ export function runAutoDownloads(session: Session, signal?: AbortSignal): Promis
 		const owner = account(session);
 		const settings = await backend().options(owner);
 		const source = settings.autoDownload;
-		if (!source || source === 'off' || settings.offlineOnly || signal?.aborted) return 0;
+		if (settings.offlineOnly || signal?.aborted) return 0;
+		if (nativeOffline && (settings.offlinePins?.length || source !== 'off')) {
+			const updated = refreshPinRules(session, settings.offlinePins ?? []);
+			if (JSON.stringify(updated) !== JSON.stringify(settings.offlinePins ?? []))
+				await nativeMedia.configure({ ...owner, options: { ...settings, offlinePins: updated } });
+			signal?.throwIfAborted();
+			const result = await nativeMedia.syncCollections(owner);
+			signal?.throwIfAborted();
+			setPlaylistIssue(session, source, result.message ?? '');
+			return result.saved;
+		}
+		if (!source || source === 'off') return 0;
 		const { tracks, keepExisting } = await automaticSelection(session, source, signal);
 		signal?.throwIfAborted();
 		const byId = new Map<string, PlayerTrack>();

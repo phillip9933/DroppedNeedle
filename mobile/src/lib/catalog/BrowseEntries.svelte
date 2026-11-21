@@ -110,6 +110,14 @@
 			?.querySelector<HTMLButtonElement>('[data-browse-index="' + index + '"] .item')
 			?.focus({ preventScroll: true });
 	}
+	export async function scrollToIndex(index: number) {
+		if (!items[index]) return;
+		pinned = index;
+		await tick();
+		element
+			?.querySelector('[data-browse-index="' + index + '"]')
+			?.scrollIntoView({ block: 'start', behavior: 'instant' });
+	}
 	function rememberFocus(e: FocusEvent) {
 		const entry = (e.target as HTMLElement).closest<HTMLElement>('[data-browse-index]');
 		pinned = entry ? Number(entry.dataset.browseIndex) : -1;

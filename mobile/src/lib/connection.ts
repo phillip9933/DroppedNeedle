@@ -217,8 +217,13 @@ async function request<T>(
 export function getJson<T>(session: Session, path: string, signal?: AbortSignal): Promise<T> {
 	return request(session.serverUrl, path, { session, signal });
 }
-export function postJson<T>(session: Session, path: string, body?: unknown): Promise<T> {
-	return request(session.serverUrl, path, { session, method: 'POST', body });
+export function postJson<T>(
+	session: Session,
+	path: string,
+	body?: unknown,
+	signal?: AbortSignal
+): Promise<T> {
+	return request(session.serverUrl, path, { session, method: 'POST', body, signal });
 }
 export function mutateJson<T>(
 	session: Session,

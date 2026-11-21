@@ -405,3 +405,117 @@ test('saved audio keeps viewed timed lyrics usable after restarting in airplane 
 	await expect(lyrics.locator('[aria-current=true]')).toHaveText('We pass the harbour');
 	expect(reads).toBe(1);
 });
+
+test('Android keeps the legacy source when another collection is pinned and separates download quality', async ({
+	page
+}) => {
+	await fixture(page);
+	await page.route(server + '/api/v3/library/artists**', (route) =>
+		route.fulfill({ json: { items: [{ id: 'north', name: 'North' }], total: 1, next: null } })
+	);
+	await page.addInitScript(() => {
+		const methods: Record<string, string[]> = {
+			App: ['getLaunchUrl', 'addListener', 'removeListener'],
+			SecureStorage: ['internalGetItem', 'internalSetItem', 'internalRemoveItem'],
+			CapacitorHttp: ['request', 'get'],
+			DNOffline: [
+				'options',
+				'snapshot',
+				'configure',
+				'syncCollections',
+				'addListener',
+				'removeListener',
+				'historySettings',
+				'cancelAutomatic',
+				'downloadNotificationSettings'
+			],
+			DNPlayer: ['restore', 'getState', 'addListener', 'removeListener', 'setSession', 'configure']
+		};
+		const secure = new Map<string, string>();
+		let settings: Record<string, unknown> = {
+			autoDownload: 'favorites',
+			cacheMiB: 512,
+			downloadMiB: 512,
+			offlineOnly: false,
+			autoCache: false,
+			unmeteredOnly: true
+		};
+		Object.assign(window, {
+			androidBridge: {},
+			Capacitor: {
+				PluginHeaders: Object.entries(methods).map(([name, list]) => ({
+					name,
+					methods: list.map((name) => ({
+						name,
+						rtype: name === 'addListener' ? 'callback' : 'promise'
+					}))
+				})),
+				nativeCallback: (_plugin: string, _method: string, args: { eventName: string }) =>
+					args.eventName,
+				nativePromise: async (
+					plugin: string,
+					method: string,
+					args: Record<string, unknown> = {}
+				) => {
+					if (plugin === 'SecureStorage') {
+						if (method === 'internalSetItem')
+							secure.set(String(args.prefixedKey), String(args.data));
+						if (method === 'internalRemoveItem') secure.delete(String(args.prefixedKey));
+						return { data: secure.get(String(args.prefixedKey)), success: true };
+					}
+					if (plugin === 'CapacitorHttp') {
+						const res = await fetch(String(args.url), {
+							method: String(args.method || 'GET'),
+							headers: args.headers as HeadersInit,
+							body: args.data ? JSON.stringify(args.data) : undefined
+						});
+						return {
+							data: await res.json(),
+							headers: { 'Content-Type': 'application/json' },
+							status: res.status
+						};
+					}
+					if (plugin === 'DNOffline') {
+						if (method === 'configure') {
+							settings = args.options as Record<string, unknown>;
+							sessionStorage.setItem('offlineFixtureOptions', JSON.stringify(settings));
+							sessionStorage.setItem('offlineFixtureCleanup', String(args.clearUnpinned));
+						}
+						if (method === 'snapshot') return { items: [], options: settings };
+						if (method === 'syncCollections') return { saved: 0 };
+						return settings;
+					}
+					return {
+						tracks: [],
+						index: -1,
+						playing: false,
+						position: 0,
+						duration: 0,
+						shuffle: false,
+						repeat: 0
+					};
+				}
+			}
+		});
+	});
+	await login(page);
+	await options(page);
+	await expect(page.getByRole('button', { name: 'Unpin Favorite songs' })).toBeVisible();
+	await chooseOption(page.getByRole('combobox', { name: 'File format' }), 'opus');
+	await chooseOption(page.getByRole('combobox', { name: 'Download bitrate' }), '96');
+	await page.getByRole('button', { name: 'Pin a collection' }).click();
+	await chooseOption(page.getByRole('combobox', { name: 'Collection type' }), 'artist');
+	await page.getByRole('searchbox', { name: 'Find an artist' }).fill('Nor');
+	await page.getByRole('button', { name: 'Pin North', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Unpin North' })).toBeVisible();
+	const stored = await page.evaluate(() =>
+		JSON.parse(sessionStorage.getItem('offlineFixtureOptions') || '{}')
+	);
+	expect(stored.autoDownload).toBe('off');
+	expect(stored.downloadQuality).toEqual({ format: 'opus', rate: 96 });
+	expect(stored.offlinePins.map((p: { kind: string }) => p.kind)).toEqual(['favorites', 'artist']);
+	await page.getByRole('button', { name: 'Unpin Favorite songs' }).click();
+	await page.getByRole('button', { name: 'Unpin North' }).click();
+	await expect(page.getByRole('button', { name: 'Unpin North' })).toHaveCount(0);
+	expect(await page.evaluate(() => sessionStorage.getItem('offlineFixtureCleanup'))).toBe('true');
+});

@@ -1,0 +1,74 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { Capacitor } from '@capacitor/core';
+	import InlineChoice from '../controls/InlineChoice.svelte';
+	import { playbackSpeeds, soundSettings, type ReplayGainMode } from './sound';
+	let { speedOnly = false }: { speedOnly?: boolean } = $props();
+	let value = $state<Awaited<ReturnType<typeof soundSettings>>>(),
+		busy = $state(false),
+		error = $state('');
+	async function update(change?: Parameters<typeof soundSettings>[0]) {
+		if (busy) return;
+		busy = true;
+		error = '';
+		try {
+			value = await soundSettings(change);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Could not read audio settings.';
+		} finally {
+			busy = false;
+		}
+	}
+	onMount(() => {
+		void update();
+	});
+</script>
+
+<div class:settings-panel={!speedOnly} data-surface={speedOnly ? undefined : 'panel'} class="sound">
+	{#if value}
+		<label
+			>Playback speed<InlineChoice selected={value.speed} label="Playback speed">
+				<select
+					value={value.speed}
+					disabled={busy}
+					onchange={(e) => void update({ speed: Number(e.currentTarget.value) })}
+				>
+					{#each playbackSpeeds as rate (rate)}<option value={rate}>{rate}×</option>{/each}
+				</select>
+			</InlineChoice></label
+		>
+		{#if !speedOnly && Capacitor.getPlatform() === 'android'}
+			<label
+				>Volume normalization<InlineChoice selected={value.replayGain} label="Volume normalization">
+					<select
+						value={value.replayGain}
+						disabled={busy}
+						onchange={(e) => void update({ replayGain: e.currentTarget.value as ReplayGainMode })}
+					>
+						<option value="off">Off</option><option value="track">Track ReplayGain</option><option
+							value="album">Album ReplayGain</option
+						>
+					</select>
+				</InlineChoice></label
+			>
+			<p>
+				Track gain evens out individual songs. Album gain preserves the volume differences within an
+				album. Both use the ReplayGain tags in your DN library.
+			</p>
+		{/if}
+	{:else if !error}<p role="status">Reading audio settings…</p>{/if}
+	{#if error}<p role="alert">{error}</p>
+		<button class="secondary" disabled={busy} onclick={() => void update()}>Check again</button
+		>{/if}
+</div>
+
+<style>
+	.sound,
+	label {
+		display: grid;
+		gap: 0.45rem;
+	}
+	.sound {
+		gap: 0.85rem;
+	}
+</style>

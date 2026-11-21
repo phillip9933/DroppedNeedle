@@ -14,6 +14,7 @@
 		onclose,
 		onopen,
 		action,
+		onpin,
 		edit
 	}: {
 		row: BrowseItem;
@@ -22,6 +23,7 @@
 		onclose: () => void;
 		onopen: (row: BrowseItem) => void;
 		action: (type: BrowseAction, row: BrowseItem) => void;
+		onpin?: () => void;
 		edit?: (rule: SmartPlaylist) => void;
 	} = $props();
 	const singular = {
@@ -48,6 +50,7 @@
 		{/if}
 		{#if row.smart && edit}<button onclick={() => edit?.(row.smart!)}>Edit smart playlist</button
 			>{/if}
+		{#if category === 'Playlists' && onpin}<button onclick={onpin}>Pin to home screen</button>{/if}
 	</div>
 </PlaylistDialog>
 

@@ -25,6 +25,7 @@ export const nativeMedia = registerPlugin<
 			failed: number;
 			status: ManualStatus;
 		}>;
+		syncCollections(owner: Account): Promise<{ saved: number; message?: string }>;
 		manualStatus(owner: Account): Promise<ManualStatus>;
 		takeDownloadNotification(): Promise<{ open: boolean }>;
 		downloadNotificationSettings(): Promise<{ state: DownloadNotificationState }>;

@@ -132,6 +132,27 @@ async function addFeature(page: Page, name: string) {
 		.click();
 	await page.getByRole('button', { name: 'Use ' + name, exact: true }).click();
 }
+test('the queue editor restores the album order and saves similar music for the listener', async ({
+	page
+}) => {
+	await fixture(page, [...songs, 'Late Train', 'Early Train']);
+	await play(page);
+	await page.getByRole('button', { name: 'Show play queue' }).click();
+	const queue = page.locator('[data-part=play-queue]');
+	await page.getByRole('button', { name: 'Shuffle upcoming', exact: true }).last().click();
+	const restore = page.getByRole('button', { name: 'Restore original order', exact: true }).last();
+	await expect(restore).toHaveAttribute('aria-pressed', 'true');
+	await restore.click();
+	const rows = queue.getByRole('button');
+	await expect(rows.nth(0)).toContainText('Night Train');
+	await expect(rows.nth(1)).toContainText('Day Train');
+	await expect(rows.nth(2)).toContainText('Late Train');
+	await page.getByRole('button', { name: 'Edit queue', exact: true }).click();
+	const autoplay = page.getByRole('checkbox', { name: 'Autoplay similar library music' });
+	await expect(autoplay).not.toBeChecked();
+	await autoplay.check();
+	await expect(autoplay).toBeChecked();
+});
 test('timed lyrics follow playback inside their panel and let listeners read ahead until they resume', async ({
 	page
 }) => {

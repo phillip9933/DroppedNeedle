@@ -1,6 +1,8 @@
 <script lang="ts">
 	import InlineChoice from '../controls/InlineChoice.svelte';
+	import SoundSettings from './SoundSettings.svelte';
 	import { onMount } from 'svelte';
+	import { player } from '../player';
 	import { Capacitor } from '@capacitor/core';
 	import type { Session } from '../connection';
 	import { errorMessage } from '../catalog/catalog';
@@ -80,7 +82,22 @@
 			saving = false;
 		}
 	}
+	let autoplay = $state(false),
+		autoplayBusy = $state(true),
+		autoplayError = $state('');
+	async function autoplaySetting(enabled?: boolean) {
+		autoplayBusy = true;
+		try {
+			autoplay = (await player.autoplaySetting(session, enabled)).enabled;
+			autoplayError = '';
+		} catch (e) {
+			autoplayError = errorMessage(e);
+		} finally {
+			autoplayBusy = false;
+		}
+	}
 	onMount(() => {
+		if (Capacitor.getPlatform() !== 'ios') void autoplaySetting();
 		profiles = streamProfiles(session);
 		void readConversion();
 		let generation = 0;
@@ -178,6 +195,28 @@
 		<button class="text-button" onclick={readConversion}>Check conversion again</button>
 	{:else if conversion === 'on'}<p>DN can convert streams for both profiles.</p>
 	{:else}<p role="status">Checking server conversion…</p>{/if}
+	{#if Capacitor.getPlatform() !== 'ios'}
+		<h2>Audio playback</h2>
+		<SoundSettings />
+		<h2 id="similar-autoplay">Play queue</h2>
+		<div
+			class="settings-panel"
+			data-surface="panel"
+			role="group"
+			aria-labelledby="similar-autoplay"
+		>
+			<label class="smart-fades"
+				><input
+					type="checkbox"
+					checked={autoplay}
+					disabled={autoplayBusy}
+					onchange={(e) => void autoplaySetting(e.currentTarget.checked)}
+				/> Autoplay similar library music</label
+			>
+			<p>When the queue ends, continue with related songs from your DroppedNeedle library.</p>
+			{#if autoplayError}<p role="alert">{autoplayError}</p>{/if}
+		</div>
+	{/if}
 	<h2 id="track-fades-settings">Track fades</h2>
 	<div
 		class="settings-panel"

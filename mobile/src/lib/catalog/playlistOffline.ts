@@ -2,7 +2,7 @@ import type { Session } from '../connection';
 import type { PlayerTrack } from '../player';
 import type { Playlist } from './playlists';
 type RecordValue = { id: string; name: string; covers: string[]; ids?: string[] };
-function key(session: Session) {
+function key(session: Pick<Session, 'serverUrl' | 'userId'>) {
 	return session.userId
 		? 'dn.mobile.offline-playlists.v1.' + JSON.stringify([session.serverUrl, session.userId])
 		: null;
@@ -63,6 +63,28 @@ export function forgetPlaylist(session: Session, id: string) {
 			k,
 			read(k).filter((p) => p.id !== id)
 		);
+}
+export function rememberPinnedPlaylists(
+	account: Pick<Session, 'serverUrl' | 'userId'>,
+	memberships: { id: string; name: string; ids: string[] }[]
+) {
+	const k = key(account);
+	if (!k || !memberships.length) return;
+	const previous = read(k);
+	const byId = new Map(previous.map((p) => [p.id, p]));
+	let changed = false;
+	for (const item of memberships) {
+		const old = byId.get(item.id);
+		if (
+			old?.name === item.name &&
+			old.ids?.length === item.ids.length &&
+			old.ids.every((id, i) => id === item.ids[i])
+		)
+			continue;
+		byId.set(item.id, { id: item.id, name: item.name, ids: item.ids, covers: old?.covers ?? [] });
+		changed = true;
+	}
+	if (changed) write(k, [...byId.values()]);
 }
 export function offlinePlaylists(session: Session, tracks: PlayerTrack[], onlyId?: string) {
 	const k = key(session);

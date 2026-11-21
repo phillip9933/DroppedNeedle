@@ -39,20 +39,14 @@
 			document.removeEventListener('visibilitychange', refresh);
 		};
 	});
-	async function save(changes: Partial<Pick<EqualizerState, 'enabled' | 'levels' | 'preset'>>) {
+	async function apply(change: (current: EqualizerState) => Promise<EqualizerResult>) {
 		if (!settings?.available || busy) return;
 		const ticket = ++sequence;
 		busy = true;
 		error = '';
 		preview = null;
 		try {
-			const result = await nativeEqualizer.setEqualizer({
-				enabled: settings.enabled,
-				centers: settings.centers,
-				levels: settings.levels,
-				preset: settings.preset,
-				...changes
-			});
+			const result = await change(settings);
 			if (ticket === sequence) settings = result;
 		} catch {
 			if (ticket === sequence) error = 'Could not apply that setting to the current audio output.';
@@ -60,6 +54,21 @@
 			if (ticket === sequence) busy = false;
 		}
 		if (error) void refresh();
+	}
+	function save(changes: Partial<Pick<EqualizerState, 'enabled' | 'levels' | 'preset'>>) {
+		return apply((current) =>
+			nativeEqualizer.setEqualizer({
+				enabled: current.enabled,
+				centers: current.centers,
+				levels: current.levels,
+				preset: current.preset,
+				outputId: current.output?.id,
+				...changes
+			})
+		);
+	}
+	function assign(id: string, assigned: boolean) {
+		void apply(() => nativeEqualizer.setEqualizerOutput({ outputId: id, assigned }));
 	}
 	function preset(name: EqPresetName) {
 		if (settings?.available) void save({ preset: name, levels: presetLevels(settings, name) });
@@ -80,6 +89,17 @@
 {:else}
 	<section class="eq settings-stack" data-part="equalizer" aria-label="Playback equalizer">
 		<div class="settings-panel" data-surface="panel">
+			{#if settings.output}
+				{@const output = settings.output}
+				<label class="toggle"
+					><input
+						type="checkbox"
+						checked={output.assigned}
+						disabled={busy}
+						onchange={(e) => assign(output.id, e.currentTarget.checked)}
+					/>Remember a separate preset for {output.name}</label
+				>
+			{/if}
 			<label class="toggle"
 				><input
 					type="checkbox"
