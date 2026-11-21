@@ -89,6 +89,22 @@ export function trackItem(track: PlayerTrack): BrowseItem {
 		added: track.dateAdded
 	};
 }
+export function playlistItem(p: Playlist): BrowseItem {
+	return {
+		id: 'playlist:' + p.id,
+		title: p.name,
+		count: p.track_count,
+		get subtitle() {
+			if (!Number.isFinite(p.track_count)) return undefined;
+			return tr(
+				p.track_count + (p.track_count === 1 ? ' track' : ' tracks'),
+				p.track_count.toLocaleString() + '曲'
+			);
+		},
+		covers: playlistArtwork(p),
+		playlist: p
+	};
+}
 export function albumItem(album: Album): BrowseItem {
 	return {
 		id: 'album:' + (album.localId || album.group),
@@ -323,20 +339,7 @@ export async function browsePage(
 		available ? Promise.resolve([]) : playlists(session, signal),
 		readSmartPlaylists(session)
 	]);
-	const all: BrowseItem[] = regular.map((p) => ({
-		id: 'playlist:' + p.id,
-		title: p.name,
-		count: p.track_count,
-		get subtitle() {
-			if (!Number.isFinite(p.track_count)) return undefined;
-			return tr(
-				p.track_count + (p.track_count === 1 ? ' track' : ' tracks'),
-				p.track_count.toLocaleString() + '曲'
-			);
-		},
-		covers: playlistArtwork(p),
-		playlist: p
-	}));
+	const all: BrowseItem[] = regular.map(playlistItem);
 	if (available) all.push(...offlinePlaylists(session, available));
 	for (const rule of smart) {
 		signal.throwIfAborted();

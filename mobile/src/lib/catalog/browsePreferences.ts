@@ -1,3 +1,4 @@
+import type { SearchScope } from './catalog';
 import type { Session } from '../connection';
 import { createSubscriber } from 'svelte/reactivity';
 import { availabilityLabels, type Availability } from '../offline/library';
@@ -24,7 +25,7 @@ const subscribeDisplay = createSubscriber((update) => {
 		window.removeEventListener('storage', storageChanged);
 	};
 });
-function key(session: Session, category: Category | 'availability') {
+function key(session: Session, category: Category | 'availability' | `search-${SearchScope}`) {
 	return storagePrefix + JSON.stringify([session.serverUrl, session.userId, category]);
 }
 export function readAvailability(session: Session): Availability {
@@ -43,6 +44,59 @@ export function saveAvailability(session: Session, value: Availability) {
 		/* Storage can be unavailable in a restricted browser. */
 	}
 }
+function displayOptions(
+	stored: Partial<CollectionDisplay>,
+	defaults: CollectionDisplay
+): CollectionDisplay {
+	return {
+		layout: stored.layout === 'list' || stored.layout === 'grid' ? stored.layout : defaults.layout,
+		columns:
+			typeof stored.columns === 'number' &&
+			Number.isInteger(stored.columns) &&
+			stored.columns >= 1 &&
+			stored.columns <= 6
+				? stored.columns
+				: defaults.columns,
+		compact: typeof stored.compact === 'boolean' ? stored.compact : defaults.compact
+	};
+}
+
+export function readSearchDisplay(
+	session: Session,
+	scope: SearchScope,
+	category?: Category
+): CollectionDisplay {
+	subscribeDisplay();
+	const defaults: CollectionDisplay = category
+		? readBrowsePreferences(session, category)
+		: { layout: 'list', columns: 2, compact: false };
+	try {
+		const saved = session.userId && localStorage.getItem(key(session, `search-${scope}`));
+		return saved ? displayOptions(JSON.parse(saved), defaults) : defaults;
+	} catch {
+		return defaults;
+	}
+}
+
+export function saveSearchDisplay(
+	session: Session,
+	scope: SearchScope,
+	display: CollectionDisplay
+) {
+	if (!session.userId) return false;
+	try {
+		const { layout, columns, compact } = display;
+		localStorage.setItem(
+			key(session, `search-${scope}`),
+			JSON.stringify({ layout, columns, compact })
+		);
+		window.dispatchEvent(new Event('dn-collection-display'));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function readBrowsePreferences(session: Session, category: Category): BrowsePreferences {
 	subscribeDisplay();
 	const defaults: BrowsePreferences = {
@@ -56,13 +110,7 @@ export function readBrowsePreferences(session: Session, category: Category): Bro
 		if (!session.userId) return defaults;
 		const stored = JSON.parse(localStorage.getItem(key(session, category)) || '{}');
 		return {
-			layout:
-				stored.layout === 'list' || stored.layout === 'grid' ? stored.layout : defaults.layout,
-			columns:
-				Number.isInteger(stored.columns) && stored.columns >= 1 && stored.columns <= 6
-					? stored.columns
-					: defaults.columns,
-			compact: stored.compact === true,
+			...displayOptions(stored, defaults),
 			sort: orderChoices[category].some(([s]) => s === stored.sort) ? stored.sort : defaults.sort,
 			order: stored.order === 'desc' ? 'desc' : 'asc'
 		};

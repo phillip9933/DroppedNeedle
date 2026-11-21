@@ -1,20 +1,27 @@
 <script lang="ts">
-	import { uiText, uiFormat } from '../i18n';
+	import { tr, uiText, uiFormat } from '../i18n';
 	import { tick, untrack } from 'svelte';
 	import type { Session } from '../connection';
 	import { catalogSource } from './catalogSource.svelte';
-	import { DeviceSearchIndex } from './deviceSearch';
+	import { DeviceSearchIndex, deviceScopes } from './deviceSearch';
 	import DeviceSearchResults from './DeviceSearchResults.svelte';
 	import LibraryGroup from './LibraryGroup.svelte';
-	import type { BrowseItem, Category } from './libraryBrowse';
-	import { ChevronLeft } from '@lucide/svelte';
+	import { albumItem, trackItem, type BrowseItem, type Category } from './libraryBrowse';
+	import {
+		readSearchDisplay,
+		saveSearchDisplay,
+		type CollectionDisplay
+	} from './browsePreferences';
+	import CollectionDisplayFields from './CollectionDisplayFields.svelte';
+	import BrowseEntries from './BrowseEntries.svelte';
+	import { artistCover } from './discovery';
+	import { ChevronLeft, SlidersHorizontal } from '@lucide/svelte';
 	import { search, errorMessage, type Album, type OnPlay, type SearchScope } from './catalog';
 	import type { Playlist } from './playlists';
 	import SearchCollection from './SearchCollection.svelte';
 	import SearchHints from './SearchHints.svelte';
 	import RequestSong from './RequestSong.svelte';
-	import Albums from './Albums.svelte';
-	import TrackList from './TrackList.svelte';
+	import { trackDuration } from './TrackRow.svelte';
 	let {
 		session,
 		onopen,
@@ -44,7 +51,48 @@
 	] as const;
 	let scope = $state<SearchScope>('top'),
 		offset = $state(0);
+	let displayOpen = $state(false),
+		displayIssue = $state('');
+	const display = $derived(
+		readSearchDisplay(session, scope, scope === 'top' ? undefined : deviceScopes[scope])
+	);
+	function changeDisplay(changes: Partial<CollectionDisplay>) {
+		const saved = saveSearchDisplay(session, scope, { ...display, ...changes });
+		displayIssue = saved
+			? ''
+			: tr(
+					'Could not save the search display on this device.',
+					'検索結果の表示設定をこの端末に保存できませんでした。'
+				);
+	}
 	let result = $state<Awaited<ReturnType<typeof search>> | null>(null);
+	const albumRows = $derived(result?.albums.map(albumItem) ?? []);
+	const artistRows = $derived(
+		result?.artists.map((a) => ({
+			id: 'artist:' + (a.localId || a.mbid),
+			title: a.name,
+			subtitle: a.disambiguation || undefined,
+			art: a.artMissing
+				? undefined
+				: artistCover({ id: (a.mbid || a.localId)!, name: a.name, localOnly: !a.mbid })
+		})) ?? []
+	);
+	const songRows = $derived(
+		result?.tracks.map((track) => ({
+			...trackItem(track),
+			subtitle: [track.artist, track.album, track.duration ? trackDuration(track.duration) : '']
+				.filter(Boolean)
+				.join(' · ')
+		})) ?? []
+	);
+	const recordingRows = $derived(
+		result?.recordings.map(({ song, art }) => ({
+			id: JSON.stringify([song.recording_mbid, song.release_mbid]),
+			title: song.track_title,
+			subtitle: [song.artist_name, song.album_title].filter(Boolean).join(' · '),
+			art
+		})) ?? []
+	);
 	let error = $state(''),
 		busy = $state(false),
 		retry = $state(0);
@@ -254,7 +302,18 @@
 
 <div bind:this={root}>
 	<div hidden={!!detail}>
-		<h1>{uiText('Search')}</h1>
+		<div class="search-header">
+			<h1>{uiText('Search')}</h1>
+			<button
+				class="text-button display-button"
+				aria-label={tr('Search display', '検索結果の表示設定')}
+				aria-expanded={displayOpen}
+				onclick={() => {
+					displayOpen = !displayOpen;
+					displayIssue = '';
+				}}><SlidersHorizontal size={20} /></button
+			>
+		</div>
 		<input
 			type="search"
 			bind:value={term}
@@ -282,6 +341,14 @@
 					onclick={() => choose(item.id)}>{uiText(item.label)}</button
 				>{/each}
 		</div>
+		{#if displayOpen}<section
+				class="display-options"
+				aria-label={tr('Result display', '検索結果の表示')}
+			>
+				<h2>{scopeLabel}</h2>
+				<CollectionDisplayFields settings={display} onchange={changeDisplay} />
+				{#if displayIssue}<p role="alert">{displayIssue}</p>{/if}
+			</section>{/if}
 		<SearchHints
 			bind:this={hints}
 			{session}
@@ -324,6 +391,7 @@
 					{session}
 					{inventory}
 					model={localModel}
+					{display}
 					{term}
 					{scope}
 					active={active && !detail}
@@ -336,6 +404,7 @@
 			{:else if source.storageBusy}<p role="status">{uiText('Opening saved music…')}</p>{/if}
 		{:else if scope === 'genres' || scope === 'playlists'}
 			<SearchCollection
+				{display}
 				{session}
 				{scope}
 				{term}
@@ -355,37 +424,58 @@
 			<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
 		{:else if busy}<p role="status">{uiText('Searching…')}</p>
 		{:else if result}
-			{#if result.tracks.length}<h2>{uiText('Songs in your library')}</h2>
-				<TrackList {session} tracks={result.tracks} onplay={playResult} />{/if}
-			{#if result.artists.length}<h2>{uiText('Artists')}</h2>
-				<div class="artists">
-					{#each result.artists as artist (artist.mbid || artist.localId)}<button
-							class="secondary"
-							onclick={() => {
-								remember();
-								onartist(artist);
-							}}>{artist.name}</button
-						>{/each}
-				</div>{/if}
-			{#if result.albums.length}<h2>{uiText('Albums')}</h2>
-				<Albums
+			{#if songRows.length}<h2>{uiText('Songs in your library')}</h2>
+				<BrowseEntries
 					{session}
-					albums={result.albums}
-					onopen={(value) => {
-						remember();
-						onopen(value);
+					{...display}
+					category="Tracks"
+					items={songRows}
+					open={(_, idx) => {
+						if (result) void playResult(result.tracks, idx);
 					}}
 				/>{/if}
-			{#if result.recordings.length}<h2>{uiText('Songs to request')}</h2>
-				{#each result.recordings as row (row.song.recording_mbid + '-' + row.song.release_mbid)}<div
-						class="recording"
-					>
-						<span
-							><strong>{row.song.track_title}</strong><small
-								>{row.song.artist_name} · {row.song.album_title}</small
-							></span
-						><RequestSong {session} song={row.song} requested={row.requested} />
-					</div>{/each}{/if}
+			{#if artistRows.length}<h2>{uiText('Artists')}</h2>
+				<BrowseEntries
+					{session}
+					{...display}
+					category="Artists"
+					items={artistRows}
+					open={(_, idx) => {
+						if (result) {
+							remember();
+							onartist(result.artists[idx]);
+						}
+					}}
+				/>{/if}
+			{#if albumRows.length}<h2>{uiText('Albums')}</h2>
+				<BrowseEntries
+					{session}
+					{...display}
+					category="Albums"
+					albumGallery
+					items={albumRows}
+					open={(item) => {
+						if (item.album) {
+							remember();
+							onopen(item.album);
+						}
+					}}
+				/>{/if}
+			{#if recordingRows.length}<h2>{uiText('Songs to request')}</h2>
+				<BrowseEntries
+					{session}
+					{...display}
+					category="Tracks"
+					label={uiText('Songs to request')}
+					items={recordingRows}
+				>
+					{#snippet endAction(idx: number)}{#if result}{@const row =
+								result.recordings[idx]}<RequestSong
+								{session}
+								song={row.song}
+								requested={row.requested}
+							/>{/if}{/snippet}
+				</BrowseEntries>{/if}
 			{#if result.partial}<p role="status">{uiText('Some MusicBrainz results are unavailable.')}</p>
 				<button class="secondary" onclick={() => retry++}>{uiText('Retry search')}</button>{/if}
 			{#if !result.albums.length && !result.tracks.length && !result.artists.length && !result.recordings.length}<p
@@ -412,9 +502,11 @@
 		{:else if term.length}<p>{uiText('Enter at least two characters.')}</p>{/if}
 	</div>
 	{#if detail}
-		<button class="text-button device-back" aria-label={uiText('Back to search')} onclick={goBack}
-			><ChevronLeft size={18} />{uiText('Back to search')}</button
-		>
+		{#if (detail.category !== 'Albums' && detail.category !== 'Artists') || detailError}<button
+				class="text-button device-back"
+				aria-label={uiText('Back to search')}
+				onclick={goBack}><ChevronLeft size={18} />{uiText('Back to search')}</button
+			>{/if}
 		{#if detailError}<p role="alert">{detailError}</p>
 			<button class="secondary" onclick={() => source.retryStorage()}
 				>{uiText('Retry device library')}</button
@@ -422,6 +514,8 @@
 		{:else}
 			{#key detail.row.id}<LibraryGroup
 					bind:this={groupView}
+					onback={goBack}
+					backLabel={uiText('Back to search')}
 					{source}
 					{session}
 					{active}
@@ -471,27 +565,29 @@
 		border-color: var(--accent);
 	}
 
-	.artists {
+	.search-header {
 		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	.recording {
-		display: flex;
-		gap: 0.65rem;
 		align-items: center;
-		padding: 0.55rem 0;
-		border-bottom: 1px solid var(--line);
+		justify-content: space-between;
+		gap: 0.5rem;
 	}
-	.recording span {
-		flex: 1;
-		min-width: 0;
+	.display-button {
+		min-width: 44px;
+		min-height: 44px;
+		display: grid;
+		place-items: center;
 	}
-	.recording strong,
-	.recording small {
-		display: block;
+	.display-options {
+		margin: 0 0 0.8rem;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+		align-items: end;
+		gap: 0.45rem 0.8rem;
 	}
-	.recording small {
-		color: var(--muted);
+	.display-options h2,
+	.display-options p {
+		grid-column: 1/-1;
+		margin: 0.15rem 0;
+		font-size: 0.95rem;
 	}
 </style>
