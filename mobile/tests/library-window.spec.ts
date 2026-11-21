@@ -120,6 +120,23 @@ test('76,003 ordered tracks play beyond successive pages with a bounded queue an
 	expect(after).toEqual(['first', cursor(200), cursor(300), cursor(400)]);
 });
 
+test('a fresh library shuffle rejects a repeated first page and keeps its continuation', async ({
+	page
+}) => {
+	const first = await setup(page, true);
+	const rows = (queue: typeof first.queue) => queue.locator('li strong');
+	await expect(rows(first.queue)).toHaveCount(200);
+	const before = await rows(first.queue).allTextContents();
+	const next = await setup(page, true);
+	await expect(rows(next.queue)).toHaveCount(200);
+	const after = await rows(next.queue).allTextContents();
+	expect(after).not.toEqual(before);
+	expect([...after].sort()).toEqual([...before].sort());
+	await next.queue.getByRole('button', { name: new RegExp(after.at(-1) + ' Resident$') }).click();
+	await expect(next.queue.getByText('Tracks 150–300 of 76,003')).toBeVisible();
+	expect(next.after).toEqual(['first', cursor(200)]);
+});
+
 test('whole-library shuffle preserves the server seed after network failure, then detaches on an explicit edit', async ({
 	page
 }) => {

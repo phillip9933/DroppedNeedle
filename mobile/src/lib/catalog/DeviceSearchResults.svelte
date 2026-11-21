@@ -9,7 +9,7 @@
 	import { browseChoice, type BrowseItem, type Category } from './libraryBrowse';
 	import { readBrowsePreferences } from './browsePreferences';
 	import { queueSizeCheck } from './libraryQueue';
-	import { shuffled } from './browseActions';
+	import { playlistShuffle } from './browseActions';
 	import { tappedPlayback } from './browsePlayback';
 	import { loadNearEnd } from './browseViewport';
 	import BrowseEntries from './BrowseEntries.svelte';
@@ -66,10 +66,14 @@
 			.filter((b) => b.items.length)
 	);
 	const known = $derived(new Set(views.flatMap((v) => v.shown.map((i) => i.id))));
+	const shuffle = playlistShuffle();
 	$effect(() => {
+		void session;
+		void active;
 		void query;
 		void scope;
 		notice = '';
+		return shuffle.cancel;
 	});
 	$effect(() => {
 		const index = model,
@@ -145,8 +149,8 @@
 			if (!tracks.length) throw Error('No available tracks in this selection.');
 			const check = queueSizeCheck(session.serverUrl);
 			tracks.forEach(check);
-			if (type === 'play' || type === 'shuffle')
-				await onplay(type === 'shuffle' ? shuffled(tracks) : tracks, 0);
+			if (type === 'shuffle') await shuffle.play(tracks, session, onplay);
+			else if (type === 'play') await onplay(tracks, 0);
 			else if (type === 'next' || type === 'end') {
 				await player.enqueue(tracks, session, type);
 				notice = type === 'next' ? 'Added to play next.' : 'Added to queue.';

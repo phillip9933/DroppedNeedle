@@ -29,6 +29,9 @@ importers:
       '@lucide/svelte':
         specifier: ^1.76.0
         version: 1.76.0(svelte@5.58.0(@typescript-eslint/types@8.73.0))
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       postcss:
         specifier: 8.5.33
         version: 8.5.33
@@ -407,6 +410,10 @@ packages:
     resolution: {integrity: sha512-cDlhnZsqXm/ktY7ZBir7baKJhvSRRADQe7iZyMYks5qeZeQqTfeH9M+BVsyInt3DrERBYiPrfxf5RmRSgPnUzA==}
     peerDependencies:
       svelte: ^5
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@playwright/test@1.63.0':
     resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
@@ -1765,6 +1772,8 @@ snapshots:
   '@lucide/svelte@1.76.0(svelte@5.58.0(@typescript-eslint/types@8.73.0))':
     dependencies:
       svelte: 5.58.0(@typescript-eslint/types@8.73.0)
+
+  '@noble/hashes@2.4.0': {}
 
   '@playwright/test@1.63.0':
     dependencies:

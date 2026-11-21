@@ -76,7 +76,9 @@ On Android, pressing Play on a headset can resume your saved queue after the pla
 
 ## Playback and storage
 
-In **Play queue**, shuffle the upcoming songs and tap the shuffle control again to restore their order. **Restore previous queue** brings back the queue you replaced. **Settings → Streaming and fades → Autoplay similar library music** continues a finished queue with songs from your DN library when DN can find a match.
+Use **Shuffle playlist** to start a fresh order, including after closing and reopening the app. The phone remembers the last shuffle for recent selections on your DN account. If the same songs come up in the same order, it draws again whenever another order is possible. A song you added twice still plays twice. **Play** follows the saved playlist order.
+
+In **Play queue**, shuffle the upcoming songs and tap the shuffle control again to restore their order. The playing song stays at its current position. **Restore previous queue** brings back the queue you replaced. **Settings → Streaming and fades → Autoplay similar library music** continues a finished queue with songs from your DN library when DN can find a match.
 
 **Playback speed** is available in **Streaming and fades** and in **More actions** on the player. On Android, **Volume normalization** applies track or album ReplayGain to local audio. Album mode uses track gain when the album tag is missing. Untagged songs keep their original level. Under **Settings → Equalizer**, enable a separate preset for the connected output to recall its curve when you reconnect.
 

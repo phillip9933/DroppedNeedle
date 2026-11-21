@@ -5,6 +5,7 @@ import { touchRange } from './fixtures/touchRange';
 import { localSignIn } from './fixtures/localSignIn';
 import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { silentWav } from './fixtures/silentWav';
+import { repeatShuffleDraws } from './fixtures/shuffleDraws';
 import type { OfflineOrigin } from '../src/lib/offline/tracks';
 
 const server = 'https://partial-collection.example';
@@ -41,12 +42,17 @@ const playlist = {
 	cover_urls: [],
 	track_count: 5
 };
-async function connect(page: Page, totals: Record<string, number> = {}) {
+async function connect(
+	page: Page,
+	totals: Record<string, number> = {},
+	membership = [0, -1, 1, 3, 0]
+) {
 	await page.setViewportSize({ width: 320, height: 780 });
 	const paths: string[] = [],
 		attempts: string[] = [],
 		edits: { track_id: string; new_position: number }[] = [];
-	const entries = [0, -1, 1, 3, 0].map((n, i) => ({
+	const summary = { ...playlist, track_count: membership.length };
+	const entries = membership.map((n, i) => ({
 		id: 'e' + i,
 		track_name: songs[n]?.title ?? 'Remote interlude',
 		artist_name: 'Ada',
@@ -95,8 +101,8 @@ async function connect(page: Page, totals: Record<string, number> = {}) {
 				limit: 200,
 				offset: 0
 			});
-		if (path === '/playlists') return send({ playlists: [playlist] });
-		if (path === '/playlists/repeat') return send({ ...playlist, tracks: entries });
+		if (path === '/playlists') return send({ playlists: [summary] });
+		if (path === '/playlists/repeat') return send({ ...summary, tracks: entries });
 		if (path === '/playlists/repeat/tracks/reorder') {
 			const edit = route.request().postDataJSON();
 			edits.push(edit);
@@ -129,6 +135,89 @@ async function queue(page: Page) {
 	await button(page, 'Show play queue').click();
 	return page.locator('[data-part=play-queue]');
 }
+
+test('a fresh shuffle from the playlist, its menu or a selection survives closing the app and keeps repeated entries', async ({
+	context
+}) => {
+	await repeatShuffleDraws(context);
+	// The playlist detail renders its first 50 entries. Shuffle includes the rest as well.
+	const membership = [...Array.from({ length: 54 }, (_, i) => i % songs.length), -1, 0];
+	const original = membership.flatMap((n) => (songs[n] ? [songs[n].title] : []));
+	let previous: string[] = [];
+	for (const action of ['detail', 'detail', 'menu', 'selection', 'play']) {
+		const app = await context.newPage();
+		const state = await connect(app, {}, membership);
+		await button(app, 'Browse Playlists').click();
+		if (action === 'menu') {
+			await button(app, 'More options for ' + playlist.name).click();
+			await app.getByRole('dialog').getByRole('button', { name: 'Shuffle', exact: true }).click();
+		} else if (action === 'selection') {
+			await button(app, 'Select items').click();
+			await button(app, 'Select ' + playlist.name).click();
+			await button(app, 'Shuffle').click();
+		} else {
+			await button(app, playlist.name).click();
+			await button(app, action === 'play' ? 'Play playlist' : 'Shuffle playlist').click();
+		}
+		const rows = (await queue(app)).locator('strong');
+		await expect(rows).toHaveCount(original.length);
+		const order = await rows.allTextContents();
+		expect([...order].sort()).toEqual([...original].sort());
+		if (action === 'play') expect(order).toEqual(original);
+		else if (previous.length) expect(order).not.toEqual(previous);
+		expect(state.edits).toEqual([]);
+		previous = order;
+		await app.close();
+	}
+});
+
+test('shuffling the offline copy after closing the app keeps only available entries, including repeats', async ({
+	page,
+	context
+}) => {
+	await repeatShuffleDraws(context);
+	await connect(page);
+	await button(page, 'Browse Playlists').click();
+	await button(page, playlist.name).click();
+	await expect(button(page, 'Play playlist')).toBeVisible();
+	await page.close();
+	let previous: string[] = [];
+	for (const source of ['library', 'library', 'search']) {
+		const app = await context.newPage();
+		const state = await connect(app);
+		state.block();
+		if (source === 'library') {
+			await chooseOption(
+				app.getByRole('combobox', { name: 'Availability', exact: true }),
+				'offline'
+			);
+			await button(app, 'Browse Playlists').click();
+			await button(app, playlist.name).click();
+			await button(app, 'Shuffle all').click();
+		} else {
+			await seedOfflineMusic(app, server, 'listener', true, []);
+			await button(app, 'Search').click();
+			await expect(app.getByText('Searching music on this device.')).toBeVisible();
+			await app.getByRole('searchbox', { name: 'Search music' }).fill(playlist.name);
+			await app
+				.getByRole('group', { name: 'Search category' })
+				.getByRole('button', { name: 'Playlists' })
+				.click();
+			await button(app, 'More options for ' + playlist.name).click();
+			await app.getByRole('dialog').getByRole('button', { name: 'Shuffle', exact: true }).click();
+		}
+		const rows = (await queue(app)).locator('strong');
+		await expect(rows).toHaveCount(3);
+		const order = await rows.allTextContents();
+		expect([...order].sort()).toEqual(['Dawn', 'Dawn', 'Noon']);
+		if (previous.length) expect(order).not.toEqual(previous);
+		expect(
+			state.attempts.filter((p) => p.startsWith('/playlists') || p.startsWith('/stream/'))
+		).toEqual([]);
+		previous = order;
+		await app.close();
+	}
+});
 
 test('album details label every source, update without rereading DN and play only the selected matches', async ({
 	page
@@ -198,6 +287,7 @@ test('playlist filtering keeps duplicate occurrences, their playable positions a
 	await chooseOption(availability(page), 'cached');
 	await expect(page.getByText('No tracks match this availability.')).toBeVisible();
 	await expect(button(page, 'Play playlist')).toBeDisabled();
+	await expect(button(page, 'Shuffle playlist')).toBeDisabled();
 	await chooseOption(availability(page), 'downloaded');
 	const rows = page.locator('[data-entry]');
 	await expect(rows).toHaveCount(2);

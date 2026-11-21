@@ -23,7 +23,7 @@
 	import { loadNearEnd } from './browseViewport';
 	import { tappedPlayback, type PageEnd } from './browsePlayback';
 	import { untrack } from 'svelte';
-	import { shuffled } from './browseActions';
+	import { beginPlaybackPreparation, shuffled } from './browseActions';
 	import { queueSizeCheck } from './libraryQueue';
 	import { genreTracksPage, tracksInGenre } from './libraryGenres';
 	import { prepareLibraryPlayback } from '../player/libraryWindow';
@@ -189,8 +189,7 @@
 		queueRead = job;
 		busy = true;
 		error = '';
-		const cancel = () => job.abort();
-		window.addEventListener('dn-playback-intent', cancel);
+		const finish = beginPlaybackPreparation(() => job.abort());
 		try {
 			if (remoteGenre && item.genre) {
 				const batch = await prepareLibraryPlayback(
@@ -199,7 +198,7 @@
 					job.signal
 				);
 				job.signal.throwIfAborted();
-				window.removeEventListener('dn-playback-intent', cancel);
+				finish();
 				await onplay(batch.tracks, 0, batch.continuation);
 				return;
 			}
@@ -207,14 +206,16 @@
 				? await tracksInGenre(session, item.genre!, job.signal, true)
 				: filteredTracks;
 			job.signal.throwIfAborted();
-			window.removeEventListener('dn-playback-intent', cancel);
 			const check = queueSizeCheck(session.serverUrl);
 			selection.forEach(check);
-			await onplay(shuffle ? shuffled(selection) : selection, 0);
+			const order = shuffle ? await shuffled(selection, session) : selection;
+			job.signal.throwIfAborted();
+			finish();
+			await onplay(order, 0);
 		} catch (cause) {
 			if (!job.signal.aborted) error = errorMessage(cause);
 		} finally {
-			window.removeEventListener('dn-playback-intent', cancel);
+			finish();
 			if (queueRead === job) {
 				queueRead = undefined;
 				busy = false;

@@ -4,6 +4,7 @@
 		CheckCheck,
 		ListChecks,
 		Play,
+		Shuffle,
 		ListPlus,
 		ListMusic,
 		Download,
@@ -14,6 +15,7 @@
 	import type { Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
 	import { queueSizeCheck } from './libraryQueue';
+	import { beginPlaybackPreparation, shuffled } from './browseActions';
 	import { offlineSupported, saveOfflineTracks } from '../offline/media';
 	import AddToPlaylist from './AddToPlaylist.svelte';
 	import {
@@ -109,7 +111,7 @@
 		group.message = '';
 		error = '';
 	}
-	type Action = 'play' | 'next' | 'queue' | 'playlist' | 'offline';
+	type Action = 'play' | 'shuffle' | 'next' | 'queue' | 'playlist' | 'offline';
 	async function apply(action: Action) {
 		if (!group.selected.size || group.busy) return;
 		error = '';
@@ -118,11 +120,10 @@
 		const controller = new AbortController();
 		request = controller;
 		progress = 'Preparing selected music…';
-		const tracks: PlayerTrack[] = [];
+		let tracks: PlayerTrack[] = [];
 		const forQueue = action !== 'offline' && action !== 'playlist';
 		const checkSize = forQueue ? queueSizeCheck(session.serverUrl) : undefined;
-		const interrupted = () => controller.abort();
-		if (forQueue) window.addEventListener('dn-playback-intent', interrupted);
+		const finish = forQueue ? beginPlaybackPreparation(() => controller.abort()) : undefined;
 
 		try {
 			for (const item of [...group.selected.values()]) {
@@ -135,12 +136,14 @@
 					tracks.push(track);
 				}
 			}
-			window.removeEventListener('dn-playback-intent', interrupted);
+			if (action === 'shuffle') tracks = await shuffled(tracks, session);
+			controller.signal.throwIfAborted();
+			finish?.();
 			if (action === 'playlist') {
 				playlist = tracks;
 				return;
 			}
-			if (action === 'play') await onplay(tracks, 0);
+			if (action === 'play' || action === 'shuffle') await onplay(tracks, 0);
 			else if (action === 'offline') {
 				const result = await saveOfflineTracks(
 					session,
@@ -160,7 +163,7 @@
 		} catch (e) {
 			if (!controller.signal.aborted) error = errorMessage(e);
 		} finally {
-			window.removeEventListener('dn-playback-intent', interrupted);
+			finish?.();
 			if (request === controller) {
 				request = undefined;
 				group.busy = false;
@@ -213,6 +216,11 @@
 					class="secondary"
 					disabled={group.busy || !group.selected.size}
 					onclick={() => apply('play')}><Play size={17} />Play</button
+				>
+				<button
+					class="secondary"
+					disabled={group.busy || !group.selected.size}
+					onclick={() => apply('shuffle')}><Shuffle size={17} />Shuffle</button
 				>
 				<button
 					class="secondary"
