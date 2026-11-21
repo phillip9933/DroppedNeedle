@@ -207,10 +207,9 @@ impl DeviceRegistry {
     ) -> Result<DeviceUpdate, ApiError> {
         if Uuid::parse_str(&hb.id).is_err()
             || hb.name.trim().is_empty()
-            || hb.name.len() > 80
-            || hb.title.as_ref().is_some_and(|v| v.len() > 1024)
+            || hb.name.chars().take(81).count() > 80
         {
-            return Err(ApiError::invalid_input("Invalid player identity or title."));
+            return Err(ApiError::invalid_input("Invalid player identity or name."));
         }
         let key = (user.to_owned(), hb.id.clone());
         self.with(now, |players| {
@@ -269,7 +268,7 @@ impl DeviceRegistry {
             });
             entry.seen = now;
             entry.summary.name = hb.name;
-            entry.summary.title = hb.title;
+            entry.summary.title = hb.title.map(|title| title.chars().take(1024).collect());
             entry.summary.playing = hb.playing;
             entry.summary.can_transfer = hb.can_transfer;
             if let Some((receipt, pending)) = hb.receipt.and_then(|r| {
@@ -444,6 +443,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_multilingual_name_and_long_song_title_keep_a_player_available() {
+        let registry = DeviceRegistry::default();
+        let name = "台所のスピーカー".repeat(5);
+        let title = "🎶".repeat(1025);
+        let update = registry
+            .sync(
+                "listener",
+                DeviceHeartbeat {
+                    id: Uuid::new_v4().to_string(),
+                    name: name.clone(),
+                    title: Some(title),
+                    playing: true,
+                    can_transfer: false,
+                    receipt: None,
+                    disconnect: false,
+                },
+                0,
+            )
+            .unwrap();
+        assert_eq!(update.devices[0].name, name);
+        assert_eq!(update.devices[0].title, Some("🎶".repeat(1024)));
+        assert!(update.devices[0].playing);
+    }
 
     #[test]
     fn expired_commands_and_disconnected_destinations_release_the_source() {
