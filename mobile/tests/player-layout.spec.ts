@@ -1437,6 +1437,18 @@ test('Home scrolling, dragging up to Now Playing and reversing a mini-player pul
 		await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(20);
 		await expect(opener).toBeVisible();
 		await main.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+		const catalogGeometry = () =>
+			page.evaluate(() => {
+				const top = (selector: string) =>
+					document.querySelector(selector)!.getBoundingClientRect().top;
+				return {
+					head: top('.mast'),
+					feed: top('[data-home-feed]'),
+					mini: top('footer [data-part="mini-player"]'),
+					scroll: document.querySelector('main')!.scrollTop
+				};
+			});
+		const catalogAtRest = await catalogGeometry();
 		const homeFrame = await page.screenshot();
 		const brand = (await page.getByRole('img', { name: 'DroppedNeedle' }).boundingBox())!;
 		const brandPatch = { x: brand.x + brand.width * 0.2, y: brand.y + brand.height * 0.3 };
@@ -1446,6 +1458,7 @@ test('Home scrolling, dragging up to Now Playing and reversing a mini-player pul
 		await expect.poll(() => screenTop(art)).toBeLessThan(height - 30);
 		const halfway = await screenTop(art);
 		expect(halfway).toBeGreaterThan(expandedY + 70);
+		expect(await catalogGeometry()).toEqual(catalogAtRest);
 		const heldPatch = await coverPatch();
 		const heldFrame = await page.screenshot({
 			path: test.info().outputPath('home-during-pull.png')
@@ -1461,6 +1474,7 @@ test('Home scrolling, dragging up to Now Playing and reversing a mini-player pul
 		);
 		await touch.moveTo(x, y - 45);
 		await expect.poll(() => screenTop(art)).toBeGreaterThan(halfway + 55);
+		expect(await catalogGeometry()).toEqual(catalogAtRest);
 		await touch.moveTo(x, y - 255);
 		await touch.lift();
 		await expect.poll(() => screenTop(art)).toBeCloseTo(expandedY, 0);
@@ -1470,13 +1484,14 @@ test('Home scrolling, dragging up to Now Playing and reversing a mini-player pul
 		await touch.hold(art);
 		await touch.moveTo(start.x, start.y + 155);
 		await expect.poll(() => screenTop(art)).toBeGreaterThan(expandedY + 85);
+		expect(await catalogGeometry()).toEqual(catalogAtRest);
 		await touch.cancel();
 		await expect.poll(() => screenTop(art)).toBeCloseTo(expandedY, 0);
 		await touch.hold(art);
 		await touch.moveTo(start.x, start.y + 255);
 		await touch.lift();
 		await expect(opener).toBeVisible();
-		await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(20);
+		await expect.poll(catalogGeometry).toEqual(catalogAtRest);
 
 		const startMini = await touch.point(opener);
 		await page.mouse.move(startMini.x, startMini.y);
@@ -1512,7 +1527,7 @@ test('pulling directly on player controls follows every held position without ac
 		for (const dy of [26, 120, 74, 190]) {
 			await touch.moveTo(start.x, start.y - dy);
 			await expect.poll(() => screenTop(player)).toBeCloseTo(height - dy, 0);
-			await expect.poll(() => screenTop(mini)).toBeCloseTo(miniTop - dy, 0);
+			await expect.poll(() => screenTop(mini)).toBeCloseTo(miniTop, 0);
 		}
 		await touch.cancel();
 		await expect(player).toHaveCount(0);

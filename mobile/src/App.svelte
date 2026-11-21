@@ -86,7 +86,6 @@
 	);
 	const peekingCatalog = $derived(surface !== 'base' && pull.includes('base'));
 	const baseVisible = $derived(surface === 'base' || peekingCatalog);
-	const miniLift = $derived(pull.includes('base') ? pull.exposure : 0);
 	const layers = ['player', 'queue'] as const;
 	let settings = $state<{ goBack: () => boolean }>();
 	let catalog = $state<Catalog>();
@@ -537,14 +536,13 @@
 	bind:this={shell}
 	use:playerGestures={gestures}
 	class:pulling={!!pull.route}
-	style:--base-lift={-miniLift + 'px'}
 	style:--footer-height={footerHeight + 'px'}
 	style:--notice-height={(issue ? noticeHeight : 0) + 'px'}
 >
 	{#if baseVisible}
 		<header
 			class="mast"
-			class:home-mast={tab === 'home' && panel === 'catalog'}
+			class:home-mast={tab === 'home' && (panel === 'catalog' || peekingCatalog)}
 			inert={peekingCatalog}
 			aria-hidden={peekingCatalog || undefined}
 		>
@@ -662,7 +660,6 @@
 			bind:clientHeight={footerHeight}
 			inert={peekingCatalog}
 			aria-hidden={peekingCatalog || undefined}
-			style:--mini-opacity={Math.max(0, 1 - miniLift / Math.max(1, footerHeight))}
 		>
 			<PlayerView
 				{session}
@@ -716,15 +713,6 @@
 	}
 	.pulling .panel-layer[data-panel-layer='queue'] {
 		z-index: 3;
-	}
-	.pulling .base-page,
-	.pulling footer :global(.mini) {
-		translate: 0 var(--base-lift);
-		will-change: transform;
-	}
-	.pulling footer :global(.mini) {
-		opacity: var(--mini-opacity);
-		will-change: transform, opacity;
 	}
 	footer :global(.mini),
 	.panel-layer :global(.player-section:not(:has([data-gesture-scroll], input, [role='slider']))) {
