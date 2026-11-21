@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import type { Availability } from '../offline/library';
 	import type { DetailInventory } from './detailInventory.svelte';
 	import LibraryAvailability from './LibraryAvailability.svelte';
@@ -55,12 +55,17 @@
 			>
 		{:else}
 			<span
-				>{available.toLocaleString()}
-				{uiText('of')}
-				{total.toLocaleString()}
-				{uiText('playable')}
-				{total === 1 ? uiText('track') : uiText('tracks')}
-				{uiText('available on this device.')}</span
+				>{tr(
+					total.toLocaleString() +
+						(total === 1 ? ' playable track in DN' : ' playable tracks in DN') +
+						' · ' +
+						available.toLocaleString() +
+						' available offline',
+					'DN で再生できる曲：' +
+						total.toLocaleString() +
+						' · オフライン：' +
+						available.toLocaleString()
+				)}</span
 			>
 		{/if}
 		{#if unavailable}
@@ -76,6 +81,7 @@
 			inline
 			{deviceOnly}
 			label={uiText('Track availability')}
+			allLabel={tr('All tracks', 'すべての曲')}
 			{value}
 			{onchange}
 		/>{/if}

@@ -2,32 +2,33 @@
 	import { uiText } from '../i18n';
 
 	import InlineChoice from '../controls/InlineChoice.svelte';
-	import { availabilityLabels, type Availability } from '../offline/library';
+	import type { Availability } from '../offline/library';
 	let {
 		value,
 		onchange,
 		inline = false,
 		label = 'Availability',
+		allLabel = uiText('All library music'),
 		deviceOnly = false
 	}: {
 		value: Availability;
 		onchange: (value: Availability) => void;
 		inline?: boolean;
 		label?: string;
+		allLabel?: string;
 		deviceOnly?: boolean;
 	} = $props();
 </script>
 
-<label class:inline
-	>{uiText(label)}
-	<InlineChoice selected={value} label={uiText(label)}
-		><select {value} onchange={(e) => onchange(e.currentTarget.value as Availability)}>
-			{#each Object.entries(availabilityLabels) as [key, title] (key)}
-				{#if !deviceOnly || key !== 'all'}<option value={key}>{uiText(title)}</option>{/if}
-			{/each}
-		</select></InlineChoice
-	>
-</label>
+{#if !deviceOnly}<label class:inline
+		>{uiText(label)}
+		<InlineChoice selected={value} label={uiText(label)}
+			><select {value} onchange={(e) => onchange(e.currentTarget.value as Availability)}>
+				<option value="all">{allLabel}</option>
+				<option value="offline">{uiText('Available offline')}</option>
+			</select></InlineChoice
+		>
+	</label>{/if}
 
 <style>
 	label {

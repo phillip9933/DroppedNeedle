@@ -1,12 +1,5 @@
-import { Cloud, CloudDownload, Download, HardDrive } from '@lucide/svelte';
-import { originLabels } from '../offline/library';
-import type { OfflineOrigin } from '../offline/tracks';
+import { Cloud, Download } from '@lucide/svelte';
 
-export type TrackStatus = OfflineOrigin | 'online';
-export const trackStatusLabels = { ...originLabels, online: 'Online only' };
-export const trackStatusIcons = {
-	downloaded: Download,
-	automatic: CloudDownload,
-	cached: HardDrive,
-	online: Cloud
-};
+export type TrackStatus = 'offline' | 'online';
+export const trackStatusLabels = { offline: 'Available offline', online: 'Online only' };
+export const trackStatusIcons = { offline: Download, online: Cloud };

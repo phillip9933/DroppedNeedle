@@ -220,7 +220,7 @@ for (const ambiguous of [false, true])
 			const { reads, audio } = await fixture(page);
 			await seedDevice(page, ambiguous);
 			await button(page, 'Collection filters').click();
-			await chooseOption(page.getByLabel('Availability', { exact: true }), 'downloaded');
+			await chooseOption(page.getByLabel('Availability', { exact: true }), 'offline');
 			await button(page, 'Play Saved opener').click();
 			await expect(button(page, 'Open album Old record')).toBeVisible();
 			const before = reads.filter((p) => p.startsWith('/library/'));
@@ -237,7 +237,7 @@ for (const ambiguous of [false, true])
 				else {
 					await expect(page.getByText('On this device', { exact: true })).toBeVisible();
 					await expect(button(page, 'Play Saved neighbor')).toBeVisible();
-					await expect(button(page, 'Play Cached elsewhere')).toHaveCount(0);
+					await expect(button(page, 'Play Cached elsewhere')).toBeVisible();
 				}
 				await page.keyboard.press('Escape');
 				await expect(entry).toBeFocused();

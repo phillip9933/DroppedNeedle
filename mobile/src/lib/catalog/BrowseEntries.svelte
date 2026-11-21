@@ -53,7 +53,10 @@
 		return new Map<string, TrackStatus[]>(
 			items.map((item) => {
 				const origins = itemOrigins(item, storage);
-				return [item.id, item.track && showOnlineOnly && !origins.length ? ['online'] : origins];
+				return [
+					item.id,
+					origins.length ? ['offline'] : item.track && showOnlineOnly ? ['online'] : []
+				];
 			})
 		);
 	});

@@ -152,8 +152,7 @@ test('a fresh shuffle from the playlist, its menu or a selection survives closin
 			await button(app, 'More options for ' + playlist.name).click();
 			await app.getByRole('dialog').getByRole('button', { name: 'Shuffle', exact: true }).click();
 		} else if (action === 'selection') {
-			await button(app, 'Select items').click();
-			await button(app, 'Select ' + playlist.name).click();
+			await button(app, playlist.name).press('Shift+Space');
 			await button(app, 'Shuffle').click();
 		} else {
 			await button(app, playlist.name).click();
@@ -244,34 +243,34 @@ test('album details label every source, update without rereading DN and play onl
 	const beforeDetail = await reads();
 	await button(page, album.title).click();
 	const list = page.locator('[data-album-sheet=true]');
-	await expect(page.getByText('3 of 4 playable tracks available on this device.')).toBeVisible();
+	await expect(page.getByText('4 playable tracks in DN · 3 available offline')).toBeVisible();
 	expect(await reads()).toBe(beforeDetail + 1);
 	for (const [i, status] of [
-		'Downloaded',
-		'Automatically saved',
-		'Playback cache',
+		'Available offline',
+		'Available offline',
+		'Available offline',
 		'Online only'
 	].entries())
 		await expect(button(page, 'Play ' + songs[i].title)).toHaveAccessibleDescription(status);
-	await chooseOption(availability(page), 'cached');
-	await expect(list.locator('strong')).toHaveText(['Dusk']);
+	await chooseOption(availability(page), 'offline');
+	await expect(list.locator('strong')).toHaveText(['Dawn', 'Noon', 'Dusk']);
 	await expect(button(page, 'Play Dusk')).toContainText('3');
 	expect(await reads()).toBe(beforeDetail + 1);
 	await seedOfflineMusic(page, server, 'listener', false, [{ track: songs[3], origin: 'cached' }]);
-	await expect(page.getByText('4 of 4 playable tracks available on this device.')).toBeVisible();
-	await expect(list.locator('strong')).toHaveText(['Dusk', 'Night']);
-	await button(page, 'Select items').click();
+	await expect(page.getByText('4 playable tracks in DN · 4 available offline')).toBeVisible();
+	await expect(list.locator('strong')).toHaveText(['Dawn', 'Noon', 'Dusk', 'Night']);
+	await page.locator('[data-selectable]:visible').first().press('Shift+Space');
 	await button(page, 'Select loaded').click();
-	await expect(page.getByText('2 selected')).toBeVisible();
+	await expect(page.getByText('4 selected')).toBeVisible();
 	await seedOfflineMusic(page, server, 'listener', false, [
 		{ track: songs[2], origin: 'downloaded' }
 	]);
-	await expect(page.getByText('1 selected')).toBeVisible();
-	await expect(list.locator('strong')).toHaveText(['Night']);
+	await expect(page.getByText('4 selected')).toBeVisible();
+	await expect(list.locator('strong')).toHaveText(['Dawn', 'Noon', 'Dusk', 'Night']);
 	await button(page, 'Cancel selection').click();
-	await chooseOption(availability(page), 'automatic');
+
 	await button(page, 'Play album').click();
-	await expect((await queue(page)).locator('strong')).toHaveText(['Noon']);
+	await expect((await queue(page)).locator('strong')).toHaveText(['Dawn', 'Noon', 'Dusk', 'Night']);
 	expect(paths.filter((p) => p === '/library/albums/match/paper')).toHaveLength(1);
 });
 
@@ -281,20 +280,16 @@ test('playlist filtering keeps duplicate occurrences, their playable positions a
 	const state = await connect(page);
 	await button(page, 'Browse Playlists').click();
 	await button(page, playlist.name).click();
-	await expect(page.getByText('3 of 4 playable tracks available on this device.')).toBeVisible();
+	await expect(page.getByText('4 playable tracks in DN · 3 available offline')).toBeVisible();
 	await expect(page.getByText('1 entry has no playable file in DN.')).toBeVisible();
 	await expect(button(page, 'Remote interlude, unavailable in your library')).toBeDisabled();
-	await chooseOption(availability(page), 'cached');
-	await expect(page.getByText('No tracks match this availability.')).toBeVisible();
-	await expect(button(page, 'Play playlist')).toBeDisabled();
-	await expect(button(page, 'Shuffle playlist')).toBeDisabled();
-	await chooseOption(availability(page), 'downloaded');
+	await chooseOption(availability(page), 'offline');
 	const rows = page.locator('[data-entry]');
-	await expect(rows).toHaveCount(2);
+	await expect(rows).toHaveCount(3);
 	await expect(rows.last()).toHaveAttribute('data-entry', 'e4');
-	await button(page, 'Select items').click();
+	await page.locator('[data-selectable]:visible').first().press('Shift+Space');
 	await button(page, 'Select loaded').click();
-	await expect(page.getByText('2 selected')).toBeVisible();
+	await expect(page.getByText('3 selected')).toBeVisible();
 	await button(page, 'Cancel selection').click();
 	await button(page, 'Edit playlist').click();
 	await expect(rows).toHaveCount(5);
@@ -306,11 +301,11 @@ test('playlist filtering keeps duplicate occurrences, their playable positions a
 	await expect(rows.nth(1)).toHaveAttribute('data-entry', 'e4');
 	expect(state.edits).toEqual([{ track_id: 'e4', new_position: 1 }]);
 	await button(page, 'Done editing').click();
-	await expect(availability(page)).toHaveAttribute('data-value', 'downloaded');
-	await expect(rows).toHaveCount(2);
-	await rows.last().getByRole('button', { name: 'Play Dawn', exact: true }).click();
+	await expect(availability(page)).toHaveAttribute('data-value', 'offline');
+	await expect(rows).toHaveCount(3);
+	await rows.nth(1).getByRole('button', { name: 'Play Dawn', exact: true }).click();
 	const playQueue = await queue(page);
-	await expect(playQueue.locator('strong')).toHaveText(['Dawn', 'Dawn']);
+	await expect(playQueue.locator('strong')).toHaveText(['Dawn', 'Dawn', 'Noon']);
 	await expect(playQueue.locator('li').nth(1).locator('[aria-current=true]')).toBeVisible();
 	expect(state.paths.filter((p) => p === '/playlists/repeat')).toHaveLength(2);
 });
@@ -321,13 +316,10 @@ test('a device-filtered category carries its source into album and known playlis
 	const state = await connect(page);
 	await button(page, 'Browse Playlists').click();
 	await button(page, playlist.name).click();
-	await expect(page.getByText('3 of 4 playable tracks available on this device.')).toBeVisible();
+	await expect(page.getByText('4 playable tracks in DN · 3 available offline')).toBeVisible();
 	await button(page, 'Back to playlists').click();
 	await button(page, 'Back to Library').click();
-	await chooseOption(
-		page.getByRole('combobox', { name: 'Availability', exact: true }),
-		'downloaded'
-	);
+	await chooseOption(page.getByRole('combobox', { name: 'Availability', exact: true }), 'offline');
 	await seedOfflineMusic(page, server, 'listener', false, [
 		{
 			origin: 'downloaded',
@@ -348,25 +340,24 @@ test('a device-filtered category carries its source into album and known playlis
 	).toBeVisible();
 	await button(page, 'Back to Albums').click();
 	await button(page, album.title).click();
-	await expect(availability(page)).toHaveAttribute('data-value', 'downloaded');
+	await expect(availability(page)).toHaveCount(0);
 	await expect(button(page, 'Play Dawn')).toBeVisible();
-	await expect(button(page, 'Play Noon')).toHaveCount(0);
-	await chooseOption(availability(page), 'cached');
-	await expect(button(page, 'Play Dusk')).toHaveAccessibleDescription('Playback cache');
-	await expect(button(page, 'Play Dawn')).toHaveCount(0);
+	await expect(button(page, 'Play Noon')).toBeVisible();
+	await expect(button(page, 'Play Dusk')).toHaveAccessibleDescription('Available offline');
+
 	await button(page, 'Back to Albums').click();
 	await button(page, 'Back to Library').click();
 	await button(page, 'Browse Playlists').click();
 	await button(page, playlist.name).click();
-	await expect(availability(page)).toHaveAttribute('data-value', 'downloaded');
-	await expect(page.getByText('3 of 4 playable tracks available on this device.')).toBeVisible();
+	await expect(availability(page)).toHaveCount(0);
+	await expect(page.getByText('4 playable tracks in DN · 3 available offline')).toBeVisible();
 	await expect(button(page, 'Play Dawn')).toHaveCount(2);
-	await chooseOption(availability(page), 'automatic');
-	await expect(button(page, 'Play Noon')).toHaveAccessibleDescription('Automatically saved');
-	await expect(button(page, 'Play Dawn')).toHaveCount(0);
+
+	await expect(button(page, 'Play Noon')).toHaveAccessibleDescription('Available offline');
+
 	expect(state.attempts).toEqual([]);
 	await button(page, 'Play all').click();
-	await expect((await queue(page)).locator('strong')).toHaveText(['Noon']);
+	await expect((await queue(page)).locator('strong')).toHaveText(['Dawn', 'Noon', 'Dawn']);
 	expect(state.attempts.filter((p) => !p.endsWith('/lyrics') && p !== '/ratings/lookup')).toEqual(
 		[]
 	);
@@ -440,7 +431,7 @@ test('held ranges work on album tracks, repeated playlist entries and songs save
 	const albumRows = page.locator('[data-part=track-list]:visible [data-selectable]');
 	await expect(albumRows).toHaveCount(4);
 	await chooseRange(albumRows.nth(0), albumRows.nth(2), 3);
-	await button(page, 'Select items').click();
+	await button(page, 'Cancel selection').click();
 	await button(page, 'Library').click();
 	await button(page, 'Browse Playlists').click();
 	await button(page, playlist.name).click();
@@ -452,7 +443,7 @@ test('held ranges work on album tracks, repeated playlist entries and songs save
 			'[data-entry=e0] button[aria-pressed=true], [data-entry=e4] button[aria-pressed=true]'
 		)
 	).toHaveCount(2);
-	await button(page, 'Select items').click();
+	await button(page, 'Cancel selection').click();
 	await seedOfflineMusic(page, server, 'listener', false, [
 		{ track: songs[3], origin: 'downloaded' }
 	]);

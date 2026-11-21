@@ -18,6 +18,7 @@
 	import SelectionHost from './SelectionHost.svelte';
 	import Library from './Library.svelte';
 	import OwnedArtistAlbums from './OwnedArtistAlbums.svelte';
+	import { UserRound } from '@lucide/svelte';
 	import { tr } from '../i18n';
 	let {
 		session,
@@ -74,51 +75,60 @@
 
 <button class="text-button" onclick={onback}>{uiText(backLabel)}</button>
 <section data-part="local-artist-detail">
-	<h1>{current.name}</h1>
-	<div class="actions">
-		<HomePinButton {session} pin={artistPin(current.name, current.id, current.artist_mbid)} />
-		{#if current.favorite !== undefined}<Favorite
+	<div class="artist-heading">
+		<h1>{current.name}</h1>
+		<div class="actions">
+			<HomePinButton
+				iconOnly
 				{session}
-				kind="artist"
-				id={current.id}
-				value={current.favorite}
-			/>{/if}
-		{#if current.artist_mbid}<button
-				class="secondary"
-				onclick={() => {
-					if (current.artist_mbid) ondiscover({ id: current.artist_mbid, name: current.name });
-				}}>{uiText('Artist profile')}</button
-			>{/if}
-		<WebDetail
-			{session}
-			route={'/library/artists/' + encodeURIComponent(artist.id)}
-			label={uiText('Open artist in web app')}
-		/>
+				pin={artistPin(current.name, current.id, current.artist_mbid)}
+			/>
+			{#if current.favorite !== undefined}<Favorite
+					{session}
+					kind="artist"
+					id={current.id}
+					value={current.favorite}
+				/>{/if}
+			{#if current.artist_mbid}<button
+					class="icon-button"
+					aria-label={uiText('Artist profile')}
+					title={uiText('Artist profile')}
+					onclick={() => {
+						if (current.artist_mbid) ondiscover({ id: current.artist_mbid, name: current.name });
+					}}><UserRound size={19} /></button
+				>{/if}
+			<WebDetail
+				iconOnly
+				{session}
+				route={'/library/artists/' + encodeURIComponent(artist.id)}
+				label={uiText('Open artist in web app')}
+			/>
+		</div>
 	</div>
 	{#if error}<p role="alert">{error}</p>
 		<button class="text-button" onclick={() => retry++}>{uiText('Reload artist profile')}</button
 		>{/if}
-	<label
-		>{uiText('Artist library view')}<InlineChoice selected={view}
+	<div class="view-options">
+		<InlineChoice label={uiText('Artist library view')} selected={view}
 			><select bind:value={view}
 				><option value="albums">{uiText('Albums')}</option><option value="songs"
 					>{uiText('Songs')}</option
 				><option value="appearances">{uiText('Appears on')}</option></select
 			></InlineChoice
-		></label
-	>
-	{#if view === 'albums'}<InlineChoice
-			selected={releaseType}
-			label={tr('Release type', 'リリースの種類')}
-			><select bind:value={releaseType}>
-				<option value="all">{tr('All releases', 'すべてのリリース')}</option>
-				<option value="album">{tr('Albums', 'アルバム')}</option>
-				<option value="ep">{tr('EPs', 'EP')}</option>
-				<option value="single">{tr('Singles', 'シングル')}</option>
-				<option value="other">{tr('Other releases', 'その他のリリース')}</option>
-				<option value="unknown">{tr('Unknown', '不明')}</option>
-			</select></InlineChoice
-		>{/if}
+		>
+		{#if view === 'albums'}<InlineChoice
+				selected={releaseType}
+				label={tr('Release type', 'リリースの種類')}
+				><select bind:value={releaseType}>
+					<option value="all">{tr('All releases', 'すべてのリリース')}</option>
+					<option value="album">{tr('Albums', 'アルバム')}</option>
+					<option value="ep">{tr('EPs', 'EP')}</option>
+					<option value="single">{tr('Singles', 'シングル')}</option>
+					<option value="other">{tr('Other releases', 'その他のリリース')}</option>
+					<option value="unknown">{tr('Unknown', '不明')}</option>
+				</select></InlineChoice
+			>{/if}
+	</div>
 	{#key view}<SelectionHost {session} {onplay} {active} scope={view + releaseType}
 			>{#if view === 'albums' && releaseType !== 'all'}<OwnedArtistAlbums
 					{session}
@@ -130,7 +140,7 @@
 				/>{:else}<Library
 					{active}
 					{session}
-					{artist}
+					artist={current}
 					kind={view === 'songs' ? 'songs' : 'albums'}
 					artistAppearances={view === 'appearances'}
 					{onopen}
@@ -141,17 +151,26 @@
 </section>
 
 <style>
+	.artist-heading,
 	.actions,
-	label {
+	.view-options {
 		display: flex;
-		gap: 0.6rem;
 		align-items: center;
 		flex-wrap: wrap;
+		gap: 0.25rem;
 	}
-	label {
-		margin-block: var(--gap);
+	.artist-heading {
+		justify-content: space-between;
+		margin-block: 0.25rem;
 	}
 	h1 {
+		margin: 0;
 		overflow-wrap: anywhere;
+	}
+	.view-options {
+		margin-bottom: 0.4rem;
+	}
+	.view-options :global(.inline-choice) {
+		max-width: 100%;
 	}
 </style>

@@ -164,51 +164,56 @@
 		<div class="photo"><Cover {session} path={artistCover(artist)} seed={artist.id} /></div>
 		<div>
 			<h1>{artist.name}</h1>
-			<HomePinButton
-				{session}
-				pin={artistPin(
-					artist.name,
-					artist.localOnly ? artist.id : undefined,
-					artist.localOnly ? undefined : artist.id
-				)}
-			/>
-			{#if !artist.localOnly}<LibraryRadio
+			<div class="artist-actions">
+				<HomePinButton
+					iconOnly
 					{session}
-					seedType="artist"
-					seedId={artist.id}
-					seedTitle={artist.name}
-					{onplay}
-				/>{/if}
-			{#if status}<button
-					class="secondary"
-					disabled={saving}
-					aria-pressed={status.followed}
-					onclick={toggle}
-					>{status.followed ? uiText('Unfollow artist') : uiText('Follow artist')}</button
-				>{/if}
+					pin={artistPin(
+						artist.name,
+						artist.localOnly ? artist.id : undefined,
+						artist.localOnly ? undefined : artist.id
+					)}
+				/>
+				{#if !artist.localOnly}<LibraryRadio
+						{session}
+						seedType="artist"
+						seedId={artist.id}
+						seedTitle={artist.name}
+						{onplay}
+					/>{/if}
+				{#if status}<button
+						class="secondary"
+						disabled={saving}
+						aria-pressed={status.followed}
+						onclick={toggle}
+						>{status.followed ? uiText('Unfollow artist') : uiText('Follow artist')}</button
+					>{/if}
+			</div>
 		</div>
 	</header>
 	{#if followError}<p role="alert">{followError}</p>
 		{#if !status}<button class="secondary" onclick={() => followRefresh++}
 				>{uiText('Reload follow status')}</button
 			>{/if}{/if}
-	{#if !artist.localOnly}<InlineChoice selected={view} label={uiText('Artist view')}
-			><select bind:value={view}
-				><option value="releases">{uiText('Releases')}</option><option value="albums"
-					>{uiText('Top albums')}</option
-				><option value="songs">{uiText('Top songs')}</option></select
-			></InlineChoice
-		>{/if}
-	{#if !artist.localOnly && view === 'releases'}
-		<InlineChoice selected={releaseType} label={tr('Release type', 'リリースの種類')}
-			><select bind:value={releaseType}>
-				<option value="all">{tr('All releases', 'すべてのリリース')}</option>
-				<option value="albums">{tr('Albums', 'アルバム')}</option>
-				<option value="eps">{tr('EPs', 'EP')}</option>
-				<option value="singles">{tr('Singles', 'シングル')}</option>
-			</select></InlineChoice
-		>
-	{/if}
+	<div class="artist-filters">
+		{#if !artist.localOnly}<InlineChoice selected={view} label={uiText('Artist view')}
+				><select bind:value={view}
+					><option value="releases">{uiText('Releases')}</option><option value="albums"
+						>{uiText('Top albums')}</option
+					><option value="songs">{uiText('Top songs')}</option></select
+				></InlineChoice
+			>{/if}
+		{#if !artist.localOnly && view === 'releases'}
+			<InlineChoice selected={releaseType} label={tr('Release type', 'リリースの種類')}
+				><select bind:value={releaseType}>
+					<option value="all">{tr('All releases', 'すべてのリリース')}</option>
+					<option value="albums">{tr('Albums', 'アルバム')}</option>
+					<option value="eps">{tr('EPs', 'EP')}</option>
+					<option value="singles">{tr('Singles', 'シングル')}</option>
+				</select></InlineChoice
+			>
+		{/if}
+	</div>
 	<SelectionHost
 		{session}
 		{onplay}
@@ -252,13 +257,23 @@
 		display: flex;
 		align-items: center;
 		gap: var(--gap);
-		margin-block: 1.2rem;
+		margin-block: 0.35rem;
 	}
 	.photo {
-		width: clamp(4.5rem, 24vw, 8rem);
+		width: clamp(3.5rem, 14vw, 6rem);
 		flex: none;
 		border-radius: 50%;
 		overflow: hidden;
+	}
+	.artist-actions,
+	.artist-filters {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+	.artist-filters {
+		margin-bottom: 0.4rem;
 	}
 	header h1 {
 		overflow-wrap: anywhere;
