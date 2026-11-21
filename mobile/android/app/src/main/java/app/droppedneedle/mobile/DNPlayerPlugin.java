@@ -80,6 +80,20 @@ public final class DNPlayerPlugin extends Plugin {
         });
     }
 
+    @PluginMethod
+    public void shuffleSelection(PluginCall call) {
+        SavedQueue.shuffleSelection(getContext(), call.getString("serverUrl"), call.getString("userId"),
+                call.getArray("ids"), call.getBoolean("serverOrder", false), (indices, error) -> {
+                    if (error != null) {
+                        call.reject(error.getMessage(), error);
+                        return;
+                    }
+                    JSObject result = new JSObject();
+                    result.put("indices", indices);
+                    call.resolve(result);
+                });
+    }
+
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> {
             p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getArray("tracks"),
@@ -101,9 +115,13 @@ public final class DNPlayerPlugin extends Plugin {
 
     @PluginMethod public void command(PluginCall call) {
         execute(call, p -> {
-            p.command(call.getString("action", ""), call.getDouble("value", -1d), call.getInt("to", -1));
+            java.util.concurrent.CompletableFuture<Boolean> persisted =
+                    p.command(call.getString("action", ""), call.getDouble("value", -1d), call.getInt("to", -1));
             JSObject result = p.snapshot();
-            p.afterWrite(() -> call.resolve(result));
+            p.afterWrite(() -> {
+                if (persisted.getNow(false)) call.resolve(result);
+                else call.reject("The shuffled order could not be saved.");
+            });
         });
     }
 

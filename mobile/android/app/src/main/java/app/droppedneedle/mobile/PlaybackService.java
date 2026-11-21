@@ -46,6 +46,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import okhttp3.HttpUrl;
@@ -506,7 +507,7 @@ public final class PlaybackService extends MediaLibraryService {
             else {
                 order.remove(player, 0, prefix);
                 order.insert(newItems, null);
-                if (order.shuffled()) Collections.shuffle(newItems);
+                if (order.shuffled()) FreshShuffle.refill(newItems);
             }
             for (MediaItem item : newItems) retained.add(item.mediaId);
             if (restart) {
@@ -899,24 +900,25 @@ public final class PlaybackService extends MediaLibraryService {
         save(true);
     }
 
-    void command(String action, double value, int to) {
+    CompletableFuture<Boolean> command(String action, double value, int to) {
+        CompletableFuture<Boolean> persisted = CompletableFuture.completedFuture(true);
         cancelHeadset();
         sleep.check();
         int count = player.getMediaItemCount();
         int item = (int) value;
-        if ("retryAutoplay".equals(action)) { startRadio(); return; }
+        if ("retryAutoplay".equals(action)) { startRadio(); return persisted; }
         if ("setAutoplay".equals(action)) {
             if (access != null) autoplaySetting(access.base.toString(), access.userId, value != 0);
-            return;
+            return persisted;
         }
         boolean waitingRadio = radio != null;
         if ("setPlaying".equals(action)) {
-            if (value != 0 && (showsPauseControl() || pager.waiting() || waitingRadio)) return;
-            if (value == 0) { cancelRadio(); pager.cancelAdvance(); wasPlaying = false; player.pause(); return; }
+            if (value != 0 && (showsPauseControl() || pager.waiting() || waitingRadio)) return persisted;
+            if (value == 0) { cancelRadio(); pager.cancelAdvance(); wasPlaying = false; player.pause(); return persisted; }
             action = "toggle";
         }
         cancelRadio();
-        if ("restorePreviousQueue".equals(action)) { generation++; restorePrevious(); return; }
+        if ("restorePreviousQueue".equals(action)) { generation++; restorePrevious(); return persisted; }
         if ("clear".equals(action) || ("remove".equals(action) && count == 1 && item == 0)) {
             generation++;
             revision = null;
@@ -937,17 +939,17 @@ public final class PlaybackService extends MediaLibraryService {
             access = null;
             player.setRepeatMode(Player.REPEAT_MODE_OFF);
             stopSelf();
-            return;
+            return persisted;
         }
-        if ("cancelSleepTimer".equals(action)) { sleep.cancel(); fades.refresh(); return; }
+        if ("cancelSleepTimer".equals(action)) { sleep.cancel(); fades.refresh(); return persisted; }
         if ("setSleepMinutes".equals(action) || "sleepAfterTrack".equals(action)) {
             if (count == 0) throw new IllegalStateException("Choose a track first.");
             if ("setSleepMinutes".equals(action)) sleep.minutes(value, to == 1);
             else sleep.afterTracks(trackIdentity(player.getCurrentMediaItem()), value < 1 ? 1 : value);
             fades.refresh();
-            return;
+            return persisted;
         }
-        if (count == 0) return;
+        if (count == 0) return persisted;
         boolean edit = "clearUpcoming".equals(action) || "shuffleUpcoming".equals(action)
                 || "move".equals(action) && item >= 0 && item < count && to >= 0 && to < count
                 || "remove".equals(action) && item >= 0 && item < count;
@@ -965,7 +967,12 @@ public final class PlaybackService extends MediaLibraryService {
                 break;
             case "shuffleUpcoming":
                 changingWindow = true;
-                try { order.toggle(player); } finally { changingWindow = false; }
+                try {
+                    SavedQueue.ShuffleHistory history = access == null || order.shuffled() ? null
+                            : SavedQueue.shuffleHistory(this, access.base.toString(), access.token, access.userId);
+                    order.toggle(player, history);
+                    if (history != null) persisted = SavedQueue.flushShuffle(history);
+                } finally { changingWindow = false; }
                 break;
             case "move":
                 if (item >= 0 && item < count && to >= 0 && to < count) { order.clear(); player.moveMediaItem(item, to); }
@@ -1021,6 +1028,7 @@ public final class PlaybackService extends MediaLibraryService {
                 throw new IllegalArgumentException("Unknown playback command.");
         }
         save(edit);
+        return persisted;
     }
 
     private boolean showsPauseControl() {

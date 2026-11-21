@@ -1,15 +1,23 @@
 package app.droppedneedle.mobile;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AtomicFile;
 import android.util.Log;
+import android.text.TextUtils;
+import com.getcapacitor.JSArray;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Iterator;
+import okhttp3.HttpUrl;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -40,6 +48,104 @@ final class SavedQueue {
         File dir = context.getNoBackupFilesDir();
         playlist = new AtomicFile(new File(dir, PLAYLIST_FILE));
         cursor = new AtomicFile(new File(dir, "playback-cursor.v1"));
+    }
+
+    static final class ShuffleHistory implements FreshShuffle.History {
+        static final int LIMIT = 128;
+        private static final String RECENT = "_recent";
+        private final SharedPreferences prefs;
+        ShuffleHistory(SharedPreferences prefs) {
+            this.prefs = prefs;
+        }
+
+        @Override
+        public Object lock() {
+            return prefs;
+        }
+        @Override
+        public String previous(String group) {
+            return prefs.getString(group, null);
+        }
+
+        @Override
+        public void remember(String group, String order) {
+            synchronized (prefs) {
+                // Put known groups in least-recently shuffled order, including any group missing from the index.
+                LinkedHashSet<String> recent = new LinkedHashSet<>(prefs.getAll().keySet());
+                recent.remove(RECENT);
+                String saved = prefs.getString(RECENT, "");
+                for (String key : saved.split(" "))
+                    if (recent.remove(key))
+                        recent.add(key);
+                recent.remove(group);
+                recent.add(group);
+                SharedPreferences.Editor editor = prefs.edit().putString(group, order);
+                Iterator<String> oldest = recent.iterator();
+                while (recent.size() > LIMIT) {
+                    editor.remove(oldest.next());
+                    oldest.remove();
+                }
+                editor.putString(RECENT, TextUtils.join(" ", recent)).apply();
+            }
+        }
+
+        // SharedPreferences commits wait for outstanding asynchronous writes to this file.
+        boolean flush() {
+            return prefs.edit().commit();
+        }
+    }
+
+    static ShuffleHistory shuffleHistory(Context context, String server, String token, String userId) {
+        String identity = userId == null || userId.isEmpty() ? "session:" + token : "user:" + userId;
+        String account = OfflineStore.digest(server.replaceAll("/+$", "") + "\n" + identity);
+        return new ShuffleHistory(context.getSharedPreferences("dn.shuffle." + account, Context.MODE_PRIVATE));
+    }
+
+    static CompletableFuture<Boolean> flushShuffle(ShuffleHistory history) {
+        CompletableFuture<Boolean> receipt = new CompletableFuture<>();
+        storage.execute(() -> {
+            boolean committed;
+            try {
+                committed = history.flush();
+            } catch (RuntimeException unavailable) {
+                committed = false;
+            }
+            if (!committed)
+                Log.w("DNPlayback", "The last shuffle could not be saved.");
+            receipt.complete(committed);
+        });
+        return receipt;
+    }
+
+    static void shuffleSelection(Context context, String server, String userId, JSArray ids, boolean serverOrder,
+            BiConsumer<JSArray, Exception> complete) {
+        storage.execute(() -> {
+            JSArray result;
+            try {
+                HttpUrl base = server == null ? null : HttpUrl.parse(server);
+                if (base == null || !base.isHttps() || !base.username().isEmpty() || !base.password().isEmpty()
+                        || base.encodedQuery() != null || base.encodedFragment() != null || userId == null
+                        || userId.trim().isEmpty())
+                    throw new IllegalArgumentException("Connect to a DroppedNeedle account to shuffle.");
+                if (ids == null || ids.length() > 2000)
+                    throw new IllegalArgumentException("Choose up to 2,000 library tracks.");
+                ArrayList<String> files = new ArrayList<>(ids.length());
+                for (int i = 0; i < ids.length(); i++) {
+                    Object id = ids.opt(i);
+                    if (!(id instanceof String) || !OfflineStore.validTrackId((String) id))
+                        throw new IllegalArgumentException("Choose local DroppedNeedle library tracks.");
+                    files.add((String) id);
+                }
+                ShuffleHistory history = shuffleHistory(context, base.toString(), null, userId);
+                result = new JSArray(FreshShuffle.selection(files, history, serverOrder));
+                if (!history.flush())
+                    throw new IOException("The shuffled order could not be saved.");
+            } catch (Exception failure) {
+                complete.accept(null, failure);
+                return;
+            }
+            complete.accept(result, null);
+        });
     }
 
     static SecretKey key(String server, String token) {
