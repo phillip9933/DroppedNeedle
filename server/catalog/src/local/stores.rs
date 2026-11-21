@@ -346,6 +346,14 @@ pub struct TrackRecord {
     pub bit_depth: Option<i64>,
     /// Channel count, when probed.
     pub channels: Option<i64>,
+    /// Track loudness adjustment in dB, when tagged.
+    pub replaygain_track_gain: Option<f64>,
+    /// Album loudness adjustment in dB, when tagged.
+    pub replaygain_album_gain: Option<f64>,
+    /// Track peak amplitude relative to digital full scale.
+    pub replaygain_track_peak: Option<f64>,
+    /// Album peak amplitude relative to digital full scale.
+    pub replaygain_album_peak: Option<f64>,
     /// File size, bytes.
     pub file_size_bytes: i64,
     /// Import time, unix seconds.

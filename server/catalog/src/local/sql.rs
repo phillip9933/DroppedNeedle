@@ -390,6 +390,8 @@ droppedneedle_kernel::sql! {
         " AS format, \
          t.bit_rate AS bit_rate, t.sample_rate AS sample_rate, \
          t.bit_depth AS bit_depth, t.channels AS channels, \
+         t.replaygain_track_gain, t.replaygain_album_gain, \
+         t.replaygain_track_peak, t.replaygain_album_peak, \
          t.file_size_bytes AS file_size_bytes, t.imported_at / 1000.0 AS date_added, \
          COALESCE(w.source IN ('folder','embedded'), 0) AS cover_available, \
          t.row_revision AS row_revision"

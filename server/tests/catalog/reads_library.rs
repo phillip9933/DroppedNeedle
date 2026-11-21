@@ -1345,6 +1345,63 @@ async fn lists_filter_by_formats_and_minimum_tracks() {
     );
 }
 
+#[tokio::test]
+async fn track_pages_return_embedded_replaygain_values_when_available() {
+    let fixture = sqlite_fixture().await;
+    seed(&fixture, "UPDATE local_tracks SET replaygain_track_gain=-6.5,replaygain_album_gain=-3.25,replaygain_track_peak=0.9,replaygain_album_peak=0.99 WHERE id='t1'").await;
+    let beside = AuthRig::new("reads-library-replaygain").await;
+    let (status, page) = get(
+        app(deps(&beside, fixture.runtime.db(), None), Some(ADA)),
+        "/api/v3/library/tracks",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let songs = page["items"].as_array().expect("track page");
+    let tagged = songs.iter().find(|t| t["id"] == "t1").expect("tagged song");
+    assert_eq!(tagged["replaygain_track_gain"], -6.5);
+    assert_eq!(tagged["replaygain_album_gain"], -3.25);
+    assert_eq!(tagged["replaygain_track_peak"], 0.9);
+    assert_eq!(tagged["replaygain_album_peak"], 0.99);
+    assert!(
+        songs
+            .iter()
+            .any(|t| t.get("replaygain_track_gain").is_none())
+    );
+}
+
+/// A listener can request play history for the current page of tracks.
+#[tokio::test]
+async fn track_list_play_stats_belong_to_the_caller() {
+    let fixture = sqlite_fixture().await;
+    seed(
+        &fixture,
+        "INSERT INTO auth_users (id, display_name, role, created_at) VALUES ('user-ada', 'Ada', 'user', 1); \
+         INSERT INTO library_play_history (id, user_id, local_track_id, track_name, artist_name, played_at) VALUES \
+         ('listen1', 'user-ada', 't1', 'First', 'Artist', 10000), \
+         ('listen2', 'user-ada', 't1', 'First', 'Artist', 25000), \
+         ('listen3', 'u1', 't2', 'Second', 'Artist', 40000)",
+    )
+    .await;
+    let beside = AuthRig::new("reads-library-play-stats").await;
+    let router = |caller| app(deps(&beside, fixture.runtime.db(), None), Some(caller));
+    let path = "/api/v3/library/tracks?include_play_stats=true";
+    let (status, plain) = get(router(ADA), "/api/v3/library/tracks").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(plain.get("play_stats").is_none());
+    let (status, ada) = get(router(ADA), path).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        ada["play_stats"],
+        serde_json::json!({"t1": {"play_count": 2, "last_played": 25.0}})
+    );
+    let (status, other) = get(router(("u1", Role::User)), path).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        other["play_stats"],
+        serde_json::json!({"t2": {"play_count": 1, "last_played": 40.0}})
+    );
+}
+
 /// The lists keep what the caller rated within a span of stars, at least
 /// or at most so many, and leave out what they did not rate or only
 /// someone else did; the track bound reads either way. Each list's total

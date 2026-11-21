@@ -232,6 +232,7 @@ impl MediaSetup {
             sinks: Arc::new(now_playing),
             lastfm_switch: users.lastfm_switch.clone(),
             remotes: Arc::new(queue),
+            devices: Default::default(),
             sessions: SessionStore::new(),
             presence,
             dedup: ScrobbleDedup::new(),

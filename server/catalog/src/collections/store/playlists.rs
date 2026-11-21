@@ -264,6 +264,10 @@ fn track_from_row(row: &Row<'_>) -> rusqlite::Result<PlaylistTrack> {
         plex_rating_key: row.get(16)?,
         library_file_id: row.get(17)?,
         recording_mbid: row.get(18)?,
+        replaygain_track_gain: row.get(19)?,
+        replaygain_album_gain: row.get(20)?,
+        replaygain_track_peak: row.get(21)?,
+        replaygain_album_peak: row.get(22)?,
     })
 }
 

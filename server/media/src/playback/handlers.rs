@@ -231,6 +231,7 @@ where
     PlaybackDeps: FromRef<S>,
 {
     Routes::new()
+        .merge(super::device_control::routes())
         .user(routes!(start_playback))
         .user(routes!(report_progress))
         .user(routes!(stop_playback))

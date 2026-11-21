@@ -14,8 +14,8 @@ use super::models::{
     LibraryMembershipRequest, LibraryMembershipResponse, LibraryStatusTrack, ListOrder, LyricLine,
     LyricsView, ManagementHoldView, PageQuery, RatingMode, RecentQuery, ResolveTracksRequest,
     ResolveTracksResponse, ResolvedTrack, StatsView, SuggestionReason, SuggestionTrack,
-    SuggestionsQuery, SuggestionsResponse, TrackListPage, TrackListSort, TrackPage, TrackQuery,
-    TrackView, TracksMode,
+    SuggestionsQuery, SuggestionsResponse, TrackListPage, TrackListSort, TrackPage, TrackPlayStat,
+    TrackQuery, TrackView, TracksMode,
 };
 use super::sql;
 use super::stores::{
@@ -751,6 +751,26 @@ pub async fn list_tracks(
     let ids: Vec<String> = page.items.iter().map(|record| record.id.clone()).collect();
     let favorites = favorites_for(deps, user_id, "track", &ids).await?;
     let missing = track_albums_missing_art(deps, &page.items).await?;
+    let play_stats = if query.include_play_stats == Some(true) {
+        Some(
+            deps.catalog
+                .play_stats(user_id, "track", &ids)
+                .await?
+                .into_iter()
+                .map(|(id, (play_count, last_played))| {
+                    (
+                        id,
+                        TrackPlayStat {
+                            play_count,
+                            last_played,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    } else {
+        None
+    };
     Ok(TrackListPage {
         items: page
             .items
@@ -763,6 +783,7 @@ pub async fn list_tracks(
             .collect(),
         total: page.total,
         next: next_cursor(order, &after, page.next),
+        play_stats,
     })
 }
 

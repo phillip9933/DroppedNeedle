@@ -38,6 +38,10 @@ fn track(row: sql::RadioTrackColumns) -> RadioPlanTrack {
         local_file_id: Some(row.id),
         file_format: row.file_format.map(|format| format.to_ascii_lowercase()),
         duration_s: row.duration_seconds,
+        replaygain_track_gain: row.replaygain_track_gain,
+        replaygain_album_gain: row.replaygain_album_gain,
+        replaygain_track_peak: row.replaygain_track_peak,
+        replaygain_album_peak: row.replaygain_album_peak,
     }
 }
 

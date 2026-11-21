@@ -592,6 +592,8 @@ const CALLER_KEYED_OPERATIONS: &[(&str, &str)] = &[
 /// Operations that take a user-owned id in the body, each driven by
 /// `body_ids_never_reach_another_users_resources`. Joined by hand.
 const BODY_ID_OPERATIONS: &[(&str, &str)] = &[
+    ("POST", "/api/v3/playback/devices/control"),
+    ("POST", "/api/v3/playback/devices/sync"),
     ("POST", "/api/v3/requests/batches/cancel"),
     ("POST", "/api/v3/held/recheck"),
     ("POST", "/api/v3/discover/playlist-suggestions"),
@@ -2032,6 +2034,58 @@ async fn body_ids_never_reach_another_users_resources() {
     };
     let ada = user(&app, "ada").await;
     let bob = user(&app, "bob").await;
+
+    // A listener's live player ids and handoff receipts.
+    let sync_path = "/api/v3/playback/devices/sync";
+    let control_path = "/api/v3/playback/devices/control";
+    let phone = uuid::Uuid::new_v4().to_string();
+    let web = uuid::Uuid::new_v4().to_string();
+    let request = uuid::Uuid::new_v4().to_string();
+    let heartbeat =
+        |id: &str| json!({"id":id,"name":"My player","playing":false,"can_transfer":true});
+    for id in [&phone, &web] {
+        let (status, _) = call(&app, &ada, "POST", sync_path, Some(heartbeat(id))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let transfer = json!({"id":request,"target":phone,"action":"transfer","destination":web});
+    for other in [&bob, &admin] {
+        let (status, _) = call(&app, other, "POST", control_path, Some(transfer.clone())).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    // Even a colliding device id gets only its own account's peers and commands.
+    let (status, update) = call(&app, &bob, "POST", sync_path, Some(heartbeat(&phone))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(update["devices"].as_array().unwrap().len(), 1);
+    let (status, _) = call(&app, &ada, "POST", control_path, Some(transfer.clone())).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, update) = call(&app, &bob, "POST", sync_path, Some(heartbeat(&phone))).await;
+    assert!(update["command"].is_null());
+    let (_, update) = call(&app, &ada, "POST", sync_path, Some(heartbeat(&phone))).await;
+    assert_eq!(update["command"]["id"], request);
+    assert!(update["command"]["queue"].is_null());
+    let song = json!({"id":"track-3","title":"Song","artist":"Artist","album":"Album"});
+    let queue = json!({"tracks":[song.clone(),song],"index":1,"position_ms":48500,"playing":false});
+    let mut ack = heartbeat(&phone);
+    ack["receipt"] = json!({"id":request,"queue":queue});
+    let (_, update) = call(&app, &ada, "POST", sync_path, Some(ack)).await;
+    assert!(update["command"].is_null());
+    let (_, update) = call(&app, &ada, "POST", sync_path, Some(heartbeat(&web))).await;
+    let delivered = &update["command"]["queue"];
+    assert_eq!(delivered["position_ms"], 48500);
+    assert_eq!(delivered["playing"], false);
+    assert_eq!(delivered["index"], 1);
+    assert_eq!(delivered["tracks"][1]["id"], "track-3");
+    let mut ack = heartbeat(&web);
+    ack["receipt"] = json!({"id":request});
+    let (_, update) = call(&app, &ada, "POST", sync_path, Some(ack)).await;
+    assert!(update["command"].is_null());
+    let (status, _) = call(&app, &ada, "POST", control_path, Some(transfer)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, update) = call(&app, &ada, "POST", sync_path, Some(heartbeat(&phone))).await;
+    assert!(
+        update["command"].is_null(),
+        "an acknowledged transfer must not pause the source again"
+    );
 
     // Cancelling requests in bulk.
     let ids = seed(&app, Owned::LiveRequest, &ada, 0).await;

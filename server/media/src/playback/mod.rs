@@ -42,6 +42,7 @@
 //! reports to Last.fm and ListenBrainz are sent by `forwarding`. No SSE
 //! fan-out consumes the registry's generation yet.
 
+pub mod device_control;
 pub mod error;
 pub mod forwarding;
 pub mod handlers;
@@ -87,6 +88,8 @@ pub struct PlaybackDeps {
     pub lastfm_switch: LastFmSwitch,
     /// Session reports to the media server a track plays from.
     pub remotes: Arc<dyn RemoteReporters>,
+    /// Active players explicitly available for remote control.
+    pub devices: device_control::DeviceRegistry,
     /// Bounded playback sessions.
     pub sessions: SessionStore,
     /// Live presence registry.

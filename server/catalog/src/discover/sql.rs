@@ -312,7 +312,8 @@ droppedneedle_kernel::sql! {
 
     /// The columns radio reads from [`RADIO_TRACK_SELECT`].
     fragment RADIO_TRACK_COLUMNS = "SELECT id, title, artist_name, album_title, file_format, \
-         duration_seconds, recording_mbid, artist_mbid, album_artist_mbid, release_group_mbid ";
+         duration_seconds, recording_mbid, artist_mbid, album_artist_mbid, release_group_mbid, \
+         replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak ";
     /// Owned, indexed tracks with their MusicBrainz ids. The artist and
     /// album columns prefer the identified ids over the embedded tags.
     fragment RADIO_TRACK_SELECT = "SELECT t.id AS id, t.title AS title, \
@@ -321,6 +322,7 @@ droppedneedle_kernel::sql! {
          + (track_codec!("t"))
          + " AS file_format, \
          t.duration_seconds AS duration_seconds, t.disc_number AS disc_number, \
+         t.replaygain_track_gain, t.replaygain_album_gain, t.replaygain_track_peak, t.replaygain_album_peak, \
          t.track_number AS track_number, "
          + (recording_mbid!("te", "t"))
          + " AS recording_mbid, \
@@ -357,6 +359,10 @@ droppedneedle_kernel::sql! {
         artist_mbid: String,
         album_artist_mbid: String,
         release_group_mbid: Option<String>,
+        replaygain_track_gain: Option<f64>,
+        replaygain_album_gain: Option<f64>,
+        replaygain_track_peak: Option<f64>,
+        replaygain_album_peak: Option<f64>,
     }
     /// A playlist the caller may read: their own, a public one, or one
     /// shared with them.

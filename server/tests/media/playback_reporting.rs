@@ -173,6 +173,7 @@ fn rig() -> Rig {
         sinks: sinks.clone(),
         lastfm_switch: lastfm_on(&scratch),
         remotes: remotes.clone(),
+        devices: Default::default(),
         sessions: SessionStore::new(),
         presence: PresenceRegistry::new(droppedneedle_kernel::events::EventHub::new()),
         dedup: ScrobbleDedup::new(),

@@ -6084,6 +6084,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v3/playback/devices/control": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a transport or handoff request to one of this listener's live players. */
+        post: operations["control_device"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v3/playback/devices/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advertise this player and acknowledge the last command it handled. */
+        post: operations["sync_device"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v3/playback/progress": {
         parameters: {
             query?: never;
@@ -12894,6 +12928,34 @@ export interface components {
             /** @description Source that degraded (`listenbrainz`, `lastfm`). */
             source: string;
         };
+        /** @enum {string} */
+        DeviceAction: "play" | "pause" | "next" | "previous" | "transfer";
+        DeviceCommand: {
+            action: components["schemas"]["DeviceAction"];
+            id: string;
+            /** @description Filled only when the destination receives the queue released by the source. */
+            queue?: null | components["schemas"]["TransferQueue"];
+        };
+        DeviceControlRequest: {
+            action: components["schemas"]["DeviceAction"];
+            destination?: string | null;
+            id: string;
+            target: string;
+        };
+        DeviceHeartbeat: {
+            can_transfer: boolean;
+            disconnect?: boolean;
+            id: string;
+            name: string;
+            playing: boolean;
+            receipt?: null | components["schemas"]["DeviceReceipt"];
+            title?: string | null;
+        };
+        DeviceReceipt: {
+            error?: string | null;
+            id: string;
+            queue?: null | components["schemas"]["TransferQueue"];
+        };
         /** @description Mint a named companion token. */
         DeviceSessionMint: {
             /** @description Device label, 1-80 chars. Reminting a label revokes the prior token. */
@@ -12912,6 +12974,10 @@ export interface components {
             label: string;
             /** @description Raw Bearer token. Shown once. */
             token: string;
+        };
+        DeviceUpdate: {
+            command?: null | components["schemas"]["DeviceCommand"];
+            devices: components["schemas"]["LinkedDevice"][];
         };
         DiscogsArtistCredit: {
             artist_id: string | null;
@@ -17015,6 +17081,15 @@ export interface components {
             /** @description One entry per linked service. */
             connections: components["schemas"]["LinkedAccount"][];
         };
+        LinkedDevice: {
+            busy: boolean;
+            can_transfer: boolean;
+            error?: string | null;
+            id: string;
+            name: string;
+            playing: boolean;
+            title?: string | null;
+        };
         /**
          * @description Which way a list runs.
          * @enum {string}
@@ -19881,6 +19956,26 @@ export interface components {
              *     known.
              */
             recording_mbid?: string | null;
+            /**
+             * Format: double
+             * @description Album gain in decibels.
+             */
+            replaygain_album_gain?: number | null;
+            /**
+             * Format: double
+             * @description Album peak relative to digital full scale.
+             */
+            replaygain_album_peak?: number | null;
+            /**
+             * Format: double
+             * @description Track gain in decibels.
+             */
+            replaygain_track_gain?: number | null;
+            /**
+             * Format: double
+             * @description Track peak relative to digital full scale.
+             */
+            replaygain_track_peak?: number | null;
             /** @description Preferred source type, empty when unresolved. */
             source_type: string;
             /** @description Track title. */
@@ -20908,6 +21003,26 @@ export interface components {
             local_file_id?: string | null;
             /** @description MusicBrainz recording id, when known. */
             recording_mbid?: string | null;
+            /**
+             * Format: double
+             * @description Album gain in decibels.
+             */
+            replaygain_album_gain?: number | null;
+            /**
+             * Format: double
+             * @description Album peak relative to digital full scale.
+             */
+            replaygain_album_peak?: number | null;
+            /**
+             * Format: double
+             * @description Track gain in decibels.
+             */
+            replaygain_track_gain?: number | null;
+            /**
+             * Format: double
+             * @description Track peak relative to digital full scale.
+             */
+            replaygain_track_peak?: number | null;
             /** @description Track title. */
             track_name: string;
         };
@@ -24195,6 +24310,13 @@ export interface components {
             /** @description Pass as `after` for the next page; absent on the last page. */
             next?: string | null;
             /**
+             * @description When requested, the signed-in listener's plays for tracks on this page.
+             *     An omitted track has never been played by that listener.
+             */
+            play_stats?: {
+                [key: string]: components["schemas"]["TrackPlayStat"];
+            } | null;
+            /**
              * Format: int64
              * @description Tracks matching the filter, all pages.
              */
@@ -24224,6 +24346,19 @@ export interface components {
              * @description Tracks matching the filter, all pages.
              */
             total: number;
+        };
+        /** @description Listening history for one track. */
+        TrackPlayStat: {
+            /**
+             * Format: double
+             * @description Most recent play time, in Unix seconds.
+             */
+            last_played?: number | null;
+            /**
+             * Format: int64
+             * @description Number of recorded plays.
+             */
+            play_count: number;
         };
         /** @description A 30-second track preview. Empty (no URL) means no provider had one. */
         TrackPreviewResponse: {
@@ -24343,6 +24478,26 @@ export interface components {
             /** @description Linked release group of the owning album, when identified. */
             release_group_mbid?: string | null;
             /**
+             * Format: double
+             * @description Album loudness adjustment in dB, when tagged.
+             */
+            replaygain_album_gain?: number | null;
+            /**
+             * Format: double
+             * @description Album peak amplitude relative to digital full scale.
+             */
+            replaygain_album_peak?: number | null;
+            /**
+             * Format: double
+             * @description Track loudness adjustment in dB, when tagged.
+             */
+            replaygain_track_gain?: number | null;
+            /**
+             * Format: double
+             * @description Track peak amplitude relative to digital full scale.
+             */
+            replaygain_track_peak?: number | null;
+            /**
              * Format: int64
              * @description The track row's revision, which its removal echoes.
              */
@@ -24370,6 +24525,51 @@ export interface components {
          * @enum {string}
          */
         TracksMode: "at_least" | "below";
+        TransferQueue: {
+            index: number;
+            playing: boolean;
+            /** Format: int64 */
+            position_ms: number;
+            tracks: components["schemas"]["TransferTrack"][];
+        };
+        TransferTrack: {
+            album: string;
+            album_id?: string | null;
+            artist: string;
+            artist_id?: string | null;
+            artist_mbid?: string | null;
+            /** Format: int64 */
+            disc_number?: number | null;
+            /** Format: double */
+            duration?: number | null;
+            format?: string | null;
+            id: string;
+            recording_mbid?: string | null;
+            release_group_mbid?: string | null;
+            /**
+             * Format: double
+             * @description Album gain in decibels.
+             */
+            replaygain_album_gain?: number | null;
+            /**
+             * Format: double
+             * @description Album peak relative to digital full scale.
+             */
+            replaygain_album_peak?: number | null;
+            /**
+             * Format: double
+             * @description Track gain in decibels.
+             */
+            replaygain_track_gain?: number | null;
+            /**
+             * Format: double
+             * @description Track peak relative to digital full scale.
+             */
+            replaygain_track_peak?: number | null;
+            title: string;
+            /** Format: int64 */
+            track_number?: number | null;
+        };
         /**
          * @description Credential handoff for session-issuing routes. Mirrors the session login
          *     `TransportParam` (which owns the mechanism) so this layer stays the only
@@ -40645,6 +40845,8 @@ export interface operations {
                  *     comes first, and `order=asc` puts the oldest first.
                  */
                 favorites?: boolean;
+                /** @description Include this listener's play counts and last-played times for the page. */
+                include_play_stats?: boolean;
             };
             header?: never;
             path?: never;
@@ -41951,6 +42153,115 @@ export interface operations {
             };
             /** @description Not authenticated */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    control_device: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceControlRequest"];
+            };
+        };
+        responses: {
+            /** @description Command queued */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid command */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Player unavailable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Player busy or queue unavailable */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    sync_device: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceHeartbeat"];
+            };
+        };
+        responses: {
+            /** @description This listener's live players and this device's command */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceUpdate"];
+                };
+            };
+            /** @description Invalid heartbeat */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Player limit reached */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -913,6 +913,18 @@ fn default_radio_count() -> i64 {
 /// One planned radio track.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RadioPlanTrack {
+    /// Track gain in decibels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_track_gain: Option<f64>,
+    /// Album gain in decibels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_album_gain: Option<f64>,
+    /// Track peak relative to digital full scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_track_peak: Option<f64>,
+    /// Album peak relative to digital full scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_album_peak: Option<f64>,
     /// Track title.
     pub track_name: String,
     /// Artist name.

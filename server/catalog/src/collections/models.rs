@@ -13,6 +13,18 @@ use super::store::ratings::RatedKind;
 /// One track inside a playlist.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PlaylistTrack {
+    /// Track gain in decibels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_track_gain: Option<f64>,
+    /// Album gain in decibels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_album_gain: Option<f64>,
+    /// Track peak relative to digital full scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_track_peak: Option<f64>,
+    /// Album peak relative to digital full scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaygain_album_peak: Option<f64>,
     /// Track row id.
     pub id: String,
     /// Zero-based position in the playlist.

@@ -622,6 +622,10 @@ impl LiveRadio {
             in_library: false,
             local_file_id: None,
             file_format: None,
+            replaygain_track_gain: None,
+            replaygain_album_gain: None,
+            replaygain_track_peak: None,
+            replaygain_album_peak: None,
             duration_s: None,
         };
         match self
@@ -855,6 +859,10 @@ impl LiveRadio {
                 in_library: false,
                 local_file_id: None,
                 file_format: None,
+                replaygain_track_gain: None,
+                replaygain_album_gain: None,
+                replaygain_track_peak: None,
+                replaygain_album_peak: None,
                 duration_s: None,
             })
             .collect()

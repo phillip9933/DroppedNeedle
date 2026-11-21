@@ -46,10 +46,13 @@ droppedneedle_kernel::sql! {
     /// The list order.
     fragment BY_NAME = " ORDER BY p.name COLLATE NOCASE, p.id";
     /// One entry, in `PlaylistTrack`'s mapper order.
-    fragment TRACK_COLUMNS = "SELECT id, position, track_name, artist_name, album_name, \
-         album_id, artist_id, track_source_id, cover_url, source_type, available_sources, \
-         format, track_number, disc_number, duration_ms / 1000.0, created_at / 1000, \
-         plex_rating_key, library_file_id, recording_mbid FROM catalog_playlist_tracks";
+    fragment TRACK_COLUMNS = "SELECT e.id, e.position, e.track_name, e.artist_name, e.album_name, \
+         e.album_id, e.artist_id, e.track_source_id, e.cover_url, e.source_type, e.available_sources, \
+         e.format, e.track_number, e.disc_number, e.duration_ms / 1000.0, e.created_at / 1000, \
+         e.plex_rating_key, e.library_file_id, e.recording_mbid, \
+         t.replaygain_track_gain, t.replaygain_album_gain, t.replaygain_track_peak, t.replaygain_album_peak \
+         FROM catalog_playlist_tracks e LEFT JOIN local_tracks t ON t.id = COALESCE(e.library_file_id, \
+             CASE WHEN e.source_type = 'local' THEN e.track_source_id END)";
 
     /// Every playlist, then whether the caller may read it. A private
     /// playlist with no owner is left out unless `?2`, an admin asking.

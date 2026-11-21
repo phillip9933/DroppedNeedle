@@ -476,6 +476,18 @@ pub struct TrackView {
     pub bit_depth: Option<i64>,
     /// Channel count, when probed.
     pub channels: Option<i64>,
+    /// Track loudness adjustment in dB, when tagged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaygain_track_gain: Option<f64>,
+    /// Album loudness adjustment in dB, when tagged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaygain_album_gain: Option<f64>,
+    /// Track peak amplitude relative to digital full scale.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaygain_track_peak: Option<f64>,
+    /// Album peak amplitude relative to digital full scale.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaygain_album_peak: Option<f64>,
     /// File size, bytes.
     pub file_size_bytes: i64,
     /// Import time, unix seconds.
@@ -519,6 +531,10 @@ impl From<(TrackRecord, bool, bool)> for TrackView {
             sample_rate: track.sample_rate,
             bit_depth: track.bit_depth,
             channels: track.channels,
+            replaygain_track_gain: track.replaygain_track_gain,
+            replaygain_album_gain: track.replaygain_album_gain,
+            replaygain_track_peak: track.replaygain_track_peak,
+            replaygain_album_peak: track.replaygain_album_peak,
             file_size_bytes: track.file_size_bytes,
             date_added: track.date_added,
             cover_available: track.cover_available,
@@ -551,6 +567,19 @@ pub struct TrackListPage {
     pub total: u64,
     /// Pass as `after` for the next page; absent on the last page.
     pub next: Option<String>,
+    /// When requested, the signed-in listener's plays for tracks on this page.
+    /// An omitted track has never been played by that listener.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub play_stats: Option<HashMap<String, TrackPlayStat>>,
+}
+
+/// Listening history for one track.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct TrackPlayStat {
+    /// Number of recorded plays.
+    pub play_count: u64,
+    /// Most recent play time, in Unix seconds.
+    pub last_played: Option<f64>,
 }
 
 /// Track list query.
@@ -587,6 +616,8 @@ pub struct TrackQuery {
     /// Only the caller's favourites. Without `sort`, the newest favourite
     /// comes first, and `order=asc` puts the oldest first.
     pub favorites: Option<bool>,
+    /// Include this listener's play counts and last-played times for the page.
+    pub include_play_stats: Option<bool>,
 }
 
 /// Library totals. Track and size totals count streamable tracks only.

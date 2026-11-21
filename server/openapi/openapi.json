@@ -21819,6 +21819,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "include_play_stats",
+            "in": "query",
+            "description": "Include this listener's play counts and last-played times for the page.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -23608,6 +23617,145 @@
           },
           "401": {
             "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": [
+              "user"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v3/playback/devices/control": {
+      "post": {
+        "tags": [
+          "playback"
+        ],
+        "summary": "Send a transport or handoff request to one of this listener's live players.",
+        "operationId": "control_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceControlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Command queued"
+          },
+          "400": {
+            "description": "Invalid command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Player unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Player busy or queue unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": [
+              "user"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v3/playback/devices/sync": {
+      "post": {
+        "tags": [
+          "playback"
+        ],
+        "summary": "Advertise this player and acknowledge the last command it handled.",
+        "operationId": "sync_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceHeartbeat"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "This listener's live players and this device's command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceUpdate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid heartbeat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Player limit reached",
             "content": {
               "application/json": {
                 "schema": {
@@ -42524,6 +42672,136 @@
           }
         }
       },
+      "DeviceAction": {
+        "type": "string",
+        "enum": [
+          "play",
+          "pause",
+          "next",
+          "previous",
+          "transfer"
+        ]
+      },
+      "DeviceCommand": {
+        "type": "object",
+        "required": [
+          "id",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/DeviceAction"
+          },
+          "id": {
+            "type": "string"
+          },
+          "queue": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TransferQueue"
+              }
+            ],
+            "description": "Filled only when the destination receives the queue released by the source."
+          }
+        }
+      },
+      "DeviceControlRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "target",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/DeviceAction"
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceHeartbeat": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "playing",
+          "can_transfer"
+        ],
+        "properties": {
+          "can_transfer": {
+            "type": "boolean"
+          },
+          "disconnect": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceReceipt"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DeviceReceipt": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "queue": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TransferQueue"
+              }
+            ]
+          }
+        }
+      },
       "DeviceSessionMint": {
         "type": "object",
         "description": "Mint a named companion token.",
@@ -42563,6 +42841,30 @@
           "token": {
             "type": "string",
             "description": "Raw Bearer token. Shown once."
+          }
+        }
+      },
+      "DeviceUpdate": {
+        "type": "object",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "command": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceCommand"
+              }
+            ]
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedDevice"
+            }
           }
         }
       },
@@ -51391,6 +51693,45 @@
           }
         }
       },
+      "LinkedDevice": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "playing",
+          "can_transfer",
+          "busy"
+        ],
+        "properties": {
+          "busy": {
+            "type": "boolean"
+          },
+          "can_transfer": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ListOrder": {
         "type": "string",
         "description": "Which way a list runs.",
@@ -58063,6 +58404,38 @@
             ],
             "description": "The MusicBrainz recording `source_type` gave for this entry, when\nknown."
           },
+          "replaygain_album_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album gain in decibels."
+          },
+          "replaygain_album_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album peak relative to digital full scale."
+          },
+          "replaygain_track_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track gain in decibels."
+          },
+          "replaygain_track_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track peak relative to digital full scale."
+          },
           "source_type": {
             "type": "string",
             "description": "Preferred source type, empty when unresolved."
@@ -60231,6 +60604,38 @@
               "null"
             ],
             "description": "MusicBrainz recording id, when known."
+          },
+          "replaygain_album_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album gain in decibels."
+          },
+          "replaygain_album_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album peak relative to digital full scale."
+          },
+          "replaygain_track_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track gain in decibels."
+          },
+          "replaygain_track_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track peak relative to digital full scale."
           },
           "track_name": {
             "type": "string",
@@ -67926,6 +68331,19 @@
             ],
             "description": "Pass as `after` for the next page; absent on the last page."
           },
+          "play_stats": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "When requested, the signed-in listener's plays for tracks on this page.\nAn omitted track has never been played by that listener.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TrackPlayStat"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "total": {
             "type": "integer",
             "format": "int64",
@@ -67978,6 +68396,29 @@
             "type": "integer",
             "format": "int64",
             "description": "Tracks matching the filter, all pages.",
+            "minimum": 0
+          }
+        }
+      },
+      "TrackPlayStat": {
+        "type": "object",
+        "description": "Listening history for one track.",
+        "required": [
+          "play_count"
+        ],
+        "properties": {
+          "last_played": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Most recent play time, in Unix seconds."
+          },
+          "play_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of recorded plays.",
             "minimum": 0
           }
         }
@@ -68235,6 +68676,38 @@
             ],
             "description": "Linked release group of the owning album, when identified."
           },
+          "replaygain_album_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album loudness adjustment in dB, when tagged."
+          },
+          "replaygain_album_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album peak amplitude relative to digital full scale."
+          },
+          "replaygain_track_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track loudness adjustment in dB, when tagged."
+          },
+          "replaygain_track_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track peak amplitude relative to digital full scale."
+          },
           "row_revision": {
             "type": "integer",
             "format": "int64",
@@ -68274,6 +68747,146 @@
           "at_least",
           "below"
         ]
+      },
+      "TransferQueue": {
+        "type": "object",
+        "required": [
+          "tracks",
+          "index",
+          "position_ms",
+          "playing"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "position_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransferTrack"
+            }
+          }
+        }
+      },
+      "TransferTrack": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "artist",
+          "album"
+        ],
+        "properties": {
+          "album": {
+            "type": "string"
+          },
+          "album_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist": {
+            "type": "string"
+          },
+          "artist_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_mbid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disc_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "duration": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "format": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "recording_mbid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release_group_mbid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replaygain_album_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album gain in decibels."
+          },
+          "replaygain_album_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Album peak relative to digital full scale."
+          },
+          "replaygain_track_gain": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track gain in decibels."
+          },
+          "replaygain_track_peak": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Track peak relative to digital full scale."
+          },
+          "title": {
+            "type": "string"
+          },
+          "track_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
       },
       "TransportDto": {
         "type": "string",
