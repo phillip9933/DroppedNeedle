@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
+
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { availabilityLabels, type Availability } from '../offline/library';
 	let {
@@ -17,11 +19,11 @@
 </script>
 
 <label class:inline
-	>{label}
-	<InlineChoice selected={value} {label}
+	>{uiText(label)}
+	<InlineChoice selected={value} label={uiText(label)}
 		><select {value} onchange={(e) => onchange(e.currentTarget.value as Availability)}>
 			{#each Object.entries(availabilityLabels) as [key, title] (key)}
-				{#if !deviceOnly || key !== 'all'}<option value={key}>{title}</option>{/if}
+				{#if !deviceOnly || key !== 'all'}<option value={key}>{uiText(title)}</option>{/if}
 			{/each}
 		</select></InlineChoice
 	>

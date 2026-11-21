@@ -29,4 +29,12 @@ public class DNLauncherPlugin extends Plugin {
         if (owner != null) reply.put("id", ((MainActivity)getActivity()).shortcuts.take(getContext(), owner));
         call.resolve(reply);
     }
+    @PluginMethod public void replaceHomePins(PluginCall call) {
+        HeadsetAccount owner = current(call);
+        if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+        try {
+            new CarHomePins(getContext(), owner).replace(call.getArray("pins"));
+            call.resolve();
+        } catch (org.json.JSONException invalid) { call.reject("Invalid Home pins."); }
+    }
 }

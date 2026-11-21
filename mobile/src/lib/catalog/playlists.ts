@@ -3,7 +3,12 @@ import type { PlayerTrack } from '../player';
 import { validLocalFileId } from '../offline/tracks';
 import { DnError, getJson, mutateJson, postJson, type Session } from '../connection';
 import { cover, path, playerTrack, replayGainTags } from './catalog';
-import { forgetPlaylist, rememberPlaylistList, rememberPlaylistTracks } from './playlistOffline';
+import {
+	forgetPlaylist,
+	rememberPlaylistList,
+	rememberPlaylistTracks,
+	rememberPinnedPlaylists
+} from './playlistOffline';
 
 type Schema = components['schemas'];
 export type Playlist = Schema['PlaylistSummary'];
@@ -74,6 +79,23 @@ function checkMembership(detail: Schema['PlaylistDetail'], id: string) {
 	}
 }
 
+function localPlaylistFile(entry: Schema['PlaylistDetail']['tracks'][number]) {
+	return entry.source_type === 'local'
+		? entry.library_file_id || entry.track_source_id
+		: entry.available_sources?.includes('local')
+			? entry.library_file_id
+			: null;
+}
+export async function observePlaylistMembership(session: Session, id: string) {
+	const detail = await getJson<Schema['PlaylistDetail']>(
+		session,
+		path('/api/v3/playlists/{playlist_id}', { playlist_id: id })
+	);
+	checkMembership(detail, id);
+	rememberPinnedPlaylists(session, [
+		{ id, name: detail.name, ids: detail.tracks.map(localPlaylistFile).filter(validLocalFileId) }
+	]);
+}
 export async function readPlaylist(
 	session: Session,
 	playlist: Pick<Playlist, 'id'>,
@@ -127,12 +149,7 @@ export async function readPlaylist(
 	let keepExisting = false;
 	const tracks: PlayerTrack[] = [];
 	const rows = detail.tracks.map((entry) => {
-		const file =
-			entry.source_type === 'local'
-				? entry.library_file_id || entry.track_source_id
-				: entry.available_sources?.includes('local')
-					? entry.library_file_id
-					: null;
+		const file = localPlaylistFile(entry);
 		if (requireComplete) {
 			if (file != null && !validLocalFileId(file)) throw incomplete();
 			if (!file) {

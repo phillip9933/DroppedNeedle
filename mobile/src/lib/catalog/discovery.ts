@@ -1,6 +1,7 @@
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import { getJson, putJson, postJson, type Session } from '../connection';
 import { radioSong, cover, path, playerTrack, type Album } from './catalog';
+import { validLocalFileId } from '../offline/tracks';
 
 type Schema = components['schemas'];
 export type DiscoverArtistRef = { id: string; name: string; localOnly?: boolean };
@@ -136,16 +137,20 @@ export async function discover(
 	}
 }
 
+export type ReleaseType = 'all' | 'albums' | 'eps' | 'singles';
 export async function artistReleases(
 	session: Session,
 	artist: DiscoverArtistRef,
 	offset: number,
-	cursor?: string
+	cursor?: string,
+	type: ReleaseType = 'all',
+	signal?: AbortSignal
 ) {
 	if (artist.localOnly) {
 		const result = await getJson<Schema['AlbumPage']>(
 			session,
-			path('/api/v3/library/albums', {}, { artist_id: artist.id, limit: 24, after: cursor })
+			path('/api/v3/library/albums', {}, { artist_id: artist.id, limit: 24, after: cursor }),
+			signal
 		);
 		const albums: Album[] = result.items.map((a) => ({
 			title: a.title,
@@ -157,32 +162,39 @@ export async function artistReleases(
 		}));
 		return { albums, next: undefined, cursor: result.next, warming: false };
 	}
-	const result = await getJson<Schema['ArtistReleases']>(
-		session,
-		path(
-			'/api/v3/artists/{artist_mbid}/releases',
-			{ artist_mbid: artist.id },
-			{ offset, limit: 24 }
-		)
-	);
 	const list = createShelf('');
-	for (const r of [...result.albums, ...result.eps, ...result.singles]) {
-		if (r.title)
-			addAlbum(list, {
-				title: r.title,
-				artist_name: artist.name,
-				year: r.year,
-				musicbrainz_id: r.id,
-				in_library: r.in_library,
-				requested: r.requested
-			});
+	// DN pages the three release types together. Advance through empty pages when a type is selected.
+	for (;;) {
+		const result = await getJson<Schema['ArtistReleases']>(
+			session,
+			path(
+				'/api/v3/artists/{artist_mbid}/releases',
+				{ artist_mbid: artist.id },
+				{ offset, limit: type === 'all' ? 24 : 100 }
+			),
+			signal
+		);
+		const releases =
+			type === 'all' ? [...result.albums, ...result.eps, ...result.singles] : result[type];
+		for (const r of releases) {
+			if (r.title)
+				addAlbum(list, {
+					title: r.title,
+					artist_name: artist.name,
+					year: r.year,
+					musicbrainz_id: r.id,
+					in_library: r.in_library,
+					requested: r.requested
+				});
+		}
+		const next =
+			result.has_more && result.next_offset != null && result.next_offset > offset
+				? result.next_offset
+				: undefined;
+		if (list.albums.length || next === undefined || type === 'all')
+			return { albums: list.albums, next, cursor: undefined, warming: result.warming };
+		offset = next;
 	}
-	return {
-		albums: list.albums,
-		next: result.has_more ? result.next_offset : undefined,
-		cursor: undefined,
-		warming: result.warming
-	};
 }
 
 export function followStatus(session: Session, artist: string) {
@@ -300,18 +312,34 @@ export async function artistChart(
 }
 
 export type RadioSeed = Extract<Schema['RadioSeedKind'], 'artist' | 'genre' | 'album'>;
-export async function libraryRadio(session: Session, seedType: RadioSeed, seedId: string) {
+export async function libraryPlan(
+	session: Session,
+	seed: Pick<Schema['RadioPlanRequest'], 'seed_type' | 'seed_id' | 'items'>,
+	signal?: AbortSignal
+) {
 	const plan = await postJson<Schema['RadioPlanResponse']>(
 		session,
 		path('/api/v3/discover/radio/plan'),
 		{
-			seed_type: seedType,
-			seed_id: seedId,
+			...seed,
 			mode: 'library',
 			count: 25
-		} satisfies Schema['RadioPlanRequest']
+		} satisfies Schema['RadioPlanRequest'],
+		signal
 	);
-	return plan.tracks.flatMap((t) =>
-		t.in_library && t.local_file_id?.trim() ? [radioSong(t, t.local_file_id)] : []
-	);
+	const seen = new Set<string>();
+	return plan.tracks.flatMap((t) => {
+		const id = t.local_file_id;
+		if (!t.in_library || !validLocalFileId(id) || seen.has(id)) return [];
+		seen.add(id);
+		return [radioSong(t, id)];
+	});
+}
+export function libraryRadio(
+	session: Session,
+	seedType: RadioSeed,
+	seedId: string,
+	signal?: AbortSignal
+) {
+	return libraryPlan(session, { seed_type: seedType, seed_id: seedId }, signal);
 }

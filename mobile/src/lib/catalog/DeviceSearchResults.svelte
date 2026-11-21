@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { untrack } from 'svelte';
 	import type { Session } from '../connection';
 	import { player } from '../player';
@@ -179,10 +180,10 @@
 		choices={() => views.flatMap((g) => g.shown.map((i) => browseChoice(session, i)))}
 		contains={(id) => known.has(id)}
 	>
-		{#if !valid}{#if query}<p>Enter at least two characters.</p>{/if}
-		{:else if busy && !views.length}<p role="status">Searching this device…</p>
+		{#if !valid}{#if query}<p>{uiText('Enter at least two characters.')}</p>{/if}
+		{:else if busy && !views.length}<p role="status">{uiText('Searching this device…')}</p>
 		{:else if error}<p role="alert">{error}</p>
-			<button class="secondary" onclick={() => retry++}>Retry device search</button>
+			<button class="secondary" onclick={() => retry++}>{uiText('Retry device search')}</button>
 		{:else if !views.length}<p>
 				{query
 					? 'No matches on this device for “' + query + '”.'
@@ -192,11 +193,11 @@
 			{#each views as group (group.category)}
 				<section aria-label={'Device ' + group.category.toLowerCase()} class="bucket">
 					{#if scope === 'top'}<div class="bucket-title">
-							<h2>{group.category === 'Tracks' ? 'Songs' : group.category}</h2>
+							<h2>{group.category === 'Tracks' ? uiText('Songs') : group.category}</h2>
 							{#if group.items.length > group.shown.length}<button
 									class="text-button"
 									onclick={() => choose(scopeFor(group.category))}
-									>See all {group.category.toLowerCase()}</button
+									>{uiText('See all')} {group.category.toLowerCase()}</button
 								>{/if}
 						</div>{/if}
 					<BrowseEntries
@@ -217,7 +218,7 @@
 					{#if scope !== 'top' && group.shown.length < group.items.length}<button
 							class="secondary"
 							use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
-							onclick={() => (limit += 48)}>More results</button
+							onclick={() => (limit += 48)}>{uiText('More results')}</button
 						>{/if}
 				</section>
 			{/each}
@@ -226,6 +227,7 @@
 	</SelectionHost>
 </div>
 {#if context}<BrowseItemMenu
+		{session}
 		row={context.row}
 		category={context.category}
 		offline

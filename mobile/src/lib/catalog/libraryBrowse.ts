@@ -1,5 +1,6 @@
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import type { PlayerTrack } from '../player';
+import { tr, uiText } from '../i18n';
 import { getJson, type Session } from '../connection';
 import { albumTracks, localAlbum, localSong, path, type Album } from './catalog';
 import { playlistArtwork, playlists, readPlaylist, type Playlist } from './playlists';
@@ -39,6 +40,10 @@ export type BrowseItem = {
 	added?: number;
 };
 export type BrowsePage = { items: BrowseItem[]; total?: number; next?: string | null };
+function albumCount(count: number) {
+	if (!Number.isFinite(count)) return undefined;
+	return tr(count + (count === 1 ? ' album' : ' albums'), count.toLocaleString() + '枚のアルバム');
+}
 export const defaultSort: Record<Category, string> = {
 	Playlists: 'name',
 	Artists: 'name',
@@ -176,8 +181,10 @@ export function localBrowse(
 		const id = category + ':' + key;
 		const item: BrowseItem = groups.get(id) ?? {
 			id,
-			title: title || 'Missing genre',
-			subtitle,
+			title,
+			get subtitle() {
+				return category === 'Artists' ? albumCount(this.count ?? 0) : subtitle;
+			},
 			art: track.artworkUrl,
 			localTracks: [],
 			year: track.year,
@@ -190,29 +197,30 @@ export function localBrowse(
 		groups.set(id, item);
 	}
 	for (const t of filtered) {
-		const artist = t.albumArtist || t.artist || 'Unknown artist';
+		const artist = t.albumArtist || t.artist;
+		const displayArtist = artist || tr('Unknown artist', '不明なアーティスト');
 		if (category === 'Artists') {
 			const key =
 				t.albumArtistId ||
 				(t.albumArtist && t.albumArtist !== t.artist ? artist : t.artistId) ||
-				artist;
-			group(key, artist, t);
+				artist ||
+				'Unknown artist';
+			group(key, displayArtist, t);
 			if (t.artist && t.artist.toLocaleLowerCase() !== artist.toLocaleLowerCase()) {
 				const credited = t.artistId || t.artist;
 				if (credited !== key) group(credited, t.artist, t);
 			}
 		} else if (category === 'Albums') {
-			const title = t.album || 'Unknown album';
-			group(localAlbumKey(t), title, t, artist);
+			const title = t.album || tr('Unknown album', '不明なアルバム');
+			group(localAlbumKey(t), title, t, displayArtist);
 		} else if (category === 'Genres') {
 			const title = t.genre?.trim() || '';
-			group(title.toLocaleLowerCase(), title, t);
+			group(title.toLocaleLowerCase(), title || tr('Missing genre', 'ジャンル未設定'), t);
 		}
 	}
 	for (const a of groups.values())
 		if (category === 'Artists') {
 			a.count = new Set(a.localTracks!.map((t) => t.albumId || t.album)).size;
-			a.subtitle = a.count + ' ' + (a.count === 1 ? 'album' : 'albums');
 		}
 	for (const group of groups.values())
 		group.localTracks?.sort(deviceTrackOrder({ ...f, sort: 'album', order: 'asc' }));
@@ -279,7 +287,9 @@ export async function browsePage(
 			items: p.items.map((a) => ({
 				id: 'artist:' + a.id,
 				title: a.name,
-				subtitle: a.album_count + ' ' + (a.album_count === 1 ? 'album' : 'albums'),
+				get subtitle() {
+					return albumCount(a.album_count);
+				},
 				art: path('/api/v3/library/artists/{id}/artwork', { id: a.id }, { size: 250 }),
 				artist: a
 			}))
@@ -299,7 +309,9 @@ export async function browsePage(
 			sorted(
 				labels.map(([genre, count]) => ({
 					id: 'genre:' + genre,
-					title: genre || 'Missing genre',
+					get title() {
+						return genre || tr('Missing genre', 'ジャンル未設定');
+					},
 					genre,
 					count
 				})),
@@ -315,7 +327,13 @@ export async function browsePage(
 		id: 'playlist:' + p.id,
 		title: p.name,
 		count: p.track_count,
-		subtitle: p.track_count + ' ' + (p.track_count === 1 ? 'track' : 'tracks'),
+		get subtitle() {
+			if (!Number.isFinite(p.track_count)) return undefined;
+			return tr(
+				p.track_count + (p.track_count === 1 ? ' track' : ' tracks'),
+				p.track_count.toLocaleString() + '曲'
+			);
+		},
 		covers: playlistArtwork(p),
 		playlist: p
 	}));
@@ -329,7 +347,9 @@ export async function browsePage(
 		all.push({
 			id: 'smart:' + rule.id,
 			title: rule.name,
-			subtitle: 'Smart playlist · on this device',
+			get subtitle() {
+				return uiText('Smart playlist · on this device');
+			},
 			smart: rule,
 			available,
 			localTracks,

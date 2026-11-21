@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
@@ -17,6 +18,8 @@
 		type OnPlay
 	} from './catalog';
 	import LibraryRadio from './LibraryRadio.svelte';
+	import HomePinButton from './HomePinButton.svelte';
+	import { albumPin } from './homePins';
 	import RequestSong from './RequestSong.svelte';
 	import TrackActions from './TrackActions.svelte';
 	import Favorite from './Favorite.svelte';
@@ -161,11 +164,12 @@
 	});
 </script>
 
-<button class="secondary" onclick={onback}><ArrowLeft size={16} /> {backLabel}</button>
+<button class="secondary" onclick={onback}><ArrowLeft size={16} /> {uiText(backLabel)}</button>
 <div class="detail" data-part="album-detail">
 	<div class="art"><Cover {session} path={album.art} seed={album.group || album.title} /></div>
 	<div>
 		<h1>{album.title}</h1>
+		<HomePinButton {session} pin={albumPin(album)} />
 		<p>
 			{album.artist}{#if album.year}
 				· {album.year}{/if}
@@ -173,17 +177,17 @@
 	</div>
 </div>
 {#if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={load}>Try again</button>
-{:else if busy}<p role="status">Loading album…</p>
+	<button class="secondary" onclick={load}>{uiText('Try again')}</button>
+{:else if busy}<p role="status">{uiText('Loading album…')}</p>
 {:else if tracks.length}
 	<button class="primary" disabled={!shown.length} onclick={() => onplay(shown, 0)}
-		><Play size={18} /> Play album</button
+		><Play size={18} /> {uiText('Play album')}</button
 	>
 	{#if shown.length}<TrackActions
 			{session}
 			tracks={shown}
 			deviceAvailable={!!device.inventory?.byId.has(shown[0].id)}
-			label="Album actions"
+			label={uiText('Album actions')}
 		/>{/if}
 	{#if album.localId && album.favorite !== undefined}<Favorite
 			{session}
@@ -215,32 +219,32 @@
 			albumSheet
 		/>
 	</SelectionHost>
-	{#if !shown.length && device.inventory}<p>No tracks match this availability.</p>{/if}
+	{#if !shown.length && device.inventory}<p>{uiText('No tracks match this availability.')}</p>{/if}
 	{#if album.group}<button
 			class="text-button"
 			aria-expanded={showEditions}
 			onclick={() => {
 				showEditions = !showEditions;
 				if (showEditions && !choices.length) void loadChoices();
-			}}>Browse editions</button
+			}}>{uiText('Browse editions')}</button
 		>{/if}
 {:else if album.imported}
-	<p>This requested copy has no playable files in the library.</p>
-	<button class="secondary" onclick={load}>Refresh album</button>
+	<p>{uiText('This requested copy has no playable files in the library.')}</p>
+	<button class="secondary" onclick={load}>{uiText('Refresh album')}</button>
 {:else if receipt || album.requested}
-	<p role="status">{receipt || 'This album has been requested.'}</p>
-	<button class="primary" onclick={onrequests}>View requests</button>
-{:else if !album.group}<p>This album has no playable tracks.</p>{/if}
+	<p role="status">{receipt || uiText('This album has been requested.')}</p>
+	<button class="primary" onclick={onrequests}>{uiText('View requests')}</button>
+{:else if !album.group}<p>{uiText('This album has no playable tracks.')}</p>{/if}
 {#if album.group && ((showEditions && tracks.length > 0) || (!busy && !error && !tracks.length && !album.imported && !album.requested && !receipt))}
-	{#if editionsError}<p role="alert">Editions could not be loaded. {editionsError}</p>
+	{#if editionsError}<p role="alert">{uiText('Editions could not be loaded.')} {editionsError}</p>
 		<button class="secondary" disabled={loadingEditions || sending} onclick={loadChoices}
-			>Reload editions</button
+			>{uiText('Reload editions')}</button
 		>{/if}
 	<label
-		>Edition
+		>{uiText('Edition')}
 		<InlineChoice {selected}
 			><select bind:value={selected} disabled={sending || loadingEditions}>
-				<option value="">Server preference</option>
+				<option value="">{uiText('Server preference')}</option>
 				{#each choices as edition (edition.release_mbid)}<option value={edition.release_mbid}
 						>{editionLabel(edition)}</option
 					>{/each}
@@ -248,12 +252,12 @@
 		>
 	</label>
 	{#if !tracks.length}<button class="primary" disabled={sending || loadingEditions} onclick={submit}
-			>{sending ? 'Requesting…' : 'Request album'}</button
+			>{sending ? uiText('Requesting…') : uiText('Request album')}</button
 		>{/if}
 	{#if requestError}<p role="alert">{requestError}</p>{/if}
-	{#if listBusy}<p role="status">Loading track list…</p>
+	{#if listBusy}<p role="status">{uiText('Loading track list…')}</p>
 	{:else if listError}<p role="alert">{listError}</p>
-	{:else if listed?.tracks.length}<h2>Tracks</h2>
+	{:else if listed?.tracks.length}<h2>{uiText('Tracks')}</h2>
 		<ol>
 			{#each listed.tracks as t (t)}<li>
 					<span>{t.disc_number > 1 ? t.disc_number + '.' : ''}{t.position}</span>
@@ -278,17 +282,18 @@
 		{session}
 		seedType="album"
 		seedId={album.group}
+		seedTitle={album.title}
 		{onplay}
 	/>{/if}
 
 {#if album.localId}<WebDetail
 		{session}
 		route={'/library/albums/' + encodeURIComponent(album.localId)}
-		label="Open album in web app"
+		label={uiText('Open album in web app')}
 	/>{:else if album.group}<WebDetail
 		{session}
 		route={'/album/' + encodeURIComponent(album.group)}
-		label="Open album in web app"
+		label={uiText('Open album in web app')}
 	/>{/if}
 
 <style>

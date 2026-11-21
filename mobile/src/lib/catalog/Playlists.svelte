@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -57,10 +58,11 @@
 	});
 </script>
 
-{#if !preview}<button class="text-button" onclick={() => (creating = true)}>New playlist</button
+{#if !preview}<button class="text-button" onclick={() => (creating = true)}
+		>{uiText('New playlist')}</button
 	><PlaylistImport {session} onimport={() => retry++} />{/if}
 {#if creating}
-	<PlaylistDialog title="New playlist" onclose={() => (creating = false)} busy={saving}>
+	<PlaylistDialog title={uiText('New playlist')} onclose={() => (creating = false)} busy={saving}>
 		<PlaylistNameForm
 			action="Create playlist"
 			bind:busy={saving}
@@ -73,10 +75,10 @@
 		/>
 	</PlaylistDialog>
 {/if}
-{#if busy}<p role="status">Loading playlists…</p>
+{#if busy}<p role="status">{uiText('Loading playlists…')}</p>
 {:else if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={() => retry++}>Try again</button>
-{:else if !items.length}<p>No playlists yet.</p>
+	<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
+{:else if !items.length}<p>{uiText('No playlists yet.')}</p>
 {:else}
 	<div data-part="playlist-list" class="preview-items">
 		{#each items.slice(0, preview ? display.limit : count) as item (item.id)}
@@ -96,7 +98,7 @@
 		{/each}
 	</div>
 	{#if !preview && count < items.length}<button class="secondary more" onclick={() => (count += 40)}
-			>More playlists</button
+			>{uiText('More playlists')}</button
 		>{/if}
 {/if}
 

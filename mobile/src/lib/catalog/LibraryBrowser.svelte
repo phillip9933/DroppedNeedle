@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tr, uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -123,6 +124,7 @@
 		category === 'Tracks' ? 'songs' : category === 'Albums' ? 'albums' : 'artists'
 	);
 	const unit = $derived(category === 'Tracks' ? 'songs' : category.toLowerCase());
+	const searchLabel = $derived(tr('Search ' + category.toLowerCase(), uiText(category) + 'を検索'));
 	let settings = $state(untrack(() => readBrowsePreferences(session, category)));
 	let filters = $state<BrowseFilters>(
 		untrack(() => ({
@@ -226,13 +228,20 @@
 		const row = (snapshot.items ?? items).find((i) => i.id === pinned.id);
 		pendingShortcut.set(null);
 		if (row) untrack(() => open(row));
-		else actionError = 'This pinned playlist is unavailable in the current library.';
+		else
+			actionError = tr(
+				'This pinned playlist is unavailable in the current library.',
+				'このライブラリでは、ピン留めしたプレイリストを利用できません。'
+			);
 	});
 	async function pin(row: BrowseItem) {
 		context = null;
 		try {
 			await pinPlaylist(session, row.id, row.title);
-			receipt = 'Confirm the playlist shortcut in your launcher.';
+			receipt = tr(
+				'Confirm the playlist shortcut in your launcher.',
+				'Androidのホーム画面でショートカットの追加を確定してください。'
+			);
 		} catch (cause) {
 			actionError = errorMessage(cause);
 		}
@@ -372,7 +381,14 @@
 				m,
 				(n, t) => {
 					if (!controller.signal.aborted)
-						scan = 'Reading genre tags · ' + n.toLocaleString() + ' of ' + t.toLocaleString();
+						scan = tr(
+							'Reading genre tags · ' + n.toLocaleString() + ' of ' + t.toLocaleString(),
+							'ジャンルタグを読み込み中 · ' +
+								t.toLocaleString() +
+								'件中' +
+								n.toLocaleString() +
+								'件'
+						);
 				},
 				snapshot
 			)
@@ -431,7 +447,12 @@
 			);
 			if (signal.aborted) return;
 			if (result.next && (cursors.has(result.next) || !result.items.some((i) => !known.has(i.id))))
-				throw Error('The collection changed while loading. Try again.');
+				throw Error(
+					tr(
+						'The collection changed while loading. Try again.',
+						'読み込み中にライブラリが更新されました。もう一度お試しください。'
+					)
+				);
 			items = [...items, ...result.items.filter((i) => !known.has(i.id))];
 			cursor = result.next ?? null;
 			total = result.total ?? total;
@@ -473,10 +494,13 @@
 				return;
 			}
 			if (!cursor || snapshot.items) {
-				jumpNotice = 'No ' + category.toLowerCase() + ' starting with ' + letter + '.';
+				jumpNotice = tr(
+					'No ' + category.toLowerCase() + ' starting with ' + letter + '.',
+					'「' + letter + '」で始まる' + uiText(category) + 'はありません。'
+				);
 				return;
 			}
-			jumpNotice = 'Finding ' + letter + '…';
+			jumpNotice = tr('Finding ' + letter + '…', '「' + letter + '」を検索中…');
 			start = items.length;
 			await more(200);
 			if (generation !== jumpGeneration) return;
@@ -528,13 +552,16 @@
 			: undefined;
 		const update = (n: number, t: number) => {
 			if (!signal.aborted)
-				progress = 'Preparing tracks · ' + n.toLocaleString() + ' of ' + t.toLocaleString();
+				progress = tr(
+					'Preparing tracks · ' + n.toLocaleString() + ' of ' + t.toLocaleString(),
+					'曲を準備中 · ' + t.toLocaleString() + '曲中' + n.toLocaleString() + '曲'
+				);
 		};
 		context = null;
 		busy = true;
 		receipt = '';
 		actionError = '';
-		progress = 'Preparing tracks…';
+		progress = tr('Preparing tracks…', '曲を準備中…');
 		try {
 			const query =
 				!available && (action === 'play' || action === 'shuffle')
@@ -572,7 +599,13 @@
 					);
 				return;
 			}
-			if (!tracks.length) throw Error('No playable tracks match this selection.');
+			if (!tracks.length)
+				throw Error(
+					tr(
+						'No playable tracks match this selection.',
+						'選択した項目には再生可能な曲がありません。'
+					)
+				);
 			if (row && forQueue) {
 				const check = queueSizeCheck(session.serverUrl);
 				tracks.forEach(check);
@@ -590,7 +623,11 @@
 					session,
 					tracks,
 					(n, t) => {
-						if (!signal.aborted) progress = 'Saving offline · ' + n + ' of ' + t;
+						if (!signal.aborted)
+							progress = tr(
+								'Saving offline · ' + n + ' of ' + t,
+								'オフライン用に保存中 · ' + t.toLocaleString() + '曲中' + n.toLocaleString() + '曲'
+							);
 					},
 					signal
 				);
@@ -619,7 +656,7 @@
 				{ before: [], after: [value] }
 			);
 			savedFilter = null;
-			receipt = 'Added to Library sections.';
+			receipt = tr('Added to Library sections.', 'ライブラリのセクションに追加しました。');
 		} catch (cause) {
 			actionError = errorMessage(cause);
 		}
@@ -634,9 +671,11 @@
 
 {#snippet categoryHeader()}
 	<div class="category-heading">
-		<button aria-label="Back to Library" onclick={onback}><ChevronLeft size={23} /></button>
+		<button aria-label={uiText('Back to Library')} onclick={onback}
+			><ChevronLeft size={23} /></button
+		>
 		<Icon size={25} />
-		<h1>{category}</h1>
+		<h1>{uiText(category)}</h1>
 	</div>
 {/snippet}
 
@@ -656,87 +695,89 @@
 				<div class="playlist-actions">
 					{#if !disconnected}<PlaylistImport {session} compact onimport={() => retry++} />{/if}
 					<button class="pill" onclick={() => (smart = 'new')}
-						><Plus size={20} />Create smart playlist</button
+						><Plus size={20} />{uiText('Create smart playlist')}</button
 					>
 				</div>
 			{:else}
-				<div class="action-row" aria-label="Collection actions" role="group">
+				<div class="action-row" aria-label={uiText('Collection actions')} role="group">
 					<button
-						aria-label="Play all"
-						title="Play all"
+						aria-label={uiText('Play all')}
+						title={uiText('Play all')}
 						disabled={busy || !items.length}
 						onclick={() => run('play')}><Play fill="currentColor" /></button
 					>
 					<button
-						aria-label="Shuffle all"
-						title="Shuffle all"
+						aria-label={uiText('Shuffle all')}
+						title={uiText('Shuffle all')}
 						disabled={busy || !items.length}
 						onclick={() => run('shuffle')}><Shuffle /></button
 					>
 					<button
-						aria-label="Play next"
-						title="Play next"
+						aria-label={uiText('Play next')}
+						title={uiText('Play next')}
 						disabled={busy || !items.length}
 						onclick={() => run('next')}><ListStart /></button
 					>
 					<button
-						aria-label="Add to queue"
-						title="Add to queue"
+						aria-label={uiText('Add to queue')}
+						title={uiText('Add to queue')}
 						disabled={busy || !items.length}
 						onclick={() => run('end')}><ListEnd /></button
 					>
 					<button
-						aria-label="Collection filters"
-						title="Collection filters"
+						aria-label={uiText('Collection filters')}
+						title={uiText('Collection filters')}
 						aria-expanded={panel === 'filters'}
 						onclick={() => toggle('filters')}><Filter /></button
 					>
 				</div>
 			{/if}
-			<div class="browse-tools" aria-label="Browse controls" role="group">
+			<div class="browse-tools" aria-label={uiText('Browse controls')} role="group">
 				<button
 					class="sort-summary"
-					aria-label="Reverse sort order"
-					title="Reverse sort order"
+					aria-label={uiText('Reverse sort order')}
+					title={uiText('Reverse sort order')}
 					onclick={reverse}
-					><span>{sortLabel}</span>{#if filters.order === 'asc'}<ArrowUp
+					><span>{uiText(sortLabel)}</span>{#if filters.order === 'asc'}<ArrowUp
 							size={15}
 						/>{:else}<ArrowDown size={15} />{/if}</button
 				>
 				{#if category === 'Playlists'}<button
-						aria-label="Collection filters"
-						title="Collection filters"
+						aria-label={uiText('Collection filters')}
+						title={uiText('Collection filters')}
 						aria-expanded={panel === 'filters'}
 						onclick={() => toggle('filters')}><Filter /></button
 					>{/if}
 				<button
-					aria-label="Choose sort order"
-					title="Sort"
+					aria-label={uiText('Choose sort order')}
+					title={uiText('Sort')}
 					aria-expanded={panel === 'sort'}
 					onclick={() => toggle('sort')}><ArrowDownUp /></button
 				>
 				<button
-					aria-label={'Switch to ' + (settings.layout === 'grid' ? 'list' : 'grid') + ' view'}
-					title="Switch layout"
+					aria-label={settings.layout === 'grid'
+						? tr('Switch to list view', 'リスト表示に切り替え')
+						: tr('Switch to grid view', 'グリッド表示に切り替え')}
+					title={uiText('Switch layout')}
 					onclick={layout}
 					>{#if settings.layout === 'grid'}<List />{:else}<Grid2X2 />{/if}</button
 				>
 				<button
-					aria-label="Select items"
-					title="Select items"
+					aria-label={uiText('Select items')}
+					title={uiText('Select items')}
 					disabled={!items.length}
 					aria-pressed={host?.isSelecting() ?? false}
 					onclick={() => host?.toggleSelection()}><ListChecks /></button
 				>
 				<button
-					aria-label={'Search ' + category.toLowerCase()}
-					title={'Search ' + category.toLowerCase()}
+					aria-label={searchLabel}
+					title={searchLabel}
 					aria-expanded={panel === 'search'}
 					onclick={() => toggle('search')}><Search /></button
 				>
 				<button
-					aria-label="Collection options"
-					title="Collection options"
+					aria-label={uiText('Collection options')}
+					title={uiText('Collection options')}
 					aria-expanded={panel === 'display'}
 					onclick={() => toggle('display')}><EllipsisVertical /></button
 				>
@@ -746,12 +787,12 @@
 		<div class="search">
 			<input
 				type="search"
-				aria-label={'Filter ' + unit}
-				placeholder={'Search ' + category.toLowerCase()}
+				aria-label={tr('Filter ' + unit, uiText(category) + 'を絞り込む')}
+				placeholder={searchLabel}
 				bind:value={typed}
 				bind:this={searchBox}
 			/><button
-				aria-label="Clear search"
+				aria-label={uiText('Clear search')}
 				onclick={() => {
 					typed = '';
 					change({ q: '' });
@@ -762,9 +803,10 @@
 	{:else if panel === 'sort'}
 		<div class="control-panel">
 			<label
-				>Sort {unit}<InlineChoice selected={filters.sort}
+				>{tr('Sort ' + unit, uiText(category) + 'の並べ替え')}<InlineChoice selected={filters.sort}
 					><select value={filters.sort} onchange={(e) => chooseSort(e.currentTarget.value)}
-						>{#each orderChoices[category] as [value, label] (value)}<option {value}>{label}</option
+						>{#each orderChoices[category] as [value, label] (value)}<option {value}
+								>{uiText(label)}</option
 							>{/each}</select
 					></InlineChoice
 				></label
@@ -787,16 +829,18 @@
 	{:else if panel === 'display'}
 		<div class="control-panel">
 			<label
-				>Display<InlineChoice selected={settings.layout}
+				>{uiText('Display')}<InlineChoice selected={settings.layout}
 					><select
 						value={settings.layout}
 						onchange={(e) => preferences({ layout: e.currentTarget.value as 'list' | 'grid' })}
-						><option value="grid">Grid</option><option value="list">List</option></select
+						><option value="grid">{uiText('Grid')}</option><option value="list"
+							>{uiText('List')}</option
+						></select
 					></InlineChoice
 				></label
 			>
 			{#if settings.layout === 'grid'}<label
-					>Grid columns<InlineChoice selected={settings.columns}
+					>{uiText('Grid columns')}<InlineChoice selected={settings.columns}
 						><select
 							value={settings.columns}
 							onchange={(e) => preferences({ columns: Number(e.currentTarget.value) })}
@@ -809,47 +853,50 @@
 					type="checkbox"
 					checked={settings.compact}
 					onchange={(e) => preferences({ compact: e.currentTarget.checked })}
-				/>Compact rows</label
+				/>{uiText('Compact rows')}</label
 			>
 			{#if category === 'Genres' && !available}<p class="index-note">
-					The directory lists each track’s primary genre. Opening a genre includes other tracks DN
-					has tagged with it.
+					{uiText(
+						'The directory lists each track’s primary genre. Opening a genre includes other tracks DN has tagged with it.'
+					)}
 				</p>{/if}
 			{#if category === 'Playlists'}
 				{#if !disconnected}<button class="secondary" onclick={() => (newName = true)}
-						><Plus size={17} />New playlist</button
+						><Plus size={17} />{uiText('New playlist')}</button
 					>{/if}
 			{/if}
 		</div>
 	{/if}
 	{#if !loading && !error}
+		{@const count = total ?? items.length}
+		{@const number = count.toLocaleString()}
 		<p class="count" aria-live="polite">
-			{total === undefined
-				? items.length.toLocaleString() +
-					(cursor ? ' loaded' : items.length === 1 ? ' item' : ' items')
-				: total.toLocaleString() + (total === 1 ? ' item' : ' items')}{#if available}<span>
+			{total === undefined && cursor
+				? tr(number + ' loaded', number + '件を読み込み済み')
+				: tr(number + (count === 1 ? ' item' : ' items'), number + '件')}{#if available}<span>
 					· {availability === 'downloaded'
-						? 'Downloaded'
+						? uiText('Downloaded')
 						: availability === 'automatic'
-							? 'Automatically saved'
+							? uiText('Automatically saved')
 							: availability === 'cached'
-								? 'Playback cache'
-								: 'Available offline'}</span
+								? uiText('Playback cache')
+								: uiText('Available offline')}</span
 				>{/if}
 		</p>
 	{/if}
 	{#if busy}<p role="status" class="notice">
-			{progress} <button class="text-button" onclick={cancelAction}>Cancel preparation</button>
+			{progress}
+			<button class="text-button" onclick={cancelAction}>{uiText('Cancel preparation')}</button>
 		</p>{/if}
 	{#if actionError}<p role="alert">{actionError}</p>{/if}{#if receipt}<p role="status">
 			{receipt}
 		</p>{/if}
 	{#if loading}<p class="notice" role="status">
-			{scan || 'Loading ' + category.toLowerCase() + '…'}
+			{scan || tr('Loading ' + category.toLowerCase() + '…', uiText(category) + 'を読み込み中…')}
 		</p>{/if}
 	{#if error}<p role="alert">{error}</p>
 		<button class="secondary" onclick={() => (items.length && cursor ? more() : retry++)}
-			>Retry</button
+			>{uiText('Retry')}</button
 		>{/if}
 	{@const alphabet =
 		(category === 'Albums' || category === 'Artists') &&
@@ -881,18 +928,25 @@
 			/>{/if}
 	</div>
 	{#if !loading && !error && !items.length}<p class="notice">
-			No matching {category.toLowerCase()}.
+			{tr(
+				'No matching ' + category.toLowerCase() + '.',
+				'一致する' + uiText(category) + 'はありません。'
+			)}
 		</p>{/if}
 	{#if cursor}<button
 			class="secondary more-page"
 			data-selection-more={error ? undefined : true}
 			use:loadNearEnd={{ active, enabled: !error && !waitingMore && !loading, load: more }}
 			disabled={waitingMore}
-			onclick={() => more()}>{waitingMore ? 'Loading…' : 'More ' + unit}</button
+			onclick={() => more()}
+			>{waitingMore
+				? uiText('Loading…')
+				: tr('More ' + unit, uiText(category) + 'をさらに表示')}</button
 		>{/if}
 </SelectionHost>
 
 {#if context}<BrowseItemMenu
+		{session}
 		row={context}
 		{category}
 		offline={disconnected}
@@ -918,10 +972,13 @@
 			retry++;
 		}}
 	/>{/if}
-{#if newName}<PlaylistDialog title="New playlist" onclose={() => (newName = false)} busy={nameBusy}
+{#if newName}<PlaylistDialog
+		title={uiText('New playlist')}
+		onclose={() => (newName = false)}
+		busy={nameBusy}
 		><PlaylistNameForm
 			bind:busy={nameBusy}
-			action="Create playlist"
+			action={tr('Create playlist', 'プレイリストを作成')}
 			oncancel={() => (newName = false)}
 			onsubmit={async (name) => {
 				const added = await createPlaylist(session, name);

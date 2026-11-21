@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onDestroy } from 'svelte';
 	import { saveOfflineTracks, offlineSupported, offlineInventory } from '../offline/media';
 	import { Ellipsis, EllipsisVertical } from '@lucide/svelte';
@@ -8,6 +9,8 @@
 	import AddToPlaylist from './AddToPlaylist.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import Favorite from './Favorite.svelte';
+	import HomePinButton from './HomePinButton.svelte';
+	import { trackPin } from './homePins';
 	import TrackTools from '../player/TrackTools.svelte';
 	let {
 		session,
@@ -121,20 +124,26 @@
 		{busy}
 	>
 		<div class="choices">
-			<button disabled={busy} onclick={() => enqueue('next')}>Play next</button>
-			<button disabled={busy} onclick={() => enqueue('end')}>Add to queue</button>
+			{#if tracks.length === 1}<HomePinButton
+					{session}
+					pin={trackPin(tracks[0])}
+					compact
+					ondone={() => (menu = null)}
+				/>{/if}
+			<button disabled={busy} onclick={() => enqueue('next')}>{uiText('Play next')}</button>
+			<button disabled={busy} onclick={() => enqueue('end')}>{uiText('Add to queue')}</button>
 			{#if !localOnly}<button disabled={busy} onclick={() => (menu = 'playlist')}
-					>Add to playlist</button
+					>{uiText('Add to playlist')}</button
 				>{/if}
 			{#if offlineSupported && !localOnly}<button disabled={busy} onclick={download}
-					>Save offline</button
+					>{uiText('Save offline')}</button
 				>{/if}
 			{#if onDevice && tracks.length === 1}
 				<TrackTools
 					{session}
 					track={tracks[0]}
 					mode="field"
-					title="Track preferences"
+					title={uiText('Track preferences')}
 					startOpen={true}
 					fields={['player-favorite', 'player-rating']}
 				/>
@@ -150,9 +159,9 @@
 						downloadRequest?.abort();
 						menu = null;
 						message = '';
-					}}>Cancel saving</button
+					}}>{uiText('Cancel saving')}</button
 				>
-			{:else}<button disabled={busy} onclick={() => (menu = null)}>Close</button>{/if}
+			{:else}<button disabled={busy} onclick={() => (menu = null)}>{uiText('Close')}</button>{/if}
 		</div>
 		{#if error}<p role="alert">{error}</p>{:else if message}<p role="status">{message}</p>{/if}
 	</PlaylistDialog>

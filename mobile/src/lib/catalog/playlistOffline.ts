@@ -1,6 +1,7 @@
 import type { Session } from '../connection';
 import type { PlayerTrack } from '../player';
 import type { Playlist } from './playlists';
+import { tr } from '../i18n';
 type RecordValue = { id: string; name: string; covers: string[]; ids?: string[] };
 function key(session: Pick<Session, 'serverUrl' | 'userId'>) {
 	return session.userId
@@ -21,14 +22,29 @@ function read(key: string): RecordValue[] {
 }
 function write(k: string, value: RecordValue[]) {
 	try {
-		localStorage.setItem(k, JSON.stringify(value));
+		const encoded = JSON.stringify(value);
+		if (localStorage.getItem(k) === encoded) return;
+		localStorage.setItem(k, encoded);
+		window.dispatchEvent(new CustomEvent('dn-playlist-membership', { detail: k }));
 	} catch {
 		/* An exhausted browser cache leaves playback available by track. */
 	}
 }
+export function onPlaylistMembership(session: Session, changed: () => void) {
+	const owner = key(session);
+	const handle = (e: Event) => {
+		if ((e as CustomEvent).detail === owner) changed();
+	};
+	window.addEventListener('dn-playlist-membership', handle);
+	return () => window.removeEventListener('dn-playlist-membership', handle);
+}
 export function rememberedPlaylistNames(session: Session) {
 	const k = key(session);
 	return k ? read(k).map(({ id, name }) => ({ id, name })) : [];
+}
+export function rememberedPlaylistTrackIds(session: Session, id: string) {
+	const k = key(session);
+	return k ? read(k).find((p) => p.id === id)?.ids : undefined;
 }
 export function rememberPlaylistList(
 	session: Session,
@@ -100,7 +116,12 @@ export function offlinePlaylists(session: Session, tracks: PlayerTrack[], onlyId
 						title: p.name,
 						count: available.length,
 						knownPlayable: p.ids?.length,
-						subtitle: available.length + ' available offline',
+						get subtitle() {
+							return tr(
+								available.length + ' available offline',
+								'オフラインで再生可能：' + available.length.toLocaleString() + '曲'
+							);
+						},
 						covers: p.covers,
 						localTracks: available
 					}

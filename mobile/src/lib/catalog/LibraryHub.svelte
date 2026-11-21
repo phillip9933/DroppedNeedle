@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tr, uiText, uiFormat } from '../i18n';
 	import { tick, untrack } from 'svelte';
 	import {
 		ChevronLeft,
@@ -155,8 +156,10 @@
 				/>{/key}
 		</div>
 		{#if detail}
-			<button class="back" aria-label={'Back to ' + current} onclick={goBack}
-				><ChevronLeft size={18} />{current}</button
+			<button
+				class="back"
+				aria-label={tr('Back to ' + current, uiText(current) + 'に戻る')}
+				onclick={goBack}><ChevronLeft size={18} />{uiText(current)}</button
 			>
 			<LibraryGroup
 				bind:this={group}
@@ -172,12 +175,15 @@
 			/>
 		{/if}
 	{:else}
-		<h1>Library</h1>
-		<nav class="index" aria-label="Library categories">
+		<h1>{uiText('Library')}</h1>
+		<nav class="index" aria-label={uiText('Library categories')}>
 			{#each categories as cat (cat)}
 				{@const Icon = icons[cat]}
-				<button aria-label={'Browse ' + cat} onclick={() => enter(cat)}
-					><span class="mark"><Icon size={23} strokeWidth={1.8} /></span><strong>{cat}</strong
+				<button
+					aria-label={uiFormat('Browse {name}', { name: uiText(cat) })}
+					onclick={() => enter(cat)}
+					><span class="mark"><Icon size={23} strokeWidth={1.8} /></span><strong
+						>{uiText(cat)}</strong
 					><ChevronRight size={18} /></button
 				>
 			{/each}
@@ -185,12 +191,12 @@
 		<div class="secondary-links">
 			{#if onoffline}
 				<button onclick={onoffline}
-					><Download size={20} />Offline music<ChevronRight size={16} /></button
+					><Download size={20} />{uiText('Offline music')}<ChevronRight size={16} /></button
 				>
 				<LibraryAvailability inline value={availability} onchange={chooseAvailability} />
 			{/if}
 			<button onclick={() => enter('sections')}
-				><PanelsTopLeft size={20} />Library sections<ChevronRight size={16} /></button
+				><PanelsTopLeft size={20} />{uiText('Library sections')}<ChevronRight size={16} /></button
 			>
 		</div>
 	{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { ChevronRight, ListMusic, Tags } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -71,23 +72,24 @@
 
 {#if scope === 'genres' && query && !matchingGenres.some((g) => g.toLocaleLowerCase() === query)}
 	<button class="item" onclick={() => ongenre(term.trim())}
-		><Tags size={18} /><span>Browse “{term.trim()}” as a genre</span><ChevronRight
-			size={17}
-		/></button
+		><Tags size={18} /><span>{uiText('Browse “')}{term.trim()}{uiText('” as a genre')}</span
+		><ChevronRight size={17} /></button
 	>
 {/if}
-{#if busy}<p role="status">Loading {scope}…</p>
+{#if busy}<p role="status">{uiText('Loading')} {scope}…</p>
 {:else if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={() => retry++}>Try again</button>
+	<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>
 {:else if scope === 'genres'}
 	{#each matchingGenres as genre (genre)}<button class="item" onclick={() => ongenre(genre)}
 			><Tags size={18} /><span>{genre}</span><ChevronRight size={17} /></button
 		>{/each}
-	{#if !query && !genres.length}<p>Enter a genre name to browse.</p>{/if}
+	{#if !query && !genres.length}<p>{uiText('Enter a genre name to browse.')}</p>{/if}
 {:else}
 	{#each matchingLists as p (p.id)}<button class="item" onclick={() => onplaylist(p)}
 			><ListMusic size={18} /><span>{p.name}</span><ChevronRight size={17} /></button
-		>{:else}<p>{query ? 'No playlists match this search.' : 'No playlists available.'}</p>{/each}
+		>{:else}<p>
+			{query ? uiText('No playlists match this search.') : uiText('No playlists available.')}
+		</p>{/each}
 {/if}
 
 <style>

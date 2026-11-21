@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tr, uiText } from '../i18n';
 	import { ListMusic, Tags, EllipsisVertical } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { OfflineInventory } from '../offline/library';
@@ -147,12 +148,8 @@
 </script>
 
 {#snippet badge(origins: TrackStatus[], id: string)}
-	<span
-		{id}
-		class="offline"
-		role="img"
-		title={origins.map((o) => trackStatusLabels[o]).join(', ')}
-		aria-label={origins.map((o) => trackStatusLabels[o]).join(', ')}
+	{@const label = origins.map((origin) => uiText(trackStatusLabels[origin])).join(tr(', ', '、'))}
+	<span {id} class="offline" role="img" title={label} aria-label={label}
 		>{#each origins as origin (origin)}{@const Glyph = trackStatusIcons[origin]}<Glyph
 				size={14}
 			/>{/each}</span
@@ -161,11 +158,13 @@
 
 {#if present.length}<div
 		class="legend"
-		aria-label={showOnlineOnly ? 'Track availability' : 'Offline availability'}
+		aria-label={showOnlineOnly
+			? uiText('Track availability')
+			: tr('Offline availability', 'オフラインでの利用状況')}
 		role="group"
 	>
 		{#each present as value (value)}{@const Glyph = trackStatusIcons[value]}<span
-				><Glyph size={13} />{trackStatusLabels[value]}</span
+				><Glyph size={13} />{uiText(trackStatusLabels[value])}</span
 			>{/each}
 	</div>{/if}
 <div class="browse-width">
@@ -186,7 +185,7 @@
 		style:--cell-width={metrics.width + 'px'}
 		use:focusNavigation
 		role="list"
-		aria-label={category + ' results'}
+		aria-label={tr(category + ' results', uiText(category) + 'の一覧')}
 		data-part="category-items"
 		data-loaded={items.length}
 		data-layout={layout}
@@ -200,6 +199,10 @@
 		{#each mounted as { item, index } (item.id)}
 			{@const origins = status?.get(item.id) ?? []}
 			{@const badgeId = view + '-offline-' + index}
+			{@const moreLabel = tr(
+				'More options for ' + item.title,
+				'「' + item.title + '」のその他の操作'
+			)}
 			<div
 				class="entry"
 				data-browse-index={index}
@@ -214,7 +217,9 @@
 			>
 				<button
 					class="item"
-					aria-label={item.track ? 'Play ' + item.title : item.title}
+					aria-label={item.track
+						? tr('Play ' + item.title, '「' + item.title + '」を再生')
+						: item.title}
 					aria-describedby={origins.length ? badgeId : undefined}
 					onclick={() => open(item)}
 					use:selectable={browseChoice(session, item)}
@@ -252,15 +257,13 @@
 							deviceAvailable={inventory || showOnlineOnly
 								? !!inventory?.byId.has(item.track.id)
 								: undefined}
-							label={'More options for ' + item.title}
+							label={moreLabel}
 							favorite={item.track.favorite}
 						/></span
 					>
 				{:else if menu && (category === 'Genres' || category === 'Playlists' || layout === 'list')}
-					<button
-						class="more icon"
-						aria-label={'More options for ' + item.title}
-						onclick={() => menu?.(item)}><EllipsisVertical size={18} /></button
+					<button class="more icon" aria-label={moreLabel} onclick={() => menu?.(item)}
+						><EllipsisVertical size={18} /></button
 					>
 				{/if}
 			</div>

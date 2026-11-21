@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText, tr } from '../i18n';
 	import { onMount, tick } from 'svelte';
 	import { ArrowLeft, ChevronRight, PanelsTopLeft, Download, ListFilterPlus } from '@lucide/svelte';
 	import type { Session } from '../connection';
@@ -19,6 +20,8 @@
 	import DiscoveryWidget from '../catalog/DiscoveryWidget.svelte';
 	import type { Preview } from './display';
 	import PreviewViewport from './PreviewViewport.svelte';
+	import HomePins from './HomePins.svelte';
+	import MixBuilder from '../catalog/MixBuilder.svelte';
 	import {
 		accountId,
 		boardNames,
@@ -193,8 +196,8 @@
 	{#if deviceShelves && (item.id.startsWith('discover-') || item.id === 'library-recently-played')}
 		<p>
 			{item.id === 'library-recently-played'
-				? 'Connect to DroppedNeedle to view your listening history.'
-				: 'Connect to DroppedNeedle to load this Discover section.'}
+				? uiText('Connect to DroppedNeedle to view your listening history.')
+				: uiText('Connect to DroppedNeedle to load this Discover section.')}
 		</p>
 	{:else if deviceShelves || item.id === 'library-genres'}
 		{#if !deviceShelves || tracks}<LibraryShelf
@@ -207,7 +210,7 @@
 				onopen={(row) => openGroup(item, row)}
 				{onplay}
 			/>
-		{:else if !source.storageError}<p role="status">Opening saved music…</p>{/if}
+		{:else if !source.storageError}<p role="status">{uiText('Opening saved music…')}</p>{/if}
 	{:else if item.id.startsWith('library-')}
 		<LibraryWidget
 			filter={item.filter}
@@ -241,14 +244,16 @@
 
 <div bind:this={root} data-board={board}>
 	{#if source.policyIssue}<p role="alert">{source.policyIssue}</p>
-		<button class="text-button" onclick={source.retryPolicy}>Retry offline settings</button>
-	{:else if !source.ready}<p role="status">Opening sections…</p>
+		<button class="text-button" onclick={source.retryPolicy}
+			>{uiText('Retry offline settings')}</button
+		>
+	{:else if !source.ready}<p role="status">{uiText('Opening sections…')}</p>
 	{:else}
 		{#if group}
 			<button class="text-button" onclick={goBack}
-				><ArrowLeft size={17} /> Back to {expanded
-					? sectionTitle(expanded)
-					: boardNames[board]}</button
+				><ArrowLeft size={17} />
+				{uiText('Back to')}
+				{expanded ? sectionTitle(expanded) : uiText(boardNames[board])}</button
 			>
 			{#if detailError || source.storageError}<p role="alert">
 					{detailError || source.storageError}
@@ -258,7 +263,7 @@
 					onclick={() => {
 						detailRetry++;
 						source.retryStorage();
-					}}>Retry collection</button
+					}}>{uiText('Retry collection')}</button
 				>{/if}
 			{#key group.row.id + localDetail}
 				<LibraryGroup
@@ -276,15 +281,15 @@
 			{/key}
 		{/if}
 		<div hidden={!!group}>
-			{#if deviceShelves}<p class="source">Music on this device</p>
+			{#if deviceShelves}<p class="source">{uiText('Music on this device')}</p>
 				{#if source.storageError}<p role="alert">{source.storageError}</p>
 					{#if session.userId}<button class="text-button" onclick={source.retryStorage}
-							>Retry device library</button
+							>{uiText('Retry device library')}</button
 						>{/if}{/if}{/if}
 			{#if expanded}
 				<div class="detailbar">
 					<button class="text-button" onclick={goBack}
-						><ArrowLeft size={17} /> Back to {boardNames[board]}</button
+						><ArrowLeft size={17} /> {uiText('Back to')} {uiText(boardNames[board])}</button
 					>
 				</div>
 				<SelectionHost
@@ -304,7 +309,7 @@
 			{/if}
 			<div hidden={!!expanded} data-home-feed={board === 'home' ? '' : undefined}>
 				{#if onrootback}<button class="text-button" onclick={onrootback}
-						><ArrowLeft size={17} />Back to Library</button
+						><ArrowLeft size={17} />{uiText('Back to Library')}</button
 					>{/if}
 				<SelectionHost
 					{session}
@@ -313,24 +318,49 @@
 					localOnly={deviceShelves}
 					enabled={board === 'library'}
 					scope={board + (deviceShelves ? '/device' : '/dn')}
-					heading={boardNames[board]}
+					heading={uiText(boardNames[board])}
 				>
 					{#snippet tools()}
 						{#if board === 'library'}
 							{#if owner}<button class="board-action secondary" onclick={() => (newFilter = {})}
-									><ListFilterPlus size={17} />New filtered section</button
+									><ListFilterPlus size={17} />{uiText('New filtered section')}</button
 								>{/if}
 							{#if onoffline}<button class="board-action secondary" onclick={onoffline}
-									><Download size={17} />Offline music</button
+									><Download size={17} />{uiText('Offline music')}</button
 								>{/if}
 						{/if}
 					{/snippet}
+					{#if owner && board === 'home'}<HomePins
+							{session}
+							{owner}
+							active={active && !expanded && !group}
+							offline={deviceShelves}
+							available={tracks}
+							{onopen}
+							{onartist}
+							{onlocal}
+							{onplaylist}
+							{ongenre}
+							{onplay}
+							onnetworkerror={source.connectionFailed}
+						/>{/if}
+					{#if owner && board === 'discover'}<MixBuilder
+							{session}
+							{owner}
+							{onplay}
+							offline={deviceShelves}
+							available={tracks}
+						/>{/if}
 					{#if error}<p role="alert">{error}</p>
-						<button class="text-button" onclick={load}>Try again</button>
-					{:else if !owner}<p role="status">Loading layout…</p>
+						<button class="text-button" onclick={load}>{uiText('Try again')}</button>
+					{:else if !owner}<p role="status">{uiText('Loading layout…')}</p>
 					{:else if !sections.length}<div class="empty">
 							<PanelsTopLeft size={28} />
-							<p>Choose sections for {boardNames[board]} in Settings.</p>
+							<p>
+								{uiText('Choose sections for')}
+								{uiText(boardNames[board])}
+								{uiText('in Settings.')}
+							</p>
 						</div>
 					{:else}
 						{#each sections as item (item.id)}
@@ -341,7 +371,9 @@
 								aria-label={sectionTitle(item)}
 							>
 								<h2>
-									<button aria-label={'Browse ' + sectionTitle(item)} onclick={() => enter(item)}
+									<button
+										aria-label={tr('Browse ' + sectionTitle(item), sectionTitle(item) + 'を表示')}
+										onclick={() => enter(item)}
 										><span>{sectionTitle(item)}</span><ChevronRight size={20} /></button
 									>
 								</h2>

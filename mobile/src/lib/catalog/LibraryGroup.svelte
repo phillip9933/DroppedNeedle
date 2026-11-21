@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { Play, Shuffle } from '@lucide/svelte';
@@ -291,7 +292,7 @@
 	heading={item.title}
 	scope={JSON.stringify([item.id, filter])}
 >
-	{#if item.smart}<small>Smart playlist · on this device</small>{/if}
+	{#if item.smart}<small>{uiText('Smart playlist · on this device')}</small>{/if}
 	{#if showAvailability}<DetailAvailability
 			source={device}
 			available={countOnDevice}
@@ -304,13 +305,13 @@
 				limit = 48;
 			}}
 		/>
-	{:else}<p>{total.toLocaleString()} {total === 1 ? 'track' : 'tracks'}</p>{/if}
+	{:else}<p>{total.toLocaleString()} {total === 1 ? uiText('track') : uiText('tracks')}</p>{/if}
 	{#if shown.length}
 		<div class="group-actions">
 			<button class="primary" disabled={busy} onclick={() => all(false)}
-				><Play size={17} />Play all</button
+				><Play size={17} />{uiText('Play all')}</button
 			><button class="secondary" disabled={busy} onclick={() => all(true)}
-				><Shuffle size={17} />Shuffle all</button
+				><Shuffle size={17} />{uiText('Shuffle all')}</button
 			>
 		</div>
 		<BrowseEntries
@@ -333,21 +334,25 @@
 				disabled={reading}
 				data-selection-more={!pageError || undefined}
 				use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
-				onclick={() => readPage(true)}>More songs</button
+				onclick={() => readPage(true)}>{uiText('More songs')}</button
 			>{:else if !remoteGenre && limit < filteredTracks.length}<button
 				class="secondary"
 				data-selection-more
 				use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
-				onclick={() => (limit += 48)}>More songs</button
+				onclick={() => (limit += 48)}>{uiText('More songs')}</button
 			>{/if}
-	{:else if !reading && !pageError}<p>No matching tracks.</p>{/if}
+	{:else if !reading && !pageError}<p>{uiText('No matching tracks.')}</p>{/if}
 	{#if smartError}<p role="alert">{smartError}</p>
-		<button class="secondary" onclick={() => smartRevision++}>Retry smart playlist</button>{/if}
+		<button class="secondary" onclick={() => smartRevision++}
+			>{uiText('Retry smart playlist')}</button
+		>{/if}
 	{#if pageError}<p role="alert">{pageError}</p>
-		<button class="secondary" onclick={() => readPage(!!serverTracks.length)}>Retry</button>{/if}
-	{#if reading}<p role="status">Loading genre tracks…</p>{/if}
+		<button class="secondary" onclick={() => readPage(!!serverTracks.length)}
+			>{uiText('Retry')}</button
+		>{/if}
+	{#if reading}<p role="status">{uiText('Loading genre tracks…')}</p>{/if}
 	{#if queueRead && busy}<button class="text-button" onclick={() => queueRead?.abort()}
-			>Cancel preparation</button
+			>{uiText('Cancel preparation')}</button
 		>{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
 </SelectionHost>
