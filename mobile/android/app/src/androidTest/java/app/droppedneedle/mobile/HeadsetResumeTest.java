@@ -195,6 +195,22 @@ public class HeadsetResumeTest {
         return new Intent(Intent.ACTION_MEDIA_BUTTON)
                 .putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(KeyEvent.ACTION_DOWN, code));
     }
+    @Test public void lateNotificationStartStopsAnEmptyServiceWithoutResumingTheSavedQueue() throws Exception {
+        assumeTrue(android.os.Build.VERSION.SDK_INT >= 26);
+        login(SERVER, TOKEN, USER);
+        savedQueue(true);
+        // Media3 posts this actionless foreground start when updating a notification. It can reach
+        // a fresh instance after the original player and its last controller have already stopped.
+        ComponentName expected = new ComponentName(context, PlaybackService.class);
+        assertEquals(expected, context.startForegroundService(new Intent().setComponent(expected)));
+        ActivityManager manager = context.getSystemService(ActivityManager.class);
+        long deadline = SystemClock.elapsedRealtime() + 3000;
+        while (manager.getRunningServices(Integer.MAX_VALUE).stream().anyMatch(s -> expected.equals(s.service))) {
+            assertTrue("An empty notification restart must deescalate and stop itself", SystemClock.elapsedRealtime() < deadline);
+            SystemClock.sleep(20);
+        }
+        assertEquals(1600, archive.inspect(key).getLong("position"));
+    }
     private <T> T browserCall(java.util.function.Supplier<ListenableFuture<T>> send) throws Exception {
         CompletableFuture<ListenableFuture<T>> pending = new CompletableFuture<>();
         instrument.runOnMainSync(() -> pending.complete(send.get()));
