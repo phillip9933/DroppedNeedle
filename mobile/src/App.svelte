@@ -45,6 +45,7 @@
 		type SavedScope
 	} from './lib/player/related';
 	import Catalog from './lib/catalog/Catalog.svelte';
+	import { setDetailSettings } from './lib/catalog/DetailSettings.svelte';
 	import {
 		launcherShortcuts,
 		pendingShortcut,
@@ -58,6 +59,7 @@
 	let tab = $state<BrowseDestination>('home');
 	let initialCategory = $state<Category>();
 	let panel = $state<'catalog' | 'player' | 'queue' | 'settings'>('catalog');
+	setDetailSettings(() => openPanel('settings'));
 	let catalogScroll = 0;
 	let offlineLibrary = $state<OfflineLibrary>();
 	let queueScope: SavedScope | undefined;
@@ -244,9 +246,11 @@
 					shell?.querySelector<HTMLElement>('footer [data-mini-action="player"]'));
 			(
 				(settingsFocus &&
-					shell?.querySelector<HTMLElement>(
-						'[data-settings-shortcut], [data-destination="settings"]'
-					)) ||
+					Array.from(
+						shell?.querySelectorAll<HTMLElement>(
+							'[data-settings-shortcut], [data-destination="settings"]'
+						) ?? []
+					).find((el) => el.getClientRects().length)) ||
 				footerButton ||
 				main
 			)?.focus({ preventScroll: true });
@@ -734,6 +738,18 @@
 	}
 	.shell:has(:global([data-part='layout-preview'])) > .mast {
 		display: none;
+	}
+	/* Album art provides its own back and settings controls. Keep the same frame
+	   while the catalog is exposed beneath a moving player. */
+	.shell:has(
+			> main > .base-page:not([hidden]) :global(:is([data-part='album-page'], [data-detail-header]))
+		)
+		> .mast {
+		display: none;
+	}
+	.pad.base-page:has(:global([data-part='album-page'])) {
+		padding-inline: 0;
+		padding-top: 0;
 	}
 	.mast.home-mast {
 		min-height: 44px;

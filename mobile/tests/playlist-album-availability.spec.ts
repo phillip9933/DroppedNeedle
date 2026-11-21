@@ -218,6 +218,128 @@ test('shuffling the offline copy after closing the app keeps only available entr
 	}
 });
 
+test('an album puts playback beside its artwork, keeps extra actions in More and groups numbered tracks by disc', async ({
+	page
+}) => {
+	await connect(page);
+	await page.route(
+		(url) => url.pathname === '/api/v3/library/albums',
+		(r) =>
+			r.fulfill({
+				json: {
+					items: [
+						{ ...album, year: 2022, favorite: false, art_missing: false, cover_available: true }
+					],
+					total: 1,
+					next: null
+				}
+			})
+	);
+	const art = await page.evaluate(() => {
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = 8;
+		const ctx = canvas.getContext('2d')!;
+		ctx.fillStyle = '#d87444';
+		ctx.fillRect(0, 0, 8, 8);
+		return canvas.toDataURL().split(',')[1];
+	});
+	await page.route(
+		(url) => url.pathname === '/api/v3/library/albums/paper/artwork',
+		(r) => r.fulfill({ contentType: 'image/png', body: Buffer.from(art, 'base64') })
+	);
+	await page.route(
+		(url) => url.pathname === '/api/v3/library/albums/match/paper',
+		(r) =>
+			r.fulfill({
+				json: {
+					items: songs.map((t, i) => ({
+						id: t.id,
+						title: t.title,
+						artist_name: t.artist,
+						album_title: t.album,
+						album_id: t.albumId,
+						disc_number: i < 2 ? 1 : 2,
+						track_number: (i % 2) + 1,
+						genre: 'Rock',
+						format: 'FLAC',
+						bit_depth: 24,
+						sample_rate: 96000,
+						duration_seconds: 60
+					})),
+					total: 4,
+					limit: 200,
+					offset: 0
+				}
+			})
+	);
+	await button(page, 'Browse Albums').click();
+	await button(page, album.title).click();
+	const hero = page.locator('[data-part=album-detail]');
+	await expect(hero.getByRole('heading', { name: album.title })).toBeVisible();
+	await expect(hero.getByText('Rock · 2022 · Hi-Res Lossless')).toBeVisible();
+	const settings = hero.getByRole('button', { name: 'Settings', exact: true });
+	await expect(page.locator('.mast')).toBeHidden();
+	await settings.click();
+	await expect(page.getByRole('searchbox', { name: 'Search settings' })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(settings).toBeFocused();
+	await expect
+		.poll(() =>
+			page
+				.locator('[data-part=album-page]')
+				.evaluate((el) => getComputedStyle(el).getPropertyValue('--album-tone').trim())
+		)
+		.toBe('rgb(216 116 68)');
+	const controls = page.locator('[data-part=album-primary-actions]');
+	const actions = controls.locator('button');
+	await expect(actions).toHaveCount(5);
+	const names = await actions.evaluateAll((nodes) =>
+		nodes.map((n) => n.getAttribute('aria-label'))
+	);
+	expect(names).toEqual([
+		'Album actions',
+		'Shuffle album',
+		'Play album',
+		'Favorite album',
+		'Download album'
+	]);
+	const boxes = await actions.evaluateAll((nodes) =>
+		nodes.map((n) => n.getBoundingClientRect().top)
+	);
+	expect(Math.max(...boxes) - Math.min(...boxes)).toBeLessThan(2);
+	await button(page, 'Album actions').click();
+	const menu = page.getByRole('dialog');
+	await expect(menu.getByRole('button', { name: 'Pin album to Home' })).toBeVisible();
+	await expect(menu.getByRole('button', { name: 'Add to playlist' })).toBeVisible();
+	await menu.getByRole('button', { name: 'Close', exact: true }).click();
+	const list = page.locator('[data-album-sheet=true]');
+	await expect(list.locator('[data-part=album-disc]')).toHaveCount(2);
+	await expect(list.locator('[data-part=album-disc]').first()).toContainText('2:00');
+	await expect(list.locator('.index')).toHaveText(['1', '2', '1', '2']);
+	await expect(button(page, 'Play Dusk').locator('svg.lucide-play')).toHaveCount(0);
+	await button(page, 'Track number, ascending').click();
+	await expect(list.locator('strong')).toHaveText(['Night', 'Dusk', 'Noon', 'Dawn']);
+	await button(page, 'Play disc 2').click();
+	await expect((await queue(page)).locator('strong')).toHaveText(['Night', 'Dusk']);
+});
+
+test('the album Download action saves every disc even when the current track filter shows a subset', async ({
+	page
+}) => {
+	await connect(page);
+	await button(page, 'Browse Albums').click();
+	await button(page, album.title).click();
+	await button(page, 'Filter album tracks').click();
+	await chooseOption(availability(page), 'offline');
+	await expect(page.locator('[data-album-sheet=true] .row')).toHaveCount(3);
+	await button(page, 'Download album').click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.getByText('4 songs saved offline.', { exact: true })).toBeVisible();
+	await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(button(page, 'Album downloaded')).toBeDisabled();
+	await expect(page.locator('[data-album-sheet=true] .row')).toHaveCount(4);
+});
+
 test('album details label every source, update without rereading DN and play only the selected matches', async ({
 	page
 }) => {
@@ -243,6 +365,7 @@ test('album details label every source, update without rereading DN and play onl
 	const beforeDetail = await reads();
 	await button(page, album.title).click();
 	const list = page.locator('[data-album-sheet=true]');
+	await button(page, 'Filter album tracks').click();
 	await expect(page.getByText('4 playable tracks in DN · 3 available offline')).toBeVisible();
 	expect(await reads()).toBe(beforeDetail + 1);
 	for (const [i, status] of [

@@ -5,7 +5,7 @@
 	import type { OfflineInventory } from '../offline/library';
 	import type { BrowseItem, Category } from './libraryBrowse';
 	import { browseChoice } from './libraryBrowse';
-	import { tick } from 'svelte';
+	import { tick, type Snippet } from 'svelte';
 	import { browseViewport, initialWindow } from './browseViewport';
 	import { useLibrarySelection } from './librarySelection.svelte';
 	import Cover from './Cover.svelte';
@@ -19,6 +19,8 @@
 		layout,
 		columns,
 		albumGallery = false,
+		numbered = false,
+		label,
 		compact = false,
 		active = true,
 		inventory,
@@ -27,6 +29,7 @@
 		cacheOnly = localOnly,
 		showOnlineOnly = false,
 		open,
+		endAction,
 		menu
 	}: {
 		session: Session;
@@ -35,6 +38,8 @@
 		layout: 'list' | 'grid';
 		columns: number;
 		albumGallery?: boolean;
+		numbered?: boolean;
+		label?: string;
 		compact?: boolean;
 		active?: boolean;
 		inventory?: OfflineInventory;
@@ -42,7 +47,8 @@
 		localOnly?: boolean;
 		cacheOnly?: boolean;
 		showOnlineOnly?: boolean;
-		open: (item: BrowseItem) => void;
+		open?: (item: BrowseItem, index: number) => void;
+		endAction?: Snippet<[number]>;
 		menu?: (item: BrowseItem) => void;
 	} = $props();
 	const view = $props.id();
@@ -191,7 +197,7 @@
 		style:--cell-width={metrics.width + 'px'}
 		use:focusNavigation
 		role="list"
-		aria-label={tr(category + ' results', uiText(category) + 'の一覧')}
+		aria-label={label ?? tr(category + ' results', uiText(category) + 'の一覧')}
 		data-part={albumGallery ? 'album-grid' : 'category-items'}
 		data-loaded={items.length}
 		data-layout={layout}
@@ -221,33 +227,26 @@
 				class:playlist={category === 'Playlists'}
 				class:genre={category === 'Genres'}
 			>
-				<button
-					class="item"
-					data-part={albumGallery ? 'album-card' : undefined}
-					aria-label={item.track
-						? tr('Play ' + item.title, '「' + item.title + '」を再生')
-						: albumGallery
-							? undefined
-							: item.title}
-					aria-describedby={origins.length ? badgeId : undefined}
-					onclick={() => open(item)}
-					use:selectable={browseChoice(session, item)}
-				>
-					<span class="visual">
-						<span
-							class="art"
-							class:round={category === 'Artists'}
-							class:collage={(item.covers?.length ?? 0) > 1}
+				{#snippet face()}
+					{#if numbered && layout === 'list' && item.track}<span class="number"
+							>{item.track.trackNumber || index + 1}</span
 						>
-							{#if category === 'Genres'}<Tags size={23} />
-							{:else if item.covers?.length}{#each item.covers.length === 1 ? item.covers : Array.from({ length: 4 }, (_, i) => item.covers![i % item.covers!.length]) as art, i (i)}
-									<Cover {session} {cacheOnly} path={art} seed={art} />
-								{/each}
-							{:else if category === 'Playlists'}<ListMusic strokeWidth={1.3} size="48%" />
-							{:else}<Cover {session} {cacheOnly} path={item.art} seed={item.id} />{/if}
+					{:else}<span class="visual">
+							<span
+								class="art"
+								class:round={category === 'Artists'}
+								class:collage={(item.covers?.length ?? 0) > 1}
+							>
+								{#if category === 'Genres'}<Tags size={23} />
+								{:else if item.covers?.length}{#each item.covers.length === 1 ? item.covers : Array.from({ length: 4 }, (_, i) => item.covers![i % item.covers!.length]) as art, i (i)}
+										<Cover {session} {cacheOnly} path={art} seed={art} />
+									{/each}
+								{:else if category === 'Playlists'}<ListMusic strokeWidth={1.3} size="48%" />
+								{:else}<Cover {session} {cacheOnly} path={item.art} seed={item.id} />{/if}
+							</span>
+							{#if layout === 'grid' && origins.length}{@render badge(origins, badgeId)}{/if}
 						</span>
-						{#if layout === 'grid' && origins.length}{@render badge(origins, badgeId)}{/if}
-					</span>
+					{/if}
 					<span class="meta"
 						><strong>{item.title}</strong
 						>{#if item.subtitle && !(category === 'Artists' && layout === 'grid')}<small
@@ -255,8 +254,24 @@
 							>{/if}</span
 					>
 					{#if layout === 'list' && origins.length}{@render badge(origins, badgeId)}{/if}
-				</button>
-				{#if item.track}
+				{/snippet}
+				{#if open}
+					<button
+						class="item"
+						data-part={albumGallery ? 'album-card' : undefined}
+						aria-label={item.track
+							? tr('Play ' + item.title, '「' + item.title + '」を再生')
+							: albumGallery
+								? undefined
+								: item.title}
+						aria-describedby={origins.length ? badgeId : undefined}
+						onclick={() => open?.(item, index)}
+						use:selectable={browseChoice(session, item)}
+						>{@render face()}
+					</button>{:else}<div class="item">{@render face()}</div>{/if}
+				{#if endAction}<div class="more recording-action">
+						{@render endAction(index)}
+					</div>{:else if item.track}
 					<span class="more"
 						><TrackActions
 							{session}
@@ -402,6 +417,23 @@
 		flex: none;
 		display: grid;
 		place-items: center;
+	}
+	.number {
+		min-width: 2.15em;
+		text-align: center;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.recording-action {
+		min-width: 0;
+		max-width: 50%;
+		overflow-wrap: anywhere;
+	}
+	.grid .more.recording-action {
+		position: static;
+		width: 100%;
+		max-width: 100%;
+		background: transparent;
 	}
 	.icon {
 		min-width: 44px;

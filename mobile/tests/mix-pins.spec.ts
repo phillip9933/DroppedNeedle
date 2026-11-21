@@ -109,11 +109,13 @@ test('a saved artist mix and a station can be pinned, reordered and used after r
 	await chooseOption(page.getByRole('combobox', { name: 'Release type' }), 'unknown');
 	await expect(page.getByRole('button', { name: 'Unclassified recording Aurora' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Owned EP Aurora' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'More artist actions' }).click();
 	await page.getByRole('button', { name: 'Artist profile', exact: true }).click();
 	await chooseOption(page.getByRole('combobox', { name: 'Release type' }), 'eps');
 	await expect(page.getByRole('button', { name: /Northern EP Aurora/ })).toBeVisible();
 	await expect(page.getByRole('button', { name: /First full length Aurora/ })).toHaveCount(0);
-	await page.getByRole('button', { name: 'Pin station to Home', exact: true }).click();
+	await page.getByRole('button', { name: 'More artist actions' }).click();
+	await page.getByRole('button', { name: 'Pin artist radio to Home', exact: true }).click();
 	await page.getByRole('button', { name: 'Home', exact: true }).click();
 	const pins = page.getByRole('region', { name: 'Pinned to Home' });
 	await pins.getByRole('button', { name: 'Arrange pins' }).click();

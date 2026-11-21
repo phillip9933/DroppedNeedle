@@ -74,13 +74,18 @@
 		{onnavigate}
 	/>
 {:else}
-	<button class="text-button" onclick={onback}>{uiText('Back to Now Playing')}</button>
+	{#if detail?.kind !== 'saved' || !/^Albums:|^Artists:/.test(detail.item.id)}<button
+			class="text-button"
+			onclick={onback}>{uiText('Back to Now Playing')}</button
+		>{/if}
 	{#if busy}<p role="status">{uiText('Opening')} {credit.kind}…</p>
 	{:else if issue}<p role="alert">{issue}</p>
 		<button class="secondary" onclick={() => revision++}>{uiText('Try again')}</button>
 	{:else if detail?.kind === 'saved'}
-		<small>{uiText('On this device')}</small>
+		{#if !/^Albums:|^Artists:/.test(detail.item.id)}<small>{uiText('On this device')}</small>{/if}
 		<LibraryGroup
+			{onback}
+			backLabel="Back to Now Playing"
 			{session}
 			item={detail.item}
 			tracks={detail.item.localTracks ?? []}

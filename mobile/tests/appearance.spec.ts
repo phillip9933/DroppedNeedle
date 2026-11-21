@@ -225,13 +225,13 @@ test('account theme changes are explicit and send only the DN theme enum', async
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await page.getByRole('button', { name: 'Night Press Listener' }).click();
 	const sheet = page.locator('[data-part="track-list"]');
-	await expect(sheet).toHaveCSS('background-color', 'rgb(246, 243, 232)');
-	await expect(sheet).toHaveCSS('--muted', '#3f5649');
+	await expect(sheet).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+	await expect(sheet).toHaveCSS('--muted', '#bac9b8');
 	await settings(page);
 	await page.getByRole('button', { name: 'Midnight', exact: true }).click();
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
-	await expect(sheet).toHaveCSS('background-color', 'rgb(34, 45, 36)');
+	await expect(sheet).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 	await expect(sheet).toHaveCSS('--muted', '#a9b8a8');
 });
 

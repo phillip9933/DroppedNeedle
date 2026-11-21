@@ -13,9 +13,22 @@
 		seedType,
 		seedId,
 		seedTitle,
+		showPin = true,
+		label,
+		onstart,
+		onplan,
 		onplay
-	}: { session: Session; seedType: RadioSeed; seedId: string; seedTitle: string; onplay: OnPlay } =
-		$props();
+	}: {
+		session: Session;
+		seedType: RadioSeed;
+		seedId: string;
+		seedTitle: string;
+		showPin?: boolean;
+		label?: string;
+		onstart?: () => void;
+		onplan?: (tracks: PlayerTrack[]) => void;
+		onplay: OnPlay;
+	} = $props();
 	const pin = $derived(stationPin(seedType, seedId, seedTitle));
 	let previous = $state.raw<PlayerTrack[]>([]);
 	let busy = $state(false),
@@ -42,12 +55,14 @@
 			if (owner !== generation) return;
 			if (tracks.length) {
 				previous = tracks;
+				onplan?.(tracks);
 				const server = session.serverUrl,
 					target = pin;
 				void accountId(session)
 					.then((ownerId) => rememberPlan(collectionKey(server, ownerId), target, tracks))
 					.catch(() => {});
 				await onplay(tracks, 0);
+				if (owner === generation) onstart?.();
 			} else notice = 'No playable library tracks for this station.';
 		} catch (cause) {
 			if (owner === generation) notice = errorMessage(cause);
@@ -60,7 +75,7 @@
 <button class="secondary" data-part="library-radio" disabled={busy} onclick={play}
 	><Radio size={16} aria-hidden="true" />{busy
 		? uiText('Starting radio…')
-		: tr('Play station', 'ステーションを再生')}</button
+		: (label ?? tr('Play station', 'ステーションを再生'))}</button
 >
-<HomePinButton {session} {pin} tracks={previous} />
+{#if showPin}<HomePinButton {session} {pin} tracks={previous} />{/if}
 {#if notice}<p role="status">{notice}</p>{/if}

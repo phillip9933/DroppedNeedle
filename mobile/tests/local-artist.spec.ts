@@ -113,12 +113,46 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await page.getByRole('button', { name: 'Library', exact: true }).click();
 	await page.getByRole('button', { name: 'Browse Artists', exact: true }).click();
+	await page.setViewportSize({ width: 320, height: 700 });
 	await page.getByRole('button', { name: 'Guest Artist', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Solo sessions Guest Artist' })).toBeVisible();
 	expect(read).toEqual(['albums']);
 	await page.getByRole('button', { name: 'Favorite artist', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Remove artist from favorites' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Artist profile', exact: true })).toBeVisible();
+	const artistMenu = page.getByRole('button', { name: 'More artist actions', exact: true });
+	await expect(page.getByRole('button', { name: 'Pin artist page to Home' })).toHaveCount(0);
+	await artistMenu.click();
+	const sheet = page.getByRole('dialog', { name: 'Artist actions' });
+	await expect(sheet.getByRole('button', { name: 'Artist profile', exact: true })).toBeVisible();
+	await sheet.getByRole('button', { name: 'Pin artist page to Home', exact: true }).click();
+	await expect(sheet).toHaveCount(0);
+	await artistMenu.click();
+	await expect(sheet.getByRole('button', { name: 'Unpin artist page from Home' })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+	await expect(sheet.getByRole('button', { name: 'Pin artist radio to Home' })).toHaveAttribute(
+		'aria-pressed',
+		'false'
+	);
+	await page.keyboard.press('Escape');
+	await expect(artistMenu).toBeFocused();
+	const header = page.locator('[data-part=local-artist-detail] [data-detail-header]');
+	await expect(header.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+	const primary = (await header
+		.getByRole('button', { name: 'Play artist', exact: true })
+		.boundingBox())!;
+	const favoriteButton = (await header
+		.getByRole('button', { name: 'Remove artist from favorites' })
+		.boundingBox())!;
+	const overflow = (await artistMenu.boundingBox())!;
+	expect(Math.abs(primary.y - favoriteButton.y)).toBeLessThan(3);
+	expect(Math.abs(primary.y - overflow.y)).toBeLessThan(3);
+	expect(overflow.x).toBeGreaterThan(favoriteButton.x);
+	expect((await header.boundingBox())!.height).toBeLessThan(125);
+	await page.getByRole('button', { name: 'Play artist', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'After Hours', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Close player' }).click();
 	const view = page.getByLabel('Artist library view');
 	await chooseOption(view, 'appearances');
 	await page
@@ -171,6 +205,7 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await page.getByRole('button', { name: 'Close player' }).click();
 	await expect(view).toHaveAttribute('data-value', 'songs');
 	expect(read).toContain('later appearances');
+	await artistMenu.click();
 	const popup = page.waitForEvent('popup');
 	await page.getByRole('link', { name: 'Open artist in web app' }).click();
 	const browser = await popup;

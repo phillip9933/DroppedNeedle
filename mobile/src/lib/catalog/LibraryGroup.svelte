@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { Play, Shuffle } from '@lucide/svelte';
@@ -28,6 +28,11 @@
 	import { queueSizeCheck } from './libraryQueue';
 	import { genreTracksPage, tracksInGenre } from './libraryGenres';
 	import { prepareLibraryPlayback } from '../player/libraryWindow';
+	import AlbumHero from './AlbumHero.svelte';
+	import ArtistHeader from './ArtistHeader.svelte';
+	import { browsePin } from './homePins';
+	import HomePinButton from './HomePinButton.svelte';
+	import TrackActions from './TrackActions.svelte';
 	import SelectionHost from './SelectionHost.svelte';
 	import BrowseEntries from './BrowseEntries.svelte';
 
@@ -39,6 +44,8 @@
 		source,
 		collection,
 		initialAvailability = 'all',
+		backLabel,
+		onback,
 		onplay,
 		active
 	}: {
@@ -49,6 +56,8 @@
 		source?: DetailInventory;
 		collection?: DeviceCollection;
 		initialAvailability?: Availability;
+		backLabel?: string;
+		onback?: () => void;
 		onplay: OnPlay;
 		active: boolean;
 	} = $props();
@@ -126,6 +135,25 @@
 		}
 		return tracks.flatMap((t) => inventory?.byId.get(t.id)?.track ?? []);
 	});
+	const deviceArtist = $derived(
+		item.id.startsWith('Artists:') && onback
+			? {
+					pin: browsePin(item, 'Artists'),
+					art: item.art
+				}
+			: undefined
+	);
+	const albumHeader = $derived(
+		isAlbum && onback
+			? {
+					title: item.title,
+					artist: candidates[0]?.albumArtist || candidates[0]?.artist || item.album?.artist || '',
+					art: item.art || candidates[0]?.artworkUrl,
+					year: item.year ?? item.album?.year
+				}
+			: undefined
+	);
+	const albumShortcut = $derived(isAlbum ? browsePin(item, 'Albums') : undefined);
 	const countOnDevice = $derived(
 		savedAlbum?.length ?? candidates.reduce((n, t) => n + Number(!!inventory?.byId.has(t.id)), 0)
 	);
@@ -282,80 +310,157 @@
 	}
 </script>
 
-<SelectionHost
-	choices={() => rows.map((i) => browseChoice(session, i))}
-	contains={(id) => eligible.has(id)}
-	{session}
-	{onplay}
-	{active}
-	localOnly={offline}
-	heading={item.title}
-	scope={JSON.stringify([item.id, filter])}
->
-	{#if item.smart}<small>{uiText('Smart playlist · on this device')}</small>{/if}
-	{#if showAvailability}<DetailAvailability
-			source={device}
-			available={countOnDevice}
-			total={knownPlayable}
-			observedAt={item.knownPlayable === undefined ? observation?.seenAt : undefined}
-			{deviceOnly}
-			value={filter}
-			onchange={(v) => {
-				availability = v;
-				limit = 48;
-			}}
-		/>
-	{:else}<p>{total.toLocaleString()} {total === 1 ? uiText('track') : uiText('tracks')}</p>{/if}
-	{#if shown.length}
-		<div class="group-actions">
-			<button class="primary" disabled={busy} onclick={() => all(false)}
-				><Play size={17} />{uiText('Play all')}</button
-			><button class="secondary" disabled={busy} onclick={() => all(true)}
-				><Shuffle size={17} />{uiText('Shuffle all')}</button
-			>
-		</div>
-		<BrowseEntries
-			bind:this={results}
-			{active}
-			{total}
-			{session}
-			items={rows}
-			category="Tracks"
-			layout="list"
-			columns={1}
-			{inventory}
-			cacheOnly={deviceOnly}
-			showOnlineOnly={showAvailability}
-			localOnly={offline}
-			open={play}
-		/>
-		{#if remoteGenre && cursor}<button
-				class="secondary"
-				disabled={reading}
-				data-selection-more={!pageError || undefined}
-				use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
-				onclick={() => readPage(true)}>{uiText('More songs')}</button
-			>{:else if !remoteGenre && limit < filteredTracks.length}<button
-				class="secondary"
-				data-selection-more
-				use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
-				onclick={() => (limit += 48)}>{uiText('More songs')}</button
+{#snippet contents()}
+	<SelectionHost
+		choices={() => rows.map((i) => browseChoice(session, i))}
+		contains={(id) => eligible.has(id)}
+		{session}
+		{onplay}
+		{active}
+		localOnly={offline}
+		heading={albumHeader || deviceArtist ? undefined : item.title}
+		scope={JSON.stringify([item.id, filter])}
+	>
+		{#if item.smart}<small>{uiText('Smart playlist · on this device')}</small>{/if}
+		{#if showAvailability}<DetailAvailability
+				source={device}
+				available={countOnDevice}
+				total={knownPlayable}
+				observedAt={item.knownPlayable === undefined ? observation?.seenAt : undefined}
+				{deviceOnly}
+				value={filter}
+				onchange={(v) => {
+					availability = v;
+					limit = 48;
+				}}
+			/>
+		{:else}<p>{total.toLocaleString()} {total === 1 ? uiText('track') : uiText('tracks')}</p>{/if}
+		{#if shown.length}
+			{#if !albumHeader && !deviceArtist}<div class="group-actions">
+					<button class="primary" disabled={busy} onclick={() => all(false)}
+						><Play size={17} />{uiText('Play all')}</button
+					><button class="secondary" disabled={busy} onclick={() => all(true)}
+						><Shuffle size={17} />{uiText('Shuffle all')}</button
+					>
+				</div>{/if}
+			<BrowseEntries
+				bind:this={results}
+				{active}
+				{total}
+				{session}
+				items={rows}
+				category="Tracks"
+				numbered={!!albumHeader}
+				layout="list"
+				columns={1}
+				{inventory}
+				cacheOnly={deviceOnly}
+				showOnlineOnly={showAvailability}
+				localOnly={offline}
+				open={play}
+			/>
+			{#if remoteGenre && cursor}<button
+					class="secondary"
+					disabled={reading}
+					data-selection-more={!pageError || undefined}
+					use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
+					onclick={() => readPage(true)}>{uiText('More songs')}</button
+				>{:else if !remoteGenre && limit < filteredTracks.length}<button
+					class="secondary"
+					data-selection-more
+					use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
+					onclick={() => (limit += 48)}>{uiText('More songs')}</button
+				>{/if}
+		{:else if !reading && !pageError}<p>{uiText('No matching tracks.')}</p>{/if}
+		{#if smartError}<p role="alert">{smartError}</p>
+			<button class="secondary" onclick={() => smartRevision++}
+				>{uiText('Retry smart playlist')}</button
 			>{/if}
-	{:else if !reading && !pageError}<p>{uiText('No matching tracks.')}</p>{/if}
-	{#if smartError}<p role="alert">{smartError}</p>
-		<button class="secondary" onclick={() => smartRevision++}
-			>{uiText('Retry smart playlist')}</button
-		>{/if}
-	{#if pageError}<p role="alert">{pageError}</p>
-		<button class="secondary" onclick={() => readPage(!!serverTracks.length)}
-			>{uiText('Retry')}</button
-		>{/if}
-	{#if reading}<p role="status">{uiText('Loading genre tracks…')}</p>{/if}
-	{#if queueRead && busy}<button class="text-button" onclick={() => queueRead?.abort()}
-			>{uiText('Cancel preparation')}</button
-		>{/if}
-	{#if error}<p role="alert">{error}</p>{/if}
-</SelectionHost>
+		{#if pageError}<p role="alert">{pageError}</p>
+			<button class="secondary" onclick={() => readPage(!!serverTracks.length)}
+				>{uiText('Retry')}</button
+			>{/if}
+		{#if reading}<p role="status">{uiText('Loading genre tracks…')}</p>{/if}
+		{#if queueRead && busy}<button class="text-button" onclick={() => queueRead?.abort()}
+				>{uiText('Cancel preparation')}</button
+			>{/if}
+		{#if error}<p role="alert">{error}</p>{/if}
+	</SelectionHost>
+{/snippet}
+
+{#if albumHeader && onback}
+	<AlbumHero
+		{session}
+		album={albumHeader}
+		tracks={candidates}
+		{onback}
+		{backLabel}
+		cacheOnly={deviceOnly}
+	>
+		{#snippet actions()}
+			{#snippet albumExtras(close: () => void)}
+				<HomePinButton
+					{session}
+					pin={albumShortcut}
+					compact
+					ondone={close}
+					labels={{
+						add: tr('Pin album to Home', 'アルバムをホームにピン留め'),
+						remove: tr('Unpin album from Home', 'ホームからアルバムを外す')
+					}}
+				/>
+			{/snippet}
+			{#if filteredTracks.length || albumShortcut}<TrackActions
+					collection={albumExtras}
+					{session}
+					tracks={filteredTracks}
+					localOnly={deviceOnly}
+					vertical
+					label={tr('More album actions', 'アルバムのその他の操作')}
+				/>{/if}
+			<button
+				class="icon-button"
+				aria-label={uiText('Shuffle all')}
+				disabled={!total || busy}
+				onclick={() => all(true)}><Shuffle size={20} /></button
+			>
+			<button
+				class="primary"
+				aria-label={uiText('Play all')}
+				disabled={!total || busy}
+				onclick={() => all(false)}><Play size={19} />{uiText('Play')}</button
+			>
+		{/snippet}
+		{@render contents()}
+	</AlbumHero>
+{:else if deviceArtist && onback}
+	<ArtistHeader
+		{session}
+		name={item.title}
+		device={deviceArtist}
+		{onback}
+		backLabel={backLabel ?? 'Back'}
+		{onplay}
+	>
+		{#snippet actions()}
+			<button
+				class="primary"
+				aria-label={uiText('Play all')}
+				disabled={!total || busy}
+				onclick={() => all(false)}><Play size={17} />{uiText('Play')}</button
+			>
+			<button
+				class="icon-button"
+				aria-label={uiText('Shuffle all')}
+				disabled={!total || busy}
+				onclick={() => all(true)}><Shuffle size={19} /></button
+			>
+		{/snippet}
+	</ArtistHeader>
+	{@render contents()}
+{:else}
+	{@render contents()}
+{/if}
 
 <style>
 	.group-actions {

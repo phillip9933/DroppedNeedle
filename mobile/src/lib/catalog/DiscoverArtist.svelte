@@ -3,10 +3,10 @@
 
 	import InlineChoice from '../controls/InlineChoice.svelte';
 
-	import { ArrowLeft } from '@lucide/svelte';
+	import { UserRoundPlus, UserRoundCheck } from '@lucide/svelte';
+	import ArtistHeader from './ArtistHeader.svelte';
 	import type { Session } from '../connection';
 	import {
-		artistCover,
 		artistReleases,
 		follow,
 		followStatus,
@@ -14,11 +14,7 @@
 		type ReleaseType
 	} from './discovery';
 	import { errorMessage, type Album, type OnPlay } from './catalog';
-	import LibraryRadio from './LibraryRadio.svelte';
-	import HomePinButton from './HomePinButton.svelte';
-	import { artistPin } from './homePins';
 	import ArtistChart from './ArtistChart.svelte';
-	import Cover from './Cover.svelte';
 	import { loadNearEnd } from './browseViewport';
 	import SelectionHost from './SelectionHost.svelte';
 	import Albums from './Albums.svelte';
@@ -158,39 +154,31 @@
 	}
 </script>
 
-<button class="secondary" onclick={onback}><ArrowLeft size={16} /> {uiText('Back')}</button>
 <section data-part="artist-detail">
-	<header>
-		<div class="photo"><Cover {session} path={artistCover(artist)} seed={artist.id} /></div>
-		<div>
-			<h1>{artist.name}</h1>
-			<div class="artist-actions">
-				<HomePinButton
-					iconOnly
-					{session}
-					pin={artistPin(
-						artist.name,
-						artist.localOnly ? artist.id : undefined,
-						artist.localOnly ? undefined : artist.id
-					)}
-				/>
-				{#if !artist.localOnly}<LibraryRadio
-						{session}
-						seedType="artist"
-						seedId={artist.id}
-						seedTitle={artist.name}
-						{onplay}
-					/>{/if}
-				{#if status}<button
-						class="secondary"
-						disabled={saving}
-						aria-pressed={status.followed}
-						onclick={toggle}
-						>{status.followed ? uiText('Unfollow artist') : uiText('Follow artist')}</button
-					>{/if}
-			</div>
-		</div>
-	</header>
+	<ArtistHeader
+		{session}
+		name={artist.name}
+		localId={artist.localOnly ? artist.id : undefined}
+		mbid={artist.localOnly ? undefined : artist.id}
+		backLabel="Back"
+		{onback}
+		{onplay}
+		radioFirst
+	>
+		{#snippet actions()}
+			{#if status}<button
+					class="icon-button"
+					disabled={saving}
+					aria-pressed={status.followed}
+					aria-label={uiText(status.followed ? 'Unfollow artist' : 'Follow artist')}
+					title={uiText(status.followed ? 'Unfollow artist' : 'Follow artist')}
+					onclick={toggle}
+					>{#if status.followed}<UserRoundCheck size={19} />{:else}<UserRoundPlus
+							size={19}
+						/>{/if}</button
+				>{/if}
+		{/snippet}
+	</ArtistHeader>
 	{#if followError}<p role="alert">{followError}</p>
 		{#if !status}<button class="secondary" onclick={() => followRefresh++}
 				>{uiText('Reload follow status')}</button
@@ -253,19 +241,6 @@
 </section>
 
 <style>
-	header {
-		display: flex;
-		align-items: center;
-		gap: var(--gap);
-		margin-block: 0.35rem;
-	}
-	.photo {
-		width: clamp(3.5rem, 14vw, 6rem);
-		flex: none;
-		border-radius: 50%;
-		overflow: hidden;
-	}
-	.artist-actions,
 	.artist-filters {
 		display: flex;
 		align-items: center;
@@ -274,9 +249,5 @@
 	}
 	.artist-filters {
 		margin-bottom: 0.4rem;
-	}
-	header h1 {
-		overflow-wrap: anywhere;
-		margin: 0 0 0.6rem;
 	}
 </style>

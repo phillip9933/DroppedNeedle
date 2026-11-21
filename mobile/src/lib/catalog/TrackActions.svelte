@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { uiText } from '../i18n';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { saveOfflineTracks, offlineSupported, offlineInventory } from '../offline/media';
 	import { Ellipsis, EllipsisVertical } from '@lucide/svelte';
 	import {
@@ -16,6 +16,7 @@
 	import AddToPlaylist from './AddToPlaylist.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import Favorite from './Favorite.svelte';
+	import PlayerSheet from '../player/PlayerSheet.svelte';
 	import HomePinButton from './HomePinButton.svelte';
 	import { trackPin } from './homePins';
 	import TrackTools from '../player/TrackTools.svelte';
@@ -26,12 +27,14 @@
 		vertical = false,
 		localOnly = false,
 		deviceAvailable,
+		collection,
 		favorite
 	}: {
 		session: Session;
 		tracks: PlayerTrack[];
 		label: string;
 		vertical?: boolean;
+		collection?: Snippet<[() => void]>;
 		localOnly?: boolean;
 		deviceAvailable?: boolean;
 		favorite?: boolean;
@@ -44,7 +47,7 @@
 	let onDevice = $state(false);
 	$effect(() => {
 		const current = session,
-			id = tracks.length === 1 ? tracks[0].id : undefined;
+			id = !collection && tracks.length === 1 ? tracks[0].id : undefined;
 		let live = true;
 		onDevice = deviceAvailable ?? localOnly;
 		if (
@@ -66,7 +69,12 @@
 	});
 	let downloadRequest = $state<AbortController>();
 	onDestroy(() => downloadRequest?.abort());
-	async function download() {
+	export function downloadFromAlbum(albumTracks: PlayerTrack[]) {
+		if (busy || !albumTracks.length) return;
+		menu = 'actions';
+		void download(albumTracks);
+	}
+	async function download(batch = tracks) {
 		busy = true;
 		error = '';
 		const request = new AbortController();
@@ -75,7 +83,7 @@
 		try {
 			const result = await saveOfflineTracks(
 				session,
-				tracks,
+				batch,
 				(done, total) => {
 					if (!request.signal.aborted) message = 'Saving offline · ' + done + ' of ' + total;
 				},
@@ -124,20 +132,18 @@
 	>{#if vertical}<EllipsisVertical size={18} />{:else}<Ellipsis size={18} />{/if}</button
 >
 {#if !menu}<span class="sr-only" role="status">{message}</span>{/if}
-{#if menu === 'actions'}
-	<PlaylistDialog
-		title={tracks.length === 1 ? tracks[0].title : label}
-		onclose={() => (menu = null)}
-		{busy}
-	>
-		<div class="choices">
-			{#if tracks.length === 1}<HomePinButton
-					{session}
-					pin={trackPin(tracks[0])}
-					compact
-					ondone={() => (menu = null)}
-				/>{/if}
-			<button disabled={busy} onclick={() => enqueue('next')}>{uiText('Play next')}</button>
+{#snippet actions()}
+	<div class="choices">
+		{#if !busy}{@render collection?.(() => (menu = null))}{/if}
+		{#if !collection && tracks.length === 1}<HomePinButton
+				{session}
+				pin={trackPin(tracks[0])}
+				compact
+				ondone={() => (menu = null)}
+			/>{/if}
+		{#if tracks.length}<button disabled={busy} onclick={() => enqueue('next')}
+				>{uiText('Play next')}</button
+			>
 			{#if supportsUpNext}<button disabled={busy} onclick={() => enqueue('upNext')}
 					>{tr('Add to Up Next', '次の再生リストに追加')}</button
 				>{/if}
@@ -145,10 +151,10 @@
 			{#if !localOnly}<button disabled={busy} onclick={() => (menu = 'playlist')}
 					>{uiText('Add to playlist')}</button
 				>{/if}
-			{#if offlineSupported && !localOnly}<button disabled={busy} onclick={download}
+			{#if offlineSupported && !localOnly}<button disabled={busy} onclick={() => download()}
 					>{uiText('Save offline')}</button
 				>{/if}
-			{#if onDevice && tracks.length === 1}
+			{#if !collection && onDevice && tracks.length === 1}
 				<TrackTools
 					{session}
 					track={tracks[0]}
@@ -157,24 +163,38 @@
 					startOpen={true}
 					fields={['player-favorite', 'player-rating']}
 				/>
-			{:else if !localOnly && favorite !== undefined && tracks.length === 1}<Favorite
+			{:else if !collection && !localOnly && favorite !== undefined && tracks.length === 1}<Favorite
 					{session}
 					kind="track"
 					id={tracks[0].id}
 					value={saved ?? favorite}
 					onchange={(v) => (saved = v)}
-				/>{/if}
-			{#if downloadRequest}<button
-					onclick={() => {
-						downloadRequest?.abort();
-						menu = null;
-						message = '';
-					}}>{uiText('Cancel saving')}</button
-				>
-			{:else}<button disabled={busy} onclick={() => (menu = null)}>{uiText('Close')}</button>{/if}
-		</div>
-		{#if error}<p role="alert">{error}</p>{:else if message}<p role="status">{message}</p>{/if}
-	</PlaylistDialog>
+				/>{/if}{/if}
+		{#if downloadRequest}<button
+				onclick={() => {
+					downloadRequest?.abort();
+					menu = null;
+					message = '';
+				}}>{uiText('Cancel saving')}</button
+			>
+		{:else}<button disabled={busy} onclick={() => (menu = null)}>{uiText('Close')}</button>{/if}
+	</div>
+	{#if error}<p role="alert">{error}</p>{:else if message}<p role="status">{message}</p>{/if}
+{/snippet}
+{#if menu === 'actions'}
+	{#if collection}
+		<PlayerSheet title={label} onclose={() => (menu = null)} {busy}>
+			{@render actions()}
+		</PlayerSheet>
+	{:else}
+		<PlaylistDialog
+			title={tracks.length === 1 ? tracks[0].title : label}
+			onclose={() => (menu = null)}
+			{busy}
+		>
+			{@render actions()}
+		</PlaylistDialog>
+	{/if}
 {:else if menu === 'playlist'}<AddToPlaylist
 		{tracks}
 		{session}
@@ -196,7 +216,12 @@
 		display: grid;
 		gap: 0.3rem;
 	}
-	.choices button {
+	.choices button,
+	.choices :global(.plain),
+	.choices :global(.secondary),
+	.choices :global(.text-button) {
+		width: 100%;
+		justify-content: flex-start;
 		min-height: 44px;
 		text-align: left;
 	}
