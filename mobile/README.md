@@ -76,6 +76,12 @@ On Android, pressing Play on a headset can resume your saved queue after the pla
 
 ## Playback and storage
 
+In **Play queue**, shuffle the upcoming songs and tap the shuffle control again to restore their order. **Restore previous queue** brings back the queue you replaced. **Settings → Streaming and fades → Autoplay similar library music** continues a finished queue with songs from your DN library when DN can find a match.
+
+**Playback speed** is available in **Streaming and fades** and in **More actions** on the player. On Android, **Volume normalization** applies track or album ReplayGain to local audio. Album mode uses track gain when the album tag is missing. Untagged songs keep their original level. Under **Settings → Equalizer**, enable a separate preset for the connected output to recall its curve when you reconnect.
+
+To move music between Android and the web, enable **Player handoff** in mobile Settings and in the web player's Profile on the same DN account. **Move queue there** and **Continue here** preserve the song, position, order and paused state for fully loaded queues of up to 2,000 local tracks. You can also pause, play or skip on the other device. Keep both players open and connected. This requires the matching DN server and web build.
+
 **Settings → Streaming and fades** has separate Wi-Fi and cellular profiles on this device for the signed-in DN account. Each can use the original file or request MP3 or Opus from 64 to 320 kbps. New accounts start with original audio on both connections. An earlier single quality setting becomes the starting point for both profiles. Each new track download checks the connection, including tracks already in the queue. A track that is buffering or playing keeps the representation it started with for seeking and retries. Ethernet uses the Wi-Fi profile. An unknown transport uses the cellular profile.
 
 DN’s web player has its own preference in **Settings → Personalize → Playback**. On iOS, AVFoundation uses MP3 at the requested bitrate if the device cannot play Ogg Opus. Converted tracks are staged privately for seeking.
@@ -88,7 +94,9 @@ On Android, choose **Save offline** on an album, track or selection to keep the 
 
 On Android, **Save offline** queues the selected songs on the device. Downloads continue when you leave the app. The queue waits for an allowed network and pauses for offline-only playback. Tap the download notification or open **Library → Offline music** to see the current song, check which files failed, retry them, or cancel the remaining downloads. Completed songs stay on the device. If Android stops the queue, you can retry it here. **Settings → Offline and cache → Download notifications** shows whether Android allows progress notifications and opens the system control.
 
-Under **Settings → Offline and cache → Download source**, choose up to 25 recent additions, up to 25 favorites, or one **DN playlist**. Automatic downloads start switched off. Choosing a playlist saves its playable songs in playlist order within the download limit. The app checks it when you return, and **Update automatic downloads** checks immediately. Repeated entries use one file. If DN reports that an original is missing, the app continues through the playlist and names the unavailable songs in Settings. **Update automatic downloads** retries the missing originals. If DN cannot confirm the whole playlist, your existing copies stay available. **Remove automatic playlist downloads** works offline and keeps your manual downloads and playback cache.
+In **Settings → Offline and cache**, choose **Pin a collection** to keep several playlists, artists, saved library filters, recent additions or favorites on Android. The app checks on return and Android schedules another check about every six hours on allowed networks. You can also update immediately. Songs shared across collections take one copy. Manual downloads stay on the device when you unpin a collection. A failed membership check preserves existing copies.
+
+**Download quality** lets you keep originals or request MP3 or Opus at a chosen bitrate for new manual and automatic downloads. You can stream originals on Wi-Fi, stream at a different rate on cellular, and still keep compact downloads for travel. Existing complete downloads keep their format until removed and downloaded again.
 
 The same settings let you set storage limits, restrict transfers to unmetered connections or play only offline music. Manual downloads stay until you remove them. Playback cache keeps completed files under its own size limit. The player prefers a complete copy on the device.
 
@@ -105,6 +113,14 @@ Search also works without a connection. Its Songs, Artists, Albums, Genres and P
 Use **More actions → Save offline** to keep the playing song. If it is already cached or automatically saved, keeping it makes it a manual download using the file on the phone. Tap **Downloaded** to manage that copy. To put the same button elsewhere, add the **Offline download** field in the Now Playing editor.
 
 Use the cast icon in Now Playing or **Settings → Cast and audio output**. On Android, choose a Google Cast device, or use **Find network speakers** for a DLNA/UPnP receiver on the same local network. Google Cast uses Google Play services on the phone. Sonos and other compatible DLNA/UPnP speakers can use **Find network speakers** directly. Keep the phone connected during playback. The receiver reads the current song from the phone, and the phone authenticates to DN. Stopping the cast returns the queue to the phone paused. Android also offers display mirroring. On iOS, the output button opens the system AirPlay picker.
+
+## Android Auto, speakers and library shortcuts
+
+Android Auto can browse your DN library, playlists, favorites and saved music, and find songs by voice. Add the DroppedNeedle widget from the Android launcher for playback controls. Open a DN playlist in the app to pin a shortcut that returns to it under your account.
+
+In **Cast and audio output → Find network speakers**, Sonos rooms show their groups. Select a room to adjust its volume, join another group or leave a group. Playback goes through the group coordinator.
+
+Search remembers queries on this device for each DN account and offers suggestions as you type. The alphabetical rail in Artists and Albums also works with saved music. Smart playlist rules can combine rating, genre, year, number of plays and days since the last play. Listening-history rules require per-account play statistics from the matching DN server.
 
 ## Change the appearance
 
@@ -148,7 +164,7 @@ For Android, install JDK 21 and Android SDK Platform 36. Run `./gradlew assemble
 
 ## How the clients fit together
 
-The mobile app is a separate Svelte entry point. It shares the v3 contract types, browser pairing format, font, and brand artwork with the web frontend. The mobile build bundles its UI on the device. Only the browser sign-in page requires a web frontend update. The app can connect directly to the existing Rust server for supported password and token methods.
+The mobile app is a separate Svelte entry point. It shares the v3 contract, browser pairing format, theme colors, EQ preset curves, artwork and player handoff controls with the web frontend. The mobile build bundles its UI on the device. Browser pairing uses the DN web sign-in page. Handoff uses two account-scoped v3 routes on the matching Rust server. Recent-play smart rules and server-provided ReplayGain tags use new optional catalog fields. An existing server can still provide library browsing and streaming.
 
 Android uses a Media3 playback service. iOS uses AVQueuePlayer and a resource loader for authenticated byte-range requests. The native player owns the track queue. The Svelte view reads its current state when the user reopens the app. Native API and audio requests authenticate to the selected server. Native session credentials use Keychain or Android Keystore-backed storage. The web preview holds credentials in memory and fetches each track before play.
 
