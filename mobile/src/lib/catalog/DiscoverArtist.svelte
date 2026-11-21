@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { uiText, tr } from '../i18n';
+
 	import InlineChoice from '../controls/InlineChoice.svelte';
+
 	import { ArrowLeft } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import {
@@ -7,10 +10,13 @@
 		artistReleases,
 		follow,
 		followStatus,
-		type DiscoverArtistRef
+		type DiscoverArtistRef,
+		type ReleaseType
 	} from './discovery';
 	import { errorMessage, type Album, type OnPlay } from './catalog';
 	import LibraryRadio from './LibraryRadio.svelte';
+	import HomePinButton from './HomePinButton.svelte';
+	import { artistPin } from './homePins';
 	import ArtistChart from './ArtistChart.svelte';
 	import Cover from './Cover.svelte';
 	import { loadNearEnd } from './browseViewport';
@@ -35,6 +41,8 @@
 		active?: boolean;
 	} = $props();
 	let view = $state<'releases' | 'albums' | 'songs'>('releases');
+	let releaseType = $state<ReleaseType>('all');
+	let pageRequest: AbortController | undefined;
 	let refresh = $state(0),
 		followRefresh = $state(0),
 		albums = $state<Album[]>([]),
@@ -50,7 +58,9 @@
 	let generation = 0;
 	$effect(() => {
 		const account = session,
-			target = artist;
+			target = artist,
+			type = releaseType;
+		const request = new AbortController();
 		void refresh;
 		let current = true;
 		generation++;
@@ -60,7 +70,7 @@
 		busy = true;
 		adding = false;
 		releaseError = '';
-		void artistReleases(account, target, 0)
+		void artistReleases(account, target, 0, undefined, type, request.signal)
 			.then(
 				(page) => {
 					if (!current) return;
@@ -78,16 +88,26 @@
 			});
 		return () => {
 			current = false;
+			request.abort();
+			pageRequest?.abort();
 			generation++;
 		};
 	});
 	async function more() {
 		if (adding || busy) return;
 		const owner = generation;
+		pageRequest = new AbortController();
 		adding = true;
 		releaseError = '';
 		try {
-			const page = await artistReleases(session, artist, next ?? 0, cursor ?? undefined);
+			const page = await artistReleases(
+				session,
+				artist,
+				next ?? 0,
+				cursor ?? undefined,
+				releaseType,
+				pageRequest.signal
+			);
 			if (owner !== generation) return;
 			const ids = new Set(albums.map((a) => a.localId || a.group));
 			albums = [...albums, ...page.albums.filter((a) => !ids.has(a.localId || a.group))];
@@ -138,63 +158,91 @@
 	}
 </script>
 
-<button class="secondary" onclick={onback}><ArrowLeft size={16} /> Back</button>
+<button class="secondary" onclick={onback}><ArrowLeft size={16} /> {uiText('Back')}</button>
 <section data-part="artist-detail">
 	<header>
 		<div class="photo"><Cover {session} path={artistCover(artist)} seed={artist.id} /></div>
 		<div>
 			<h1>{artist.name}</h1>
+			<HomePinButton
+				{session}
+				pin={artistPin(
+					artist.name,
+					artist.localOnly ? artist.id : undefined,
+					artist.localOnly ? undefined : artist.id
+				)}
+			/>
 			{#if !artist.localOnly}<LibraryRadio
 					{session}
 					seedType="artist"
 					seedId={artist.id}
+					seedTitle={artist.name}
 					{onplay}
 				/>{/if}
 			{#if status}<button
 					class="secondary"
 					disabled={saving}
 					aria-pressed={status.followed}
-					onclick={toggle}>{status.followed ? 'Unfollow artist' : 'Follow artist'}</button
+					onclick={toggle}
+					>{status.followed ? uiText('Unfollow artist') : uiText('Follow artist')}</button
 				>{/if}
 		</div>
 	</header>
 	{#if followError}<p role="alert">{followError}</p>
 		{#if !status}<button class="secondary" onclick={() => followRefresh++}
-				>Reload follow status</button
+				>{uiText('Reload follow status')}</button
 			>{/if}{/if}
-	{#if !artist.localOnly}<InlineChoice selected={view} label="Artist view"
+	{#if !artist.localOnly}<InlineChoice selected={view} label={uiText('Artist view')}
 			><select bind:value={view}
-				><option value="releases">Releases</option><option value="albums">Top albums</option><option
-					value="songs">Top songs</option
-				></select
+				><option value="releases">{uiText('Releases')}</option><option value="albums"
+					>{uiText('Top albums')}</option
+				><option value="songs">{uiText('Top songs')}</option></select
 			></InlineChoice
 		>{/if}
-	<SelectionHost {session} {onplay} {active} enabled={library} scope={artist.id + view}>
+	{#if !artist.localOnly && view === 'releases'}
+		<InlineChoice selected={releaseType} label={tr('Release type', 'リリースの種類')}
+			><select bind:value={releaseType}>
+				<option value="all">{tr('All releases', 'すべてのリリース')}</option>
+				<option value="albums">{tr('Albums', 'アルバム')}</option>
+				<option value="eps">{tr('EPs', 'EP')}</option>
+				<option value="singles">{tr('Singles', 'シングル')}</option>
+			</select></InlineChoice
+		>
+	{/if}
+	<SelectionHost
+		{session}
+		{onplay}
+		{active}
+		enabled={library}
+		scope={artist.id + view + releaseType}
+	>
 		{#if view !== 'releases' && !artist.localOnly}<ArtistChart
 				{session}
 				{artist}
 				{view}
 				{onopen}
 				{onplay}
-			/>{:else if busy}<p role="status">Loading releases…</p>
+			/>{:else if busy}<p role="status">{uiText('Loading releases…')}</p>
 		{:else}
 			{#if albums.length}<Albums
 					{session}
 					{albums}
 					{onopen}
-				/>{:else if !releaseError && !warming}<p>No releases found.</p>{/if}
+				/>{:else if !releaseError && !warming}<p>{uiText('No releases found.')}</p>{/if}
 			{#if releaseError}<p role="alert">{releaseError}</p>
-				{#if !albums.length}<button class="secondary" onclick={() => refresh++}>Try again</button
+				{#if !albums.length}<button class="secondary" onclick={() => refresh++}
+						>{uiText('Try again')}</button
 					>{/if}{/if}
 			{#if next != null || cursor}<button
 					class="secondary"
 					data-selection-more={(library && !releaseError) || undefined}
 					use:loadNearEnd={{ active, enabled: library && !adding && !releaseError, load: more }}
 					disabled={adding}
-					onclick={more}>{adding ? 'Loading…' : 'More releases'}</button
+					onclick={more}>{adding ? uiText('Loading…') : uiText('More releases')}</button
 				>{/if}
-			{#if warming}<p role="status">DroppedNeedle is loading the artist’s catalog.</p>
-				<button class="secondary" onclick={() => refresh++}>Refresh releases</button>{/if}
+			{#if warming}<p role="status">{uiText('DroppedNeedle is loading the artist’s catalog.')}</p>
+				<button class="secondary" onclick={() => refresh++}>{uiText('Refresh releases')}</button
+				>{/if}
 		{/if}
 	</SelectionHost>
 </section>

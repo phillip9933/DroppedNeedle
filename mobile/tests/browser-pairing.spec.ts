@@ -405,7 +405,7 @@ test('pinning a playlist opens its detail on cold and warm Android launcher taps
 	await button('Library').click();
 	await button('Browse Playlists').click();
 	await button('More options for Night drive').click();
-	await button('Pin to home screen').click();
+	await button('Add Android launcher shortcut').click();
 	await expect(page.getByText('Confirm the playlist shortcut in your launcher.')).toBeVisible();
 	expect(await page.evaluate(() => sessionStorage.getItem('pinned'))).toBe('playlist:night');
 	await page.evaluate(() => sessionStorage.setItem('shortcut-launch', 'playlist:night'));

@@ -124,6 +124,11 @@ async function displayFixture(page: Page) {
 		if (p === '/me/section-prefs') return send({ pages: { home: [] } });
 		if (p === '/home') return send({ sections: [], refreshing: false });
 		if (p === '/library/stats') return send({ total_tracks: 3, last_scan_at: 100 });
+		if (p === '/ratings/lookup' && route.request().method() === 'POST') {
+			const { track_ids } = route.request().postDataJSON();
+			expect(track_ids.every((id: string) => records.some((track) => track.id === id))).toBe(true);
+			return send({ tracks: {}, albums: {}, artists: {} });
+		}
 		if (p === '/library/albums') return send({ items: [album], total: 1, next: null });
 		if (p === '/library/artists')
 			return send({

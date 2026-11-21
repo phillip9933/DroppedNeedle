@@ -13,6 +13,8 @@ import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
+import okhttp3.MediaType;
+import okhttp3.RequestBody;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.json.JSONArray;
@@ -26,31 +28,43 @@ final class CarLibrary {
     private static final long MAX_BYTES = 4L * 1024 * 1024;
     private static final OkHttpClient HTTP = new OkHttpClient.Builder().followRedirects(false)
             .followSslRedirects(false).callTimeout(9, TimeUnit.SECONDS).build();
-    interface Read { JSONObject get(HttpUrl url) throws IOException, JSONException; }
+    interface Read {
+        JSONObject get(HttpUrl url) throws IOException, JSONException;
+        default JSONObject plan(HttpUrl url, JSONObject seed) throws IOException, JSONException { throw new IOException("DN radio is unavailable."); }
+    }
     final HeadsetAccount owner;
     private final String scope, prefix;
     private final OfflineStore store;
+    private final CarHomePins pins;
+    private final Context context;
     private final boolean local;
     private final Read read;
 
     CarLibrary(Context app, HeadsetAccount account) {
-        this(app, account, url -> {
-            if (!account.matches(HeadsetAccount.read(app))) throw new IOException("DN account changed.");
-            if (OfflineStore.forUser(app, account.server.toString(), account.userId).offlineOnly())
-                throw new IOException("The DN library is offline.");
-            Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + account.token).build();
-            try (Response response = HTTP.newCall(request).execute()) {
-                if (!response.isSuccessful() || response.body() == null || response.body().source().request(MAX_BYTES + 1))
-                    throw new IOException("Could not read the DN library.");
-                return new JSONObject(response.body().string());
+        this(app, account, new Read() {
+            private JSONObject fetch(Request.Builder request) throws IOException, JSONException {
+                if (!account.matches(HeadsetAccount.read(app))) throw new IOException("DN account changed.");
+                if (OfflineStore.forUser(app, account.server.toString(), account.userId).offlineOnly())
+                    throw new IOException("The DN library is offline.");
+                try (Response response = HTTP.newCall(request.header("Authorization", "Bearer " + account.token).build()).execute()) {
+                    if (!response.isSuccessful() || response.body() == null || response.body().source().request(MAX_BYTES + 1))
+                        throw new IOException("Could not read the DN library.");
+                    return new JSONObject(response.body().string());
+                }
+            }
+            public JSONObject get(HttpUrl url) throws IOException, JSONException { return fetch(new Request.Builder().url(url)); }
+            public JSONObject plan(HttpUrl url, JSONObject seed) throws IOException, JSONException {
+                return fetch(new Request.Builder().url(url).post(RequestBody.create(seed.toString(), MediaType.get("application/json"))));
             }
         }, StreamProfiles.active(app) == StreamProfiles.Path.OFFLINE);
     }
     CarLibrary(Context app, HeadsetAccount account, Read read, boolean disconnected) {
         this.owner = account;
+        this.context = app;
         scope = OfflineStore.digest(account.server + "\n" + account.userId);
         prefix = account.server.encodedPath().replaceAll("/+$", "") + "/api/v3/";
         store = OfflineStore.forUser(app, account.server.toString(), account.userId);
+        pins = new CarHomePins(app, account);
         local = store.offlineOnly() || disconnected;
         this.read = read;
     }
@@ -100,15 +114,19 @@ final class CarLibrary {
     }
     List<Entry> children(String raw) throws IOException, JSONException {
         if (ROOT.equals(raw)) {
-            if (local) return Collections.singletonList(folder("device", null, null, "On this device"));
-            return Arrays.asList(folder("library", null, null, "Library"), folder("playlists", null, null, "Playlists"),
-                    folder("favorites", null, null, "Favorite songs"), folder("device", null, null, "On this device"));
+            List<Entry> root = new ArrayList<>();
+            if (!local) root.addAll(Arrays.asList(folder("library", null, null, context.getString(R.string.car_library)), folder("playlists", null, null, context.getString(R.string.car_playlists)),
+                    folder("favorites", null, null, context.getString(R.string.car_favorites))));
+            root.add(folder("device", null, null, context.getString(R.string.car_device)));
+            if (pins.list().length() > 0) root.add(folder("pins", null, null, context.getString(R.string.car_home_pins)));
+            return root;
         }
         Uri key = parse(raw);
         if (key.getQueryParameter("track") != null) return Collections.emptyList();
         String kind = key.getLastPathSegment(), value = key.getQueryParameter("value"), after = key.getQueryParameter("after");
-        if ("library".equals(kind)) return Arrays.asList(folder("albums", null, null, "Albums"), folder("artists", null, null, "Artists"),
-                folder("recent", null, null, "Recently added"));
+        if ("pins".equals(kind) || "pin".equals(kind)) return pinnedChildren(kind, value, after, key);
+        if ("library".equals(kind)) return Arrays.asList(folder("albums", null, null, context.getString(R.string.car_albums)), folder("artists", null, null, context.getString(R.string.car_artists)),
+                folder("recent", null, null, context.getString(R.string.car_recent)));
         List<Entry> entries = new ArrayList<>();
         if ("device".equals(kind) || local && "search".equals(kind)) {
             JSONArray saved = store.snapshot().getJSONArray("items");
@@ -121,7 +139,7 @@ final class CarLibrary {
             }
             int offset = offset(after, matches.size());
             for (int i = offset; i < Math.min(offset + PAGE, matches.size()); i++) entries.add(song(key, matches.get(i)));
-            if (offset + PAGE < matches.size()) entries.add(folder(kind, value, String.valueOf(offset + PAGE), "More"));
+            if (offset + PAGE < matches.size()) entries.add(folder(kind, value, String.valueOf(offset + PAGE), context.getString(R.string.car_more)));
             return entries;
         }
         if (local) return entries;
@@ -150,13 +168,14 @@ final class CarLibrary {
                     }
                 }
             }
-            if (i < rows.length()) entries.add(folder(kind, value, String.valueOf(i), "More"));
+            if (i < rows.length()) entries.add(folder(kind, value, String.valueOf(i), context.getString(R.string.car_more)));
             return entries;
         }
         HttpUrl.Builder query = base.addPathSegment("library");
         switch (kind) {
             case "albums": case "artists": query.addPathSegment(kind).addQueryParameter("sort", "name"); break;
             case "album": case "artist": query.addPathSegment("tracks").addQueryParameter(kind + "_id", valid(value)).addQueryParameter("sort","album"); break;
+            case "genre": query.addPathSegment("tracks").addQueryParameter("genre", valid(value)).addQueryParameter("sort","album"); break;
             case "favorites": query.addPathSegment("tracks").addQueryParameter("favorites", "true"); break;
             case "recent": query.addPathSegment("tracks").addQueryParameter("sort", "date_added").addQueryParameter("order", "desc"); break;
             case "search": query.addPathSegment("tracks").addQueryParameter("q", valid(value)); break;
@@ -173,7 +192,74 @@ final class CarLibrary {
             else entries.add(song(key, LibraryWindow.track(owner.server, prefix, row)));
         }
         if (!page.isNull("next") && !page.getString("next").equals(after))
-            entries.add(folder(kind, value, page.getString("next"), "More"));
+            entries.add(folder(kind, value, page.getString("next"), context.getString(R.string.car_more)));
+        return entries;
+    }
+    private List<Entry> pinnedChildren(String kind, String value, String after, Uri key) throws IOException, JSONException {
+        List<Entry> entries = new ArrayList<>();
+        java.util.Map<String, JSONObject> saved = local ? CarHomePins.saved(store.snapshot().getJSONArray("items")) : Collections.emptyMap();
+        if ("pins".equals(kind)) {
+            JSONArray rows = pins.list();
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject pin = rows.getJSONObject(i);
+                if (local && pins.offline(pin, saved).isEmpty()) continue;
+                if ("track".equals(pin.optString("kind"))) {
+                    if (OfflineStore.validTrackId(pin.optString("id"))) entries.add(song(key, local ? saved.get(pin.getString("id")) :
+                        new JSONObject().put("id", pin.getString("id")).put("title", pin.getString("title"))
+                            .put("artist", pin.optString("artist")).put("album", pin.optString("album"))));
+                } else entries.add(folder("pin", CarHomePins.handle(pin), null, pin.getString("title")));
+            }
+            return entries;
+        }
+        JSONObject pin = pins.find(value);
+        List<JSONObject> tracks = new ArrayList<>();
+        if (local) tracks = pins.offline(pin, saved);
+        else {
+            String type = pin.getString("kind"), id = pin.getString("id"), localId = pin.optString("localId");
+            if ("playlist".equals(type) || "genre".equals(type))
+                return children(shelf(type, id, after).toString());
+            if (("artist".equals(type) || "album".equals(type)) && !localId.isEmpty())
+                return children(shelf(type, localId, after).toString());
+            HttpUrl.Builder api = owner.server.newBuilder().encodedPath(prefix);
+            if ("album".equals(type)) {
+                int start = after == null ? 0 : offset(after, Integer.MAX_VALUE);
+                JSONObject page = read.get(api.addPathSegments("library/albums/match").addPathSegment(valid(id))
+                    .addQueryParameter("limit", String.valueOf(PAGE)).addQueryParameter("offset", String.valueOf(start)).build());
+                JSONArray rows = page.getJSONArray("items");
+                for (int i=0; i<rows.length(); i++) entries.add(song(key, LibraryWindow.track(owner.server, prefix, rows.getJSONObject(i))));
+                if (rows.length() > 0 && (long)start + rows.length() < page.optLong("total")) entries.add(folder("pin", value, String.valueOf(start + rows.length()), context.getString(R.string.car_more)));
+                return entries;
+            }
+            if ("artist".equals(type)) {
+                String cursor = null;
+                do {
+                    HttpUrl.Builder find = owner.server.newBuilder().encodedPath(prefix).addPathSegments("library/artists")
+                        .addQueryParameter("q", pin.getString("title")).addQueryParameter("limit", String.valueOf(PAGE));
+                    if (cursor != null) find.addQueryParameter("after", cursor);
+                    JSONObject page = read.get(find.build());
+                    JSONArray rows = page.getJSONArray("items");
+                    for (int i = 0; i < rows.length(); i++) {
+                        JSONObject artist = rows.getJSONObject(i);
+                        if (id.equalsIgnoreCase(artist.optString("artist_mbid"))) return children(shelf("artist", artist.getString("id"), after).toString());
+                    }
+                    String next = page.isNull("next") ? null : page.getString("next");
+                    if (next == null || next.equals(cursor)) break;
+                    cursor = next;
+                } while (true);
+                return entries;
+            }
+            JSONObject seed = pin.optJSONObject("plan");
+            if (seed == null) return entries;
+            JSONArray songs = pins.lastPlan(pin);
+            if (songs.length() == 0) {
+                JSONObject plan = new JSONObject(seed.toString()).put("mode", "library").put("count", 25);
+                songs = pins.savePlan(pin, read.plan(api.addPathSegments("discover/radio/plan").build(), plan).getJSONArray("tracks"));
+            }
+            for (int i = 0; i < songs.length(); i++) tracks.add(songs.getJSONObject(i));
+        }
+        int start = offset(after, tracks.size());
+        for (int i=start; i<Math.min(start+PAGE, tracks.size()); i++) entries.add(song(key, tracks.get(i)));
+        if (start+PAGE < tracks.size()) entries.add(folder("pin", value, String.valueOf(start+PAGE), context.getString(R.string.car_more)));
         return entries;
     }
     List<Entry> search(String query) throws IOException, JSONException {
@@ -187,7 +273,7 @@ final class CarLibrary {
         String track = key.getQueryParameter("track");
         if (track == null) {
             String kind = key.getLastPathSegment();
-            if (!Arrays.asList("library","playlists","playlist","device","recent","album","artist","albums","artists","favorites","search").contains(kind))
+            if (!Arrays.asList("library","playlists","playlist","device","recent","album","artist","albums","artists","favorites","search","pins","pin","genre").contains(kind))
                 throw new IOException("Unknown shelf.");
             return new Entry(raw, kind, "", null);
         }

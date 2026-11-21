@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import okhttp3.HttpUrl;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -23,6 +24,42 @@ import org.junit.runner.RunWith;
 public class CarLauncherTest {
     private final Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
     private final HeadsetAccount owner = new HeadsetAccount(HttpUrl.get("https://car-fixture.invalid/music"), "fixture", "driver");
+    @Test public void orderedHomePinsResolveTheSameMixAfterAndroidAutoReconnects() throws Exception {
+        HeadsetAccount account = new HeadsetAccount(owner.server, "fixture", "pinned-fixture");
+        CarHomePins pins = new CarHomePins(app, account);
+        JSONObject mix = new JSONObject().put("kind", "mix").put("id", "late").put("title", "Late night")
+            .put("plan", new JSONObject().put("seed_type", "items").put("items", new JSONArray().put(
+                    new JSONObject().put("artist_mbid", "11111111-1111-4111-a111-111111111111"))));
+        int[] plans = {0};
+        CarLibrary.Read transport = new CarLibrary.Read() {
+            public JSONObject get(HttpUrl url) { throw new AssertionError(url); }
+            public JSONObject plan(HttpUrl url, JSONObject seed) throws JSONException {
+                assertEquals("/music/api/v3/discover/radio/plan", url.encodedPath());
+                assertEquals("library", seed.getString("mode"));
+                plans[0]++;
+                return new JSONObject().put("tracks", new JSONArray()
+                    .put(new JSONObject().put("in_library", true).put("local_file_id","song").put("track_name","Starlight"))
+                    .put(new JSONObject().put("in_library",false).put("track_name","External")));
+            }
+        };
+        try {
+            pins.replace(new JSONArray().put(mix).put(new JSONObject().put("kind","track").put("id","direct").put("title","A direct pin")));
+            CarLibrary car = new CarLibrary(app, account, transport, false);
+            List<CarLibrary.Entry> root = car.children(CarLibrary.ROOT);
+            List<CarLibrary.Entry> home = car.children(root.get(root.size()-1).id);
+            assertEquals("Late night", home.get(0).title);
+            assertEquals("A direct pin", home.get(1).title);
+            CarLibrary.Entry song = car.children(home.get(0).id).get(0);
+            CarLibrary resumed = new CarLibrary(app, account, transport, false);
+            assertEquals("Starlight", resumed.item(song.id).title);
+            assertEquals("https://car-fixture.invalid/music/api/v3/stream/local/song", resumed.siblings(song.id).get(0).track.getString("streamUrl"));
+            assertEquals(1, plans[0]);
+            java.util.Map<String,JSONObject> onDevice = java.util.Collections.singletonMap("song", new JSONObject().put("id","song").put("title","Saved copy"));
+            assertEquals("Saved copy", pins.offline(mix, onDevice).get(0).getString("title"));
+            assertTrue(pins.offline(mix, java.util.Collections.emptyMap()).isEmpty());
+            assertThrows(IOException.class, () -> new CarLibrary(app, owner, transport, false).item(song.id));
+        } finally { pins.replace(new JSONArray()); }
+    }
     @Test public void carPagesFollowDnCursorsAndSelectedTracksCanBeResolvedAfterReconnecting() throws Exception {
         CarLibrary.Read transport = url -> {
             assertEquals("car-fixture.invalid", url.host());

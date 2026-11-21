@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import {
 		libraryFilter,
@@ -341,8 +342,8 @@
 			>{/if}
 		<button
 			class="icon-button"
-			aria-label="Favorites only"
-			title="Favorites only"
+			aria-label={uiText('Favorites only')}
+			title={uiText('Favorites only')}
 			aria-pressed={favorites}
 			onclick={() => (favorites = !favorites)}
 			><Heart size={18} fill={favorites ? 'currentColor' : 'none'} /></button
@@ -356,36 +357,42 @@
 			}}
 		>
 			<summary
-				>Rating and format{#if rating || formats.length}<span>
-						· Filters applied</span
+				>{uiText('Rating and format')}{#if rating || formats.length}<span>
+						{uiText('· Filters applied')}</span
 					>{/if}</summary
 			>
 			<div class="advanced-body">
 				<div class="rating">
 					<label
-						>Your rating<InlineChoice selected={rating}
+						>{uiText('Your rating')}<InlineChoice selected={rating}
 							><select bind:value={rating}>
-								<option value={0}>Any rating</option>{#each [1, 2, 3, 4, 5] as stars (stars)}<option
-										value={stars}>{stars} {stars === 1 ? 'star' : 'stars'}</option
+								<option value={0}>{uiText('Any rating')}</option
+								>{#each [1, 2, 3, 4, 5] as stars (stars)}<option value={stars}
+										>{stars} {stars === 1 ? uiText('star') : uiText('stars')}</option
 									>{/each}
 							</select></InlineChoice
 						></label
 					>
 					{#if rating}<label
-							>Rating range<InlineChoice selected={ratingMode}
+							>{uiText('Rating range')}<InlineChoice selected={ratingMode}
 								><select bind:value={ratingMode}
-									><option value="at_least">At least</option><option value="at_most">At most</option
+									><option value="at_least">{uiText('At least')}</option><option value="at_most"
+										>{uiText('At most')}</option
 									></select
 								></InlineChoice
 							></label
 						>{/if}
 				</div>
 				<fieldset>
-					<legend>{kind === 'albums' ? 'Primary audio format' : 'Audio format'}</legend>
+					<legend
+						>{kind === 'albums' ? uiText('Primary audio format') : uiText('Audio format')}</legend
+					>
 					{#if formatError}<p role="alert">{formatError}</p>
-						<button class="text-button" onclick={() => formatRequest++}>Retry formats</button>
-					{:else if !availableFormats}<p role="status">Loading formats…</p>
-					{:else if !availableFormats.length}<p>No audio formats found.</p>
+						<button class="text-button" onclick={() => formatRequest++}
+							>{uiText('Retry formats')}</button
+						>
+					{:else if !availableFormats}<p role="status">{uiText('Loading formats…')}</p>
+					{:else if !availableFormats.length}<p>{uiText('No audio formats found.')}</p>
 					{:else}
 						<div class="formats">
 							{#each availableFormats as format (format)}<label
@@ -397,9 +404,10 @@
 								>{/each}
 						</div>
 						{#if formats.length}<label
-								>Selected formats<InlineChoice selected={formatMode}
+								>{uiText('Selected formats')}<InlineChoice selected={formatMode}
 									><select bind:value={formatMode}
-										><option value="with">Include</option><option value="without">Exclude</option
+										><option value="with">{uiText('Include')}</option><option value="without"
+											>{uiText('Exclude')}</option
 										></select
 									></InlineChoice
 								></label
@@ -407,7 +415,7 @@
 					{/if}
 				</fieldset>
 				{#if rating || formats.length}<button class="text-button" onclick={clearAdvanced}
-						>Clear rating and format</button
+						>{uiText('Clear rating and format')}</button
 					>{/if}
 			</div>
 		</details>
@@ -426,19 +434,19 @@
 						formats,
 						formatMode
 					})
-				)}>Save filters as section</button
+				)}>{uiText('Save filters as section')}</button
 		>{/if}
 {/if}
 {#if kind === 'songs' && !preview}
 	<div class="collection-actions">
 		{#if progress}<p role="status">{progress}</p>
-			<button class="secondary" onclick={cancelPreparation}>Cancel preparation</button>
+			<button class="secondary" onclick={cancelPreparation}>{uiText('Cancel preparation')}</button>
 		{:else}
 			<button class="secondary" disabled={!songs.length || busy} onclick={() => playAll(false)}
-				><Play size={16} aria-hidden="true" />Play all</button
+				><Play size={16} aria-hidden="true" />{uiText('Play all')}</button
 			>
 			<button class="secondary" disabled={!songs.length || busy} onclick={() => playAll(true)}
-				><Shuffle size={16} aria-hidden="true" />Shuffle all</button
+				><Shuffle size={16} aria-hidden="true" />{uiText('Shuffle all')}</button
 			>
 		{/if}
 	</div>
@@ -502,28 +510,29 @@
 					use:selectable={artistChoice(a)}
 					onclick={() => onartist(a)}
 					><strong>{a.name}</strong><small
-						>{a.album_count} {a.album_count === 1 ? 'album' : 'albums'}</small
+						>{a.album_count} {a.album_count === 1 ? uiText('album') : uiText('albums')}</small
 					></button
 				>{/each}
 		</div>{/if}
 	{#if songs.length}<TrackList {session} tracks={songs} {onplay} />{/if}
 {/if}
 {#if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={() => load(next, generation)}>Try again</button>
-{:else if busy}<p role="status">Loading {noun}…</p>
+	<button class="secondary" onclick={() => load(next, generation)}>{uiText('Try again')}</button>
+{:else if busy}<p role="status">{uiText('Loading')} {noun}…</p>
 {:else if next && !preview}<button
 		class="secondary more"
 		data-selection-more={artist ? true : undefined}
 		use:loadNearEnd={{ active, enabled: !!artist && !busy, load: () => load(next, generation) }}
-		onclick={() => load(next, generation)}>More {noun}</button
+		onclick={() => load(next, generation)}>{uiText('More')} {noun}</button
 	>
 {:else if !albums.length && !songs.length && !artists.length}<p>
-		No {noun}
+		{uiText('No')}
+		{noun}
 		{rating || formats.length || query
-			? 'match your filters'
+			? uiText('match your filters')
 			: favorites
-				? 'in your favorites'
-				: 'in this collection'}.
+				? uiText('in your favorites')
+				: uiText('in this collection')}.
 	</p>{/if}
 
 <style>

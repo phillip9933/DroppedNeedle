@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
+	import HomePinButton from './HomePinButton.svelte';
 	import { ArrowLeft, Play, Shuffle, Trash2 } from '@lucide/svelte';
 	import { DnError, type Session } from '../connection';
 	import { errorMessage, type OnPlay } from './catalog';
@@ -152,23 +154,24 @@
 	});
 </script>
 
-<button class="text-button" onclick={onback}><ArrowLeft size={16} /> {backLabel}</button>
+<button class="text-button" onclick={onback}><ArrowLeft size={16} /> {uiText(backLabel)}</button>
 <h1>{current.name}</h1>
-{#if busy}<p role="status">Loading tracks…</p>
+{#if busy}<p role="status">{uiText('Loading tracks…')}</p>
 {:else if error}<p role="alert">{error}</p>
-	<button class="secondary" onclick={load}>Try again</button>
+	<button class="secondary" onclick={load}>{uiText('Try again')}</button>
 {:else if detail}
 	{#if detail.resolutionFailed}
-		<p role="alert">Could not check for newly added files.</p>
-		<button class="secondary" onclick={load}>Try again</button>
+		<p role="alert">{uiText('Could not check for newly added files.')}</p>
+		<button class="secondary" onclick={load}>{uiText('Try again')}</button>
 	{/if}
 	<div class="actions">
+		<HomePinButton {session} pin={{ kind: 'playlist', id: current.id, title: current.name }} />
 		{#if detail.tracks.length}
 			<button class="primary" disabled={!shownTracks.length} onclick={() => onplay(shownTracks, 0)}
-				><Play size={18} />Play playlist</button
+				><Play size={18} />{uiText('Play playlist')}</button
 			>
 			<button class="secondary" disabled={!shownTracks.length} onclick={shufflePlaylist}
-				><Shuffle size={18} />Shuffle playlist</button
+				><Shuffle size={18} />{uiText('Shuffle playlist')}</button
 			>
 		{/if}
 		<button
@@ -176,7 +179,7 @@
 			onclick={() => {
 				exportStatus = '';
 				dialog = 'export';
-			}}><Download size={17} />Export playlist</button
+			}}><Download size={17} />{uiText('Export playlist')}</button
 		>
 		{#if current.can_edit || current.can_delete}
 			<button
@@ -186,7 +189,7 @@
 				onclick={() => {
 					editing = !editing;
 					editError = '';
-				}}>{editing ? 'Done editing' : 'Edit playlist'}</button
+				}}>{editing ? uiText('Done editing') : uiText('Edit playlist')}</button
 			>
 		{/if}
 	</div>
@@ -196,16 +199,16 @@
 		<div class="actions">
 			{#if current.is_owner}
 				<button class="text-button" disabled={saving} onclick={() => (dialog = 'rename')}
-					>Rename</button
+					>{uiText('Rename')}</button
 				>
 				<button class="text-button" disabled={saving} onclick={() => (dialog = 'sharing')}
-					>Share playlist</button
+					>{uiText('Share playlist')}</button
 				>
 			{/if}
 			{#if current.can_delete}<button
 					class="text-button"
 					disabled={saving}
-					onclick={() => (dialog = 'delete')}>Delete playlist</button
+					onclick={() => (dialog = 'delete')}>{uiText('Delete playlist')}</button
 				>{/if}
 		</div>
 	{/if}
@@ -223,13 +226,13 @@
 			}}
 		/>{/if}
 	{#if !visible.length && detail.tracks.length && device.inventory}<p>
-			No tracks match this availability.
+			{uiText('No tracks match this availability.')}
 		</p>{/if}
 	{#if !detail.tracks.length}
 		<p>
 			{detail.rows.length
-				? 'This playlist has no tracks available in your library.'
-				: 'This playlist is empty.'}
+				? uiText('This playlist has no tracks available in your library.')
+				: uiText('This playlist is empty.')}
 		</p>
 	{/if}
 	<SelectionHost
@@ -287,12 +290,12 @@
 				class="secondary more"
 				data-selection-more={!editing || undefined}
 				use:loadNearEnd={{ active, enabled: !editing, load: () => (count += 50) }}
-				onclick={() => (count += 50)}>More tracks</button
+				onclick={() => (count += 50)}>{uiText('More tracks')}</button
 			>{/if}</SelectionHost
 	>
 {/if}
 {#if dialog === 'rename'}
-	<PlaylistDialog title="Rename playlist" onclose={close} busy={saving}>
+	<PlaylistDialog title={uiText('Rename playlist')} onclose={close} busy={saving}>
 		<PlaylistNameForm
 			initial={current.name}
 			action="Save name"
@@ -327,7 +330,7 @@
 		</p>
 		{#if editError}<p role="alert">{editError}</p>{/if}
 		<div class="actions">
-			<button class="secondary" disabled={saving} onclick={close}>Cancel</button>
+			<button class="secondary" disabled={saving} onclick={close}>{uiText('Cancel')}</button>
 			{#if dialog === 'remove' && remove}
 				<button
 					class="primary"
@@ -337,14 +340,14 @@
 							const id = remove.id;
 							void change(() => removePlaylistEntry(session, current.id, id));
 						}
-					}}>Remove track</button
+					}}>{uiText('Remove track')}</button
 				>
 			{:else}
 				<button
 					class="primary"
 					disabled={saving}
 					onclick={() => change(() => deletePlaylist(session, current.id), true)}
-					>Delete playlist</button
+					>{uiText('Delete playlist')}</button
 				>
 			{/if}
 		</div>
@@ -354,7 +357,7 @@
 <WebDetail
 	{session}
 	route={'/playlists/' + encodeURIComponent(playlist.id)}
-	label="Open playlist in web app"
+	label={uiText('Open playlist in web app')}
 />
 
 {#if dialog === 'export'}<PlaylistExport

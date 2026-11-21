@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { onMount, tick, untrack } from 'svelte';
 	import type { Category } from './libraryBrowse';
 	import type { OnlineCredit } from '../player/related';
 	import { librarySelectionBack } from './librarySelection.svelte';
 	import type { Session } from '../connection';
+	import { mirrorHomePins } from './launcherShortcuts';
 	import type { Album, CatalogTab, OnPlay } from './catalog';
 	import BoardView from '../boards/BoardView.svelte';
 	import LibraryHub from './LibraryHub.svelte';
@@ -39,6 +41,7 @@
 		onnavigate: (tab: CatalogTab) => void;
 	} = $props();
 	const dismissSelection = librarySelectionBack();
+	$effect(() => mirrorHomePins(session));
 	let boardView = $state<BoardView>();
 	let hub = $state<LibraryHub>();
 	let searchView = $state<Search>();
@@ -186,7 +189,7 @@
 	</div>
 	{#if genre}<div hidden={!!(album || artist || localArtist)}>
 			<button class="text-button" onclick={back}
-				>Back to {tab === 'search' ? 'search' : 'sections'}</button
+				>{uiText('Back to')} {tab === 'search' ? uiText('search') : uiText('sections')}</button
 			>
 			{#key genre}<GenreDetail
 					{session}

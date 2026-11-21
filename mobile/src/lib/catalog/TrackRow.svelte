@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import { useLibrarySelection, type LibraryChoice } from './librarySelection.svelte';
 	import { Play } from '@lucide/svelte';
 	import { trackStatusLabels, trackStatusIcons, type TrackStatus } from './trackStatus';
@@ -40,11 +41,12 @@
 	<span class="name"
 		><strong>{title}</strong><small
 			>{artist}{#if !onplay}
-				· Unavailable in library{/if}</small
+				{uiText('· Unavailable in library')}{/if}</small
 		>
 		{#if availability}{@const Icon = trackStatusIcons[availability]}<span
 				class="availability"
-				id={statusId}><Icon size={13} aria-hidden="true" />{trackStatusLabels[availability]}</span
+				id={statusId}
+				><Icon size={13} aria-hidden="true" />{uiText(trackStatusLabels[availability])}</span
 			>{/if}</span
 	>
 	{#if duration}<span class="length">{trackDuration(duration)}</span>{/if}

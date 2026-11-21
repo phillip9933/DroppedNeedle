@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText, tr } from '../i18n';
 	import { Capacitor } from '@capacitor/core';
 	import type { Section } from '../boards/layout';
 	import PlayerActionFace from './PlayerActionFace.svelte';
@@ -50,6 +51,8 @@
 	} from '../offline/feedbackStore';
 	import FeedbackStatus from '../offline/FeedbackStatus.svelte';
 	import AddToPlaylist from '../catalog/AddToPlaylist.svelte';
+	import HomePinButton from '../catalog/HomePinButton.svelte';
+	import { trackPin } from '../catalog/homePins';
 	import PlaylistDialog from '../catalog/PlaylistDialog.svelte';
 
 	type Model = components['schemas'];
@@ -62,6 +65,7 @@
 		artwork,
 		playback,
 		duration,
+		onsignal,
 		fields = trackToolFields.map((a) => a.id) as readonly string[]
 	}: {
 		session: Session;
@@ -74,6 +78,7 @@
 		artwork?: string;
 		playback?: PlaybackFormat | null;
 		duration?: number;
+		onsignal?: () => void;
 		fields?: readonly string[];
 	} = $props();
 	let playlist = $state(false);
@@ -429,7 +434,7 @@
 	/>{/snippet}
 {#snippet favorite()}{#if sample}<button
 			class="icon-button player-control"
-			aria-label="Favorite track">{@render heart(false)}</button
+			aria-label={uiText('Favorite track')}>{@render heart(false)}</button
 		>
 	{:else if favoriteValue !== undefined}<Favorite
 			{session}
@@ -441,11 +446,11 @@
 	{:else if !libraryError}<button
 			class="icon-button player-control"
 			disabled
-			aria-label="Loading favorite">{@render heart(false)}</button
+			aria-label={uiText('Loading favorite')}>{@render heart(false)}</button
 		>{/if}{/snippet}
 {#snippet addPlaylist()}<button
 		class="secondary player-control"
-		aria-label="Add to playlist"
+		aria-label={uiText('Add to playlist')}
 		onclick={() => {
 			if (!sample) playlist = true;
 		}}
@@ -454,7 +459,7 @@
 			section={mode === 'field' ? section : undefined}
 			glyph={ListPlus}
 			size={17}
-			label="Add to playlist"
+			label={uiText('Add to playlist')}
 			defaultLabel
 		/>
 	</button>{/snippet}
@@ -490,14 +495,14 @@
 		<p role="status">
 			{downloadReceipt.text}
 			<button class="text-button" onclick={() => window.dispatchEvent(new Event('dn-open-offline'))}
-				>View download queue</button
+				>{uiText('View download queue')}</button
 			>
 		</p>
 	{/if}
 	{#if fields.includes('player-rating') && (rating !== null || sample)}<div
 			class="stars"
 			role="group"
-			aria-label="Your track rating"
+			aria-label={uiText('Your track rating')}
 		>
 			{#each [1, 2, 3, 4, 5] as value (value)}
 				<button
@@ -515,7 +520,7 @@
 				>
 			{/each}
 			{#if (rating ?? 0) > 0}<button class="text-button" disabled={saving} onclick={() => rate(0)}
-					>Clear rating</button
+					>{uiText('Clear rating')}</button
 				>{/if}
 		</div>{/if}
 	{#if mode !== 'details' && fields.includes('player-quality') && (quality || sample)}<p>
@@ -535,7 +540,9 @@
 	{#if libraryError || ratingError}<p role="alert">
 			{[libraryError, ratingError].filter(Boolean).join(' ')}
 		</p>
-		<button class="text-button" onclick={() => retry++}>Try again</button>{/if}{/snippet}
+		<button class="text-button" onclick={() => retry++}>{uiText('Try again')}</button
+		>{/if}{/snippet}
+{#if mode === 'actions' && !sample}<HomePinButton {session} pin={trackPin(track)} compact />{/if}
 {#if mode === 'details'}
 	<div class="details" data-part="track-details">
 		<header class="details-title">
@@ -550,39 +557,44 @@
 			<h2>{track.title}</h2>
 		</header>
 		{#each detailGroups as group (group.title)}
-			<section aria-label={group.title}>
-				<h3>{group.title}</h3>
+			<section aria-label={uiText(group.title)}>
+				<h3>{uiText(group.title)}</h3>
 				<dl>
 					{#each group.rows as row (row.label)}
 						<div class="detail-row">
-							<dt><row.icon size={20} aria-hidden="true" />{row.label}</dt>
+							<dt><row.icon size={20} aria-hidden="true" />{uiText(row.label)}</dt>
 							<dd>{row.value}</dd>
 						</div>
 					{/each}
 				</dl>
 			</section>
 		{/each}
-		{#if playback?.format}<section aria-label="Current playback">
-				<h3>Current playback</h3>
-				<div class="playing-format"><PlayerQuality {track} quality={playback} /></div>
+		{#if playback?.format}<section aria-label={uiText('Current playback')}>
+				<h3>{uiText('Current playback')}</h3>
+				{#if onsignal}<button
+						class="playing-format"
+						aria-label={tr('Open signal path', '信号経路を開く')}
+						onclick={onsignal}><PlayerQuality {track} quality={playback} /></button
+					>
+				{:else}<div class="playing-format"><PlayerQuality {track} quality={playback} /></div>{/if}
 			</section>{/if}
 	</div>
 {/if}
 {@render contents()}
 {#if playlist}<AddToPlaylist {session} tracks={[track]} onclose={() => (playlist = false)} />{/if}
 {#if confirmRemove}<PlaylistDialog
-		title="Remove download?"
+		title={uiText('Remove download?')}
 		busy={changingDownload}
 		onclose={() => (confirmRemove = false)}
 	>
-		<p>Remove the saved copy of “{track.title}” from this device?</p>
+		<p>{uiText('Remove the saved copy of “')}{track.title}{uiText('” from this device?')}</p>
 		{#if downloadError}<p role="alert">{downloadError}</p>{/if}
 		<div class="actions">
 			<button class="secondary" disabled={changingDownload} onclick={() => (confirmRemove = false)}
-				>Keep download</button
+				>{uiText('Keep download')}</button
 			>
 			<button class="primary" disabled={changingDownload} onclick={() => void download(true)}
-				>Remove download</button
+				>{uiText('Remove download')}</button
 			>
 		</div>
 	</PlaylistDialog>{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { untrack } from 'svelte';
 	import type { Session } from '../connection';
@@ -79,13 +80,13 @@
 	title={removing
 		? 'Delete smart playlist?'
 		: initial
-			? 'Edit smart playlist'
-			: 'Create smart playlist'}
+			? uiText('Edit smart playlist')
+			: uiText('Create smart playlist')}
 	{onclose}
 	{busy}
 >
 	{#if removing}
-		<p>Delete “{initial?.name}” from this device?</p>
+		<p>{uiText('Delete “')}{initial?.name}{uiText('” from this device?')}</p>
 		<div class="actions">
 			<button
 				class="secondary"
@@ -93,14 +94,15 @@
 				onclick={() => {
 					removing = false;
 					error = '';
-				}}>Cancel</button
+				}}>{uiText('Cancel')}</button
 			>
-			<button class="primary" disabled={busy} onclick={submit}>Delete playlist</button>
+			<button class="primary" disabled={busy} onclick={submit}>{uiText('Delete playlist')}</button>
 		</div>
 	{:else}
 		<p>
-			These rules stay on this device. The songs update from your DN library whenever you open or
-			play the playlist.
+			{uiText(
+				'These rules stay on this device. The songs update from your DN library whenever you open or play the playlist.'
+			)}
 		</p>
 		<form
 			onsubmit={(event) => {
@@ -109,20 +111,26 @@
 			}}
 		>
 			<label
-				>Playlist name<input
+				>{uiText('Playlist name')}<input
 					required
 					maxlength="64"
-					placeholder="Five-star songs"
+					placeholder={uiText('Five-star songs')}
 					bind:value={name}
 				/></label
 			>
 			<LibraryFilterFields bind:config bind:formats selectKind={false} prefix="Playlist" />
 			<details open={advancedOpen}>
-				<summary>Genre, year and listening history</summary>
-				<label>Genre<input bind:value={genre} maxlength="160" placeholder="Any genre" /></label>
+				<summary>{uiText('Genre, year and listening history')}</summary>
+				<label
+					>{uiText('Genre')}<input
+						bind:value={genre}
+						maxlength="160"
+						placeholder={uiText('Any genre')}
+					/></label
+				>
 				<div class="bounds">
 					<label
-						>Earliest year<input
+						>{uiText('Earliest year')}<input
 							type="number"
 							inputmode="numeric"
 							min="1"
@@ -131,7 +139,7 @@
 						/></label
 					>
 					<label
-						>Latest year<input
+						>{uiText('Latest year')}<input
 							type="number"
 							inputmode="numeric"
 							min="1"
@@ -140,7 +148,7 @@
 						/></label
 					>
 					<label
-						>Minimum plays<input
+						>{uiText('Minimum plays')}<input
 							type="number"
 							inputmode="numeric"
 							min="0"
@@ -149,7 +157,7 @@
 						/></label
 					>
 					<label
-						>Maximum plays<input
+						>{uiText('Maximum plays')}<input
 							type="number"
 							inputmode="numeric"
 							min="0"
@@ -159,7 +167,7 @@
 					>
 				</div>
 				<label
-					>Not played in the last (days)<input
+					>{uiText('Not played in the last (days)')}<input
 						type="number"
 						inputmode="numeric"
 						min="1"
@@ -168,19 +176,22 @@
 					/></label
 				>
 				<small
-					>Includes songs you’ve never played. Set minimum plays to 1 for previously played songs
-					only.</small
+					>{uiText(
+						'Includes songs you’ve never played. Set minimum plays to 1 for previously played songs only.'
+					)}</small
 				>
 			</details>
 			<label
-				>Sort direction<InlineChoice selected={order}
+				>{uiText('Sort direction')}<InlineChoice selected={order}
 					><select bind:value={order}
-						><option value="asc">Ascending</option><option value="desc">Descending</option></select
+						><option value="asc">{uiText('Ascending')}</option><option value="desc"
+							>{uiText('Descending')}</option
+						></select
 					></InlineChoice
 				></label
 			>
 			<label
-				>Track limit<input
+				>{uiText('Track limit')}<input
 					type="number"
 					inputmode="numeric"
 					min="1"
@@ -190,9 +201,11 @@
 				/></label
 			>
 			<div class="actions">
-				<button type="button" class="secondary" disabled={busy} onclick={onclose}>Cancel</button>
+				<button type="button" class="secondary" disabled={busy} onclick={onclose}
+					>{uiText('Cancel')}</button
+				>
 				<button class="primary" disabled={busy} type="submit"
-					>{initial ? 'Save playlist' : 'Create smart playlist'}</button
+					>{initial ? uiText('Save playlist') : uiText('Create smart playlist')}</button
 				>
 			</div>
 			{#if initial}<button
@@ -202,7 +215,7 @@
 					onclick={() => {
 						removing = true;
 						error = '';
-					}}>Delete smart playlist</button
+					}}>{uiText('Delete smart playlist')}</button
 				>{/if}
 		</form>
 	{/if}
