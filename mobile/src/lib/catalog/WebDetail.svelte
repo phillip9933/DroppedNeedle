@@ -6,14 +6,22 @@
 		session,
 		route,
 		label,
-		iconOnly = false
-	}: { session: Session; route: string; label: string; iconOnly?: boolean } = $props();
+		iconOnly = false,
+		onopen
+	}: {
+		session: Session;
+		route: string;
+		label: string;
+		iconOnly?: boolean;
+		onopen?: () => void;
+	} = $props();
 	let error = $state('');
 	async function open(event: MouseEvent) {
 		event.preventDefault();
 		error = '';
 		try {
 			await Browser.open({ url: session.serverUrl + route });
+			onopen?.();
 		} catch {
 			error = 'Could not open the browser.';
 		}

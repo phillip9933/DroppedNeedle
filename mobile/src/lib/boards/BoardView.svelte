@@ -250,11 +250,11 @@
 	{:else if !source.ready}<p role="status">{uiText('Opening sections…')}</p>
 	{:else}
 		{#if group}
-			<button class="text-button" onclick={goBack}
-				><ArrowLeft size={17} />
-				{uiText('Back to')}
-				{expanded ? sectionTitle(expanded) : uiText(boardNames[board])}</button
-			>
+			{#if !/^Albums:|^Artists:/.test(group.row.id)}<button class="text-button" onclick={goBack}
+					><ArrowLeft size={17} />
+					{uiText('Back to')}
+					{expanded ? sectionTitle(expanded) : uiText(boardNames[board])}</button
+				>{/if}
 			{#if detailError || source.storageError}<p role="alert">
 					{detailError || source.storageError}
 				</p>
@@ -268,6 +268,10 @@
 			{#key group.row.id + localDetail}
 				<LibraryGroup
 					bind:this={groupView}
+					onback={goBack}
+					backLabel={uiText('Back to') +
+						' ' +
+						(expanded ? sectionTitle(expanded) : uiText(boardNames[board]))}
 					source={localDetail ? source : undefined}
 					{session}
 					{active}

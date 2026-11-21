@@ -7,8 +7,15 @@
 		session,
 		path,
 		seed,
-		cacheOnly = false
-	}: { session: Session; path?: string; seed: string; cacheOnly?: boolean } = $props();
+		cacheOnly = false,
+		onimage
+	}: {
+		session: Session;
+		path?: string;
+		seed: string;
+		cacheOnly?: boolean;
+		onimage?: (image: HTMLImageElement) => void;
+	} = $props();
 	let element: HTMLSpanElement;
 	let source = $state('');
 	let hue = $derived(
@@ -45,10 +52,16 @@
 	style:--cover-hue={hue}
 	aria-hidden="true"
 >
-	{#if source}<img src={source} alt="" onerror={() => (source = '')} />{:else}<Disc3
-			size="42%"
-			strokeWidth={1.1}
-		/>{/if}
+	{#if source}<img
+			src={source}
+			alt=""
+			onload={onimage
+				? (e) => {
+						if (e.currentTarget instanceof HTMLImageElement) onimage?.(e.currentTarget);
+					}
+				: undefined}
+			onerror={() => (source = '')}
+		/>{:else}<Disc3 size="42%" strokeWidth={1.1} />{/if}
 </span>
 
 <style>

@@ -15,6 +15,7 @@
 		title,
 		artist,
 		position,
+		albumRow = false,
 		duration,
 		onplay,
 		availability,
@@ -23,6 +24,7 @@
 		title: string;
 		artist: string;
 		position: number;
+		albumRow?: boolean;
 		duration?: number | null;
 		onplay?: () => void;
 		choice?: LibraryChoice;
@@ -31,6 +33,7 @@
 </script>
 
 <button
+	class:album-row={albumRow}
 	use:selectable={choice}
 	disabled={!onplay}
 	onclick={onplay}
@@ -45,12 +48,15 @@
 		>
 		{#if availability}{@const Icon = trackStatusIcons[availability]}<span
 				class="availability"
+				class:offline={availability === 'offline'}
 				id={statusId}
-				><Icon size={13} aria-hidden="true" />{uiText(trackStatusLabels[availability])}</span
+				><Icon size={13} aria-hidden="true" /><span class:sr-only={albumRow}
+					>{uiText(trackStatusLabels[availability])}</span
+				></span
 			>{/if}</span
 	>
 	{#if duration}<span class="length">{trackDuration(duration)}</span>{/if}
-	{#if onplay}<Play size={16} aria-hidden="true" />{/if}
+	{#if onplay && !albumRow}<Play size={16} aria-hidden="true" />{/if}
 </button>
 
 <style>
@@ -104,5 +110,47 @@
 	}
 	.length {
 		font-variant-numeric: tabular-nums;
+	}
+	.album-row {
+		min-height: 48px;
+		padding: 0.38rem 0;
+		border: 0;
+		gap: 0.5rem;
+	}
+	.album-row :is(.length, .index, small) {
+		color: var(--album-secondary, var(--muted));
+	}
+	.album-row .name {
+		overflow: hidden;
+		position: relative;
+	}
+	.album-row .name strong {
+		font-weight: 560;
+	}
+	.album-row .name .availability {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+	}
+	.album-row .name .availability:not(.offline) {
+		clip-path: inset(50%);
+	}
+	.album-row .name .offline {
+		position: static;
+		width: auto;
+		height: auto;
+		display: inline-flex;
+		vertical-align: middle;
+		margin-left: 0.3rem;
+	}
+	.album-row .name small {
+		display: inline-block;
+		vertical-align: middle;
+		max-width: 100%;
+		line-height: 1.3;
+	}
+	.album-row .name:has(.offline) small {
+		max-width: calc(100% - 1.2rem);
 	}
 </style>

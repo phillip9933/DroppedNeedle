@@ -8,17 +8,17 @@
 <script lang="ts">
 	import { uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
-	import WebDetail from './WebDetail.svelte';
+	import ArtistHeader from './ArtistHeader.svelte';
+	import { prepareLibraryPlayback } from '../player/libraryWindow';
+	import { beginPlaybackPreparation } from './browseActions';
 	import { getJson, type Session } from '../connection';
 	import { errorMessage, path, type Album, type OnPlay } from './catalog';
 	import type { DiscoverArtistRef } from './discovery';
 	import Favorite from './Favorite.svelte';
-	import HomePinButton from './HomePinButton.svelte';
-	import { artistPin } from './homePins';
 	import SelectionHost from './SelectionHost.svelte';
 	import Library from './Library.svelte';
 	import OwnedArtistAlbums from './OwnedArtistAlbums.svelte';
-	import { UserRound } from '@lucide/svelte';
+	import { Play, UserRound } from '@lucide/svelte';
 	import { tr } from '../i18n';
 	let {
 		session,
@@ -71,40 +71,78 @@
 			valid = false;
 		};
 	});
+
+	let playRequest = $state.raw<AbortController>(),
+		playError = $state('');
+	$effect(() => {
+		void session;
+		void artist;
+		void active;
+		playError = '';
+		return () => {
+			playRequest?.abort();
+		};
+	});
+	async function play() {
+		if (playRequest) return;
+		const job = new AbortController();
+		playRequest = job;
+		playError = '';
+		const finish = beginPlaybackPreparation(() => job.abort());
+		try {
+			const batch = await prepareLibraryPlayback(
+				session,
+				{ artist_id: artist.id, sort: 'album', order: 'asc' },
+				job.signal
+			);
+			job.signal.throwIfAborted();
+			finish();
+			await onplay(batch.tracks, 0, batch.continuation);
+		} catch (cause) {
+			if (!job.signal.aborted) playError = errorMessage(cause);
+		} finally {
+			finish();
+			if (playRequest === job) playRequest = undefined;
+		}
+	}
 </script>
 
-<button class="text-button" onclick={onback}>{uiText(backLabel)}</button>
 <section data-part="local-artist-detail">
-	<div class="artist-heading">
-		<h1>{current.name}</h1>
-		<div class="actions">
-			<HomePinButton
-				iconOnly
-				{session}
-				pin={artistPin(current.name, current.id, current.artist_mbid)}
-			/>
+	<ArtistHeader
+		{session}
+		localId={current.id}
+		mbid={current.artist_mbid}
+		name={current.name}
+		{onback}
+		{backLabel}
+		{onplay}
+	>
+		{#snippet actions()}
+			<button
+				class="primary"
+				aria-label={tr('Play artist', 'アーティストを再生')}
+				disabled={!!playRequest}
+				onclick={play}><Play size={17} />{uiText('Play')}</button
+			>
 			{#if current.favorite !== undefined}<Favorite
 					{session}
 					kind="artist"
 					id={current.id}
 					value={current.favorite}
 				/>{/if}
-			{#if current.artist_mbid}<button
-					class="icon-button"
-					aria-label={uiText('Artist profile')}
-					title={uiText('Artist profile')}
+		{/snippet}
+		{#snippet moreActions(close)}
+			{#if current.artist_mbid}
+				<button
 					onclick={() => {
+						close();
 						if (current.artist_mbid) ondiscover({ id: current.artist_mbid, name: current.name });
-					}}><UserRound size={19} /></button
-				>{/if}
-			<WebDetail
-				iconOnly
-				{session}
-				route={'/library/artists/' + encodeURIComponent(artist.id)}
-				label={uiText('Open artist in web app')}
-			/>
-		</div>
-	</div>
+					}}><UserRound size={17} />{uiText('Artist profile')}</button
+				>
+			{/if}
+		{/snippet}
+	</ArtistHeader>
+	{#if playError}<p role="alert">{playError}</p>{/if}
 	{#if error}<p role="alert">{error}</p>
 		<button class="text-button" onclick={() => retry++}>{uiText('Reload artist profile')}</button
 		>{/if}
@@ -151,21 +189,11 @@
 </section>
 
 <style>
-	.artist-heading,
-	.actions,
 	.view-options {
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 0.25rem;
-	}
-	.artist-heading {
-		justify-content: space-between;
-		margin-block: 0.25rem;
-	}
-	h1 {
-		margin: 0;
-		overflow-wrap: anywhere;
 	}
 	.view-options {
 		margin-bottom: 0.4rem;

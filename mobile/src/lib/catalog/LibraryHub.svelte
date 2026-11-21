@@ -156,12 +156,14 @@
 				/>{/key}
 		</div>
 		{#if detail}
-			<button
-				class="back"
-				aria-label={tr('Back to ' + current, uiText(current) + 'に戻る')}
-				onclick={goBack}><ChevronLeft size={18} />{uiText(current)}</button
-			>
+			{#if !/^Albums:|^Artists:/.test(detail.item.id)}<button
+					class="back"
+					aria-label={tr('Back to ' + current, uiText(current) + 'に戻る')}
+					onclick={goBack}><ChevronLeft size={18} />{uiText(current)}</button
+				>{/if}
 			<LibraryGroup
+				onback={goBack}
+				backLabel={tr('Back to ' + current, uiText(current) + 'に戻る')}
 				bind:this={group}
 				source={browser?.getDeviceSource()}
 				initialAvailability={availability}

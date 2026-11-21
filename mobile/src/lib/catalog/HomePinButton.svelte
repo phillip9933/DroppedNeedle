@@ -23,6 +23,7 @@
 		tracks,
 		compact = false,
 		iconOnly = false,
+		labels,
 		ondone
 	}: {
 		session: Session;
@@ -30,6 +31,7 @@
 		tracks?: PlayerTrack[];
 		compact?: boolean;
 		iconOnly?: boolean;
+		labels?: { add: string; remove: string };
 		ondone?: () => void;
 	} = $props();
 	let key = $state(''),
@@ -62,13 +64,17 @@
 		};
 	});
 	const label = $derived(
-		pin?.kind === 'station'
+		labels
 			? pinned
-				? tr('Unpin station from Home', 'ホームからステーションを外す')
-				: tr('Pin station to Home', 'ステーションをホームにピン留め')
-			: pinned
-				? tr('Unpin from Home', 'ホームからピン留めを外す')
-				: tr('Pin to Home', 'ホームにピン留め')
+				? labels.remove
+				: labels.add
+			: pin?.kind === 'station'
+				? pinned
+					? tr('Unpin station from Home', 'ホームからステーションを外す')
+					: tr('Pin station to Home', 'ステーションをホームにピン留め')
+				: pinned
+					? tr('Unpin from Home', 'ホームからピン留めを外す')
+					: tr('Pin to Home', 'ホームにピン留め')
 	);
 	function change() {
 		if (!pin || !key) return;

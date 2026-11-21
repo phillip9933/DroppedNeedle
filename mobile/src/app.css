@@ -132,25 +132,6 @@ svg {
 	white-space: nowrap;
 }
 
-/* The same paper sheet as the web album track list, with the page's outer edge. */
-[data-paper-sheet='on'] [data-part='track-list'][data-album-sheet] {
-	--bg: var(--dn-paper);
-	--surface: var(--sheet-surface);
-	--raised: var(--sheet-raised);
-	--text: var(--sheet-text);
-	--muted: var(--sheet-muted);
-	--accent: var(--sheet-accent);
-	--on-accent: var(--sheet-on-accent);
-	--line: var(--sheet-line);
-	--dn-focus: var(--sheet-focus);
-	margin-block: var(--gap);
-	padding-inline: calc(var(--gap) * 0.7);
-	border: 1px solid var(--dn-paper-border);
-	border-radius: var(--radius);
-	background: var(--bg);
-	color: var(--text);
-}
-
 /* The swatches use the same materials as the menus, player, and controls. */
 [data-material] {
 	--panel-fill: var(--surface);

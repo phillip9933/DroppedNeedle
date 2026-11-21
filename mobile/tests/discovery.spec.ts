@@ -598,7 +598,7 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	await page.getByRole('button', { name: 'Play Blue Hour', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Blue Hour', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Close player' }).click();
-	await page.getByRole('button', { name: 'Play station' }).click();
+	await page.getByRole('button', { name: 'Play artist radio' }).click();
 	await expect(page.getByRole('heading', { name: 'Silver Skies', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Show play queue' }).click();
 	const queue = page.locator('[data-part="play-queue"]');

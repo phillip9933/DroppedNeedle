@@ -217,11 +217,6 @@ function paint(selection: Selection) {
 	if (theme.roles) Object.assign(tokens, theme.roles);
 	root.style.setProperty('--heading', tokens['--dn-title']);
 	root.dataset.theme = mode;
-	// The web album track list uses its page's stock with controls in Light or Midnight ink.
-	root.dataset.paperSheet = selection.mode === 'custom' ? 'off' : 'on';
-	const inner = palettes[mode === 'midnight' ? 'midnight' : 'light'];
-	for (const key of colors) root.style.setProperty('--sheet-' + key, inner[colorSources[key]]);
-	root.style.setProperty('--sheet-focus', inner['--dn-focus']);
 	for (const [name, value] of Object.entries(tokens)) root.style.setProperty(name, value);
 	for (const key of colors) root.style.setProperty('--' + key, theme.colors[key]);
 	root.style.setProperty('--radius', theme.corners + 'px');
