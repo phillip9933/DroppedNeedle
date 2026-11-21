@@ -14,7 +14,6 @@
 		Filter,
 		Grid2X2,
 		List,
-		ListChecks,
 		ListEnd,
 		ListMusic,
 		ListStart,
@@ -31,7 +30,7 @@
 	import { player, placementMessage, type PlayerTrack } from '../player';
 	import type { Album, OnPlay } from './catalog';
 	import { errorMessage } from './catalog';
-	import { createPlaylist, type Playlist } from './playlists';
+	import type { Playlist } from './playlists';
 	import { offlineSupported, saveOfflineTracks } from '../offline/media';
 	import { detailInventory } from './detailInventory.svelte';
 	import { availableTracks, type Availability } from '../offline/library';
@@ -75,10 +74,8 @@
 	import { tappedPlayback, type PageEnd } from './browsePlayback';
 	import { browseChoice, requestFilters, type BrowseSnapshot } from './libraryBrowse';
 	import LibraryFilters from './LibraryFilters.svelte';
-	import LibrarySmartPlaylists from './LibrarySmartPlaylists.svelte';
+	import PlaylistEditor from './PlaylistEditor.svelte';
 	import PlaylistImport from './PlaylistImport.svelte';
-	import PlaylistDialog from './PlaylistDialog.svelte';
-	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	import AddToPlaylist from './AddToPlaylist.svelte';
 
 	let {
@@ -205,8 +202,6 @@
 	let lastKey: typeof changeKey | undefined;
 	let context = $state.raw<BrowseItem | null>(null),
 		smart = $state.raw<SmartPlaylist | 'new' | null>(null),
-		newName = $state(false),
-		nameBusy = $state(false),
 		addTo = $state.raw<PlayerTrack[] | null>(null),
 		savedFilter = $state<LibraryFilter | null>(null);
 
@@ -696,7 +691,7 @@
 				<div class="playlist-actions">
 					{#if !disconnected}<PlaylistImport {session} compact onimport={() => retry++} />{/if}
 					<button class="pill" onclick={() => (smart = 'new')}
-						><Plus size={20} />{uiText('Create smart playlist')}</button
+						><Plus size={20} />{uiText('New playlist')}</button
 					>
 				</div>
 			{:else}
@@ -764,13 +759,6 @@
 					>{#if settings.layout === 'grid'}<List />{:else}<Grid2X2 />{/if}</button
 				>
 				<button
-					aria-label={uiText('Select items')}
-					title={uiText('Select items')}
-					disabled={!items.length}
-					aria-pressed={host?.isSelecting() ?? false}
-					onclick={() => host?.toggleSelection()}><ListChecks /></button
-				>
-				<button
 					aria-label={searchLabel}
 					title={searchLabel}
 					aria-expanded={panel === 'search'}
@@ -835,11 +823,6 @@
 						'The directory lists each track’s primary genre. Opening a genre includes other tracks DN has tagged with it.'
 					)}
 				</p>{/if}
-			{#if category === 'Playlists'}
-				{#if !disconnected}<button class="secondary" onclick={() => (newName = true)}
-						><Plus size={17} />{uiText('New playlist')}</button
-					>{/if}
-			{/if}
 		</div>
 	{/if}
 	{#if !loading && !error}
@@ -938,32 +921,21 @@
 			context = null;
 		}}
 	/>{/if}
-{#if smart}<LibrarySmartPlaylists
+{#if smart}<PlaylistEditor
 		{session}
 		initial={smart === 'new' ? undefined : smart}
+		{disconnected}
+		onblank={(item) => {
+			smart = null;
+			panel = '';
+			onplaylist(item);
+		}}
 		onclose={() => (smart = null)}
 		oncreated={() => {
 			smart = null;
 			retry++;
 		}}
 	/>{/if}
-{#if newName}<PlaylistDialog
-		title={uiText('New playlist')}
-		onclose={() => (newName = false)}
-		busy={nameBusy}
-		><PlaylistNameForm
-			bind:busy={nameBusy}
-			action={tr('Create playlist', 'プレイリストを作成')}
-			oncancel={() => (newName = false)}
-			onsubmit={async (name) => {
-				const added = await createPlaylist(session, name);
-				newName = false;
-				panel = '';
-				window.dispatchEvent(new Event('dn-playlists-updated'));
-				onplaylist(added);
-			}}
-		/></PlaylistDialog
-	>{/if}
 {#if addTo}<AddToPlaylist {session} tracks={addTo} onclose={() => (addTo = null)} />{/if}
 {#if savedFilter}<FilterSectionDialog
 		initial={savedFilter}

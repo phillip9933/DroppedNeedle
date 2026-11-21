@@ -84,7 +84,7 @@ test('browse a library artist, open their album and keep a favorite across views
 	await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
 	await touch.lift();
 	await touch.close();
-	await page.getByRole('button', { name: 'Select items', exact: true }).click();
+	await page.getByRole('button', { name: 'Cancel selection', exact: true }).click();
 	await page.getByRole('button', { name: /Return Trip/ }).click();
 	await page.getByRole('button', { name: 'Favorite album', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Remove album from favorites' })).toBeVisible();

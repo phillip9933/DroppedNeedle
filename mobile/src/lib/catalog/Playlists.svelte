@@ -1,21 +1,14 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { tr, uiText } from '../i18n';
 	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
-	import {
-		playlists,
-		createPlaylist,
-		readPlaylist,
-		playlistCover,
-		type Playlist
-	} from './playlists';
+	import { playlists, readPlaylist, playlistCover, type Playlist } from './playlists';
 	import PreviewItem from '../boards/PreviewItem.svelte';
-	import PlaylistDialog from './PlaylistDialog.svelte';
+	import PlaylistEditor from './PlaylistEditor.svelte';
 	import PlaylistImport from './PlaylistImport.svelte';
-	import PlaylistNameForm from './PlaylistNameForm.svelte';
 	let creating = $state(false),
-		saving = $state(false);
+		savedSmart = $state(false);
 	let {
 		display,
 		session,
@@ -62,19 +55,25 @@
 		>{uiText('New playlist')}</button
 	><PlaylistImport {session} onimport={() => retry++} />{/if}
 {#if creating}
-	<PlaylistDialog title={uiText('New playlist')} onclose={() => (creating = false)} busy={saving}>
-		<PlaylistNameForm
-			action="Create playlist"
-			bind:busy={saving}
-			oncancel={() => (creating = false)}
-			onsubmit={async (name) => {
-				const item = await createPlaylist(session, name);
-				creating = false;
-				onopen(item);
-			}}
-		/>
-	</PlaylistDialog>
+	<PlaylistEditor
+		{session}
+		onclose={() => (creating = false)}
+		oncreated={() => {
+			creating = false;
+			savedSmart = true;
+		}}
+		onblank={(item) => {
+			creating = false;
+			onopen(item);
+		}}
+	/>
 {/if}
+{#if savedSmart && !preview}<p role="status">
+		{tr(
+			'Smart playlist saved in Library → Playlists.',
+			'ライブラリの「プレイリスト」に保存しました。'
+		)}
+	</p>{/if}
 {#if busy}<p role="status">{uiText('Loading playlists…')}</p>
 {:else if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => retry++}>{uiText('Try again')}</button>

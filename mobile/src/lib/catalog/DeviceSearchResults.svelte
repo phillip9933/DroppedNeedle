@@ -15,7 +15,7 @@
 	import { loadNearEnd } from './browseViewport';
 	import BrowseEntries from './BrowseEntries.svelte';
 	import BrowseItemMenu, { type BrowseAction } from './BrowseItemMenu.svelte';
-	import LibrarySmartPlaylists from './LibrarySmartPlaylists.svelte';
+	import PlaylistEditor from './PlaylistEditor.svelte';
 	import type { SmartPlaylist } from './smartPlaylists';
 	import SelectionHost from './SelectionHost.svelte';
 	let {
@@ -239,9 +239,10 @@
 			context = null;
 		}}
 	/>{/if}
-{#if editing}<LibrarySmartPlaylists
+{#if editing}<PlaylistEditor
 		{session}
 		initial={editing}
+		disconnected
 		onclose={() => (editing = undefined)}
 		oncreated={() => {
 			editing = undefined;

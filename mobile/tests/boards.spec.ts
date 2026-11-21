@@ -676,11 +676,11 @@ test('selection applies playlist actions to chosen items across library shelves 
 		.locator('[data-widget=library-albums]')
 		.getByRole('button', { name: /Night train/ })
 		.scrollIntoViewIfNeeded();
-	await button(page, 'Select items').click();
 	await board
-		.locator('[data-widget=library-albums]')
-		.getByRole('button', { name: 'Select Night train' })
-		.click();
+		.locator('[data-widget=library-albums] [data-selectable]')
+		.filter({ hasText: 'Night train' })
+		.first()
+		.press('Shift+Space');
 	const songs = board.locator('[data-widget=library-tracks]');
 	await songs.scrollIntoViewIfNeeded();
 	await songs.getByRole('button', { name: 'Select Daybreak' }).click();
@@ -695,7 +695,7 @@ test('selection applies playlist actions to chosen items across library shelves 
 	await expect(actions).toHaveCount(0);
 	await button(page, 'Browse Playlists').click();
 	await page.getByRole('button', { name: /Road 3 tracks/ }).click();
-	await button(page, 'Select items').click();
+	await page.locator('[data-selectable]:visible').first().press('Shift+Space');
 	await button(page, 'Select loaded').click();
 	await expect(actions.getByText('2 selected')).toBeVisible();
 	await actions.getByRole('button', { name: 'Add to playlist' }).click();

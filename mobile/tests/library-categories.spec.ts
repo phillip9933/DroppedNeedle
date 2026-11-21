@@ -58,8 +58,7 @@ test('Library opens its five categories, shows a true count and switches between
 	await expect(items.getByRole('button', { name: 'North Shore', exact: true })).toBeVisible();
 	await b('Switch to list view').click();
 	await expect(items).toHaveAttribute('data-layout', 'list');
-	await b('Select items').click();
-	await items.getByRole('button', { name: 'Select North Shore', exact: true }).click();
+	await items.getByRole('button', { name: 'North Shore', exact: true }).press('Shift+Space');
 	await expect(page.getByText('1 selected')).toBeVisible();
 	await b('Cancel selection').click();
 	await b('Back to Library').click();
@@ -366,7 +365,7 @@ test('catalog pages use themed controls, distinct layouts, real genre tracks and
 	await expect(b('In rotation').locator('.collage [data-part=cover]')).toHaveCount(4);
 	await expect(b('No available songs').locator('.art svg')).toHaveCount(1);
 	await expect(b('Import playlist')).toBeVisible();
-	await expect(b('Create smart playlist')).toBeVisible();
+	await expect(b('New playlist')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath('library-playlists.png') });
 	await page.setViewportSize({ width: 320, height: 680 });
 	await b('Back to Library').click();
@@ -447,33 +446,31 @@ test('offline categories retain their groups, playlist membership and classified
 		{ scope, records }
 	);
 	await expect(page.getByRole('group', { name: 'Offline availability' })).toContainText(
-		'Automatically saved'
+		'Available offline'
 	);
 	await context.setOffline(true);
 	f.preventNetwork();
 	await b('Back to Library').click();
 	await b('Browse Albums').click();
 	const legend = page.getByRole('group', { name: 'Offline availability' });
-	await expect(legend).toContainText('Downloaded');
-	await expect(legend).toContainText('Automatically saved');
-	await expect(legend).toContainText('Playback cache');
+	await expect(legend).toHaveText('Available offline');
 	await b('Evening Shore').click();
 	const names = page.locator('[data-part=category-items]:visible button.item strong');
 	await expect(names).toHaveText(['Arrival', 'Night Passage', 'Final Light']);
 	await b('Back to Albums').click();
 	await b('Collection filters').click();
-	await chooseOption(page.getByLabel('Availability', { exact: true }), 'automatic');
-	await expect(legend).toHaveText('Automatically saved');
+	await chooseOption(page.getByLabel('Availability', { exact: true }), 'offline');
+	await expect(legend).toHaveText('Available offline');
 	await b('Back to Library').click();
 	const availability = page.getByLabel('Availability', { exact: true });
-	await expect(availability).toHaveAttribute('data-value', 'automatic');
-	await chooseOption(availability, 'cached');
+	await expect(availability).toHaveAttribute('data-value', 'offline');
+
 	await b('Library').click();
-	await expect(availability).toHaveAttribute('data-value', 'cached');
+	await expect(availability).toHaveAttribute('data-value', 'offline');
 	await b('Browse Tracks').click();
-	await expect(names).toHaveText(['Final Light']);
+	await expect(names).toHaveCount(3);
 	await b('Back to Library').click();
-	await chooseOption(availability, 'automatic');
+
 	await b('Browse Playlists').click();
 	await expect(b('In rotation')).toBeVisible();
 	await expect(b('No available songs')).toHaveCount(0);
@@ -481,15 +478,15 @@ test('offline categories retain their groups, playlist membership and classified
 	const filters = b('Collection filters');
 	await expect(filters).toBeInViewport();
 	await filters.click();
-	await expect(availability).toHaveAttribute('data-value', 'automatic');
-	await chooseOption(page.getByLabel('Availability', { exact: true }), 'cached');
-	await expect(b('In rotation')).toHaveCount(0);
-	await chooseOption(page.getByLabel('Availability', { exact: true }), 'automatic');
+	await expect(availability).toHaveAttribute('data-value', 'offline');
+	await availability.click();
+	await expect(page.getByRole('option')).toHaveCount(2);
+	await page.keyboard.press('Escape');
 	await expect(b('In rotation')).toBeVisible();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
 	await chooseOption(page.getByLabel('Availability', { exact: true }), 'all');
 	await expect(page.getByRole('group', { name: 'Offline availability' })).toContainText(
-		'Downloaded'
+		'Available offline'
 	);
 
 	await b('In rotation').click();
@@ -658,20 +655,15 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 		}
 		if (category === 'Albums' || category === 'Artists') {
 			const badge = primary.locator('.offline');
-			await expect(primary).toHaveAccessibleDescription(
-				'Downloaded, Automatically saved, Playback cache'
-			);
-			await expect(badge).toHaveAttribute(
-				'aria-label',
-				'Downloaded, Automatically saved, Playback cache'
-			);
+			await expect(primary).toHaveAccessibleDescription('Available offline');
+			await expect(badge).toHaveAttribute('aria-label', 'Available offline');
 			expect(
 				await badge.evaluate((el) => {
 					const cover = el.closest('.visual')!.getBoundingClientRect(),
 						badge = el.getBoundingClientRect();
 					const marks = [...el.querySelectorAll('svg')].map((svg) => svg.getBoundingClientRect());
 					return (
-						marks.length === 3 &&
+						marks.length === 1 &&
 						marks.every(
 							(mark) => mark.width >= 10 && mark.left >= cover.left && mark.right <= cover.right
 						) &&
@@ -682,9 +674,7 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 			).toBe(true);
 		}
 		if (category === 'Tracks') {
-			await b('Select items').tap();
-			await primary.focus();
-			await page.keyboard.press('Space');
+			await primary.press('Shift+Space');
 			await expect(primary).toHaveAttribute('aria-pressed', 'true');
 			await expect(page.getByText('1 selected')).toBeVisible();
 			await b('Cancel selection').tap();

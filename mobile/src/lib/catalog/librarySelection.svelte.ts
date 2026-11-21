@@ -128,11 +128,23 @@ export function useLibrarySelection() {
 			node.addEventListener('pointerdown', start, opts);
 			node.addEventListener('touchstart', start, { ...opts, passive: true });
 			node.dataset.selectable = '';
+			node.setAttribute('aria-keyshortcuts', 'Shift+Space');
+			node.addEventListener(
+				'keydown',
+				(event) => {
+					if (event.shiftKey && event.code === 'Space') {
+						event.preventDefault();
+						if (!event.repeat) group.toggle(item);
+					}
+				},
+				opts
+			);
 			node.addEventListener('click', click, { ...opts, capture: true });
 			node.addEventListener('contextmenu', menu, opts);
 			group.buttons.set(node, item);
 			return () => {
 				delete node.dataset.selectable;
+				node.removeAttribute('aria-keyshortcuts');
 				listeners.abort();
 				group.buttons.delete(node);
 				if (!group.modeled() && untrack(() => group.selected.has(item.id)))

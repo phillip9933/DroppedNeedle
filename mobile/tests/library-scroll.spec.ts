@@ -215,8 +215,7 @@ test('a long scrolling and selecting session mounts a bounded number of track ro
 	await button(page, 'Search tracks').click();
 	await page.getByRole('searchbox').fill('Track');
 	await expect.poll(() => s.requests.some((u) => u.searchParams.get('q') === 'Track')).toBe(true);
-	await button(page, 'Select items').click();
-	await button(page, 'Select Track 00000').click();
+	await page.locator('[data-browse-index="0"]:visible .item').press('Shift+Space');
 	const counts: number[] = [],
 		times: number[] = [];
 	const profile = await page.evaluateHandle(() => {
@@ -449,7 +448,6 @@ test('six-column virtual track grids retain 44px controls, row spacing and keybo
 	for (let n = 30; n < 300; n += 30) await step(page, n);
 	await expect(shelf).toHaveClass(/windowed/);
 	expect(await shelf.getByRole('listitem').count()).toBeLessThan(240);
-	await button(page, 'Select items').click();
 	await shelf.evaluate((el) => {
 		const main = el.closest('main')!,
 			pitch =
@@ -485,8 +483,7 @@ test('six-column virtual track grids retain 44px controls, row spacing and keybo
 	expect(layout.adjacentGap).toBeCloseTo(layout.cssGap, 0);
 	expect(layout.spacing).toBeCloseTo(layout.gap, 0);
 	const item = at(120).locator('button.item');
-	await item.focus();
-	await page.keyboard.press('Space');
+	await item.press('Shift+Space');
 	await expect(item).toHaveAttribute('aria-pressed', 'true');
 	await page.keyboard.press('Tab');
 	await expect(at(120).getByRole('button', { name: /More options/ })).toBeFocused();
@@ -495,7 +492,7 @@ test('six-column virtual track grids retain 44px controls, row spacing and keybo
 	await page.screenshot({ path: test.info().outputPath('library-six-column-selection-320.png') });
 });
 
-test('a held finger adds or removes a reversible range and the Select button exits on its second tap', async ({
+test('a held finger adds or removes a reversible range and Cancel exits selection mode', async ({
 	page
 }) => {
 	await page.setViewportSize({ width: 320, height: 820 });
@@ -531,11 +528,8 @@ test('a held finger adds or removes a reversible range and the Select button exi
 	await expect(item(0)).toHaveAttribute('aria-pressed', 'true');
 	await expect(item(3)).toHaveAttribute('aria-pressed', 'true');
 	await expect(item(4)).toHaveAttribute('aria-pressed', 'false');
-	await button(page, 'Select items').tap();
-	await expect(page.getByRole('group', { name: 'Selection actions' })).toHaveCount(0);
-	await button(page, 'Select items').tap();
-	await expect(count(0)).toBeVisible();
-	await button(page, 'Select items').tap();
+	await button(page, 'Cancel selection').tap();
+	await expect(button(page, 'Select items')).toHaveCount(0);
 	await expect(page.getByRole('group', { name: 'Selection actions' })).toHaveCount(0);
 	// An ordinary flick before the hold threshold scrolls without entering selection.
 	const start = await touch.point(item(3));
@@ -563,6 +557,20 @@ test('holding a range at the scroll edge continues through cursor pages and virt
 	await touch.hold(first);
 	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
 	await touch.moveTo(anchor.x, Math.floor(bounds.y + bounds.height - 3));
+	const speedRatio = await page.locator('main').evaluate(async (main) => {
+		const sample = () => ({ top: main.scrollTop, time: performance.now() });
+		const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+		const a = sample();
+		await wait(350);
+		const b = sample();
+		await wait(1100);
+		const c = sample();
+		await wait(350);
+		const d = sample();
+		const speed = (from: typeof a, to: typeof a) => (to.top - from.top) / (to.time - from.time);
+		return speed(c, d) / speed(a, b);
+	});
+	expect(speedRatio).toBeGreaterThan(1.4);
 	const selection = page.getByRole('group', { name: 'Selection actions' }).locator('strong');
 	await expect
 		.poll(async () => parseInt((await selection.textContent()) || '0'), { timeout: 18000 })
