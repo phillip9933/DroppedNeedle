@@ -43,7 +43,7 @@
 		/>
 	{:else}<button
 			class="icon-button"
-			data-screen-link={!editing ? true : undefined}
+			data-screen-link={id === 'player-settings' && !editing ? true : undefined}
 			{disabled}
 			aria-label={accessible}
 			onclick={() => onactivate(id)}

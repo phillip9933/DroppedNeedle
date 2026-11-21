@@ -72,6 +72,7 @@ export function pullSheet(
 		});
 	}
 	const drag = bindVerticalDrag(sheet, {
+		catchOnStart: () => settling,
 		canStart(target, direction, origin) {
 			if (!enabled() || target.closest('dialog') !== sheet) return false;
 			if (target === sheet) {
@@ -86,8 +87,10 @@ export function pullSheet(
 			)
 				return false;
 			if (direction === 'up' && (!settling || renderedOffset() < 1)) return false;
-			for (let el: Element | null = target; el && el !== sheet; el = el.parentElement)
-				if (el.scrollTop > 1) return false;
+			if (!settling) {
+				for (let el: Element | null = target; el && el !== sheet; el = el.parentElement)
+					if (el.scrollTop > 1) return false;
+			}
 			return 'down';
 		},
 		travel: measure,

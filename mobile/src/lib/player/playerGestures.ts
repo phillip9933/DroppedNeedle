@@ -10,6 +10,7 @@ export type PlayerGestureActions = {
 	down?: () => void;
 	canStart?: VerticalDragOptions['canStart'];
 	start?: VerticalDragOptions['start'];
+	catchOnStart?: VerticalDragOptions['catchOnStart'];
 	move?: VerticalDragOptions['move'];
 	travel?: VerticalDragOptions['travel'];
 	release?: (direction: PullDirection, committed: boolean, action: () => void) => void;
@@ -17,14 +18,6 @@ export type PlayerGestureActions = {
 
 const reserved =
 	'input,select,textarea,dialog,[contenteditable=true],[role=slider],[data-inline-choice],[data-layout-drag],[data-reorder-grip],[data-selection-group].choosing';
-const dragButtons = [
-	'[data-mini-action="player"]',
-	'[data-panel-layer="player"] .credit-link',
-	'[data-board="home"] [data-widget] > h2 > button',
-	'[data-board="home"] [data-preview-item] > .body',
-	'[data-board="home"] [data-part="album-card"]'
-].join(',');
-
 export function playerGestures(node: HTMLElement, actions: PlayerGestureActions | undefined) {
 	let current: { actions: PlayerGestureActions; navigate: () => void } | undefined;
 	const drag = bindVerticalDrag(node, {
@@ -33,18 +26,12 @@ export function playerGestures(node: HTMLElement, actions: PlayerGestureActions 
 			const scroller = target.closest<HTMLElement>('[data-gesture-scroll]');
 			if (scroller && (!scroller.hasAttribute('data-pull-dismiss') || scroller.scrollTop > 1))
 				return false;
-			const button = target.closest('button,a,summary,[role=button]');
-			if (
-				button &&
-				!button.matches(dragButtons) &&
-				!(scroller && button.matches('[data-reorder-row] > button'))
-			)
-				return false;
 			const allowed = actions.canStart?.(target, direction, origin) ?? true;
 			if (!allowed) return false;
 			const logical = allowed === true ? direction : allowed;
 			return actions[logical] && (!scroller || logical === 'down') ? logical : false;
 		},
+		catchOnStart: () => actions?.catchOnStart?.() ?? false,
 		start(direction, target, origin) {
 			const navigate = actions?.[direction];
 			if (!navigate || !actions) return false;

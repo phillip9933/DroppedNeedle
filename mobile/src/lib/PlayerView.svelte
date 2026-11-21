@@ -94,6 +94,7 @@
 		};
 	} = $props();
 	let saveQueue = $state<PlayerTrack[] | null>(null);
+	let queueScrolled = $state(false);
 	let loaded = $state(defaults('player'));
 	// A draft without editing overlays uses the same sample music in a read-only player.
 	const composing = $derived(!!editor?.overlay);
@@ -308,7 +309,6 @@
 	{#if button === 'queue'}
 		<button
 			class="mini-control"
-			data-screen-link
 			data-mini-action="queue"
 			aria-label="Open play queue"
 			onclick={ontogglequeue}
@@ -344,6 +344,7 @@
 					: 'now-playing'}
 		aria-label={previewOnly ? 'Now Playing layout preview' : 'Now playing'}
 	>
+		{#if queueOpen && track}<h1 class="queue-heading">Play queue</h1>{/if}
 		<div class="player-frame" use:fitPlayer={!queueOpen && !!track}>
 			<div
 				class="player-canvas"
@@ -771,8 +772,14 @@
 						onclick={() => edit(player.clearUpcoming)}>Clear upcoming</button
 					>
 				</div>{/if}
-			<div class="queue" data-gesture-scroll data-pull-dismiss data-part="play-queue">
-				<h1>Play queue</h1>
+			<div
+				class="queue"
+				class:scrolled={queueScrolled}
+				data-gesture-scroll
+				data-pull-dismiss
+				data-part="play-queue"
+				onscroll={(event) => (queueScrolled = event.currentTarget.scrollTop > 1)}
+			>
 				{#if libraryWindow}
 					<p>
 						Tracks {queueOffset + 1}–{libraryWindow.loaded} of {libraryWindow.total.toLocaleString()}
@@ -996,7 +1003,16 @@
 		min-height: 0;
 		overflow: auto;
 		overscroll-behavior: contain;
+		touch-action: pan-x pan-down pinch-zoom;
 		flex: 1;
+	}
+	.performance.queue-page .queue.scrolled {
+		touch-action: pan-x pan-y pinch-zoom;
+	}
+	.queue-heading {
+		margin: 0;
+		padding-block: 0.35rem;
+		touch-action: pinch-zoom;
 	}
 	.performance.empty-player > h1 {
 		margin: auto auto 0.75rem;

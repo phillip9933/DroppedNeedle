@@ -608,15 +608,14 @@ test('an older header becomes an editable grid with square controls on the heade
 			.evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-section-id')));
 	const geometry = async (where: typeof live, id: string, size: number) => {
 		const field = where.locator('[data-section-id="' + id + '"]');
-		const boxes = await field
-			.locator('.content .icon-button, .content .glyph > svg')
-			.evaluateAll((nodes) =>
-				nodes.map((n) => {
-					const box = n.getBoundingClientRect();
-					return { w: box.width, h: box.height };
-				})
-			);
-		expect(boxes).toHaveLength(2);
+		const faces = field.locator('.content .icon-button, .content .glyph > svg');
+		await expect(faces).toHaveCount(2);
+		const boxes = await faces.evaluateAll((nodes) =>
+			nodes.map((n) => {
+				const box = n.getBoundingClientRect();
+				return { w: box.width, h: box.height };
+			})
+		);
 		for (const box of boxes) expect(Math.abs(box.w - box.h)).toBeLessThan(1);
 		expect(boxes[0].w).toBeGreaterThanOrEqual(44);
 		expect(boxes[1].w).toBeGreaterThanOrEqual(size - 0.5);
@@ -1190,7 +1189,7 @@ test('a listener can drag up from an empty Home screen before playing a track', 
 	await page.mouse.move(x, y);
 	await page.mouse.down();
 	await page.mouse.move(x, y - main.height / 2, { steps: 4 });
-	const incoming = await screenTop(page.locator('[data-part=now-playing]'));
+	const incoming = await screenTop(page.locator('[data-panel-layer=player]'));
 	expect(incoming).toBeGreaterThan(80);
 	expect(incoming).toBeLessThan(page.viewportSize()!.height - 80);
 	const arrow = page.locator('[data-section-id=player-close] svg');
@@ -1309,6 +1308,142 @@ test('Home scrolling, dragging up to Now Playing and reversing a mini-player pul
 	}
 });
 
+test('pulling directly on player controls follows every held position without activating the control', async ({
+	page
+}) => {
+	await fixture(page);
+	await play(page);
+	const height = page.viewportSize()!.height;
+	const player = page.locator('[data-panel-layer=player]');
+	const queue = page.locator('[data-panel-layer=queue]');
+	const mini = page.getByRole('region', { name: 'Current track' });
+	await page.getByRole('button', { name: 'Close player' }).tap();
+	const touch = await touchRange(page);
+	try {
+		const start = await touch.point(mini.getByRole('button', { name: 'Play', exact: true }));
+		const miniTop = await screenTop(mini);
+		await touch.holdAt(start.x, start.y);
+		for (const dy of [26, 120, 74, 190]) {
+			await touch.moveTo(start.x, start.y - dy);
+			await expect.poll(() => screenTop(player)).toBeCloseTo(height - dy, 0);
+			await expect.poll(() => screenTop(mini)).toBeCloseTo(miniTop - dy, 0);
+		}
+		await touch.cancel();
+		await expect(player).toHaveCount(0);
+		await expect(mini.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+		await mini.getByRole('button', { name: /Open player/ }).tap();
+		const playButton = player.getByRole('button', { name: 'Play', exact: true });
+		await expect(playButton).toBeInViewport();
+		const control = await touch.point(playButton);
+		await touch.holdAt(control.x, control.y);
+		for (const dy of [45, 140, 80]) {
+			await touch.moveTo(control.x, control.y - dy);
+			await expect.poll(() => screenTop(queue)).toBeCloseTo(height - dy, 0);
+			await expect.poll(() => screenTop(player)).toBeCloseTo(-dy, 0);
+			await expect
+				.poll(() => screenTop(queue.locator('h1.queue-heading')))
+				.toBeCloseTo(height - dy, 0);
+		}
+		await touch.cancel();
+		await expect(queue).toHaveCount(0);
+		await expect(playButton).toBeVisible();
+	} finally {
+		await touch.close();
+	}
+});
+
+test('moving panels paint inside the system bars and keep the same player height at rest', async ({
+	page
+}) => {
+	const top = 32,
+		bottom = 28,
+		height = page.viewportSize()!.height;
+	const device = await page.context().newCDPSession(page);
+	await device.send('Emulation.setSafeAreaInsetsOverride', { insets: { top, bottom } });
+	await fixture(page);
+	await play(page);
+	const player = page.locator('[data-panel-layer=player]');
+	const rest = await player.boundingBox();
+	expect(rest?.y).toBe(top);
+	expect(rest?.height).toBe(height - top);
+	// A paint marker distinguishes a correctly clipped panel from the identical theme behind it.
+	await page.addStyleTag({
+		content: `
+		.pulling [data-panel-layer]::after {
+			content: ''; position: absolute; z-index: 10; inset: 0 auto 0 0;
+			width: 18px; background: magenta; pointer-events: none;
+		}
+	`
+	});
+	const before = await page.screenshot();
+	const touch = await touchRange(page);
+	try {
+		const art = player.locator('.hero');
+		const start = await touch.point(art);
+		await touch.hold(art);
+		await touch.moveTo(start.x, start.y - 92);
+		await expect.poll(() => screenTop(player)).toBeCloseTo(top - 92, 0);
+		const held = await page.screenshot();
+		const sample = (y: number) => patchDifference(page, before, { x: 2, y }, held, { x: 2, y });
+		expect(await sample(6)).toBeLessThan(1);
+		expect(await sample(height - 22)).toBeLessThan(1);
+		expect(await sample(top + 4)).toBeGreaterThan(30);
+		expect(await sample(height - bottom - 20)).toBeGreaterThan(30);
+		await touch.cancel();
+		await expect.poll(() => player.boundingBox()).toEqual(rest);
+	} finally {
+		await touch.close();
+		await device.detach();
+	}
+});
+
+test('a mini-player queue tap slides, can be caught and held, and finishes at the original destination', async ({
+	page
+}) => {
+	await page.addInitScript((server) => {
+		localStorage.setItem('dn.mobile.interface.v2', JSON.stringify({ motion: 'gentle' }));
+		localStorage.setItem(
+			'dn.mobile.mini-player.v1.' + JSON.stringify([server, 'alex']),
+			JSON.stringify({ after: 'queue' })
+		);
+	}, server);
+	await fixture(page);
+	await play(page);
+	await page.getByRole('button', { name: 'Close player' }).tap();
+	const open = page.getByRole('button', { name: 'Open play queue', exact: true });
+	const queue = page.locator('[data-panel-layer=queue]');
+	const height = page.viewportSize()!.height;
+	const touch = await touchRange(page);
+	try {
+		await open.tap();
+		await page.waitForFunction(() => {
+			const top = document.querySelector('[data-panel-layer=queue]')?.getBoundingClientRect().top;
+			return top !== undefined && top < innerHeight - 4 && top > 0;
+		});
+		const x = 150,
+			y = height - 160;
+		await touch.holdAt(x, y);
+		const caught = await screenTop(queue);
+		expect(caught).toBeGreaterThan(1);
+		expect(caught).toBeLessThan(height - 4);
+		// A stationary finger owns the panel for longer than the full 280ms gentle transition.
+		await page.evaluate(async () => {
+			const until = performance.now() + 320;
+			while (performance.now() < until) await new Promise(requestAnimationFrame);
+		});
+		expect(await screenTop(queue)).toBeCloseTo(caught, 0);
+		await touch.moveTo(x, y + 30);
+		await expect.poll(() => screenTop(queue)).toBeCloseTo(Math.min(height, caught + 30), 0);
+		await touch.moveTo(x, y - height * 0.55);
+		await touch.lift();
+		await expect(page.getByRole('heading', { name: 'Play queue' })).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(open).toBeFocused();
+	} finally {
+		await touch.close();
+	}
+});
+
 test('the play queue follows the finger both ways, preserves scrolling and never plays a dragged track', async ({
 	page
 }) => {
@@ -1319,7 +1454,7 @@ test('the play queue follows the finger both ways, preserves scrolling and never
 	await play(page);
 	const art = page.locator('[data-section-id=player-artwork] [data-part=cover]');
 	const queue = page.locator('[data-part=play-queue]');
-	const heading = queue.locator('h1');
+	const heading = page.locator('[data-panel-layer=queue] h1.queue-heading');
 	const open = page.getByRole('button', { name: 'Show play queue' });
 	await open.tap();
 	await expect(queue.getByRole('button', { name: /Day Train/ })).toBeVisible();
@@ -1431,6 +1566,52 @@ test('track details reverse under the finger and finish sliding after release', 
 	}
 });
 
+test('a finger can catch a closing sheet, hold it still, and pull it open again', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 360, height: 640 });
+	await fixture(page);
+	await play(page);
+	await page.locator('[data-section-id=player-title] button').tap();
+	const sheet = page.getByRole('dialog', { name: 'Track details' });
+	await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+	const rest = await screenTop(sheet);
+	const contents = sheet.locator('.sheet-content');
+	await contents.evaluate((el) => el.scrollTo(0, 80));
+	await expect.poll(() => contents.evaluate((el) => el.scrollTop)).toBeGreaterThan(20);
+	// Slow only this closing transition so a busy test runner can land a real touch midway.
+	await sheet.evaluate((el) => {
+		el.querySelector<HTMLButtonElement>('header button')!.click();
+		const slide = el
+			.getAnimations()
+			.find((a) => a instanceof CSSTransition && a.transitionProperty === 'transform')!;
+		slide.currentTime = Number(slide.effect!.getTiming().duration) * 0.15;
+		slide.updatePlaybackRate(0.12);
+	});
+	const touch = await touchRange(page);
+	try {
+		const body = (await contents.boundingBox())!;
+		const x = Math.round(body.x + body.width / 2);
+		const y = Math.round(body.y + 36);
+		await touch.holdAt(x, y);
+		const held = await screenTop(sheet);
+		expect(held).toBeGreaterThan(rest + 10);
+		const drift = await sheet.evaluate(async (el) => {
+			const start = el.getBoundingClientRect().top;
+			for (let i = 0; i < 8; i++) await new Promise(requestAnimationFrame);
+			return Math.abs(el.getBoundingClientRect().top - start);
+		});
+		expect(drift).toBeLessThan(1);
+		await touch.moveTo(x, Math.max(0, y - (held - rest)));
+		await expect.poll(() => screenTop(sheet)).toBeCloseTo(rest, 0);
+		await touch.lift();
+		await expect(sheet).toBeVisible();
+		await expect(sheet.getByRole('heading', { name: 'Track details' })).toBeVisible();
+	} finally {
+		await touch.close();
+	}
+});
+
 test('a saved full-screen lyrics field opens an accessible sheet and preserves the artwork', async ({
 	page
 }) => {
@@ -1496,21 +1677,23 @@ test('an oversized saved composition fits all live controls after a viewport res
 			.poll(() =>
 				view.evaluate(
 					(root, ids) =>
-						ids.every((id) => {
+						ids.flatMap((id) => {
 							const target = root
 								.querySelector('[data-section-id="' + id + '"]')
 								?.getBoundingClientRect();
-							return (
-								!!target &&
+							if (
+								target &&
 								target.height > 0 &&
 								target.top >= -1 &&
 								target.bottom <= innerHeight + 1
-							);
+							)
+								return [];
+							return [{ id, top: target?.top, bottom: target?.bottom, height: innerHeight }];
 						}),
 					ids
 				)
 			)
-			.toBe(true);
+			.toEqual([]);
 	}
 	// The app's error banner or an inset may reduce the available main area without a window resize.
 	await page.locator('main').evaluate((main) => {

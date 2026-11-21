@@ -26,6 +26,7 @@
 	} = $props();
 	let dialog: HTMLDialogElement;
 	let closeButton: HTMLButtonElement, heading: HTMLHeadingElement, content: HTMLElement;
+	let scrolled = $state(false);
 	let pull: ReturnType<typeof pullSheet> | undefined;
 	let backdropPointer: number | undefined;
 	const offsets = new SvelteMap<string, number>();
@@ -124,7 +125,13 @@
 			>
 		</header>
 	</div>
-	<div class="sheet-content" class:body={scrollKey !== undefined} bind:this={content}>
+	<div
+		class="sheet-content"
+		class:scrolled
+		class:body={scrollKey !== undefined}
+		bind:this={content}
+		onscroll={() => (scrolled = content.scrollTop > 1)}
+	>
 		{@render children()}
 	</div>
 </dialog>
@@ -225,7 +232,11 @@
 		overflow: auto;
 		min-height: 0;
 		overscroll-behavior: contain;
+		touch-action: pan-x pan-down pinch-zoom;
 		padding: 0.3rem 1.2rem 0.75rem;
+	}
+	.sheet-content.scrolled {
+		touch-action: pan-x pan-y pinch-zoom;
 	}
 	.full .sheet-content {
 		flex: 1;
