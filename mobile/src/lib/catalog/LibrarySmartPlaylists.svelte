@@ -24,6 +24,23 @@
 	let formats = $state(untrack(() => config.formats.join(', ')));
 	let limit = $state<number | undefined>(untrack(() => initial?.limit ?? 100));
 	let order = $state<'asc' | 'desc'>(untrack(() => initial?.order ?? 'asc'));
+	let genre = $state(untrack(() => initial?.genre ?? ''));
+	let yearFrom = $state(untrack(() => initial?.yearFrom)),
+		yearTo = $state(untrack(() => initial?.yearTo));
+	let minPlays = $state(untrack(() => initial?.minPlays)),
+		maxPlays = $state(untrack(() => initial?.maxPlays));
+	let notPlayedDays = $state(untrack(() => initial?.notPlayedDays));
+	const advancedOpen = untrack(
+		() =>
+			!!(
+				genre ||
+				yearFrom ||
+				yearTo ||
+				minPlays !== undefined ||
+				maxPlays !== undefined ||
+				notPlayedDays
+			)
+	);
 	let removing = $state(false),
 		busy = $state(false),
 		error = $state('');
@@ -39,7 +56,13 @@
 						id: initial?.id ?? 'smart-' + crypto.randomUUID(),
 						name,
 						limit: limit ?? 0,
-						order
+						order,
+						genre,
+						yearFrom,
+						yearTo,
+						minPlays,
+						maxPlays,
+						notPlayedDays
 					};
 			await writeSmartPlaylist(session, next, initial);
 			oncreated();
@@ -94,6 +117,61 @@
 				/></label
 			>
 			<LibraryFilterFields bind:config bind:formats selectKind={false} prefix="Playlist" />
+			<details open={advancedOpen}>
+				<summary>Genre, year and listening history</summary>
+				<label>Genre<input bind:value={genre} maxlength="160" placeholder="Any genre" /></label>
+				<div class="bounds">
+					<label
+						>Earliest year<input
+							type="number"
+							inputmode="numeric"
+							min="1"
+							max="9999"
+							bind:value={yearFrom}
+						/></label
+					>
+					<label
+						>Latest year<input
+							type="number"
+							inputmode="numeric"
+							min="1"
+							max="9999"
+							bind:value={yearTo}
+						/></label
+					>
+					<label
+						>Minimum plays<input
+							type="number"
+							inputmode="numeric"
+							min="0"
+							max="1000000"
+							bind:value={minPlays}
+						/></label
+					>
+					<label
+						>Maximum plays<input
+							type="number"
+							inputmode="numeric"
+							min="0"
+							max="1000000"
+							bind:value={maxPlays}
+						/></label
+					>
+				</div>
+				<label
+					>Not played in the last (days)<input
+						type="number"
+						inputmode="numeric"
+						min="1"
+						max="36500"
+						bind:value={notPlayedDays}
+					/></label
+				>
+				<small
+					>Includes songs you’ve never played. Set minimum plays to 1 for previously played songs
+					only.</small
+				>
+			</details>
 			<label
 				>Sort direction<InlineChoice selected={order}
 					><select bind:value={order}
@@ -130,3 +208,25 @@
 	{/if}
 	{#if error}<p role="alert">{error}</p>{/if}
 </PlaylistDialog>
+
+<style>
+	details {
+		margin: 1rem 0;
+		border-block: 1px solid var(--line);
+		padding: 0.6rem 0;
+	}
+	summary {
+		cursor: pointer;
+		line-height: 2;
+		font-weight: 600;
+	}
+	.bounds {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0 0.6rem;
+	}
+	small {
+		display: block;
+		color: var(--muted);
+	}
+</style>

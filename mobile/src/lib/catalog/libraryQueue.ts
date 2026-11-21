@@ -43,7 +43,10 @@ export async function prepareLibraryQueue(
 	signal: AbortSignal,
 	onprogress?: (loaded: number, total: number) => void,
 	forQueue = true,
-	playlist?: { limit: number },
+	playlist?: {
+		limit: number;
+		matches?: (row: TrackPage['items'][number], page: TrackPage) => boolean;
+	},
 	first?: TrackPage
 ): Promise<PlayerTrack[]> {
 	if (
@@ -67,7 +70,10 @@ export async function prepareLibraryQueue(
 					{},
 					{
 						...filters,
-						limit: playlist ? Math.min(pageSize, playlist.limit - tracks.length) : pageSize,
+						limit:
+							playlist && !playlist.matches
+								? Math.min(pageSize, playlist.limit - tracks.length)
+								: pageSize,
 						after
 					}
 				),
@@ -84,25 +90,26 @@ export async function prepareLibraryQueue(
 		total = page.total;
 		const target = playlist ? Math.min(total, playlist.limit) : total;
 		if (forQueue && target > maxQueueTracks) throw new Error(tooMany);
-		const previous = tracks.length;
+		const previous = ids.size;
 		for (const row of page.items) {
 			if (!row.id) throw new Error(changed);
 			if (ids.has(row.id)) continue;
+			ids.add(row.id);
+			if (playlist?.matches && !playlist.matches(row, page)) continue;
 			const track = localSong(row);
 			checkSize?.(track);
-			ids.add(row.id);
 			tracks.push(track);
 			if (playlist && tracks.length === target) break;
 		}
-		if (tracks.length > total) throw new Error(changed);
+		if (ids.size > total) throw new Error(changed);
 		after = playlist && tracks.length === target ? undefined : (page.next ?? undefined);
 		if (after) {
-			if (previous === tracks.length || cursors.has(after)) throw new Error(changed);
+			if (previous === ids.size || cursors.has(after)) throw new Error(changed);
 			cursors.add(after);
 		}
 		onprogress?.(tracks.length, target);
 	} while (after);
-	if (tracks.length !== (playlist ? Math.min(total, playlist.limit) : total))
+	if (ids.size !== total && !(playlist && tracks.length === playlist.limit))
 		throw new Error(changed);
 	if (!playlist && !tracks.length) throw new Error('No tracks match these filters.');
 	return tracks;

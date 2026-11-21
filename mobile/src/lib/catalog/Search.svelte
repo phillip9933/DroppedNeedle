@@ -10,6 +10,7 @@
 	import { search, errorMessage, type Album, type OnPlay, type SearchScope } from './catalog';
 	import type { Playlist } from './playlists';
 	import SearchCollection from './SearchCollection.svelte';
+	import SearchHints from './SearchHints.svelte';
 	import RequestSong from './RequestSong.svelte';
 	import Albums from './Albums.svelte';
 	import TrackList from './TrackList.svelte';
@@ -50,6 +51,23 @@
 		localResults = $state<DeviceSearchResults>(),
 		detail = $state.raw<{ category: Category; row: BrowseItem } | null>(null);
 	let groupView = $state<LibraryGroup>();
+	let hints = $state<SearchHints>(),
+		editing = $state(false);
+	function remember() {
+		hints?.remember();
+		editing = false;
+	}
+	const playResult: OnPlay = (...args) => {
+		remember();
+		return onplay(...args);
+	};
+	function pickHint(value: string, category: SearchScope) {
+		hints?.remember(value, category);
+		term = value;
+		scope = category;
+		changedQuery();
+		editing = false;
+	}
 	const source = catalogSource(
 		() => session,
 		() => active,
@@ -139,6 +157,7 @@
 		return useDevice || detail ? 'offline' : undefined;
 	}
 	function enterDevice(category: Category, row: BrowseItem) {
+		remember();
 		detailOffset = root.closest('main')?.scrollTop ?? 0;
 		positions.device = detailOffset;
 		freshDetail = row;
@@ -218,7 +237,18 @@
 		<input
 			type="search"
 			bind:value={term}
-			oninput={changedQuery}
+			oninput={() => {
+				changedQuery();
+				editing = true;
+			}}
+			onfocus={() => (editing = true)}
+			onkeydown={(event) => {
+				if (event.key === 'Enter' && !event.isComposing) {
+					remember();
+					event.currentTarget.blur();
+				}
+			}}
+			enterkeyhint="search"
 			aria-label="Search music"
 			placeholder={scope === 'top'
 				? 'Search music'
@@ -231,6 +261,17 @@
 					onclick={() => choose(item.id)}>{item.label}</button
 				>{/each}
 		</div>
+		<SearchHints
+			bind:this={hints}
+			{session}
+			{term}
+			{scope}
+			{editing}
+			active={active && source.ready && !detail}
+			offline={useDevice}
+			model={localModel}
+			onpick={pickHint}
+		/>
 		{#if source.policyIssue}<p role="alert">{source.policyIssue}</p>
 			<button class="secondary" onclick={() => source.retryPolicy()}>Retry search settings</button>
 		{:else if !source.ready}<p role="status">Opening search…</p>
@@ -265,7 +306,7 @@
 					active={active && !detail}
 					{choose}
 					onopen={enterDevice}
-					{onplay}
+					onplay={playResult}
 					onready={restore}
 					onrules={() => ruleRevision++}
 				/>
@@ -275,8 +316,14 @@
 				{session}
 				{scope}
 				{term}
-				{ongenre}
-				{onplaylist}
+				ongenre={(value) => {
+					remember();
+					ongenre(value);
+				}}
+				onplaylist={(value) => {
+					remember();
+					onplaylist(value);
+				}}
 				active={active && !detail}
 				onerror={source.connectionFailed}
 				onready={restore}
@@ -286,16 +333,26 @@
 		{:else if busy}<p role="status">Searching…</p>
 		{:else if result}
 			{#if result.tracks.length}<h2>Songs in your library</h2>
-				<TrackList {session} tracks={result.tracks} {onplay} />{/if}
+				<TrackList {session} tracks={result.tracks} onplay={playResult} />{/if}
 			{#if result.artists.length}<h2>Artists</h2>
 				<div class="artists">
 					{#each result.artists as artist (artist.mbid || artist.localId)}<button
 							class="secondary"
-							onclick={() => onartist(artist)}>{artist.name}</button
+							onclick={() => {
+								remember();
+								onartist(artist);
+							}}>{artist.name}</button
 						>{/each}
 				</div>{/if}
 			{#if result.albums.length}<h2>Albums</h2>
-				<Albums {session} albums={result.albums} {onopen} />{/if}
+				<Albums
+					{session}
+					albums={result.albums}
+					onopen={(value) => {
+						remember();
+						onopen(value);
+					}}
+				/>{/if}
 			{#if result.recordings.length}<h2>Songs to request</h2>
 				{#each result.recordings as row (row.song.recording_mbid + '-' + row.song.release_mbid)}<div
 						class="recording"

@@ -2,9 +2,91 @@ import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { localSignIn } from './fixtures/localSignIn';
+import { seedOfflineMusic } from './fixtures/offlineMusic';
 
 const server = 'https://smart.example/dn';
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
+test('five-star jazz from a year range uses personal history before its limit, including on device', async ({
+	page
+}) => {
+	await fixture(page);
+	const songs = ['Played yesterday', 'Early recording', 'Rediscovered', 'Never played'].map(
+		(title, i) => ({
+			id: 'history' + i,
+			title,
+			year: i === 1 ? 1975 : 1998,
+			genre: 'Jazz',
+			album_title: 'Collection',
+			artist_name: 'Band',
+			art_missing: true
+		})
+	);
+	let oldServer = false;
+	await page.route(server + '/api/v3/library/tracks?**', async (r) => {
+		const q = new URL(r.request().url()).searchParams;
+		if (!q.has('include_play_stats')) return r.fallback();
+		expect(q.get('genre')).toBe('Jazz');
+		expect(q.get('rating')).toBe('5');
+		const second = q.get('after') === 'page two';
+		const stats = {
+			history0: { play_count: 2, last_played: Date.now() / 1000 - 86400 },
+			history2: { play_count: 3, last_played: 10 }
+		};
+		return r.fulfill({
+			json: {
+				items: second ? songs.slice(2) : songs.slice(0, 2),
+				total: 4,
+				next: second ? null : 'page two',
+				play_stats: oldServer ? undefined : stats
+			}
+		});
+	});
+	await localSignIn(page, server);
+	await playlists(page);
+	await seedOfflineMusic(
+		page,
+		server,
+		'listener',
+		false,
+		songs.map((t) => ({
+			origin: 'downloaded',
+			track: {
+				id: t.id,
+				title: t.title,
+				artist: 'Band',
+				album: 'Collection',
+				rating: 5,
+				genre: 'Jazz',
+				year: t.year,
+				streamUrl: '/api/v3/stream/local/' + t.id
+			}
+		}))
+	);
+	await button(page, 'Create smart playlist').click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByLabel('Playlist name').fill('Back in rotation');
+	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '5');
+	await dialog.getByText('Genre, year and listening history').click();
+	await dialog.getByLabel('Genre', { exact: true }).fill('Jazz');
+	await dialog.getByLabel('Earliest year').fill('1990');
+	await dialog.getByLabel('Maximum plays').fill('4');
+	await dialog.getByLabel('Not played in the last (days)').fill('90');
+	await dialog.getByLabel('Track limit').fill('2');
+	await dialog.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
+	await button(page, 'Back in rotation').click();
+	await expect(button(page, 'Play Rediscovered')).toBeVisible();
+	await expect(button(page, 'Play Never played')).toBeVisible();
+	await expect(button(page, 'Play Played yesterday')).toHaveCount(0);
+	await button(page, 'Back to Playlists').click();
+	oldServer = true;
+	await button(page, 'Back in rotation').click();
+	await expect(page.getByRole('alert')).toContainText('Update your DN server');
+	await seedOfflineMusic(page, server, 'listener', true, []);
+	await expect(page.getByRole('group', { name: 'Offline availability' })).toBeVisible();
+	await button(page, 'Back in rotation').click();
+	await expect(button(page, 'Play Never played')).toBeVisible();
+	await expect(button(page, 'Play Played yesterday')).toHaveCount(0);
+});
 async function playlists(page: Page) {
 	await button(page, 'Library').click();
 	await button(page, 'Browse Playlists').click();

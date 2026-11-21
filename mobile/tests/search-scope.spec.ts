@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
+import { localSignIn } from './fixtures/localSignIn';
 
 test('category changes keep the query, page the selected bucket, and open genres and playlists inside Search', async ({
 	page
@@ -39,6 +40,8 @@ test('category changes keep the query, page the selected bucket, and open genres
 		if (path === '/playlists')
 			return json({ playlists: [list, { id: 'other', name: 'Rail private', is_redacted: true }] });
 		if (path === '/playlists/rail') return json({ ...list, tracks: [] });
+		if (path === '/search/suggest')
+			return json({ status: 'ok', results: [{ title: 'Rail', kind: 'artist' }] });
 		if (path.startsWith('/search')) {
 			expect(url.searchParams.get('q')).toBe('rail');
 			searched.push(path);
@@ -95,6 +98,11 @@ test('category changes keep the query, page the selected bucket, and open genres
 	const scopes = page.getByRole('group', { name: 'Search category' });
 	const input = page.getByRole('searchbox', { name: 'Search music' });
 	await input.fill('rail');
+	await expect(page.getByRole('button', { name: 'Search for Rail in Artists' })).toBeVisible();
+	await input.press('Enter');
+	await input.fill('');
+	const history = page.getByRole('region', { name: 'Recent searches' });
+	await history.getByRole('button', { name: 'Search for rail in Top results' }).click();
 	await expect(page.getByText('No matches for “rail”.')).toBeVisible();
 	await scopes.getByRole('button', { name: 'Artists' }).click();
 	await expect(page.getByRole('button', { name: 'Rail artist 0', exact: true })).toBeVisible();
@@ -133,4 +141,64 @@ test('category changes keep the query, page the selected bucket, and open genres
 		'/search/albums',
 		'/search/tracks'
 	]);
+});
+
+test('recent search history deduplicates submitted queries and stays within each listener and server', async ({
+	page
+}) => {
+	const origin = 'https://history.example';
+	await page.route(origin + '/**', async (r) => {
+		const path = new URL(r.request().url()).pathname.split('/api/v3')[1];
+		if (path === '/auth/providers') return r.fulfill({ json: { local: true, oidc: false } });
+		if (path === '/auth/login')
+			return r.fulfill({ json: { token: r.request().postDataJSON().username } });
+		if (path === '/me')
+			return r.fulfill({
+				json: {
+					id: r.request().headers().authorization.slice(7),
+					display_name: 'Listener',
+					role: 'user'
+				}
+			});
+		if (path === '/search')
+			return r.fulfill({
+				json: {
+					albums: [],
+					artists: [],
+					tracks: [],
+					album_status: 'ok',
+					artist_status: 'ok',
+					track_status: 'ok'
+				}
+			});
+		if (await emptyBoardRead(r)) return;
+		return r.fulfill({ status: 404, json: {} });
+	});
+	const search = async (account: string, path = '/one') => {
+		await localSignIn(page, origin + path, account);
+		await page
+			.getByRole('navigation', { name: 'Music' })
+			.getByRole('button', { name: 'Search' })
+			.click();
+	};
+	const box = page.getByRole('searchbox', { name: 'Search music' });
+	const history = page.getByRole('region', { name: 'Recent searches' });
+	await search('alice');
+	for (const term of ['tide', 'Tide']) {
+		await box.fill(term);
+		await box.press('Enter');
+	}
+	await box.fill('unfinished');
+	await box.fill('');
+	await expect(history.getByRole('button', { name: /Search for/ })).toHaveCount(1);
+	await search('bob');
+	await expect(history).toHaveCount(0);
+	await search('alice', '/other');
+	await expect(history).toHaveCount(0);
+	await search('alice');
+	await expect(
+		history.getByRole('button', { name: 'Search for Tide in Top results' })
+	).toBeVisible();
+	await history.getByRole('button', { name: 'Clear history' }).click();
+	await expect(history).toHaveCount(0);
 });
