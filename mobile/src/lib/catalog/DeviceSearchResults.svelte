@@ -170,7 +170,7 @@
 		(Object.entries(deviceScopes).find(([, v]) => v === category)?.[0] ?? 'top') as SearchScope;
 </script>
 
-<div>
+<div data-part="device-search-results">
 	<SelectionHost
 		{session}
 		{onplay}

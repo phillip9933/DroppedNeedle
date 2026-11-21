@@ -84,10 +84,10 @@
 	let freshDetail = $state.raw<BrowseItem>(),
 		detailError = $state('');
 	let deviceLimit = $state(48);
-	const positions: Partial<Record<'device' | 'dn', number>> = {};
+	type Position = { scroll: number; depth?: number };
+	const positions: Partial<Record<'device' | 'dn', Position>> = {};
 	let previousMode: boolean | undefined,
-		detailOffset = 0,
-		pendingOffset: number | undefined,
+		pendingPosition: Position | undefined,
 		returnId = '',
 		restoration = 0;
 	const scopeLabel = $derived(uiText(scopes.find((s) => s.id === scope)!.label));
@@ -115,23 +115,43 @@
 			live = false;
 		};
 	});
+	function deviceResultsTop(main: HTMLElement) {
+		const results = root.querySelector('[data-part="device-search-results"]');
+		return results && results.getBoundingClientRect().top - main.getBoundingClientRect().top;
+	}
+	function position(): Position {
+		const main = root.closest('main');
+		if (!main) return { scroll: 0 };
+		const top = deviceResultsTop(main);
+		return { scroll: main.scrollTop, depth: top !== null && top < 0 ? -top : undefined };
+	}
 	$effect.pre(() => {
 		const local = useDevice;
 		if (previousMode !== undefined && previousMode !== local && root && active && !detail) {
-			const y = root.closest('main')?.scrollTop ?? 0;
-			positions[previousMode ? 'device' : 'dn'] = y;
-			pendingOffset = positions[local ? 'device' : 'dn'] ?? y;
+			const previous = position();
+			positions[previousMode ? 'device' : 'dn'] = previous;
+			pendingPosition = positions[local ? 'device' : 'dn'] ?? { scroll: previous.scroll };
 		}
 		previousMode = local;
 	});
 	function restore() {
-		if (pendingOffset === undefined || detail || !active) return;
+		if (!pendingPosition || detail || !active) return;
 		const generation = ++restoration;
 		void tick().then(() =>
 			requestAnimationFrame(() => {
-				if (generation !== restoration || pendingOffset === undefined || detail || !active) return;
-				root.closest('main')?.scrollTo(0, pendingOffset);
-				pendingOffset = undefined;
+				if (generation !== restoration || !pendingPosition || detail || !active) return;
+				const main = root.closest('main');
+				if (main) {
+					// Suggestions can close above the results while an album detail is open.
+					const top = deviceResultsTop(main);
+					main.scrollTo(
+						0,
+						pendingPosition.depth !== undefined && top !== null
+							? main.scrollTop + top + pendingPosition.depth
+							: pendingPosition.scroll
+					);
+				}
+				pendingPosition = undefined;
 				if (useDevice && returnId) {
 					const id = returnId;
 					void tick().then(() => requestAnimationFrame(() => localResults?.focusResult(id)));
@@ -143,7 +163,7 @@
 	function changedQuery() {
 		offset = 0;
 		deviceLimit = 48;
-		pendingOffset = undefined;
+		pendingPosition = undefined;
 		returnId = '';
 		delete positions.device;
 		delete positions.dn;
@@ -159,9 +179,8 @@
 		return useDevice || detail ? 'offline' : undefined;
 	}
 	function enterDevice(category: Category, row: BrowseItem) {
+		positions.device = position();
 		remember();
-		detailOffset = root.closest('main')?.scrollTop ?? 0;
-		positions.device = detailOffset;
 		freshDetail = row;
 		detail = { category, row };
 		void tick().then(() => {
@@ -172,7 +191,7 @@
 	}
 	export function goBack() {
 		if (!detail) return false;
-		pendingOffset = detailOffset;
+		pendingPosition = positions[useDevice ? 'device' : 'dn'] ?? { scroll: 0 };
 		returnId = detail.row.id;
 		detail = null;
 		freshDetail = undefined;

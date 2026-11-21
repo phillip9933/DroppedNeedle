@@ -276,9 +276,9 @@ test('losing and regaining the physical network preserves a long Search, its sco
 	fixture.set('offline');
 	await expect(page.getByText('Searching music on this device.')).toBeVisible();
 	const shelf = page.getByRole('region', { name: 'Device albums' });
+	await expect(page.getByRole('region', { name: 'Search suggestions' })).toBeVisible();
 	await shelf.getByRole('button', { name: 'More results' }).click();
-	const tile = button(page, 'Ámber coast 66'),
-		main = page.locator('main');
+	const tile = button(page, 'Ámber coast 66');
 	await shelf.locator('[data-part=category-items]').evaluate((n) => {
 		const m = n.closest('main')!,
 			pitch =
@@ -286,13 +286,15 @@ test('losing and regaining the physical network preserves a long Search, its sco
 				Math.ceil(Number(n.getAttribute('data-loaded')) / 2);
 		m.scrollTop += n.getBoundingClientRect().top - m.getBoundingClientRect().top + 32 * pitch;
 	});
-	await expect(tile).toBeInViewport();
-	const before = await main.evaluate((m) => m.scrollTop);
+	await tile.scrollIntoViewIfNeeded();
+	await expect(tile).toBeInViewport({ ratio: 1 });
+	const tileTop = () => tile.evaluate((el) => el.getBoundingClientRect().top);
+	const before = await tileTop();
 	await tile.click();
 	await expect(page.getByRole('heading', { name: 'Ámber coast 66', exact: true })).toBeVisible();
 	await button(page, 'Back to search').click();
 	await expect(tile).toBeFocused();
-	expect(Math.abs((await main.evaluate((m) => m.scrollTop)) - before)).toBeLessThan(6);
+	await expect.poll(async () => Math.abs((await tileTop()) - before)).toBeLessThan(6);
 	expect(fixture.blocked).toEqual([]);
 	await tile.click();
 	const previous = fixture.requested.length;
@@ -307,6 +309,6 @@ test('losing and regaining the physical network preserves a long Search, its sco
 	await context.setOffline(true);
 	fixture.set('offline');
 	await expect(tile).toBeInViewport();
-	expect(Math.abs((await main.evaluate((m) => m.scrollTop)) - before)).toBeLessThan(6);
+	await expect.poll(async () => Math.abs((await tileTop()) - before)).toBeLessThan(6);
 	expect(fixture.blocked).toEqual([]);
 });
