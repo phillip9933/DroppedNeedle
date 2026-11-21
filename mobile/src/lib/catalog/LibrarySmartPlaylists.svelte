@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { untrack } from 'svelte';
 	import type { Session } from '../connection';
 	import LibraryFilterFields from '../boards/LibraryFilterFields.svelte';
@@ -94,8 +95,10 @@
 			>
 			<LibraryFilterFields bind:config bind:formats selectKind={false} prefix="Playlist" />
 			<label
-				>Sort direction<select bind:value={order}
-					><option value="asc">Ascending</option><option value="desc">Descending</option></select
+				>Sort direction<InlineChoice selected={order}
+					><select bind:value={order}
+						><option value="asc">Ascending</option><option value="desc">Descending</option></select
+					></InlineChoice
 				></label
 			>
 			<label

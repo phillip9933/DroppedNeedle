@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import {
 		libraryFilter,
 		filterSummary,
@@ -331,10 +332,12 @@
 			placeholder={'Filter ' + kind}
 			bind:value={query}
 		/>
-		{#if !recent}<select aria-label={'Sort ' + kind} bind:value={sort}
-				>{#each sorts[kind] as [value, label], i (value)}<option value={i === 0 ? '' : value}
-						>{label}</option
-					>{/each}</select
+		{#if !recent}<InlineChoice selected={sort} label={'Sort ' + kind}
+				><select bind:value={sort}
+					>{#each sorts[kind] as [value, label], i (value)}<option value={i === 0 ? '' : value}
+							>{label}</option
+						>{/each}</select
+				></InlineChoice
 			>{/if}
 		<button
 			class="icon-button"
@@ -360,16 +363,20 @@
 			<div class="advanced-body">
 				<div class="rating">
 					<label
-						>Your rating<select bind:value={rating}>
-							<option value={0}>Any rating</option>{#each [1, 2, 3, 4, 5] as stars (stars)}<option
-									value={stars}>{stars} {stars === 1 ? 'star' : 'stars'}</option
-								>{/each}
-						</select></label
+						>Your rating<InlineChoice selected={rating}
+							><select bind:value={rating}>
+								<option value={0}>Any rating</option>{#each [1, 2, 3, 4, 5] as stars (stars)}<option
+										value={stars}>{stars} {stars === 1 ? 'star' : 'stars'}</option
+									>{/each}
+							</select></InlineChoice
+						></label
 					>
 					{#if rating}<label
-							>Rating range<select bind:value={ratingMode}
-								><option value="at_least">At least</option><option value="at_most">At most</option
-								></select
+							>Rating range<InlineChoice selected={ratingMode}
+								><select bind:value={ratingMode}
+									><option value="at_least">At least</option><option value="at_most">At most</option
+									></select
+								></InlineChoice
 							></label
 						>{/if}
 				</div>
@@ -390,9 +397,11 @@
 								>{/each}
 						</div>
 						{#if formats.length}<label
-								>Selected formats<select bind:value={formatMode}
-									><option value="with">Include</option><option value="without">Exclude</option
-									></select
+								>Selected formats<InlineChoice selected={formatMode}
+									><select bind:value={formatMode}
+										><option value="with">Include</option><option value="without">Exclude</option
+										></select
+									></InlineChoice
 								></label
 							>{/if}
 					{/if}
@@ -539,7 +548,7 @@
 		flex: 2 1 9rem;
 		min-width: 6rem;
 	}
-	.filters select {
+	.filters :global(.inline-choice) {
 		flex: 1 1 8rem;
 		min-width: 0;
 	}

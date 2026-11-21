@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 
@@ -147,7 +148,7 @@ test('completed playback can be cached, pinned and cleared independently of save
 	await options(page);
 	await page.getByLabel('Cache songs during playback').check();
 	await expect(page.getByLabel('Cache songs during playback')).toBeChecked();
-	await page.getByLabel('Playback cache limit').selectOption('128');
+	await chooseOption(page.getByLabel('Playback cache limit'), '128');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
@@ -197,7 +198,7 @@ for (const retained of ['cached', 'automatic'] as const) {
 			if (retained === 'cached') {
 				await page.getByLabel('Cache songs during playback').check();
 			} else {
-				await page.getByLabel('Download source').selectOption('favorites');
+				await chooseOption(page.getByLabel('Download source'), 'favorites');
 				await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
 			}
 			await button('Back').click();
@@ -229,8 +230,8 @@ test('opted-in downloads follow their source, keep manual upgrades and respect r
 	await options(page);
 	expect(env.streams()).toBe(0);
 	const source = page.getByLabel('Download source');
-	await expect(source).toHaveValue('off');
-	await source.selectOption('favorites');
+	await expect(source).toHaveAttribute('data-value', 'off');
+	await chooseOption(source, 'favorites');
 	await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
 	expect(env.streams()).toBe(1);
 	const open = page.getByRole('button', { name: 'Open offline music', exact: true });
@@ -244,7 +245,7 @@ test('opted-in downloads follow their source, keep manual upgrades and respect r
 	await expect(shelf.getByText('Held over', { exact: true })).toBeVisible();
 	expect(env.streams()).toBe(1);
 	await options(page);
-	await source.selectOption('recent');
+	await chooseOption(source, 'recent');
 	await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
 	expect(env.streams()).toBe(2);
 	await open.click();
@@ -258,8 +259,8 @@ test('opted-in downloads follow their source, keep manual upgrades and respect r
 	await page.getByRole('button', { name: 'Update automatic downloads', exact: true }).click();
 	await expect(page.getByText('No automatic downloads added.', { exact: true })).toBeVisible();
 	expect(env.streams()).toBe(2);
-	await source.selectOption('off');
-	await expect(source).toHaveValue('off');
+	await chooseOption(source, 'off');
+	await expect(source).toHaveAttribute('data-value', 'off');
 	await open.click();
 	await shelf.getByRole('button', { name: 'Saved downloads', exact: true }).click();
 	await expect(shelf.getByText('Held over', { exact: true })).toBeVisible();
@@ -351,7 +352,7 @@ test('older pinned and cached entries keep their provenance and incomplete bytes
 	await shelf.getByRole('button', { name: 'Playback cache', exact: true }).click();
 	await expect(shelf.getByText('old cached', { exact: true })).toBeVisible();
 	await options(page);
-	await expect(page.getByLabel('Download source')).toHaveValue('off');
+	await expect(page.getByLabel('Download source')).toHaveAttribute('data-value', 'off');
 	await page.getByRole('button', { name: 'Clear playback cache', exact: true }).click();
 	await page.getByRole('button', { name: 'Confirm clear cache', exact: true }).click();
 	await page.getByRole('button', { name: 'Open offline music', exact: true }).click();

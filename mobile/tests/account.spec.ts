@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -58,7 +59,7 @@ test('a listener can edit their DN profile, save visibility and revoke a differe
 	await page.getByRole('button', { name: 'Save name' }).click();
 	await expect(page.getByRole('status')).toHaveText('Display name saved.');
 	await page.getByRole('button', { name: 'Listening', exact: true }).click();
-	await page.getByLabel('Now playing visibility').selectOption('track_hidden');
+	await chooseOption(page.getByLabel('Now playing visibility'), 'track_hidden');
 	await page.getByRole('button', { name: 'Save preferences' }).click();
 	await expect(page.getByRole('status')).toHaveText('Listening preferences saved.');
 	await page.getByRole('button', { name: 'Devices', exact: true }).click();
@@ -201,7 +202,7 @@ test('account identity, linked services and personal mix use the signed-in liste
 	await page.getByRole('button', { name: 'Services', exact: true }).click();
 	await expect(page.getByText('fixture-handle · Enabled')).toBeVisible();
 	await page.getByRole('button', { name: 'Listening', exact: true }).click();
-	await page.getByLabel('Discovery listening source').selectOption('lastfm');
+	await chooseOption(page.getByLabel('Discovery listening source'), 'lastfm');
 	await page.getByLabel('Automatically request my personal mix').check();
 	await page.getByLabel('Let Navidrome forward its own scrobbles').check();
 	await page.getByRole('button', { name: 'Save preferences' }).click();

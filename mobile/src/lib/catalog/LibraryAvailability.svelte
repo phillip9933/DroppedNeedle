@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { availabilityLabels, type Availability } from '../offline/library';
 	let {
 		value,
@@ -17,15 +18,13 @@
 
 <label class:inline
 	>{label}
-	<select
-		aria-label={label}
-		{value}
-		onchange={(e) => onchange(e.currentTarget.value as Availability)}
+	<InlineChoice selected={value} {label}
+		><select {value} onchange={(e) => onchange(e.currentTarget.value as Availability)}>
+			{#each Object.entries(availabilityLabels) as [key, title] (key)}
+				{#if !deviceOnly || key !== 'all'}<option value={key}>{title}</option>{/if}
+			{/each}
+		</select></InlineChoice
 	>
-		{#each Object.entries(availabilityLabels) as [key, title] (key)}
-			{#if !deviceOnly || key !== 'all'}<option value={key}>{title}</option>{/if}
-		{/each}
-	</select>
 </label>
 
 <style>

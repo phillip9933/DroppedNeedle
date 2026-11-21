@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import type { PlayerTrack } from '../player';
@@ -82,9 +83,11 @@
 		{:else}
 			{#if items.length}
 				<label
-					>Playlist<select bind:value={selected} disabled={busy}>
-						{#each items as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
-					</select></label
+					>Playlist<InlineChoice {selected}
+						><select bind:value={selected} disabled={busy}>
+							{#each items as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
+						</select></InlineChoice
+					></label
 				>
 			{:else}<p>Create a playlist to save these tracks.</p>{/if}
 			<button class="text-button" disabled={busy} onclick={() => (creating = true)}

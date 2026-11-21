@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { DnError, getJson, postJson, putJson, type Session } from '../connection';
@@ -191,9 +192,11 @@
 		{#if status.reason.message}<p>{status.reason.message}</p>{/if}
 		{#if choices.length}
 			<label
-				>Edition<select aria-label="Edition" bind:value={selected} disabled={busy || saved || stale}
-					>{#each choices as choice (choice.id)}<option value={choice.id}>{choice.label}</option
-						>{/each}</select
+				>Edition<InlineChoice {selected} label="Edition"
+					><select bind:value={selected} disabled={busy || saved || stale}
+						>{#each choices as choice (choice.id)}<option value={choice.id}>{choice.label}</option
+							>{/each}</select
+					></InlineChoice
 				></label
 			>
 		{:else}<p>No edition is available to check yet.</p>{/if}

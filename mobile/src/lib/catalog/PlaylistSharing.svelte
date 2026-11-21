@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -118,10 +119,12 @@
 	{#if loading}<p role="status">Loading sharing…</p>
 	{:else if ready}
 		<label
-			>Who can listen<select bind:value={everyone} disabled={saving}>
-				<option value={false}>You and selected listeners</option>
-				<option value={true}>Everyone on this server</option>
-			</select></label
+			>Who can listen<InlineChoice selected={everyone}
+				><select bind:value={everyone} disabled={saving}>
+					<option value={false}>You and selected listeners</option>
+					<option value={true}>Everyone on this server</option>
+				</select></InlineChoice
+			></label
 		>
 		<button
 			class="secondary"
@@ -132,13 +135,13 @@
 		{#each members as person (person.user_id)}
 			<div class="person">
 				<label
-					>{person.display_name}<select
-						aria-label={'Access for ' + person.display_name}
-						bind:value={person.can_edit}
-						disabled={saving}
-					>
-						<option value={false}>Can listen</option><option value={true}>Can edit tracks</option>
-					</select></label
+					>{person.display_name}<InlineChoice
+						selected={person.can_edit}
+						label={'Access for ' + person.display_name}
+						><select bind:value={person.can_edit} disabled={saving}>
+							<option value={false}>Can listen</option><option value={true}>Can edit tracks</option>
+						</select></InlineChoice
+					></label
 				>
 				<button
 					class="text-button"

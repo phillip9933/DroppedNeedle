@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import type { Section } from '../boards/layout';
 	import { defaultFieldLabel, supportsPlayerLines } from './layout';
 	let { field, change }: { field: Section; change: (patch: Partial<Section>) => void } = $props();
@@ -11,13 +12,16 @@
 
 <div class="styles">
 	<label
-		>Horizontal alignment<select
-			value={field.align ?? ''}
-			onchange={(e) => change({ align: (e.currentTarget.value || undefined) as Section['align'] })}
-		>
-			<option value="">Default</option><option value="start">Start</option><option value="center"
-				>Center</option
-			><option value="end">End</option></select
+		>Horizontal alignment<InlineChoice selected={field.align ?? ''}
+			><select
+				value={field.align ?? ''}
+				onchange={(e) =>
+					change({ align: (e.currentTarget.value || undefined) as Section['align'] })}
+			>
+				<option value="">Default</option><option value="start">Start</option><option value="center"
+					>Center</option
+				><option value="end">End</option></select
+			></InlineChoice
 		></label
 	>
 
@@ -34,23 +38,28 @@
 		/></label
 	>
 	<label
-		>Vertical alignment<select
-			value={field.vAlign ?? ''}
-			onchange={(e) =>
-				change({ vAlign: (e.currentTarget.value || undefined) as Section['vAlign'] })}
-		>
-			<option value="">Default</option><option value="start">Top</option><option value="center"
-				>Center</option
-			><option value="end">Bottom</option></select
+		>Vertical alignment<InlineChoice selected={field.vAlign ?? ''}
+			><select
+				value={field.vAlign ?? ''}
+				onchange={(e) =>
+					change({ vAlign: (e.currentTarget.value || undefined) as Section['vAlign'] })}
+			>
+				<option value="">Default</option><option value="start">Top</option><option value="center"
+					>Center</option
+				><option value="end">Bottom</option></select
+			></InlineChoice
 		></label
 	>
 
 	<label
-		>Label<select
-			aria-label="Label"
-			value={(field.showLabel ?? defaultFieldLabel(field)) ? 'show' : 'hidden'}
-			onchange={(e) => change({ showLabel: e.currentTarget.value === 'show' })}
-			><option value="hidden">Hidden</option><option value="show">Show</option></select
+		>Label<InlineChoice
+			selected={(field.showLabel ?? defaultFieldLabel(field)) ? 'show' : 'hidden'}
+			label="Label"
+			><select
+				value={(field.showLabel ?? defaultFieldLabel(field)) ? 'show' : 'hidden'}
+				onchange={(e) => change({ showLabel: e.currentTarget.value === 'show' })}
+				><option value="hidden">Hidden</option><option value="show">Show</option></select
+			></InlineChoice
 		></label
 	>
 	<label
@@ -62,21 +71,25 @@
 		/></label
 	>
 	<label
-		>Label position<select
-			value={field.labelPosition ?? 'below'}
-			onchange={(e) => change({ labelPosition: e.currentTarget.value as Section['labelPosition'] })}
-			><option value="above">Above</option><option value="below">Below</option></select
+		>Label position<InlineChoice selected={field.labelPosition ?? 'below'}
+			><select
+				value={field.labelPosition ?? 'below'}
+				onchange={(e) =>
+					change({ labelPosition: e.currentTarget.value as Section['labelPosition'] })}
+				><option value="above">Above</option><option value="below">Below</option></select
+			></InlineChoice
 		></label
 	>
 
 	{#if field.id === 'player-seek' || field.id === 'player-timeline'}
 		<label
-			>Seek bar style<select
-				value={field.seekStyle ?? 'standard'}
-				onchange={(e) => change({ seekStyle: e.currentTarget.value as Section['seekStyle'] })}
-				><option value="standard">Standard</option><option value="animated">Animated</option><option
-					value="waveform">Waveform</option
-				></select
+			>Seek bar style<InlineChoice selected={field.seekStyle ?? 'standard'}
+				><select
+					value={field.seekStyle ?? 'standard'}
+					onchange={(e) => change({ seekStyle: e.currentTarget.value as Section['seekStyle'] })}
+					><option value="standard">Standard</option><option value="animated">Animated</option
+					><option value="waveform">Waveform</option></select
+				></InlineChoice
 			></label
 		>
 		{#each [['showElapsed', 'Elapsed time'], ['showDuration', 'Total time'], ['showRemaining', 'Remaining time']] as [key, label] (key)}
@@ -90,36 +103,43 @@
 			>{/each}
 	{/if}
 	{#if field.id === 'player-lyrics'}<label
-			>Lyrics display<select
-				value={field.lyricsMode ?? 'artwork'}
-				onchange={(e) => change({ lyricsMode: e.currentTarget.value as Section['lyricsMode'] })}
-				><option value="artwork">Over artwork</option><option value="sheet">Bottom sheet</option
-				></select
+			>Lyrics display<InlineChoice selected={field.lyricsMode ?? 'artwork'}
+				><select
+					value={field.lyricsMode ?? 'artwork'}
+					onchange={(e) => change({ lyricsMode: e.currentTarget.value as Section['lyricsMode'] })}
+					><option value="artwork">Over artwork</option><option value="sheet">Bottom sheet</option
+					></select
+				></InlineChoice
 			></label
 		>{/if}
 	{#if supportsPlayerLines(field.id)}
 		<label
-			>Text size<select
-				value={field.textSize ?? 'normal'}
-				onchange={(e) => change({ textSize: e.currentTarget.value as Section['textSize'] })}
-			>
-				<option value="small">Small</option><option value="normal">Normal</option><option
-					value="large">Large</option
-				></select
+			>Text size<InlineChoice selected={field.textSize ?? 'normal'}
+				><select
+					value={field.textSize ?? 'normal'}
+					onchange={(e) => change({ textSize: e.currentTarget.value as Section['textSize'] })}
+				>
+					<option value="small">Small</option><option value="normal">Normal</option><option
+						value="large">Large</option
+					></select
+				></InlineChoice
 			></label
 		>
 
 		<label
-			>Maximum lines<select
-				value={field.maxLines === undefined ? 'auto' : String(field.maxLines)}
-				onchange={(e) =>
-					change({
-						maxLines: e.currentTarget.value === 'auto' ? undefined : Number(e.currentTarget.value)
-					})}
-			>
-				<option value="auto">Default</option><option value="0">Unlimited</option
-				>{#each Array.from({ length: 8 }, (_, i) => i + 1) as n (n)}<option value={n}>{n}</option
-					>{/each}</select
+			>Maximum lines<InlineChoice
+				selected={field.maxLines === undefined ? 'auto' : String(field.maxLines)}
+				><select
+					value={field.maxLines === undefined ? 'auto' : String(field.maxLines)}
+					onchange={(e) =>
+						change({
+							maxLines: e.currentTarget.value === 'auto' ? undefined : Number(e.currentTarget.value)
+						})}
+				>
+					<option value="auto">Default</option><option value="0">Unlimited</option
+					>{#each Array.from({ length: 8 }, (_, i) => i + 1) as n (n)}<option value={n}>{n}</option
+						>{/each}</select
+				></InlineChoice
 			></label
 		>
 		<label class="check"

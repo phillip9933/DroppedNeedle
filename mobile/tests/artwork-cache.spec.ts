@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
@@ -108,7 +109,7 @@ test('turning off artwork caching prevents an older request from refilling it', 
 	await localSignIn(page, server);
 	await expect.poll(() => env.fetched.length).toBe(1);
 	await options(page);
-	await page.getByLabel('Artwork cache limit').selectOption('0');
+	await chooseOption(page.getByLabel('Artwork cache limit'), '0');
 	await expect(page.getByLabel('Artwork cache limit')).toBeEnabled();
 	const received = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith(path));
 	release();
@@ -117,6 +118,6 @@ test('turning off artwork caching prevents an older request from refilling it', 
 	await button(page, 'Back').click();
 	await expect(cover(page)).toBeVisible();
 	await options(page);
-	await expect(page.getByLabel('Artwork cache limit')).toHaveValue('0');
+	await expect(page.getByLabel('Artwork cache limit')).toHaveAttribute('data-value', '0');
 	await expect(page.getByRole('group', { name: 'Cover artwork' })).toContainText(/0\s+covers\s*·/);
 });

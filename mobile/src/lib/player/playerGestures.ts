@@ -18,7 +18,9 @@ export function playerGestures(node: HTMLElement, actions: Vertical | undefined)
 				!actions ||
 				e.touches.length !== 1 ||
 				!(e.target instanceof Element) ||
-				e.target.closest('input,select,textarea,dialog,[data-layout-drag],[data-reorder-grip]')
+				e.target.closest(
+					'input,select,textarea,dialog,[data-inline-choice],[data-layout-drag],[data-reorder-grip]'
+				)
 			)
 				return;
 			const scroller = e.target.closest<HTMLElement>('[data-gesture-scroll]');

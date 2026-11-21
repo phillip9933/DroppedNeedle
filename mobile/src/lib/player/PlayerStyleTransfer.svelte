@@ -112,19 +112,23 @@
 	}
 </script>
 
-<details bind:open data-part="player-layout-sharing">
+<details
+	class="settings-disclosure"
+	data-surface="panel"
+	bind:open
+	data-part="player-layout-sharing"
+>
 	<summary>Share player layout</summary>
-	{#if open}<div class="switch" role="group" aria-label="Layout transfer">
-			<button
-				type="button"
-				class="secondary"
-				aria-pressed={mode === 'export'}
-				onclick={() => tabs('export')}>Export</button
-			><button
-				type="button"
-				class="secondary"
-				aria-pressed={mode === 'import'}
-				onclick={() => tabs('import')}>Import</button
+	{#if open}<div
+			class="settings-tabs"
+			data-surface="panel"
+			role="group"
+			aria-label="Layout transfer"
+		>
+			<button type="button" aria-pressed={mode === 'export'} onclick={() => tabs('export')}
+				>Export</button
+			><button type="button" aria-pressed={mode === 'import'} onclick={() => tabs('import')}
+				>Import</button
 			>
 		</div>
 		{#if mode === 'export'}
@@ -137,7 +141,7 @@
 						value={exported.text}
 					></textarea></label
 				>
-				<div class="switch">
+				<div class="settings-actions">
 					<button type="button" class="secondary" disabled={saving} onclick={saveFile}
 						>Save layout file</button
 					>
@@ -195,15 +199,6 @@
 </details>
 
 <style>
-	details {
-		border-block: 1px solid var(--line);
-		padding-block: 0.35rem;
-	}
-	summary {
-		cursor: pointer;
-		min-height: 44px;
-		padding-block: 0.6rem;
-	}
 	label {
 		display: grid;
 		gap: 0.25rem;
@@ -213,15 +208,6 @@
 		width: 100%;
 		font-family: ui-monospace, monospace;
 		resize: vertical;
-	}
-	.switch {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		margin-block: 0.4rem;
-	}
-	.switch [aria-pressed='true'] {
-		outline: 1px solid var(--accent);
 	}
 	.review {
 		margin-block: var(--gap);

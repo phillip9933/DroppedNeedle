@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { touchRange } from './fixtures/touchRange';
 import type { ManualStatus } from '../src/lib/offline/nativeMedia';
@@ -329,7 +330,7 @@ test('a download notification waits for browser sign-in and opens Offline music 
 	// A cold notification overrides this listener's saved Now Playing screen for this launch.
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'Interface and navigation', exact: true }).click();
-	await page.getByLabel('Start screen').selectOption('player');
+	await chooseOption(page.getByLabel('Start screen'), 'player');
 	await page.evaluate(() => {
 		sessionStorage.setItem('restored-song', 'Night service');
 		sessionStorage.setItem('notification-tap', '1');
@@ -370,8 +371,8 @@ test('the chosen start screen works offline and opens a restored song without st
 	await expect(heading('Home')).toBeVisible();
 	await openInterface();
 	const start = page.getByLabel('Start screen');
-	await expect(start).toHaveValue('automatic');
-	await start.selectOption('player');
+	await expect(start).toHaveAttribute('data-value', 'automatic');
+	await chooseOption(start, 'player');
 	await page.reload();
 	await expect(heading('Library')).toBeVisible();
 	await page.evaluate(() => {
@@ -387,11 +388,11 @@ test('the chosen start screen works offline and opens a restored song without st
 	await player.getByRole('button', { name: 'Close player' }).click();
 	await expect(heading('Library')).toBeVisible();
 	await openInterface();
-	await start.selectOption('library');
+	await chooseOption(start, 'library');
 	await page.reload();
 	await expect(heading('Library')).toBeVisible();
 	await openInterface();
-	await start.selectOption('home');
+	await chooseOption(start, 'home');
 	await page.reload();
 	await expect(heading('Home')).toBeVisible();
 	await openInterface();

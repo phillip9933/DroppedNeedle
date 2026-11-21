@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import type { Preview } from '../boards/display';
 	import type { Session } from '../connection';
 	import { errorMessage, type Album, type OnPlay } from './catalog';
@@ -140,10 +141,12 @@
 
 <div class="widget" data-part="discovery-feature" data-feature={id}>
 	{#if expanded && isChart(id)}<label
-			>Chart period<select bind:value={range} onchange={() => (offsets = [0])}
-				><option value="this_week">This week</option><option value="this_month">This month</option
-				><option value="this_year">This year</option><option value="all_time">All time</option
-				></select
+			>Chart period<InlineChoice selected={range}
+				><select bind:value={range} onchange={() => (offsets = [0])}
+					><option value="this_week">This week</option><option value="this_month">This month</option
+					><option value="this_year">This year</option><option value="all_time">All time</option
+					></select
+				></InlineChoice
 			></label
 		>{/if}
 	{#if busy}<p role="status">Loading…</p>{:else if error}<p role="alert">{error}</p>
@@ -153,12 +156,12 @@
 		{#if data.playlists}
 			{#if options.length}
 				<label
-					>Choose a playlist<select
-						value={selectedPlaylist}
-						onchange={(e) => pickPlaylist(e.currentTarget.value)}
-						><option value="">Select a playlist</option>{#each options as p (p.id)}<option
-								value={p.id}>{p.name}</option
-							>{/each}</select
+					>Choose a playlist<InlineChoice selected={selectedPlaylist}
+						><select value={selectedPlaylist} onchange={(e) => pickPlaylist(e.currentTarget.value)}
+							><option value="">Select a playlist</option>{#each options as p (p.id)}<option
+									value={p.id}>{p.name}</option
+								>{/each}</select
+						></InlineChoice
 					></label
 				>
 			{:else}<p>Create a playlist in your library to get suggestions for it.</p>{/if}

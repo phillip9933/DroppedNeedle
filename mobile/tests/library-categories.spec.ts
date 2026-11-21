@@ -1,3 +1,4 @@
+import { chooseOption, choiceList } from './fixtures/inlineChoice';
 import { test, expect, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { localSignIn } from './fixtures/localSignIn';
@@ -194,7 +195,7 @@ test('catalog pages use themed controls, distinct layouts, real genre tracks and
 	const geometry = await b('Evening Shore').locator('.art').boundingBox();
 	expect(geometry!.height).toBeCloseTo(geometry!.width, 0);
 	await b('Collection options').click();
-	await page.getByLabel('Grid columns').selectOption('3');
+	await chooseOption(page.getByLabel('Grid columns'), '3');
 	await expect(tiles).toHaveAttribute('data-columns', '3');
 	await b('Back to Library').click();
 	await b('Browse Albums').click();
@@ -327,18 +328,18 @@ test('offline categories retain their groups, playlist membership and classified
 	await expect(names).toHaveText(['Arrival', 'Night Passage', 'Final Light']);
 	await b('Back to Albums').click();
 	await b('Collection filters').click();
-	await page.getByLabel('Availability', { exact: true }).selectOption('automatic');
+	await chooseOption(page.getByLabel('Availability', { exact: true }), 'automatic');
 	await expect(legend).toHaveText('Automatically saved');
 	await b('Back to Library').click();
 	const availability = page.getByLabel('Availability', { exact: true });
-	await expect(availability).toHaveValue('automatic');
-	await availability.selectOption('cached');
+	await expect(availability).toHaveAttribute('data-value', 'automatic');
+	await chooseOption(availability, 'cached');
 	await b('Library').click();
-	await expect(availability).toHaveValue('cached');
+	await expect(availability).toHaveAttribute('data-value', 'cached');
 	await b('Browse Tracks').click();
 	await expect(names).toHaveText(['Final Light']);
 	await b('Back to Library').click();
-	await availability.selectOption('automatic');
+	await chooseOption(availability, 'automatic');
 	await b('Browse Playlists').click();
 	await expect(b('In rotation')).toBeVisible();
 	await expect(b('No available songs')).toHaveCount(0);
@@ -346,13 +347,13 @@ test('offline categories retain their groups, playlist membership and classified
 	const filters = b('Collection filters');
 	await expect(filters).toBeInViewport();
 	await filters.click();
-	await expect(availability).toHaveValue('automatic');
-	await page.getByLabel('Availability', { exact: true }).selectOption('cached');
+	await expect(availability).toHaveAttribute('data-value', 'automatic');
+	await chooseOption(page.getByLabel('Availability', { exact: true }), 'cached');
 	await expect(b('In rotation')).toHaveCount(0);
-	await page.getByLabel('Availability', { exact: true }).selectOption('automatic');
+	await chooseOption(page.getByLabel('Availability', { exact: true }), 'automatic');
 	await expect(b('In rotation')).toBeVisible();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
-	await page.getByLabel('Availability', { exact: true }).selectOption('all');
+	await chooseOption(page.getByLabel('Availability', { exact: true }), 'all');
 	await expect(page.getByRole('group', { name: 'Offline availability' })).toContainText(
 		'Downloaded'
 	);
@@ -472,7 +473,7 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 		await expect(results.locator('.item').first()).toBeVisible();
 		await b('Collection options').tap();
 		if (category === 'Tracks') {
-			await expect(display).toHaveValue('list');
+			await expect(display).toHaveAttribute('data-value', 'list');
 			const row = results.locator('.item').first();
 			const listHeight = (await row.boundingBox())!.height;
 			const gap = await results.evaluate((e) => parseFloat(getComputedStyle(e).rowGap));
@@ -485,13 +486,20 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 			);
 			await compact.uncheck();
 		}
-		await display.selectOption('grid');
-		await expect(columns.locator('option')).toHaveText(['1', '2', '3', '4', '5', '6']);
-		await columns.selectOption('1');
+		await chooseOption(display, 'grid');
+		await expect((await choiceList(columns)).getByRole('option')).toHaveText([
+			'1',
+			'2',
+			'3',
+			'4',
+			'5',
+			'6'
+		]);
+		await chooseOption(columns, '1');
 		const single = await sizes();
 		expect(single.columns).toBe(1);
 		expect(single.cell).toBeCloseTo(single.full, 0);
-		await columns.selectOption('6');
+		await chooseOption(columns, '6');
 		const regular = await sizes();
 		expect(regular.columns).toBe(6);
 		expect(regular.cell).toBeGreaterThanOrEqual(44);
@@ -547,7 +555,7 @@ test('all five categories keep their own one-to-six-column grid and compact spac
 			await expect(page.getByText('1 selected')).toBeVisible();
 			await b('Cancel selection').tap();
 		}
-		if (category === 'Artists') await columns.selectOption('1');
+		if (category === 'Artists') await chooseOption(columns, '1');
 		await b('Back to Library').tap();
 	}
 	for (const [category, n] of [

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import { nativeEqualizer } from '../player';
@@ -77,47 +78,53 @@
 {:else if !settings.available}<p role="status">{settings.reason}</p>
 	<button class="secondary" onclick={refresh}>Check again</button>
 {:else}
-	<section class="eq" data-part="equalizer" aria-label="Playback equalizer">
-		<label class="toggle"
-			><input
-				type="checkbox"
-				aria-label="Enable equalizer"
-				checked={settings.enabled}
-				disabled={busy}
-				onchange={(e) => save({ enabled: e.currentTarget.checked })}
-			/> Enable equalizer</label
-		>
-		<label
-			>Preset<select
-				aria-label="Equalizer preset"
-				value={settings.preset}
-				disabled={!settings.enabled || busy}
-				onchange={(e) => preset(e.currentTarget.value as EqPresetName)}
+	<section class="eq settings-stack" data-part="equalizer" aria-label="Playback equalizer">
+		<div class="settings-panel" data-surface="panel">
+			<label class="toggle"
+				><input
+					type="checkbox"
+					aria-label="Enable equalizer"
+					checked={settings.enabled}
+					disabled={busy}
+					onchange={(e) => save({ enabled: e.currentTarget.checked })}
+				/> Enable equalizer</label
 			>
-				{#if !settings.preset}<option value="" disabled>Custom</option>{/if}
-				{#each EQ_PRESET_NAMES as name (name)}<option value={name}>{name}</option>{/each}
-			</select></label
-		>
-		{#each settings.centers as center, i (center)}
-			{@const level = preview?.index === i ? preview.level : settings.levels[i]}
-			<label class="band"
-				><span>{bandLabel(center)}</span><span>{gain(level)}</span>
-				<input
-					type="range"
-					aria-label={bandLabel(center)}
-					aria-valuetext={gain(level)}
-					min={settings.minimum / 100}
-					max={settings.maximum / 100}
-					step="0.01"
-					value={level / 100}
-					disabled={!settings.enabled || busy}
-					oninput={(e) =>
-						(preview = { index: i, level: Math.round(Number(e.currentTarget.value) * 100) })}
-					onpointercancel={() => (preview = null)}
-					onchange={(e) => band(i, Number(e.currentTarget.value))}
-				/>
-			</label>
-		{/each}
+			<label
+				>Preset<InlineChoice selected={settings.preset} label="Equalizer preset"
+					><select
+						value={settings.preset}
+						disabled={!settings.enabled || busy}
+						onchange={(e) => preset(e.currentTarget.value as EqPresetName)}
+					>
+						{#if !settings.preset}<option value="" disabled>Custom</option>{/if}
+						{#each EQ_PRESET_NAMES as name (name)}<option value={name}>{name}</option>{/each}
+					</select></InlineChoice
+				></label
+			>
+		</div>
+		<h2 id="equalizer-bands">Frequency bands</h2>
+		<div class="settings-panel" data-surface="panel" role="group" aria-labelledby="equalizer-bands">
+			{#each settings.centers as center, i (center)}
+				{@const level = preview?.index === i ? preview.level : settings.levels[i]}
+				<label class="band"
+					><span>{bandLabel(center)}</span><span>{gain(level)}</span>
+					<input
+						type="range"
+						aria-label={bandLabel(center)}
+						aria-valuetext={gain(level)}
+						min={settings.minimum / 100}
+						max={settings.maximum / 100}
+						step="0.01"
+						value={level / 100}
+						disabled={!settings.enabled || busy}
+						oninput={(e) =>
+							(preview = { index: i, level: Math.round(Number(e.currentTarget.value) * 100) })}
+						onpointercancel={() => (preview = null)}
+						onchange={(e) => band(i, Number(e.currentTarget.value))}
+					/>
+				</label>
+			{/each}
+		</div>
 		<button class="secondary" disabled={!settings.enabled || busy} onclick={() => preset('Flat')}
 			>Reset to flat</button
 		>
@@ -126,11 +133,6 @@
 {/if}
 
 <style>
-	.eq {
-		display: grid;
-		gap: var(--gap);
-		max-width: 38rem;
-	}
 	.eq label {
 		display: grid;
 		gap: 0.25rem;

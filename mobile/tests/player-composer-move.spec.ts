@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import type { Section } from '../src/lib/boards/layout';
 import { openPlayerPlacement } from './fixtures/playerEditor';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
@@ -125,8 +126,8 @@ test('full rows swap a chosen field and preserve independently arranged fields w
 	]);
 	await button('Customize Custom text').click();
 	await openPlayerPlacement(page);
-	await page.getByLabel('Move to row', { exact: true }).selectOption('0');
-	await page.getByLabel('Swap with', { exact: true }).selectOption('1');
+	await chooseOption(page.getByLabel('Move to row', { exact: true }), '0');
+	await chooseOption(page.getByLabel('Swap with', { exact: true }), '1');
 	expect(await ids(0)).toEqual([
 		'player-title',
 		'player-text',
@@ -228,9 +229,9 @@ test('a column holds two independently editable stacked fields with numeric padd
 		'3.5px'
 	);
 	await expect(page.getByRole('combobox', { name: 'Icon', exact: true })).toHaveCount(0);
-	await page.getByLabel('Label', { exact: true }).selectOption('show');
+	await chooseOption(page.getByLabel('Label', { exact: true }), 'show');
 	await page.getByLabel('Label name').fill('Listen');
-	await page.getByLabel('Label position').selectOption('above');
+	await chooseOption(page.getByLabel('Label position'), 'above');
 	await expect(sample.locator('[data-section-id=player-toggle] .caption')).toHaveText('Listen');
 	await button('Save layout').click();
 	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
@@ -253,7 +254,7 @@ test('a listener builds five controls directly from legacy groups and keeps a si
 		['player-modes', false]
 	]);
 	await button('Add row').click();
-	await page.getByLabel('Number of columns').selectOption('6');
+	await chooseOption(page.getByLabel('Number of columns'), '6');
 	const controls = ['Shuffle upcoming', 'Previous track', 'Play or pause', 'Next track', 'Repeat'];
 	for (const [index, name] of controls.entries()) {
 		const target = page.getByRole('button', {
@@ -355,7 +356,7 @@ for (const pointerType of ['mouse', 'pen'] as const)
 		await button('Settings').click();
 		await button('Edit Now Playing layout').click();
 		await button('Edit header').click();
-		await expect(page.getByLabel('Number of columns')).toHaveValue('2');
+		await expect(page.getByLabel('Number of columns')).toHaveAttribute('data-value', '2');
 		await button('Finish editing row').click();
 		await expect(button('Edit header')).toBeFocused();
 		await button('Cancel').click();
@@ -459,14 +460,14 @@ test('seek times and lyrics presentation edit the sample and survive saving or s
 	const sample = page.locator('[data-part=sample-player]'),
 		progress = sample.locator('[data-part=playback-bar]');
 	await button('Customize Playback position').click();
-	await page.getByLabel('Seek bar style').selectOption('waveform');
+	await chooseOption(page.getByLabel('Seek bar style'), 'waveform');
 	await page.getByRole('checkbox', { name: 'Elapsed time', exact: true }).uncheck();
 	await page.getByRole('checkbox', { name: 'Remaining time', exact: true }).check();
 	await expect(progress).toHaveAttribute('data-seek-style', 'waveform');
 	await expect(progress.locator('time')).toHaveCount(2);
 	await expect(progress.locator('time[aria-label="Time remaining"]')).toHaveText('−2:34');
 	await button('Customize Lyrics').click();
-	await page.getByLabel('Lyrics display').selectOption('sheet');
+	await chooseOption(page.getByLabel('Lyrics display'), 'sheet');
 	await button('Save layout').click();
 	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!) as Section[], key);
 	expect(saved.find((s) => s.id === 'player-lyrics')?.lyricsMode).toBe('sheet');

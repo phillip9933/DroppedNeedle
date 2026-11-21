@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, putJson, type Session } from '../connection';
@@ -69,31 +70,35 @@
 
 <p>Choose the sections your DN account receives. These settings also apply to the web app.</p>
 <label
-	>Page<select
-		disabled={busy || !!Object.keys(changes).length}
-		bind:value={page}
-		onchange={() => (message = '')}
-		>{#each pages as p (p)}<option value={p}>{p[0].toUpperCase() + p.slice(1)}</option
-			>{/each}</select
+	>Page<InlineChoice selected={page}
+		><select
+			disabled={busy || !!Object.keys(changes).length}
+			bind:value={page}
+			onchange={() => (message = '')}
+			>{#each pages as p (p)}<option value={p}>{p[0].toUpperCase() + p.slice(1)}</option
+				>{/each}</select
+		></InlineChoice
 	></label
 >
 {#if data}
-	{#each rows as row (row.key)}<label class="choice"
-			><input
-				type="checkbox"
-				checked={changes[row.key] ?? row.enabled}
-				disabled={busy || !row.available}
-				onchange={() => toggle(row)}
-			/><span
-				><strong>{row.title}</strong><small>{row.description}</small>{#if !row.available}<small
-						>{row.turned_off
-							? 'Disabled on this server.'
-							: row.requires
-								? 'Requires ' + row.requires + '.'
-								: 'Unavailable on this server.'}</small
-					>{/if}</span
-			></label
-		>{/each}
+	{#if rows.length}<div class="settings-list" data-surface="panel">
+			{#each rows as row (row.key)}<label class="choice"
+					><input
+						type="checkbox"
+						checked={changes[row.key] ?? row.enabled}
+						disabled={busy || !row.available}
+						onchange={() => toggle(row)}
+					/><span
+						><strong>{row.title}</strong><small>{row.description}</small>{#if !row.available}<small
+								>{row.turned_off
+									? 'Disabled on this server.'
+									: row.requires
+										? 'Requires ' + row.requires + '.'
+										: 'Unavailable on this server.'}</small
+							>{/if}</span
+					></label
+				>{/each}
+		</div>{/if}
 	{#if !rows.length}<p>No sections for this page.</p>{/if}
 	<button class="secondary" disabled={busy || !Object.keys(changes).length} onclick={save}
 		>Save section preferences</button
@@ -117,8 +122,8 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 0.75rem;
-		padding: 0.7rem 0;
-		border-bottom: 1px solid var(--line);
+		min-height: 48px;
+		padding: 0.7rem var(--gap);
 	}
 	input {
 		margin-top: 0.35rem;
@@ -130,8 +135,5 @@
 	}
 	small {
 		color: var(--muted);
-	}
-	button {
-		margin-top: var(--gap);
 	}
 </style>

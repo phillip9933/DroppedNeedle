@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 const server = 'https://boards.example/dn';
 
@@ -218,11 +219,11 @@ test('Top picks and library entries honor the chosen columns and density on a 32
 	await expect(homePicks).toContainText('81% match');
 	await edit(page, 'Home');
 	await button(page, 'Customize Top picks for you').click();
-	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
-	await page.getByRole('combobox', { name: 'Columns', exact: true }).selectOption('6');
-	await page.getByRole('combobox', { name: 'Preview rows', exact: true }).selectOption('2');
+	await chooseOption(page.getByRole('combobox', { name: 'Display', exact: true }), 'grid');
+	await chooseOption(page.getByRole('combobox', { name: 'Columns', exact: true }), '6');
+	await chooseOption(page.getByRole('combobox', { name: 'Preview rows', exact: true }), '2');
 	await expect(page.getByRole('combobox', { name: 'Column size', exact: true })).toHaveCount(0);
-	await page.getByRole('combobox', { name: 'Row density', exact: true }).selectOption('compact');
+	await chooseOption(page.getByRole('combobox', { name: 'Row density', exact: true }), 'compact');
 	await save(page);
 	await homePicks.scrollIntoViewIfNeeded();
 	const tiles = homePicks.locator('[data-preview-item]');
@@ -256,9 +257,9 @@ test('Top picks and library entries honor the chosen columns and density on a 32
 	expect(layout.fits).toBe(true);
 	await edit(page, 'Home');
 	await button(page, 'Customize Top picks for you').click();
-	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('list');
-	await page.getByRole('combobox', { name: 'Columns', exact: true }).selectOption('2');
-	await page.getByRole('combobox', { name: 'Row density' }).selectOption('spacious');
+	await chooseOption(page.getByRole('combobox', { name: 'Display', exact: true }), 'list');
+	await chooseOption(page.getByRole('combobox', { name: 'Columns', exact: true }), '2');
+	await chooseOption(page.getByRole('combobox', { name: 'Row density' }), 'spacious');
 	await save(page);
 	await homePicks.scrollIntoViewIfNeeded();
 	await expect(tiles).toHaveCount(4);
@@ -271,8 +272,8 @@ test('Top picks and library entries honor the chosen columns and density on a 32
 	await button(page, 'Library sections').click();
 	await edit(page, 'Library');
 	await button(page, 'Customize Tracks').click();
-	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
-	await page.getByRole('combobox', { name: 'Columns', exact: true }).selectOption('2');
+	await chooseOption(page.getByRole('combobox', { name: 'Display', exact: true }), 'grid');
+	await chooseOption(page.getByRole('combobox', { name: 'Columns', exact: true }), '2');
 	await save(page);
 	const artists = shelf('library-artists');
 	await artists.scrollIntoViewIfNeeded();
@@ -519,10 +520,13 @@ test('a saved five-star filter can appear on both boards and shared edits commit
 	await button(page, 'Library sections').click();
 	await button(page, 'Browse Tracks').click();
 	await page.getByText('Rating and format', { exact: true }).click();
-	await page.getByLabel('Your rating').selectOption('5');
+	await chooseOption(page.getByLabel('Your rating'), '5');
 	await button(page, 'Save filters as section').click();
 	let modal = page.getByRole('dialog');
-	await expect(modal.getByLabel('Section rating', { exact: true })).toHaveValue('5');
+	await expect(modal.getByLabel('Section rating', { exact: true })).toHaveAttribute(
+		'data-value',
+		'5'
+	);
 	await modal.getByLabel('Section name').fill('My five stars');
 	await modal.getByRole('button', { name: 'Create section' }).click();
 	await button(page, 'Browse My five stars').click();
@@ -547,7 +551,7 @@ test('a saved five-star filter can appear on both boards and shared edits commit
 	await button(page, 'Edit filters').click();
 	modal = page.getByRole('dialog');
 	await modal.getByLabel('Section name').fill('Favorite artists');
-	await modal.getByLabel('Library collection').selectOption('artists');
+	await chooseOption(modal.getByLabel('Library collection'), 'artists');
 	await modal.getByLabel('Favorites only').check();
 	await modal.getByRole('button', { name: 'Apply filters' }).click();
 	await save(page);

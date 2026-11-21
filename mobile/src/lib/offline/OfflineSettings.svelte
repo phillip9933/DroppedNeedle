@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import { online } from 'svelte/reactivity/window';
 	import { rememberedPlaylistNames } from '../catalog/playlistOffline';
@@ -183,8 +184,13 @@
 
 {#if loading}<p role="status">Reading device storage…</p>
 {:else}
-	<fieldset disabled={busy}>
-		<legend>Playback</legend>
+	<h2 id="offline-playback">Playback</h2>
+	<fieldset
+		class="settings-panel"
+		data-surface="panel"
+		aria-labelledby="offline-playback"
+		disabled={busy}
+	>
 		<label
 			><input
 				type="checkbox"
@@ -203,12 +209,14 @@
 			Completed streams stay available offline. Older cached songs are removed when the cache fills.
 		</p>
 		<label
-			>Playback cache limit<select
-				value={options.cacheMiB}
-				onchange={(e) => change({ ...options, cacheMiB: Number(e.currentTarget.value) })}
-				>{#each cacheSizes as size (size)}<option value={size}
-						>{size >= 1024 ? size / 1024 + ' GiB' : size + ' MiB'}</option
-					>{/each}</select
+			>Playback cache limit<InlineChoice selected={options.cacheMiB}
+				><select
+					value={options.cacheMiB}
+					onchange={(e) => change({ ...options, cacheMiB: Number(e.currentTarget.value) })}
+					>{#each cacheSizes as size (size)}<option value={size}
+							>{size >= 1024 ? size / 1024 + ' GiB' : size + ' MiB'}</option
+						>{/each}</select
+				></InlineChoice
 			></label
 		>
 		{#if nativeOffline}<label
@@ -219,34 +227,43 @@
 				/>Download and cache only on unmetered networks</label
 			>{/if}
 	</fieldset>
-	<fieldset disabled={busy}>
-		<legend>Automatic downloads</legend>
+	<h2 id="auto-download-options">Automatic downloads</h2>
+	<fieldset
+		class="settings-panel"
+		data-surface="panel"
+		aria-labelledby="auto-download-options"
+		disabled={busy}
+	>
 		<label
-			>Download source<select
-				value={showPicker ? 'playlist' : options.autoDownload}
-				onchange={(e) => chooseSource(e.currentTarget.value)}
-			>
-				<option value="off">Off</option>
-				<option value="recent">Recently added songs</option>
-				<option value="favorites">Favorite songs</option>
-				<option value="playlist">DN playlist</option>
-			</select></label
+			>Download source<InlineChoice selected={showPicker ? 'playlist' : options.autoDownload}
+				><select
+					value={showPicker ? 'playlist' : options.autoDownload}
+					onchange={(e) => chooseSource(e.currentTarget.value)}
+				>
+					<option value="off">Off</option>
+					<option value="recent">Recently added songs</option>
+					<option value="favorites">Favorite songs</option>
+					<option value="playlist">DN playlist</option>
+				</select></InlineChoice
+			></label
 		>
 		{#if showPicker}
 			<label
-				>DN playlist<select
-					value={selectedId ?? ''}
-					onchange={(e) => {
-						const source = playlistSource(e.currentTarget.value);
-						if (source) void change({ ...options, autoDownload: source });
-					}}
-				>
-					<option value="" disabled>Choose a playlist</option>
-					{#if selectedId && !choices.some((p) => p.id === selectedId)}<option value={selectedId}
-							>Selected playlist</option
-						>{/if}
-					{#each choices as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-				</select></label
+				>DN playlist<InlineChoice selected={selectedId ?? ''}
+					><select
+						value={selectedId ?? ''}
+						onchange={(e) => {
+							const source = playlistSource(e.currentTarget.value);
+							if (source) void change({ ...options, autoDownload: source });
+						}}
+					>
+						<option value="" disabled>Choose a playlist</option>
+						{#if selectedId && !choices.some((p) => p.id === selectedId)}<option value={selectedId}
+								>Selected playlist</option
+							>{/if}
+						{#each choices as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+					</select></InlineChoice
+				></label
 			>
 			{#if playlistError}<p role="status">{playlistError}</p>
 				<button class="text-button" onclick={() => listRetry++}>Refresh playlist list</button>
@@ -277,14 +294,16 @@
 				Songs you remove stay excluded until you save them yourself.
 			</p>
 			<label
-				>Automatic download limit<select
-					value={options.downloadMiB}
-					onchange={(e) => change({ ...options, downloadMiB: Number(e.currentTarget.value) })}
-				>
-					{#each cacheSizes as size (size)}<option value={size}
-							>{size >= 1024 ? size / 1024 + ' GiB' : size + ' MiB'}</option
-						>{/each}
-				</select></label
+				>Automatic download limit<InlineChoice selected={options.downloadMiB}
+					><select
+						value={options.downloadMiB}
+						onchange={(e) => change({ ...options, downloadMiB: Number(e.currentTarget.value) })}
+					>
+						{#each cacheSizes as size (size)}<option value={size}
+								>{size >= 1024 ? size / 1024 + ' GiB' : size + ' MiB'}</option
+							>{/each}
+					</select></InlineChoice
+				></label
 			>
 			<button class="secondary" disabled={options.offlineOnly || syncing} onclick={sync}
 				>Update automatic downloads</button
@@ -292,8 +311,8 @@
 		{/if}
 	</fieldset>
 	{#if Capacitor.getPlatform() === 'android'}
-		<fieldset>
-			<legend>Download notifications</legend>
+		<h2 id="download-notifications">Download notifications</h2>
+		<fieldset class="settings-panel" data-surface="panel" aria-labelledby="download-notifications">
 			<DownloadNotifications />
 		</fieldset>
 		{#if session.userId}<AndroidHistorySettings {session} />{/if}
@@ -301,7 +320,7 @@
 	<ViewedMediaSettings {session} kind="artwork" />
 	<ViewedMediaSettings {session} kind="lyrics" />
 	<h2>On this device</h2>
-	<dl>
+	<dl class="settings-facts" data-surface="panel">
 		<div>
 			<dt>Saved downloads</dt>
 			<dd>{storageSize(saved)}</dd>
@@ -315,21 +334,25 @@
 			<dd>{storageSize(cached)}</dd>
 		</div>
 	</dl>
-	<button
-		class="secondary"
-		disabled={busy}
-		onclick={() => window.dispatchEvent(new Event('dn-open-offline'))}>Open offline music</button
-	>
-	{#if confirming}<p>
-			Clear {storageSize(cached)} of cached music? Saved downloads will stay on this device.
-		</p>
-		<button class="secondary" onclick={() => (confirming = false)}>Cancel</button><button
-			class="primary"
-			onclick={clear}>Confirm clear cache</button
+	<div class="settings-actions">
+		<button
+			class="secondary"
+			disabled={busy}
+			onclick={() => window.dispatchEvent(new Event('dn-open-offline'))}>Open offline music</button
 		>
-	{:else}<button class="text-button" disabled={busy || !cached} onclick={() => (confirming = true)}
-			>Clear playback cache</button
-		>{/if}
+		{#if confirming}<p>
+				Clear {storageSize(cached)} of cached music? Saved downloads will stay on this device.
+			</p>
+			<button class="secondary" onclick={() => (confirming = false)}>Cancel</button><button
+				class="primary"
+				onclick={clear}>Confirm clear cache</button
+			>
+		{:else}<button
+				class="text-button"
+				disabled={busy || !cached}
+				onclick={() => (confirming = true)}>Clear playback cache</button
+			>{/if}
+	</div>
 {/if}
 {#if error}<p role="alert">{error}</p>
 	<button
@@ -340,40 +363,3 @@
 		}}>Try again</button
 	>{/if}
 {#if receipt}<p role="status">{receipt}</p>{/if}
-
-<style>
-	fieldset {
-		border: 0;
-		padding: 0;
-		display: grid;
-		gap: 0.65rem;
-		margin: 1rem 0;
-	}
-	legend,
-	h2 {
-		font-weight: 700;
-		font-size: 1.1rem;
-		margin: 0 0 0.6rem;
-		padding: 0;
-	}
-	label,
-	dl div {
-		display: flex;
-		gap: 0.65rem;
-		align-items: center;
-		min-height: 44px;
-	}
-	select,
-	dd {
-		margin-inline-start: auto;
-	}
-	dl {
-		padding: 0;
-		margin: 0;
-	}
-	p {
-		color: var(--muted);
-		margin: 0;
-		line-height: 1.45;
-	}
-</style>

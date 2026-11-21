@@ -1,3 +1,4 @@
+import { chooseOption, choiceList } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { silentWav } from './fixtures/silentWav';
@@ -224,12 +225,12 @@ test('an owner creates, renames, shares and confirms deletion of a playlist', as
 	await dialog.getByRole('button', { name: 'Save name' }).click();
 	await expect(page.getByRole('heading', { name: 'Sunday' })).toBeVisible();
 	await page.getByRole('button', { name: 'Share playlist' }).click();
-	await dialog.getByLabel('Who can listen').selectOption({ label: 'Everyone on this server' });
+	await chooseOption(dialog.getByLabel('Who can listen'), { label: 'Everyone on this server' });
 	await dialog.getByRole('button', { name: 'Save visibility' }).click();
 	await expect(dialog.getByRole('status')).toHaveText('Everyone on this server can listen.');
 	await dialog.getByLabel('Find a listener').fill('Sam');
 	await dialog.getByRole('button', { name: 'Add Sam' }).click();
-	await dialog.getByLabel('Access for Sam').selectOption({ label: 'Can edit tracks' });
+	await chooseOption(dialog.getByLabel('Access for Sam'), { label: 'Can edit tracks' });
 	await dialog.getByRole('button', { name: 'Save listeners' }).click();
 	await expect(dialog.getByRole('status')).toHaveText('Shared listeners updated.');
 	expect(state.members()).toEqual([{ user_id: 'sam', display_name: 'Sam', can_edit: true }]);
@@ -251,14 +252,15 @@ test('a shared editor adds an album, reorders tracks and removes one occurrence'
 	await page.getByRole('button', { name: /In transit/ }).click();
 	await page.getByRole('button', { name: 'Album actions' }).click();
 	await page.getByRole('button', { name: 'Add to playlist', exact: true }).click();
+	await choiceList(dialog.getByRole('combobox', { name: 'Playlist', exact: true }));
 	await expect(dialog.getByRole('option', { name: 'Listening room' })).toHaveCount(0);
-	await dialog.getByRole('combobox', { name: 'Playlist', exact: true }).selectOption('shared');
+	await chooseOption(dialog.getByRole('combobox', { name: 'Playlist', exact: true }), 'shared');
 	await dialog.getByRole('button', { name: 'Add 2 tracks' }).click();
 	await expect(dialog.getByRole('status')).toHaveText('Added 2 tracks to Shared mix.');
 	await dialog.getByRole('button', { name: 'Done' }).click();
 	await page.getByRole('button', { name: 'More options for Signal' }).click();
 	await page.getByRole('button', { name: 'Add to playlist', exact: true }).click();
-	await dialog.getByRole('combobox', { name: 'Playlist', exact: true }).selectOption('shared');
+	await chooseOption(dialog.getByRole('combobox', { name: 'Playlist', exact: true }), 'shared');
 	await dialog.getByRole('button', { name: 'Add track', exact: true }).click();
 	await dialog.getByRole('button', { name: 'Done' }).click();
 	await page.getByRole('button', { name: 'Back', exact: true }).click();

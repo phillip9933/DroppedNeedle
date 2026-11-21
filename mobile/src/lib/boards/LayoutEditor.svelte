@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { tick, untrack } from 'svelte';
 	import { boardDisplay } from './display';
 	import FilterSectionDialog from './FilterSectionDialog.svelte';
@@ -80,7 +81,11 @@
 	{#if error}<p role="alert">{error}</p>{/if}
 	<h2>On this screen</h2>
 	{#if draft.length === 0}<p>Add a section below to start your layout.</p>{/if}
-	<ol bind:this={list}>
+	<ol
+		class:settings-list={draft.length > 0}
+		data-surface={draft.length ? 'panel' : undefined}
+		bind:this={list}
+	>
 		{#each draft as item, i (item.id)}
 			{@const name = sectionTitle(item)}
 			<li data-section-id={item.id}>
@@ -126,26 +131,34 @@
 							{@const columnField = item.display.layout === 'grid' ? 'columns' : 'listColumns'}
 							<div class="display-options">
 								<label
-									>Display<select bind:value={item.display.layout}
-										><option value="list">List</option><option value="grid">Grid</option></select
+									>Display<InlineChoice selected={item.display.layout}
+										><select bind:value={item.display.layout}
+											><option value="list">List</option><option value="grid">Grid</option></select
+										></InlineChoice
 									></label
 								>
 								<label
-									>Preview rows<select bind:value={item.display.rows}
-										>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
-											>{/each}</select
+									>Preview rows<InlineChoice selected={item.display.rows}
+										><select bind:value={item.display.rows}
+											>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
+												>{/each}</select
+										></InlineChoice
 									></label
 								>
 								<label
-									>Columns<select bind:value={item.display[columnField]}
-										>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
-											>{/each}</select
+									>Columns<InlineChoice selected={item.display[columnField]}
+										><select bind:value={item.display[columnField]}
+											>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option
+												>{/each}</select
+										></InlineChoice
 									></label
 								>
 								<label
-									>Row density<select bind:value={item.display.density}
-										><option value="compact">Compact</option><option value="normal">Normal</option
-										><option value="spacious">Spacious</option></select
+									>Row density<InlineChoice selected={item.display.density}
+										><select bind:value={item.display.density}
+											><option value="compact">Compact</option><option value="normal">Normal</option
+											><option value="spacious">Spacious</option></select
+										></InlineChoice
 									></label
 								>
 							</div>
@@ -168,11 +181,15 @@
 		{@const matches = choices.filter((w) => w.id.startsWith(group + '-'))}
 		{#if matches.length}
 			{#if board === 'home'}<h3>{group === 'library' ? 'Library' : 'Discover'}</h3>{/if}
-			{#each matches as widget (widget.id)}
-				<button class="add" aria-label={'Add ' + widget.label} onclick={() => add(widget.id)}
-					><span>{widget.label}</span><Plus size={18} /></button
-				>
-			{/each}
+			<div class="settings-list" data-surface="panel">
+				{#each matches as widget (widget.id)}
+					<button
+						class="settings-entry"
+						aria-label={'Add ' + widget.label}
+						onclick={() => add(widget.id)}><span>{widget.label}</span><Plus size={18} /></button
+					>
+				{/each}
+			</div>
 		{/if}
 	{/each}
 	{#if !choices.length}<p>
@@ -213,18 +230,16 @@
 
 <style>
 	.editor {
-		max-width: 40rem;
+		max-width: 42rem;
 		margin: auto;
 	}
 	.bar,
 	.row,
-	.add,
 	.check {
 		display: flex;
 		align-items: center;
 	}
-	.bar,
-	.add {
+	.bar {
 		justify-content: space-between;
 	}
 	.bar {
@@ -240,25 +255,20 @@
 		padding: 0;
 		list-style: none;
 	}
-	li,
-	.add {
-		border-bottom: 1px solid var(--line);
+	li {
+		padding-inline: 0.65rem 0.2rem;
 	}
 	.row {
 		min-height: 52px;
 	}
-	.row strong,
-	.add span {
+	.row strong {
 		flex: 1;
 		min-width: 0;
 		overflow-wrap: anywhere;
 		text-align: left;
 	}
-	.tool,
-	.add {
-		min-height: 44px;
-	}
 	.tool {
+		min-height: 44px;
 		width: 44px;
 		flex-shrink: 0;
 		display: grid;
@@ -292,9 +302,13 @@
 	.check input {
 		accent-color: var(--accent);
 	}
-	.add {
+	.editor > input[type='search'] {
+		display: block;
 		width: 100%;
-		padding-block: 0.3rem;
+		margin: 0.75rem 0;
+	}
+	.editor h2 {
+		margin-bottom: 0.65rem;
 	}
 	h3 {
 		font-size: 0.92rem;

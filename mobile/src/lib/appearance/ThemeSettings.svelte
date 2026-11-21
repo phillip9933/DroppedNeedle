@@ -124,7 +124,7 @@
 	}
 </script>
 
-<section data-part="theme-settings" aria-label="Theme settings">
+<section class="settings-stack" data-part="theme-settings" aria-label="Theme settings">
 	<h2>Device theme</h2>
 	<div class="modes" role="group" aria-label="Device theme">
 		{#each modes as mode (mode)}{@const palette = asTheme({
@@ -158,7 +158,7 @@
 				if (lastCustom) choose({ mode: 'custom', theme: lastCustom });
 			}}>Use custom theme {lastCustom.name}</button
 		>{/if}
-	<details>
+	<details class="settings-disclosure" data-surface="panel">
 		<summary>Edit or share theme</summary>
 		<p>
 			Copy the JSON to share your colors, spacing and typeface. Paste a theme here to use it on this
@@ -215,15 +215,6 @@
 </section>
 
 <style>
-	section {
-		display: grid;
-		align-content: start;
-		gap: var(--gap);
-	}
-	h2,
-	p {
-		margin: 0;
-	}
 	.modes {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -252,18 +243,6 @@
 	}
 	.choice :global(svg) {
 		margin-inline-start: auto;
-	}
-	summary {
-		cursor: pointer;
-		min-height: 44px;
-		padding-block: 0.65rem;
-	}
-	details {
-		border-block: 1px solid var(--line);
-		padding-bottom: 0.2rem;
-	}
-	details[open] {
-		padding-bottom: 0.55rem;
 	}
 	label,
 	textarea {

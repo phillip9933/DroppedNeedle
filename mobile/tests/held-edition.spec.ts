@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 
@@ -162,7 +163,7 @@ test('changing an edition and retrying an interrupted import saves the chosen re
 	page
 }) => {
 	const { writes, dialog } = await openCheck(page, 'import');
-	await dialog.getByLabel('Edition', { exact: true }).selectOption('alternate');
+	await chooseOption(dialog.getByLabel('Edition', { exact: true }), 'alternate');
 	await expect(dialog.getByRole('heading', { name: 'Deluxe pressing' })).toBeVisible();
 	await dialog.getByRole('button', { name: 'Use edition and retry files' }).click();
 	await expect(dialog.getByRole('alert')).toContainText('Import interrupted');

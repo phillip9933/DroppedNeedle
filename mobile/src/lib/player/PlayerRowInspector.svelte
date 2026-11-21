@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { Pencil, Plus } from '@lucide/svelte';
 	import { sectionTitle, type Section } from '../boards/layout';
 	import { playerColumns, isPlayerSlot, maxPlayerColumns, rowName } from './composition';
@@ -52,18 +53,19 @@
 	</div>
 	<div class="basics">
 		<label
-			>Number of columns<select
-				value={row.length}
-				onchange={(e) => resize(Number(e.currentTarget.value))}
-			>
-				{#each Array.from({ length: maxPlayerColumns }, (_, i) => i + 1) as n (n)}<option value={n}
-						>{n}</option
-					>{/each}</select
+			>Number of columns<InlineChoice selected={row.length}
+				><select value={row.length} onchange={(e) => resize(Number(e.currentTarget.value))}>
+					{#each Array.from({ length: maxPlayerColumns }, (_, i) => i + 1) as n (n)}<option
+							value={n}>{n}</option
+						>{/each}</select
+				></InlineChoice
 			></label
 		>
 		<label
-			>Row position<select value={r} onchange={(e) => move(Number(e.currentTarget.value))}>
-				{#each rows.keys() as i (i)}<option value={i}>{rowName(i)}</option>{/each}</select
+			>Row position<InlineChoice selected={r}
+				><select value={r} onchange={(e) => move(Number(e.currentTarget.value))}>
+					{#each rows.keys() as i (i)}<option value={i}>{rowName(i)}</option>{/each}</select
+				></InlineChoice
 			></label
 		>
 		{#if row.length > 1}<label
