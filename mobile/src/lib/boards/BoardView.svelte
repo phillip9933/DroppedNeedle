@@ -399,6 +399,9 @@
 	/>{/if}
 
 <style>
+	[data-home-feed] :global(.heading h1) {
+		margin-block: 0.35rem 0.45rem;
+	}
 	.source {
 		color: var(--muted);
 		font-size: 0.85rem;
