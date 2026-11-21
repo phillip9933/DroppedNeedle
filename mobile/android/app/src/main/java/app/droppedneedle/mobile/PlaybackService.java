@@ -1,19 +1,28 @@
 package app.droppedneedle.mobile;
 
+import android.app.ForegroundServiceStartNotAllowedException;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.media.AudioManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.ServiceCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
@@ -22,9 +31,11 @@ import androidx.media3.common.Player;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaLibraryService;
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession;
+import androidx.media3.session.MediaStyleNotificationHelper;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.google.common.util.concurrent.Futures;
@@ -360,28 +371,54 @@ public final class PlaybackService extends MediaLibraryService {
         return super.onBind(intent);
     }
 
+    @Override public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
+        // Media3 starts its own service when posting a playback notification. A quick stop can
+        // deliver that actionless start to a replacement instance with no player to promote.
+        if (Build.VERSION.SDK_INT >= 26 && intent != null && intent.getAction() == null
+                && player.getMediaItemCount() == 0) {
+            if (!showStartingNotification()) {
+                stopSelfResult(startId);
+                return START_NOT_STICKY;
+            }
+            if (headsetPlay == null && !car.isSelecting()) {
+                if (stopSelfResult(startId)) stopForeground(STOP_FOREGROUND_REMOVE);
+                return START_NOT_STICKY;
+            }
+        }
+        return super.onStartCommand(intent, flags, startId);
+    }
+
     @Override public MediaLibrarySession onGetSession(MediaSession.ControllerInfo controller) { return session; }
 
     long carGeneration() { return generation; }
     void prepareExternalPlay() {
-        if (android.os.Build.VERSION.SDK_INT < 35 || player.isPlaying() || !HeadsetAccount.unlocked(this)) return;
+        if (Build.VERSION.SDK_INT < 35 || player.isPlaying() || !HeadsetAccount.unlocked(this)) return;
         // Android 15 requires foreground playback before ExoPlayer can request audio focus for a user tap.
-        String channel = androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID;
-        android.app.NotificationManager notifications = getSystemService(android.app.NotificationManager.class);
-        notifications.createNotificationChannel(new android.app.NotificationChannel(channel,
-                getString(androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_CHANNEL_NAME_RESOURCE_ID),
-                android.app.NotificationManager.IMPORTANCE_LOW));
-        android.app.Notification notice = new androidx.core.app.NotificationCompat.Builder(this, channel)
-                .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(getString(R.string.app_name))
-                .setOnlyAlertOnce(true).setSilent(true)
-                .setStyle(new androidx.media3.session.MediaStyleNotificationHelper.MediaStyle(session)).build();
-        try {
-            startForeground(androidx.media3.session.DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
-                    notice, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        if (showStartingNotification()) {
             main.removeCallbacks(stopEmptyExternalPlay);
             main.postDelayed(stopEmptyExternalPlay, 15000);
-        } catch (android.app.ForegroundServiceStartNotAllowedException ignored) {
-            // A background controller without a user interaction cannot promote this service.
+        }
+    }
+
+    @RequiresApi(26)
+    private boolean showStartingNotification() {
+        String channel = DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID;
+        NotificationManager notifications = getSystemService(NotificationManager.class);
+        notifications.createNotificationChannel(new NotificationChannel(channel,
+                getString(DefaultMediaNotificationProvider.DEFAULT_CHANNEL_NAME_RESOURCE_ID),
+                NotificationManager.IMPORTANCE_LOW));
+        Notification notice = new NotificationCompat.Builder(this, channel)
+                .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle(getString(R.string.app_name))
+                .setOnlyAlertOnce(true).setSilent(true)
+                .setStyle(new MediaStyleNotificationHelper.MediaStyle(session)).build();
+        try {
+            ServiceCompat.startForeground(this, DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
+                    notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            return true;
+        } catch (IllegalStateException error) {
+            // A regular background start or a controller without a user gesture may lack the allowance.
+            if (Build.VERSION.SDK_INT >= 31 && error instanceof ForegroundServiceStartNotAllowedException) return false;
+            throw error;
         }
     }
     MediaSession.MediaItemsWithStartPosition prepareCarQueue(HeadsetAccount login, JSArray queue, int index, long position)
