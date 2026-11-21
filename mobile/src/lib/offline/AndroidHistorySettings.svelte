@@ -59,8 +59,13 @@
 	}
 </script>
 
-<fieldset disabled={busy}>
-	<legend>Offline listening history</legend>
+<h2 id="offline-listening">Offline listening history</h2>
+<fieldset
+	class="settings-panel"
+	data-surface="panel"
+	aria-labelledby="offline-listening"
+	disabled={busy}
+>
 	{#if status}
 		<label
 			><input
@@ -80,7 +85,7 @@
 			</p>
 			{#if confirming}
 				<p>Discard all pending listens for this DN account?</p>
-				<div>
+				<div class="settings-actions">
 					<button class="secondary" onclick={() => (confirming = false)}>Cancel</button>
 					<button class="primary" onclick={() => change()}>Confirm discard</button>
 				</div>
@@ -95,34 +100,3 @@
 		<button class="text-button" onclick={read}>Try again</button>{/if}
 	{#if notice}<p role="status">{notice}</p>{/if}
 </fieldset>
-
-<style>
-	fieldset {
-		border: 0;
-		padding: 0;
-		display: grid;
-		gap: 0.65rem;
-		margin: 1rem 0;
-	}
-	legend {
-		font-weight: 700;
-		font-size: 1.1rem;
-		margin: 0 0 0.6rem;
-		padding: 0;
-	}
-	label,
-	div {
-		display: flex;
-		gap: 0.65rem;
-		align-items: center;
-		min-height: 44px;
-	}
-	p {
-		color: var(--muted);
-		margin: 0;
-		line-height: 1.45;
-	}
-	.text-button {
-		justify-self: start;
-	}
-</style>

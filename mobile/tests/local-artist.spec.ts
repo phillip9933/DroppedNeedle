@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
@@ -108,7 +109,7 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await expect(page.getByRole('button', { name: 'Remove artist from favorites' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Artist profile', exact: true })).toBeVisible();
 	const view = page.getByLabel('Artist library view');
-	await view.selectOption('appearances');
+	await chooseOption(view, 'appearances');
 	await page.getByRole('button', { name: 'Select items' }).click();
 	await page.getByRole('button', { name: 'Select Night Duo' }).click();
 	await page.getByRole('button', { name: 'More appearances', exact: true }).click();
@@ -131,13 +132,13 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
-	await expect(view).toHaveValue('appearances');
+	await expect(view).toHaveAttribute('data-value', 'appearances');
 	await expect(page.getByRole('button', { name: 'Night Duo Night Duo' })).toBeVisible();
-	await view.selectOption('songs');
+	await chooseOption(view, 'songs');
 	await page.getByRole('button', { name: 'Play After Hours', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'After Hours', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Close player' }).click();
-	await expect(view).toHaveValue('songs');
+	await expect(view).toHaveAttribute('data-value', 'songs');
 	expect(read).toContain('later appearances');
 	const popup = page.waitForEvent('popup');
 	await page.getByRole('link', { name: 'Open artist in web app' }).click();

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { ArrowLeft } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import {
@@ -161,10 +162,12 @@
 		{#if !status}<button class="secondary" onclick={() => followRefresh++}
 				>Reload follow status</button
 			>{/if}{/if}
-	{#if !artist.localOnly}<select aria-label="Artist view" bind:value={view}
-			><option value="releases">Releases</option><option value="albums">Top albums</option><option
-				value="songs">Top songs</option
-			></select
+	{#if !artist.localOnly}<InlineChoice selected={view} label="Artist view"
+			><select bind:value={view}
+				><option value="releases">Releases</option><option value="albums">Top albums</option><option
+					value="songs">Top songs</option
+				></select
+			></InlineChoice
 		>{/if}
 	<SelectionHost {session} {onplay} {active} enabled={library} scope={artist.id + view}>
 		{#if view !== 'releases' && !artist.localOnly}<ArtistChart

@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { localSignIn } from './fixtures/localSignIn';
@@ -61,10 +62,10 @@ async function create(page: Page) {
 	await dialog.getByLabel('Playlist name').fill('Night driving');
 	await dialog.getByLabel('Contains').fill('North');
 	await dialog.getByLabel('Favorites only').check();
-	await dialog.getByLabel('Playlist rating', { exact: true }).selectOption('4');
+	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '4');
 	await dialog.getByLabel('Audio formats').fill('FLAC');
-	await dialog.getByLabel('Playlist sort', { exact: true }).selectOption('album');
-	await dialog.getByLabel('Sort direction').selectOption('desc');
+	await chooseOption(dialog.getByLabel('Playlist sort', { exact: true }), 'album');
+	await chooseOption(dialog.getByLabel('Sort direction'), 'desc');
 	await dialog.getByLabel('Track limit').fill('2');
 	await dialog.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
 	await expect(button(page, 'Night driving')).toBeVisible();

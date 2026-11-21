@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onDestroy, untrack } from 'svelte';
 	import type { Session } from '../connection';
 	import { errorMessage } from './catalog';
@@ -92,9 +93,11 @@
 	>
 		{#if file && file.choose}<p>{file.filename}</p>
 		{:else}<label
-				>File format<select bind:value={format} disabled={busy}
-					><option value="m3u8">M3U8 playlist</option><option value="csv">CSV spreadsheet</option
-					></select
+				>File format<InlineChoice selected={format}
+					><select bind:value={format} disabled={busy}
+						><option value="m3u8">M3U8 playlist</option><option value="csv">CSV spreadsheet</option
+						></select
+					></InlineChoice
 				></label
 			>
 			<label

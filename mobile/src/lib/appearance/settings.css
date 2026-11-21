@@ -1,0 +1,205 @@
+.settings-title,
+.settings [data-part='layout-editor'] h1 {
+	margin: 0.35rem 0 1rem;
+	overflow-wrap: anywhere;
+}
+.settings-content,
+.settings-stack {
+	display: grid;
+	align-content: start;
+	gap: 0.75rem;
+	min-width: 0;
+}
+.settings-content > *,
+.settings-stack > * {
+	min-width: 0;
+}
+.settings-content p {
+	margin: 0;
+	line-height: 1.45;
+	color: var(--muted);
+	overflow-wrap: anywhere;
+}
+.settings-content p[role='alert'] {
+	color: var(--text);
+}
+.settings .settings-content h2,
+.settings .settings-group-heading,
+.settings [data-part='layout-editor'] h2 {
+	margin: 0.85rem 0 0;
+	color: var(--heading, var(--text));
+	font-size: 1.12rem;
+	font-weight: 650;
+	line-height: 1.28;
+	letter-spacing: -0.025em;
+}
+.settings-subheading {
+	margin: 0.25rem 0 -0.25rem;
+	font-size: 1rem;
+	font-weight: 600;
+	line-height: 1.35;
+}
+.settings-content h2:first-child,
+.settings-stack h2:first-child {
+	margin-top: 0;
+}
+.settings .settings-group-heading {
+	margin: 1.35rem 0 0.5rem;
+}
+.settings-list,
+.settings-facts,
+.settings-panel,
+.settings-disclosure {
+	min-inline-size: 0;
+	margin: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+}
+.settings-panel {
+	display: grid;
+	gap: 0.75rem;
+	padding: 0.75rem var(--gap);
+}
+.settings
+	:is(.settings-content, .settings-panel, .settings-stack)
+	> :is(.text-button, .secondary, .primary) {
+	justify-self: start;
+}
+.settings-list > * + *,
+.settings-facts > div + div {
+	border-block-start: 1px solid var(--line);
+}
+.settings-entry {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	width: 100%;
+	min-height: 48px;
+	padding: 0.6rem var(--gap);
+	border-radius: 0;
+	color: var(--text);
+	font-weight: 600;
+	line-height: 1.35;
+	text-align: start;
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+.settings-entry > span {
+	flex: 1;
+	min-width: 0;
+}
+.settings-entry > svg:last-child {
+	margin-inline-start: auto;
+	color: var(--muted);
+}
+.settings-entry:focus-visible {
+	outline-offset: -3px;
+}
+.settings-facts {
+	padding-inline: var(--gap);
+}
+.settings-facts > div {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+	align-items: baseline;
+	gap: var(--gap);
+	min-height: 44px;
+	padding-block: 0.65rem;
+}
+.settings-facts dt {
+	color: var(--muted);
+}
+.settings-facts dd {
+	margin: 0;
+	text-align: end;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+.settings-disclosure {
+	padding-inline: var(--gap);
+}
+.settings-disclosure[open] {
+	padding-bottom: var(--gap);
+}
+.settings-disclosure > summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	min-height: 48px;
+	cursor: pointer;
+	font-weight: 600;
+	list-style: none;
+}
+.settings-disclosure > summary::-webkit-details-marker {
+	display: none;
+}
+.settings-disclosure > summary::after {
+	content: '';
+	display: block;
+	width: 0.5rem;
+	height: 0.5rem;
+	margin-inline-end: 0.2rem;
+	border: solid var(--muted);
+	border-width: 0 1.5px 1.5px 0;
+	transform: rotate(45deg);
+}
+.settings-disclosure[open] > summary::after {
+	transform: rotate(225deg);
+}
+.settings-tabs {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.2rem;
+	padding: 0.2rem;
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+}
+.settings-tabs button {
+	min-height: 44px;
+	padding-inline: 0.3rem;
+	border-radius: calc(var(--radius) * 0.8);
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+.settings-tabs button[aria-pressed='true'] {
+	background: var(--dn-action);
+	color: var(--dn-action-content);
+}
+.settings-content input[type='checkbox'] {
+	width: 1.1rem;
+	height: 1.1rem;
+	margin: 0;
+	flex-shrink: 0;
+	accent-color: var(--accent);
+}
+.settings-actions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem 0.8rem;
+}
+.settings-panel > label {
+	display: grid;
+	gap: 0.35rem;
+	min-inline-size: 0;
+}
+.settings-panel > label:has(> input[type='checkbox']) {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	min-height: 44px;
+}
+
+html[data-material='solid']
+	.settings
+	:is(
+		.settings-list,
+		.settings-panel,
+		.settings-facts,
+		.settings-disclosure,
+		.settings-tabs,
+		.shortcut
+	) {
+	box-shadow: none;
+}

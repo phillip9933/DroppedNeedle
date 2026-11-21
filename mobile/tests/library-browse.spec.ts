@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { touchRange } from './fixtures/touchRange';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test } from '@playwright/test';
@@ -178,7 +179,7 @@ test('rating and format filters preserve the server cursor and stay off previews
 	await page.getByRole('button', { name: 'Collection filters' }).click();
 	await page.getByText('Rating and format', { exact: true }).click();
 	await page.getByRole('button', { name: 'Retry formats' }).click();
-	await page.getByLabel('Your rating').selectOption('4');
+	await chooseOption(page.getByLabel('Your rating'), '4');
 	await page.getByRole('checkbox', { name: 'FLAC' }).check();
 	await expect(page.getByRole('button', { name: /Session/ })).toBeVisible();
 	await page.getByRole('button', { name: 'More albums' }).click();
@@ -198,9 +199,9 @@ test('rating and format filters preserve the server cursor and stay off previews
 	await expect(page.getByRole('checkbox', { name: 'FLAC' })).toHaveCount(0);
 	await page.getByRole('checkbox', { name: 'ALAC' }).check();
 	await page.getByRole('checkbox', { name: 'WAV' }).check();
-	await page.getByLabel('Selected formats').selectOption('without');
-	await page.getByLabel('Your rating').selectOption('2');
-	await page.getByLabel('Rating range').selectOption('at_most');
+	await chooseOption(page.getByLabel('Selected formats'), 'without');
+	await chooseOption(page.getByLabel('Your rating'), '2');
+	await chooseOption(page.getByLabel('Rating range'), 'at_most');
 	await expect(page.getByRole('button', { name: 'Play Open air', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Clear rating and format' }).click();
 	await expect(page.getByRole('button', { name: 'Play Silent lake', exact: true })).toBeVisible();

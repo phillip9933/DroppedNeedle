@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import { Capacitor } from '@capacitor/core';
 	import type { Session } from '../connection';
@@ -105,7 +106,7 @@
 	});
 </script>
 
-<section class="playback" aria-label="Playback preferences">
+<section class="settings-stack" aria-label="Playback preferences">
 	<h2>Mobile stream quality</h2>
 	<p class="connection" role="status">
 		{#if network === 'wifi'}Connected through Wi-Fi or Ethernet.
@@ -115,27 +116,36 @@
 	</p>
 	{#each connections as entry (entry.id)}
 		{@const q = profiles[entry.id]}
-		<fieldset disabled={savingProfile}>
-			<legend>{entry.name}</legend>
+		<h3 class="settings-subheading" id={'stream-' + entry.id}>{entry.name}</h3>
+		<fieldset
+			class="settings-panel"
+			data-surface="panel"
+			aria-labelledby={'stream-' + entry.id}
+			disabled={savingProfile}
+		>
 			<label
-				>Audio format<select
-					aria-label={entry.name + ' audio format'}
-					value={q.format}
-					onchange={(e) => configure(entry.id, e.currentTarget.value as Format, q.rate)}
-				>
-					<option value="original">Original file</option><option value="mp3">MP3</option><option
-						value="opus">Opus</option
+				>Audio format<InlineChoice selected={q.format} label={entry.name + ' audio format'}
+					><select
+						value={q.format}
+						onchange={(e) => configure(entry.id, e.currentTarget.value as Format, q.rate)}
 					>
-				</select></label
+						<option value="original">Original file</option><option value="mp3">MP3</option><option
+							value="opus">Opus</option
+						>
+					</select></InlineChoice
+				></label
 			>
 			{#if q.format !== 'original'}<label
-					>Requested bitrate<select
-						aria-label={entry.name + ' requested bitrate'}
-						value={q.rate}
-						onchange={(e) => configure(entry.id, q.format, Number(e.currentTarget.value))}
-					>
-						{#each rates as rate (rate)}<option value={rate}>{rate} kbps</option>{/each}
-					</select></label
+					>Requested bitrate<InlineChoice
+						selected={q.rate}
+						label={entry.name + ' requested bitrate'}
+						><select
+							value={q.rate}
+							onchange={(e) => configure(entry.id, q.format, Number(e.currentTarget.value))}
+						>
+							{#each rates as rate (rate)}<option value={rate}>{rate} kbps</option>{/each}
+						</select></InlineChoice
+					></label
 				>{/if}
 		</fieldset>
 	{/each}
@@ -161,54 +171,34 @@
 		<button class="text-button" onclick={readConversion}>Check conversion again</button>
 	{:else if conversion === 'on'}<p>DN can convert streams for both profiles.</p>
 	{:else}<p role="status">Checking server conversion…</p>{/if}
-	<h2>Track fades</h2>
-	<label
-		>Fade in and out<select
-			aria-label="Fade in and out"
-			value={milliseconds}
-			disabled={loadingFades || saving}
-			onchange={(e) => fade(Number(e.currentTarget.value))}
-			>{#each fadeLengths as ms (ms)}<option value={ms}
-					>{ms ? ms / 1000 + ' seconds' : 'Off'}</option
-				>{/each}</select
-		></label
+	<h2 id="track-fades-settings">Track fades</h2>
+	<div
+		class="settings-panel"
+		data-surface="panel"
+		role="group"
+		aria-labelledby="track-fades-settings"
 	>
-	<p>Gradually raise the volume at the start of a track and lower it at the end.</p>
+		<label
+			>Fade in and out<InlineChoice selected={milliseconds} label="Fade in and out"
+				><select
+					value={milliseconds}
+					disabled={loadingFades || saving}
+					onchange={(e) => fade(Number(e.currentTarget.value))}
+					>{#each fadeLengths as ms (ms)}<option value={ms}
+							>{ms ? ms / 1000 + ' seconds' : 'Off'}</option
+						>{/each}</select
+				></InlineChoice
+			></label
+		>
+		<p>Gradually raise the volume at the start of a track and lower it at the end.</p>
+	</div>
 	{#if fadeError}<p role="alert">{fadeError}</p>{/if}
 </section>
 
 <style>
-	.playback {
-		display: grid;
-		gap: 0.65rem;
-	}
-	h2,
-	p {
-		margin: 0;
-	}
-	h2:not(:first-child) {
-		margin-top: 1.2rem;
-	}
 	label {
 		display: grid;
 		gap: 0.35rem;
-	}
-	p {
-		color: var(--muted);
-	}
-	fieldset {
-		display: grid;
-		gap: 0.65rem;
-		min-width: 0;
-		padding: 0.65rem 0.85rem 0.85rem;
-		margin: 0;
-		border: 1px solid var(--line);
-		border-radius: var(--radius);
-		background: var(--surface);
-	}
-	legend {
-		font-weight: 650;
-		padding-inline: 0.2rem;
 	}
 	.connection {
 		color: var(--text);

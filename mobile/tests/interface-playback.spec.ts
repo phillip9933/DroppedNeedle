@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
@@ -146,11 +147,11 @@ test('compact player controls fit at 320px and return from the real queue to the
 	const defaultHeight = await mini.evaluate((el) => el.clientHeight);
 	await settings(page, 'Interface and navigation');
 	const form = page.getByRole('group', { name: 'Mini-player' });
-	await form.getByLabel('Secondary text').selectOption('artist-album');
+	await chooseOption(form.getByLabel('Secondary text'), 'artist-album');
 	await form.getByLabel('Show track progress').check();
-	await form.getByLabel('Before Play/Pause').selectOption('next');
-	await expect(form.getByLabel('After Play/Pause')).toHaveValue('none');
-	await form.getByLabel('After Play/Pause').selectOption('queue');
+	await chooseOption(form.getByLabel('Before Play/Pause'), 'next');
+	await expect(form.getByLabel('After Play/Pause')).toHaveAttribute('data-value', 'none');
+	await chooseOption(form.getByLabel('After Play/Pause'), 'queue');
 	await back(page, 'Settings');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(mini.getByText('Strings · Nightfall', { exact: true })).toBeVisible();
@@ -194,8 +195,8 @@ test('compact player controls fit at 320px and return from the real queue to the
 	await page.keyboard.press('Escape');
 	await expect(open).toBeFocused();
 	await settings(page, 'Interface and navigation');
-	await form.getByLabel('Secondary text').selectOption('album');
-	await form.getByLabel('Before Play/Pause').selectOption('previous');
+	await chooseOption(form.getByLabel('Secondary text'), 'album');
+	await chooseOption(form.getByLabel('Before Play/Pause'), 'previous');
 	await back(page, 'Settings');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(open).toHaveAccessibleDescription('Nightfall');
@@ -203,8 +204,8 @@ test('compact player controls fit at 320px and return from the real queue to the
 	await expect(mini.getByRole('button', { name: 'Open player for Reflections' })).toBeVisible();
 	await settings(page, 'Interface and navigation');
 	await page.getByRole('button', { name: 'Restore interface defaults' }).click();
-	await expect(form.getByLabel('Before Play/Pause')).toHaveValue('none');
-	await expect(form.getByLabel('After Play/Pause')).toHaveValue('next');
+	await expect(form.getByLabel('Before Play/Pause')).toHaveAttribute('data-value', 'none');
+	await expect(form.getByLabel('After Play/Pause')).toHaveAttribute('data-value', 'next');
 	await expect(form.getByLabel('Show track progress')).not.toBeChecked();
 });
 
@@ -215,18 +216,18 @@ test('compact player settings follow the listener, persist after sign-in, and co
 	await settings(page, 'Interface and navigation');
 	const form = page.getByRole('group', { name: 'Mini-player' });
 	await form.getByLabel('Show cover artwork').uncheck();
-	await form.getByLabel('Secondary text').selectOption('hidden');
-	await form.getByLabel('After Play/Pause').selectOption('none');
+	await chooseOption(form.getByLabel('Secondary text'), 'hidden');
+	await chooseOption(form.getByLabel('After Play/Pause'), 'none');
 	await connect(page, false, undefined, false, 'second-listener');
 	await settings(page, 'Interface and navigation');
 	await expect(form.getByLabel('Show cover artwork')).toBeChecked();
-	await expect(form.getByLabel('Secondary text')).toHaveValue('artist');
-	await expect(form.getByLabel('After Play/Pause')).toHaveValue('next');
+	await expect(form.getByLabel('Secondary text')).toHaveAttribute('data-value', 'artist');
+	await expect(form.getByLabel('After Play/Pause')).toHaveAttribute('data-value', 'next');
 	const fixture = await connect(page);
 	await settings(page, 'Interface and navigation');
 	await expect(form.getByLabel('Show cover artwork')).not.toBeChecked();
-	await expect(form.getByLabel('Secondary text')).toHaveValue('hidden');
-	await expect(form.getByLabel('After Play/Pause')).toHaveValue('none');
+	await expect(form.getByLabel('Secondary text')).toHaveAttribute('data-value', 'hidden');
+	await expect(form.getByLabel('After Play/Pause')).toHaveAttribute('data-value', 'none');
 	await back(page, 'Settings');
 	await back(page, 'Home');
 	await seedOfflineMusic(page, server, 'listener', true, [
@@ -262,6 +263,40 @@ test('compact player settings follow the listener, persist after sign-in, and co
 	expect(fixture.streams).toEqual([]);
 });
 
+test('navigation precedes settings and its shortcuts fit at phone widths and large text sizes', async ({
+	page
+}) => {
+	await connect(page);
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	const root = page.locator('[data-part=settings]');
+	const menu = root.getByRole('navigation', { name: 'Navigation shortcuts' });
+	await expect(root.getByRole('heading', { level: 1 })).toHaveText('Navigation');
+	await expect(menu.locator('xpath=following-sibling::h2[1]')).toHaveText('Settings');
+	await expect(menu.getByRole('button')).toHaveCount(5);
+	for (const width of [320, 390]) {
+		await page.setViewportSize({ width, height: 844 });
+		for (const scale of [100, 200]) {
+			await page.evaluate((size) => (document.documentElement.style.fontSize = size + '%'), scale);
+			const clipped = await menu.locator('button span').evaluateAll((labels) =>
+				labels.flatMap((label) => {
+					const text = document.createRange();
+					text.selectNodeContents(label);
+					const box = label.closest('button')!.getBoundingClientRect();
+					const glyphs = text.getBoundingClientRect();
+					return text.getClientRects().length === 1 &&
+						glyphs.left >= box.left &&
+						glyphs.right <= box.right &&
+						box.left >= 0 &&
+						box.right <= document.documentElement.clientWidth
+						? []
+						: [label.textContent];
+				})
+			);
+			expect(clipped, width + 'px and ' + scale + '% text').toEqual([]);
+		}
+	}
+});
+
 test('the Settings shortcuts keep every destination reachable when the dock is empty', async ({
 	page
 }) => {
@@ -270,7 +305,7 @@ test('the Settings shortcuts keep every destination reachable when the dock is e
 	await page.getByRole('button', { name: 'Blur', exact: true }).click();
 	await page.getByRole('slider', { name: 'Blur strength' }).fill('19');
 	await page.getByRole('button', { name: 'Floating', exact: true }).click();
-	await page.getByLabel('Screen transitions').selectOption('gentle');
+	await chooseOption(page.getByLabel('Screen transitions'), 'gentle');
 	await page.getByRole('button', { name: 'Move Library earlier' }).click();
 	await page.getByRole('checkbox', { name: 'Discover', exact: true }).uncheck();
 	await back(page, 'Settings');
@@ -410,6 +445,31 @@ test('artwork and mini-player horizontal swipes change tracks while taps still o
 	await touch.detach();
 });
 
+test('a rejected streaming setting keeps its saved choice and accepts a retry', async ({
+	page
+}) => {
+	await connect(page);
+	await settings(page, 'Streaming and fades');
+	await page.evaluate(() => {
+		const original = Storage.prototype.setItem;
+		Storage.prototype.setItem = function (key, value) {
+			if (key.startsWith('dn.mobile.stream.')) {
+				Storage.prototype.setItem = original;
+				throw Error('Could not write streaming preferences');
+			}
+			original.call(this, key, value);
+		};
+	});
+	const format = page.getByRole('combobox', { name: 'Wi-Fi audio format' });
+	await chooseOption(format, 'opus');
+	await expect(page.getByRole('alert')).toContainText('Could not write streaming preferences');
+	await expect(format).toHaveText('Original file');
+	await expect(format).toBeEnabled();
+	await chooseOption(format, 'mp3');
+	await expect(format).toHaveText('MP3');
+	await expect(page.getByRole('combobox', { name: 'Wi-Fi requested bitrate' })).toBeEnabled();
+});
+
 test('DN conversion and local fades apply to playback through the normal album action', async ({
 	page
 }) => {
@@ -443,9 +503,9 @@ test('DN conversion and local fades apply to playback through the normal album a
 	expect(fixture.streams).toEqual(['']);
 	await settings(page, 'Streaming and fades');
 	await expect(page.getByText(/DN can convert streams/)).toBeVisible();
-	await page.getByLabel('Wi-Fi audio format').selectOption('opus');
-	await page.getByLabel('Wi-Fi requested bitrate').selectOption('128');
-	await page.getByLabel('Fade in and out').selectOption('500');
+	await chooseOption(page.getByLabel('Wi-Fi audio format'), 'opus');
+	await chooseOption(page.getByLabel('Wi-Fi requested bitrate'), '128');
+	await chooseOption(page.getByLabel('Fade in and out'), '500');
 	await back(page, 'Settings');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await page
@@ -460,10 +520,13 @@ test('DN conversion and local fades apply to playback through the normal album a
 	fixture.disableConversion();
 	await settings(page, 'Streaming and fades');
 	await expect(page.getByText(/Conversion is turned off/)).toBeVisible();
-	await expect(page.getByLabel('Wi-Fi audio format')).toHaveValue('opus');
-	await expect(page.getByLabel('Cellular data audio format')).toHaveValue('original');
-	await expect(page.getByLabel('Fade in and out')).toHaveValue('500');
-	await page.getByLabel('Wi-Fi audio format').selectOption('original');
+	await expect(page.getByLabel('Wi-Fi audio format')).toHaveAttribute('data-value', 'opus');
+	await expect(page.getByLabel('Cellular data audio format')).toHaveAttribute(
+		'data-value',
+		'original'
+	);
+	await expect(page.getByLabel('Fade in and out')).toHaveAttribute('data-value', '500');
+	await chooseOption(page.getByLabel('Wi-Fi audio format'), 'original');
 });
 
 test('a queued track uses the new network profile without interrupting the track that was loading', async ({
@@ -474,11 +537,11 @@ test('a queued track uses the new network profile without interrupting the track
 	const gate = new Promise<void>((resolve) => (release = resolve));
 	const fixture = await connect(page, true, gate);
 	await settings(page, 'Streaming and fades');
-	await expect(page.getByLabel('Wi-Fi audio format')).toHaveValue('opus');
-	await expect(page.getByLabel('Cellular data audio format')).toHaveValue('opus');
-	await page.getByLabel('Cellular data audio format').selectOption('mp3');
-	await page.getByLabel('Cellular data requested bitrate').selectOption('96');
-	await expect(page.getByLabel('Wi-Fi requested bitrate')).toHaveValue('192');
+	await expect(page.getByLabel('Wi-Fi audio format')).toHaveAttribute('data-value', 'opus');
+	await expect(page.getByLabel('Cellular data audio format')).toHaveAttribute('data-value', 'opus');
+	await chooseOption(page.getByLabel('Cellular data audio format'), 'mp3');
+	await chooseOption(page.getByLabel('Cellular data requested bitrate'), '96');
+	await expect(page.getByLabel('Wi-Fi requested bitrate')).toHaveAttribute('data-value', '192');
 	await back(page, 'Settings');
 	await back(page, 'Home');
 	await page
@@ -500,5 +563,8 @@ test('a queued track uses the new network profile without interrupting the track
 	await expect(page.getByText('Connected through cellular data.')).toBeVisible();
 	await page.evaluate(() => window.setFixtureConnection('wifi'));
 	await expect(page.getByText('Connected through Wi-Fi or Ethernet.')).toBeVisible();
-	await expect(page.getByLabel('Cellular data requested bitrate')).toHaveValue('96');
+	await expect(page.getByLabel('Cellular data requested bitrate')).toHaveAttribute(
+		'data-value',
+		'96'
+	);
 });

@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
@@ -83,11 +84,11 @@ for (const shuffle of [false, true]) {
 			await button(page, 'Search tracks').click();
 			await page.getByRole('searchbox', { name: 'Filter songs' }).fill('Hear');
 			await button(page, 'Choose sort order').click();
-			await page.getByLabel('Sort songs').selectOption('date_added');
+			await chooseOption(page.getByLabel('Sort songs'), 'date_added');
 			await button(page, 'Collection filters').click();
 			await button(page, 'Favorites only').click();
 			await page.getByText('Rating and format', { exact: true }).click();
-			await page.getByLabel('Your rating').selectOption('4');
+			await chooseOption(page.getByLabel('Your rating'), '4');
 			await page.getByRole('checkbox', { name: 'FLAC' }).check();
 			await button(page, shuffle ? 'Shuffle all' : 'Play all').click();
 			await expect.poll(() => played[0]).toBe('One');

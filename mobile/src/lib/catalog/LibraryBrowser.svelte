@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
@@ -663,9 +664,11 @@
 	{:else if panel === 'sort'}
 		<div class="control-panel">
 			<label
-				>Sort {unit}<select value={filters.sort} onchange={(e) => chooseSort(e.currentTarget.value)}
-					>{#each orderChoices[category] as [value, label] (value)}<option {value}>{label}</option
-						>{/each}</select
+				>Sort {unit}<InlineChoice selected={filters.sort}
+					><select value={filters.sort} onchange={(e) => chooseSort(e.currentTarget.value)}
+						>{#each orderChoices[category] as [value, label] (value)}<option {value}>{label}</option
+							>{/each}</select
+					></InlineChoice
 				></label
 			>
 		</div>
@@ -686,17 +689,21 @@
 	{:else if panel === 'display'}
 		<div class="control-panel">
 			<label
-				>Display<select
-					value={settings.layout}
-					onchange={(e) => preferences({ layout: e.currentTarget.value as 'list' | 'grid' })}
-					><option value="grid">Grid</option><option value="list">List</option></select
+				>Display<InlineChoice selected={settings.layout}
+					><select
+						value={settings.layout}
+						onchange={(e) => preferences({ layout: e.currentTarget.value as 'list' | 'grid' })}
+						><option value="grid">Grid</option><option value="list">List</option></select
+					></InlineChoice
 				></label
 			>
 			{#if settings.layout === 'grid'}<label
-					>Grid columns<select
-						value={settings.columns}
-						onchange={(e) => preferences({ columns: Number(e.currentTarget.value) })}
-						>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option>{/each}</select
+					>Grid columns<InlineChoice selected={settings.columns}
+						><select
+							value={settings.columns}
+							onchange={(e) => preferences({ columns: Number(e.currentTarget.value) })}
+							>{#each [1, 2, 3, 4, 5, 6] as n (n)}<option value={n}>{n}</option>{/each}</select
+						></InlineChoice
 					></label
 				>
 			{/if}<label class="check"

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, type Session } from '../connection';
 	import { labels, asTheme, type Mode, type Palette, type Theme } from './theme';
@@ -66,22 +67,26 @@
 	});
 </script>
 
-<details bind:open>
+<details class="settings-disclosure" data-surface="panel" bind:open>
 	<summary>Import colors from a web style</summary>
 	{#if open}
 		<label
-			>Web style<select bind:value={picked}
-				><option value="current">Current account CSS</option>{#each history as row (row.id)}<option
-						value={String(row.id)}
-						>Saved {new Date(row.saved_at).toLocaleString()} · #{row.id}</option
-					>{/each}</select
+			>Web style<InlineChoice selected={picked}
+				><select bind:value={picked}
+					><option value="current">Current account CSS</option
+					>{#each history as row (row.id)}<option value={String(row.id)}
+							>Saved {new Date(row.saved_at).toLocaleString()} · #{row.id}</option
+						>{/each}</select
+				></InlineChoice
 			></label
 		>
 		<label
-			>Palette to import<select bind:value={palette}
-				>{#each ['dark', 'light', 'midnight'] as name (name)}<option value={name}
-						>{labels[name as Palette]}</option
-					>{/each}</select
+			>Palette to import<InlineChoice selected={palette}
+				><select bind:value={palette}
+					>{#each ['dark', 'light', 'midnight'] as name (name)}<option value={name}
+							>{labels[name as Palette]}</option
+						>{/each}</select
+				></InlineChoice
 			></label
 		>
 		{#if historyError}<p role="alert">{historyError}</p>
@@ -121,15 +126,6 @@
 </details>
 
 <style>
-	details {
-		border-block: 1px solid var(--line);
-		padding-block: 0.35rem;
-	}
-	summary {
-		cursor: pointer;
-		min-height: 44px;
-		padding-block: 0.6rem;
-	}
 	label {
 		display: grid;
 		gap: 0.25rem;

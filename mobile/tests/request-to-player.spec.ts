@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { test, expect } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
@@ -272,7 +273,7 @@ test('the requested edition arrives and both local tracks play in disc order', a
 		.click();
 	await page.getByRole('searchbox').fill(album);
 	await page.getByRole('button', { name: album + ' ' + artist }).click();
-	await page.getByRole('combobox', { name: 'Edition' }).selectOption(release);
+	await chooseOption(page.getByRole('combobox', { name: 'Edition' }), release);
 	await expect(page.getByText('Slow Motion')).toBeVisible();
 	await page.getByRole('button', { name: 'Request song Slow Motion' }).click();
 	await expect(page.getByText('Awaiting approval', { exact: true })).toBeVisible();

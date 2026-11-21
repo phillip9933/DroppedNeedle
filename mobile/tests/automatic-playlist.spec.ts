@@ -1,3 +1,4 @@
+import { chooseOption, choiceList } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import type { PlayerTrack } from '../src/lib/player';
 import { playlistId, playlistSource } from '../src/lib/offline/tracks';
@@ -100,8 +101,8 @@ async function settings(page: Page) {
 	await expect(page.getByLabel('Download source')).toBeVisible();
 }
 async function choose(page: Page, id = playlist) {
-	await page.getByLabel('Download source').selectOption('playlist');
-	await page.getByRole('combobox', { name: 'DN playlist', exact: true }).selectOption(id);
+	await chooseOption(page.getByLabel('Download source'), 'playlist');
+	await chooseOption(page.getByRole('combobox', { name: 'DN playlist', exact: true }), id);
 }
 async function storedTracks(page: Page, who = 'listener') {
 	return page.evaluate(
@@ -157,6 +158,7 @@ test('selection syncs the full playlist in order, preserves manual copies and is
 	await expect(page.getByText('103 automatic downloads added.', { exact: true })).toBeVisible();
 	expect(env.streams).toEqual(ids);
 	expect(env.ratings).toEqual([100, 3]);
+	await choiceList(page.getByRole('combobox', { name: 'DN playlist', exact: true }));
 	await expect(page.getByRole('option', { name: 'bad/id' })).toHaveCount(0);
 	await page.getByRole('button', { name: 'Open offline music' }).click();
 	const shelf = page.getByRole('region', { name: 'Offline music' });
@@ -171,7 +173,7 @@ test('selection syncs the full playlist in order, preserves manual copies and is
 	await expect(syncButton(page)).toBeDisabled();
 	await localSignIn(page, server, 'another');
 	await settings(page);
-	await expect(page.getByLabel('Download source')).toHaveValue('off');
+	await expect(page.getByLabel('Download source')).toHaveAttribute('data-value', 'off');
 	await choose(page, alternate);
 	await expect(page.getByText('1 automatic download added.', { exact: true })).toBeVisible();
 	const reads = env.reads;
@@ -179,9 +181,11 @@ test('selection syncs the full playlist in order, preserves manual copies and is
 	await settings(page);
 	await expect(page.getByLabel('Play only offline music')).toBeChecked();
 	await page.context().setOffline(true);
-	await expect(page.getByRole('combobox', { name: 'DN playlist', exact: true })).toHaveValue(
+	await expect(page.getByRole('combobox', { name: 'DN playlist', exact: true })).toHaveAttribute(
+		'data-value',
 		playlist
 	);
+	await choiceList(page.getByRole('combobox', { name: 'DN playlist', exact: true }));
 	await expect(page.getByRole('option', { name: 'listener evening' })).toBeAttached();
 	expect(env.reads).toBe(reads);
 	const cold = (await storedTracks(page)).map((row) => row.track);
@@ -201,7 +205,7 @@ test('selection syncs the full playlist in order, preserves manual copies and is
 	expect(await copies(page)).toEqual(['automatic:new', 'automatic:s2', 'downloaded:s0']);
 	await page.getByRole('button', { name: 'Remove automatic playlist downloads' }).click();
 	await page.getByRole('button', { name: 'Turn off and remove automatic copies' }).click();
-	await expect(page.getByLabel('Download source')).toHaveValue('off');
+	await expect(page.getByLabel('Download source')).toHaveAttribute('data-value', 'off');
 	expect(await copies(page)).toEqual(['downloaded:s0']);
 	expect(await copies(page, 'another')).toEqual(['automatic:sun']);
 });
@@ -243,7 +247,7 @@ test('incomplete reads preserve downloads, viewers can add playable entries, and
 	await expect(page.getByText(/deleted or you no longer have access/)).toBeVisible();
 	expect(await copies(page)).toEqual(['automatic:new', 'automatic:one', 'automatic:two']);
 	env.status = 200;
-	await page.getByRole('combobox', { name: 'DN playlist', exact: true }).selectOption(alternate);
+	await chooseOption(page.getByRole('combobox', { name: 'DN playlist', exact: true }), alternate);
 	await expect.poll(() => copies(page)).toEqual(['automatic:sun']);
 });
 
@@ -309,10 +313,10 @@ async function switchWhileRefreshing(page: Page) {
 		await syncButton(page).click();
 		await expect.poll(() => entered).toBe(true);
 		const picker = page.getByRole('combobox', { name: 'DN playlist', exact: true });
-		await picker.selectOption(alternate);
+		await chooseOption(picker, alternate);
 		await expect.poll(() => copies(page)).toEqual(['automatic:sun']);
 		env.files = ['current'];
-		await picker.selectOption(playlist);
+		await chooseOption(picker, playlist);
 		await expect.poll(() => copies(page)).toEqual(['automatic:current']);
 	} finally {
 		resume();

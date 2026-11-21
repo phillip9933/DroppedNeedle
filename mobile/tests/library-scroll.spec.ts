@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { test, expect, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { writeFile } from 'node:fs/promises';
@@ -234,7 +235,7 @@ test('grid drill-down and Back retain the row, keyboard focus, layout and active
 	const shelf = index(page),
 		main = page.locator('main');
 	await button(page, 'Collection options').click();
-	await page.getByLabel('Grid columns').selectOption('3');
+	await chooseOption(page.getByLabel('Grid columns'), '3');
 	await button(page, 'Search albums').click();
 	await page.getByRole('searchbox').fill('Album');
 	await expect.poll(() => s.requests.some((u) => u.searchParams.get('q') === 'Album')).toBe(true);
@@ -356,8 +357,8 @@ test('six-column virtual track grids retain 44px controls, row spacing and keybo
 	await button(page, 'Browse Tracks').click();
 	const shelf = index(page);
 	await button(page, 'Collection options').click();
-	await page.getByRole('combobox', { name: 'Display', exact: true }).selectOption('grid');
-	await page.getByLabel('Grid columns').selectOption('6');
+	await chooseOption(page.getByRole('combobox', { name: 'Display', exact: true }), 'grid');
+	await chooseOption(page.getByLabel('Grid columns'), '6');
 	await page.getByLabel('Compact rows').check();
 	await button(page, 'Collection options').click();
 	for (let n = 30; n < 300; n += 30) await step(page, n);

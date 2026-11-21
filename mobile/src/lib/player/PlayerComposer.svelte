@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import {
 		ArrowLeft,
@@ -577,7 +578,9 @@
 				return;
 			if (
 				event.target instanceof Element &&
-				event.target.closest('input, textarea, select, [contenteditable="true"]')
+				event.target.closest(
+					'input, textarea, select, [data-inline-choice], [contenteditable="true"]'
+				)
 			)
 				return;
 			const key = event.key.toLowerCase();
@@ -1009,55 +1012,59 @@
 								/></label
 							>
 							{#if rows.flat().length > 1}<label
-									>Stack below<select
-										aria-label="Stack below"
-										value=""
-										onchange={(e) => {
-											if (field && e.currentTarget.value)
-												rows = placeField(rows, field.id, e.currentTarget.value, 'below');
-										}}
-										><option value="">Choose a field</option
-										>{#each rows as group, ri (group[0].id)}{#each group.filter((s) => s.id !== field?.id && !isPlayerSlot(s.id)) as sibling (sibling.id)}<option
-													value={sibling.id}>{rowName(ri)} · {sectionTitle(sibling)}</option
-												>{/each}{/each}</select
+									>Stack below<InlineChoice selected="" label="Stack below"
+										><select
+											value=""
+											onchange={(e) => {
+												if (field && e.currentTarget.value)
+													rows = placeField(rows, field.id, e.currentTarget.value, 'below');
+											}}
+											><option value="">Choose a field</option
+											>{#each rows as group, ri (group[0].id)}{#each group.filter((s) => s.id !== field?.id && !isPlayerSlot(s.id)) as sibling (sibling.id)}<option
+														value={sibling.id}>{rowName(ri)} · {sectionTitle(sibling)}</option
+													>{/each}{/each}</select
+										></InlineChoice
 									></label
 								>{/if}
 							<div class="pair">
 								<label
-									>Move to row<select
-										aria-label="Move to row"
-										value={(swapTarget ?? rowIndex) - 1}
-										onchange={(e) => moveField(e.currentTarget.value)}
-									>
-										{#each rows as dest, i (i)}<option value={i - 1}
-												>{rowName(i)}{playerColumns(dest).length === maxPlayerColumns &&
-												i !== rowIndex
-													? ' (full)'
-													: ''}</option
-											>{/each}
-										<option value="new">New row</option>
-									</select></label
+									>Move to row<InlineChoice
+										selected={(swapTarget ?? rowIndex) - 1}
+										label="Move to row"
+										><select
+											value={(swapTarget ?? rowIndex) - 1}
+											onchange={(e) => moveField(e.currentTarget.value)}
+										>
+											{#each rows as dest, i (i)}<option value={i - 1}
+													>{rowName(i)}{playerColumns(dest).length === maxPlayerColumns &&
+													i !== rowIndex
+														? ' (full)'
+														: ''}</option
+												>{/each}
+											<option value="new">New row</option>
+										</select></InlineChoice
+									></label
 								>
 								<label
-									>Row position<select
-										aria-label="Position"
-										value={rowIndex - 1}
-										onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value) + 1)}
-									>
-										{#each rows.keys() as i (i)}<option value={i - 1}>{rowName(i)}</option>{/each}
-									</select></label
+									>Row position<InlineChoice selected={rowIndex - 1} label="Position"
+										><select
+											value={rowIndex - 1}
+											onchange={(e) => moveRow(rowIndex, Number(e.currentTarget.value) + 1)}
+										>
+											{#each rows.keys() as i (i)}<option value={i - 1}>{rowName(i)}</option>{/each}
+										</select></InlineChoice
+									></label
 								>
 							</div>
 							{#if swapTarget !== null && rows[swapTarget]}
 								<label
-									>Swap with<select
-										aria-label="Swap with"
-										value=""
-										onchange={(e) => swapWith(Number(e.currentTarget.value))}
-										><option value="" disabled>Choose a field in {rowName(swapTarget)}</option
-										>{#each rows[swapTarget] as partner, i (partner.id)}<option value={i}
-												>{sectionTitle(partner)}</option
-											>{/each}</select
+									>Swap with<InlineChoice selected="" label="Swap with"
+										><select value="" onchange={(e) => swapWith(Number(e.currentTarget.value))}
+											><option value="" disabled>Choose a field in {rowName(swapTarget)}</option
+											>{#each rows[swapTarget] as partner, i (partner.id)}<option value={i}
+													>{sectionTitle(partner)}</option
+												>{/each}</select
+										></InlineChoice
 									></label
 								>
 							{/if}

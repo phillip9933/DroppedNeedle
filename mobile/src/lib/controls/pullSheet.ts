@@ -71,7 +71,7 @@ export function pullSheet(sheet: HTMLDialogElement, options: Pull) {
 				!el ||
 				event.touches.length !== 1 ||
 				el.closest(
-					'input,select,textarea,[contenteditable=true],[role=slider],[data-sheet-handle],[data-reorder-grip]'
+					'input,select,textarea,[data-inline-choice],[contenteditable=true],[role=slider],[data-sheet-handle],[data-reorder-grip]'
 				)
 			)
 				return;

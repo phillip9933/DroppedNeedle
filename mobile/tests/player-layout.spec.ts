@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { verticalSwipe } from './fixtures/verticalSwipe';
 import { seedOfflineMusic } from './fixtures/offlineMusic';
 import { silentWav } from './fixtures/silentWav';
@@ -203,7 +204,7 @@ test('a listener saves, cancels and restores the Now Playing layout independentl
 	await addFeature(page, 'Up next');
 	await page.getByRole('button', { name: 'Customize Up next' }).click();
 	await openPlayerPlacement(page);
-	await page.getByRole('combobox', { name: 'Position', exact: true }).selectOption('0');
+	await chooseOption(page.getByRole('combobox', { name: 'Position', exact: true }), '0');
 	await page.getByRole('button', { name: 'Save layout' }).click();
 	await expect(playing).toBeVisible();
 	await expect(playing.locator('[data-part=player-row] [data-section-id]').first()).toHaveAttribute(
@@ -323,18 +324,20 @@ test('a listener arranges independent player fields in columns and saves a live 
 	const titleRow = await rowIndex('player-title');
 	expect(titleRow).toBeGreaterThanOrEqual(0);
 	await openPlayerPlacement(page);
-	await page
-		.getByRole('combobox', { name: 'Move to row', exact: true })
-		.selectOption(String(titleRow));
+	await chooseOption(
+		page.getByRole('combobox', { name: 'Move to row', exact: true }),
+		String(titleRow)
+	);
 	await edit('Artist');
 	await openPlayerPlacement(page);
 	await button('Move Artist left').click();
 	await edit('Track title');
 	await expect(page.getByRole('combobox', { name: 'Column width', exact: true })).toHaveCount(0);
-	await page
-		.getByRole('combobox', { name: 'Horizontal alignment', exact: true })
-		.selectOption('end');
-	await page.getByRole('combobox', { name: 'Text size', exact: true }).selectOption('large');
+	await chooseOption(
+		page.getByRole('combobox', { name: 'Horizontal alignment', exact: true }),
+		'end'
+	);
+	await chooseOption(page.getByRole('combobox', { name: 'Text size', exact: true }), 'large');
 	await button('Edit row ' + ((await rowIndex('player-title')) + 1)).click();
 	await page.getByRole('slider', { name: 'Column 2 width' }).fill('2');
 	await button('Finish editing row').click();
@@ -368,7 +371,7 @@ test('a listener arranges independent player fields in columns and saves a live 
 	await player.getByRole('button', { name: 'Player settings' }).click();
 	await edit('Artist');
 	await openPlayerPlacement(page);
-	await page.getByRole('combobox', { name: 'Move to row', exact: true }).selectOption('new');
+	await chooseOption(page.getByRole('combobox', { name: 'Move to row', exact: true }), 'new');
 	await button('Cancel').click();
 	await expect(player).toBeVisible();
 	await expect(row.locator('[data-section-id]')).toHaveCount(2);
@@ -433,7 +436,7 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	await button('Split Playback position').click();
 	await button('Customize Play queue').click();
 	await openPlayerPlacement(page);
-	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
+	await chooseOption(page.getByLabel('Move to row', { exact: true }), 'new');
 	await button('Customize Close player').click();
 	await button('Remove Close player').click();
 	await button('Save layout').click();
@@ -521,9 +524,9 @@ test('a resized control grows its face and keeps its custom label above or below
 	expect(Math.abs(viewport.height - originalViewport.height)).toBeLessThan(1);
 	expect(Math.abs(viewport.width - originalViewport.width)).toBeLessThan(1);
 	const before = (await cell.locator('.glyph').boundingBox())!.height;
-	await page.getByLabel('Label', { exact: true }).selectOption('show');
+	await chooseOption(page.getByLabel('Label', { exact: true }), 'show');
 	await page.getByLabel('Label name').fill('Listen');
-	await page.getByLabel('Label position').selectOption('above');
+	await chooseOption(page.getByLabel('Label position'), 'above');
 	await openPlayerPlacement(page);
 	await page.getByLabel('Minimum row height', { exact: true }).fill('96');
 	await expect(cell.locator('.caption')).toHaveText('Listen');
@@ -607,7 +610,7 @@ test('an older header becomes an editable grid with square controls on the heade
 	await geometry(sample, 'player-queue', 36);
 	await button('Edit header').click();
 	const panel = page.getByRole('group', { name: 'Edit header', exact: true });
-	await panel.getByLabel('Number of columns').selectOption('5');
+	await chooseOption(panel.getByLabel('Number of columns'), '5');
 	await panel.getByLabel('Column spacing (px)').fill('4');
 	await panel.getByLabel('Minimum row height').fill('72');
 	await panel.getByLabel('Column 2 width').fill('4');
@@ -622,7 +625,7 @@ test('an older header becomes an editable grid with square controls on the heade
 	await button('Use Remaining time').click();
 	await button('Customize Close player').click();
 	await openPlayerPlacement(page);
-	await page.getByLabel('Move to row', { exact: true }).selectOption('new');
+	await chooseOption(page.getByLabel('Move to row', { exact: true }), 'new');
 	await geometry(sample, 'player-close', 32);
 	await button('Save layout').click();
 	expect(await ids(live)).toEqual([
@@ -928,7 +931,7 @@ test('the clean preview keeps every player row and Back inside the screen in bot
 	await button('Add subrow to column 1').click();
 	await button('Use Artist').click();
 	await button('Customize Playback position').click();
-	await page.getByLabel('Seek bar style').selectOption('waveform');
+	await chooseOption(page.getByLabel('Seek bar style'), 'waveform');
 	await button('Preview current draft').click();
 	const dialog = page.getByRole('dialog', { name: 'Player layout preview' }),
 		preview = dialog.locator('[data-part=draft-player]'),

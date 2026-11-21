@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, putJson, type Session } from '../connection';
@@ -130,23 +131,39 @@
 	<p>
 		Set how this server chooses an edition. Put preferred values first in each comma-separated list.
 	</p>
-	<fieldset disabled={busy}>
+	<fieldset
+		class="settings-panel"
+		data-surface="panel"
+		aria-label="Edition selection"
+		disabled={busy}
+	>
 		{#each lists as f (f.key)}<label>{f.label}<input bind:value={listText[f.key]} /></label>{/each}
 		<label
-			>Release date<select bind:value={draft.date}
-				><option value="earliest">Earliest</option><option value="latest">Latest</option><option
-					value="any">Any</option
-				></select
+			>Release date<InlineChoice selected={draft.date}
+				><select bind:value={draft.date}
+					><option value="earliest">Earliest</option><option value="latest">Latest</option><option
+						value="any">Any</option
+					></select
+				></InlineChoice
 			></label
 		>
 		<label
-			>Version<select bind:value={draft.version}
-				><option value="standard">Standard</option><option value="deluxe">Deluxe</option><option
-					value="any">Any</option
-				></select
+			>Version<InlineChoice selected={draft.version}
+				><select bind:value={draft.version}
+					><option value="standard">Standard</option><option value="deluxe">Deluxe</option><option
+						value="any">Any</option
+					></select
+				></InlineChoice
 			></label
 		>
-		<h2>Types to avoid</h2>
+	</fieldset>
+	<h2 id="avoided-types">Types to avoid</h2>
+	<fieldset
+		class="settings-panel"
+		data-surface="panel"
+		aria-labelledby="avoided-types"
+		disabled={busy}
+	>
 		{#each [...new Set([...avoids, ...draft.avoid_types])] as t (t)}<label class="check"
 				><input type="checkbox" value={t} bind:group={draft.avoid_types} />{t}</label
 			>{/each}
@@ -157,14 +174,14 @@
 	</fieldset>
 {:else if releases}
 	<p>Choose which release types appear in server searches and on artist pages.</p>
-	<fieldset disabled={busy}>
-		{#each groups as g (g.key)}<h2>{g.label}</h2>
+	{#each groups as g (g.key)}<h2 id={g.key}>{g.label}</h2>
+		<fieldset class="settings-panel" data-surface="panel" aria-labelledby={g.key} disabled={busy}>
 			{#each [...new Set([...g.options, ...releases[g.key]])] as t (t)}<label class="check"
 					><input type="checkbox" value={t} bind:group={releases[g.key]} />{t === 'ep'
 						? 'EP'
 						: t[0].toUpperCase() + t.slice(1)}</label
-				>{/each}{/each}
-	</fieldset>
+				>{/each}
+		</fieldset>{/each}
 {:else if busy}<p role="status">Loading server preferences…</p>{/if}
 {#if draft || releases}<button class="secondary" disabled={busy || !dirty} onclick={save}
 		>Save server preferences</button
@@ -174,22 +191,15 @@
 		>{/if}{/if}{#if message}<p role="status">{message}</p>{/if}
 
 <style>
-	fieldset {
-		border: 0;
-		padding: 0;
-		min-width: 0;
-		margin: 0 0 var(--gap);
-	}
 	label {
 		display: grid;
 		gap: 0.3rem;
-		margin-bottom: 0.65rem;
 	}
 	.check {
 		display: flex;
 		align-items: center;
 		gap: 0.65rem;
-		min-height: 42px;
+		min-height: 44px;
 		margin: 0;
 	}
 	input {

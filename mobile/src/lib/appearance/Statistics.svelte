@@ -36,19 +36,27 @@
 {#if error}<p role="alert">{error}</p>{/if}
 {#if library}
 	<h2>Collection</h2>
-	<dl>
-		<dt>Artists</dt>
-		<dd>{library.total_artists.toLocaleString()}</dd>
-		<dt>Albums</dt>
-		<dd>{library.total_albums.toLocaleString()}</dd>
-		<dt>Songs</dt>
-		<dd>{library.total_tracks.toLocaleString()}</dd>
-		<dt>Audio storage</dt>
-		<dd>
-			{(library.total_size_bytes / 1024 ** 3).toLocaleString(undefined, {
-				maximumFractionDigits: 2
-			})} GiB
-		</dd>
+	<dl class="settings-facts" data-surface="panel">
+		<div>
+			<dt>Artists</dt>
+			<dd>{library.total_artists.toLocaleString()}</dd>
+		</div>
+		<div>
+			<dt>Albums</dt>
+			<dd>{library.total_albums.toLocaleString()}</dd>
+		</div>
+		<div>
+			<dt>Songs</dt>
+			<dd>{library.total_tracks.toLocaleString()}</dd>
+		</div>
+		<div>
+			<dt>Audio storage</dt>
+			<dd>
+				{(library.total_size_bytes / 1024 ** 3).toLocaleString(undefined, {
+					maximumFractionDigits: 2
+				})} GiB
+			</dd>
+		</div>
 	</dl>
 	<h2>Your favorites</h2>
 	<p>
@@ -56,53 +64,55 @@
 		songs
 	</p>
 	<h2>Formats</h2>
-	<dl>
-		{#each Object.entries(library.format_breakdown) as [format, count] (format)}<dt>{format}</dt>
-			<dd>{count.toLocaleString()}</dd>{:else}<dt>No audio formats reported.</dt>{/each}
-	</dl>
+	{#if Object.keys(library.format_breakdown).length}
+		<dl class="settings-facts" data-surface="panel">
+			{#each Object.entries(library.format_breakdown) as [format, count] (format)}<div>
+					<dt>{format}</dt>
+					<dd>{count.toLocaleString()}</dd>
+				</div>{/each}
+		</dl>{:else}<p>No audio formats reported.</p>{/if}
 {:else if workers && providers}
 	<h2>Work queues</h2>
-	{#each workers.queues as queue (queue.kind)}<article>
-			<strong>{queue.kind}</strong>
-			<p>{queue.queued} queued · {queue.running} running · {queue.failed} failed</p>
-		</article>{:else}<p>No queued, running or failed jobs.</p>{/each}
+	{#if workers.queues.length}<div class="settings-list" data-surface="panel">
+			{#each workers.queues as queue (queue.kind)}<article>
+					<strong>{queue.kind}</strong>
+					<p>{queue.queued} queued · {queue.running} running · {queue.failed} failed</p>
+				</article>{/each}
+		</div>{:else}<p>No queued, running or failed jobs.</p>{/if}
 	<h2>Background jobs</h2>
-	{#each workers.jobs as job (job.name)}<article>
-			<strong>{job.name}</strong>
-			<p>
-				{job.state}{#if job.last_heartbeat_at}
-					· {new Date(job.last_heartbeat_at).toLocaleString()}{/if}
-			</p>
-			{#if job.last_error}<p>{job.last_error}</p>{/if}
-		</article>{:else}<p>No background jobs reported.</p>{/each}
+	{#if workers.jobs.length}<div class="settings-list" data-surface="panel">
+			{#each workers.jobs as job (job.name)}<article>
+					<strong>{job.name}</strong>
+					<p>
+						{job.state}{#if job.last_heartbeat_at}
+							· {new Date(job.last_heartbeat_at).toLocaleString()}{/if}
+					</p>
+					{#if job.last_error}<p>{job.last_error}</p>{/if}
+				</article>{/each}
+		</div>{:else}<p>No background jobs reported.</p>{/if}
 	<h2>Provider calls</h2>
-	{#each providers.calls as row (JSON.stringify([row.source, row.priority, row.outcome]))}<article>
-			<strong>{row.source}</strong>
-			<p>
-				{row.priority} · {row.outcome} · {row.calls.toLocaleString()} calls · {row.calls_last_minute}
-				in the last minute
-			</p>
-		</article>{:else}<p>No provider calls recorded.</p>{/each}
+	{#if providers.calls.length}<div class="settings-list" data-surface="panel">
+			{#each providers.calls as row (JSON.stringify( [row.source, row.priority, row.outcome] ))}<article
+				>
+					<strong>{row.source}</strong>
+					<p>
+						{row.priority} · {row.outcome} · {row.calls.toLocaleString()} calls · {row.calls_last_minute}
+						in the last minute
+					</p>
+				</article>{/each}
+		</div>{:else}<p>No provider calls recorded.</p>{/if}
 	<h2>Rate limits</h2>
-	{#each providers.limiters as row (row.source)}<article>
-			<strong>{row.source}</strong>
-			<p>{row.remaining} of {row.burst} tokens available · {row.per_second} per second</p>
-		</article>{:else}<p>No rate limits reported.</p>{/each}
+	{#if providers.limiters.length}<div class="settings-list" data-surface="panel">
+			{#each providers.limiters as row (row.source)}<article>
+					<strong>{row.source}</strong>
+					<p>{row.remaining} of {row.burst} tokens available · {row.per_second} per second</p>
+				</article>{/each}
+		</div>{:else}<p>No rate limits reported.</p>{/if}
 {/if}
 
 <style>
-	dl {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		gap: 0.5rem;
-	}
-	dd {
-		margin: 0;
-		font-variant-numeric: tabular-nums;
-	}
 	article {
-		border-bottom: 1px solid var(--line);
-		padding: 0.7rem 0;
+		padding: 0.7rem var(--gap);
 		overflow-wrap: anywhere;
 	}
 	article p {

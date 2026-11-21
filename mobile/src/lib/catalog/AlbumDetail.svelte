@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import WebDetail from './WebDetail.svelte';
 	import { onMount } from 'svelte';
 	import { ArrowLeft, Play } from '@lucide/svelte';
@@ -237,12 +238,14 @@
 		>{/if}
 	<label
 		>Edition
-		<select bind:value={selected} disabled={sending || loadingEditions}>
-			<option value="">Server preference</option>
-			{#each choices as edition (edition.release_mbid)}<option value={edition.release_mbid}
-					>{editionLabel(edition)}</option
-				>{/each}
-		</select>
+		<InlineChoice {selected}
+			><select bind:value={selected} disabled={sending || loadingEditions}>
+				<option value="">Server preference</option>
+				{#each choices as edition (edition.release_mbid)}<option value={edition.release_mbid}
+						>{editionLabel(edition)}</option
+					>{/each}
+			</select></InlineChoice
+		>
 	</label>
 	{#if !tracks.length}<button class="primary" disabled={sending || loadingEditions} onclick={submit}
 			>{sending ? 'Requesting…' : 'Request album'}</button

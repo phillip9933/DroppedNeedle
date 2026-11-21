@@ -1,5 +1,7 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { Browser } from '@capacitor/browser';
+	import { ExternalLink } from '@lucide/svelte';
 	import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 	import { getJson, mutateJson, postJson, putJson, type Session } from '../connection';
 	import { path, errorMessage } from '../catalog/catalog';
@@ -176,9 +178,13 @@
 	}
 </script>
 
-<div class="views" role="group" aria-label="Account views">
+<div
+	class="settings-tabs account-tabs"
+	data-surface="panel"
+	role="group"
+	aria-label="Account views"
+>
 	{#each views as v (v)}<button
-			class="secondary"
 			aria-pressed={v === view}
 			disabled={saving}
 			onclick={() => (view = v)}>{v}</button
@@ -187,6 +193,8 @@
 {#if busy}<p role="status">Loading…</p>
 {:else if view === 'Profile' && profile}
 	<form
+		class="settings-panel"
+		data-surface="panel"
 		onsubmit={(e) => {
 			e.preventDefault();
 			void save();
@@ -200,7 +208,7 @@
 		>
 		{#if nameTooLong}<p role="alert">Use up to 64 characters for your display name.</p>{/if}
 	</form>
-	<details bind:open={editIdentity}>
+	<details class="settings-disclosure" data-surface="panel" bind:open={editIdentity}>
 		<summary>Username and email</summary>
 		<form
 			onsubmit={(e) => {
@@ -228,32 +236,39 @@
 			>
 		</form>
 	</details>
-	<h3>Open in web app</h3>
-	<div class="links">
-		<button class="text-button" onclick={() => web('/profile#connected-services')}
-			>Connected services</button
+	<h2>Open in web app</h2>
+	<div class="settings-list" data-surface="panel">
+		<button class="settings-entry" onclick={() => web('/profile#connected-services')}
+			><span>Connected services</span><ExternalLink size={15} /></button
 		>
-		<button class="text-button" onclick={() => web('/profile#account')}>Account and security</button
+		<button class="settings-entry" onclick={() => web('/profile#account')}
+			><span>Account and security</span><ExternalLink size={15} /></button
 		>
 		{#if profile.role === 'admin'}
-			<button class="text-button" onclick={() => web('/settings')}>Server settings</button>
-			<button class="text-button" onclick={() => web('/library/management')}
-				>Library management</button
+			<button class="settings-entry" onclick={() => web('/settings')}
+				><span>Server settings</span><ExternalLink size={15} /></button
+			>
+			<button class="settings-entry" onclick={() => web('/library/management')}
+				><span>Library management</span><ExternalLink size={15} /></button
 			>
 		{/if}
 	</div>
 {:else if view === 'Listening' && prefs}
 	<form
+		class="settings-panel"
+		data-surface="panel"
 		onsubmit={(e) => {
 			e.preventDefault();
 			void save();
 		}}
 	>
 		<label
-			>Now playing visibility<select bind:value={visibility}
-				><option value="full">Show track and artist</option><option value="track_hidden"
-					>Show that I’m listening</option
-				><option value="offline">Show me as offline</option></select
+			>Now playing visibility<InlineChoice selected={visibility}
+				><select bind:value={visibility}
+					><option value="full">Show track and artist</option><option value="track_hidden"
+						>Show that I’m listening</option
+					><option value="offline">Show me as offline</option></select
+				></InlineChoice
 			></label
 		>
 		<label class="check"><input type="checkbox" bind:checked={lastfm} />Scrobble to Last.fm</label>
@@ -261,9 +276,11 @@
 			><input type="checkbox" bind:checked={listenbrainz} />Scrobble to ListenBrainz</label
 		>
 		<label
-			>Discovery listening source<select bind:value={source}
-				><option value="listenbrainz">ListenBrainz</option><option value="lastfm">Last.fm</option
-				></select
+			>Discovery listening source<InlineChoice selected={source}
+				><select bind:value={source}
+					><option value="listenbrainz">ListenBrainz</option><option value="lastfm">Last.fm</option
+					></select
+				></InlineChoice
 			></label
 		>
 		<label class="check"
@@ -280,52 +297,55 @@
 	<button class="text-button" disabled={saving} onclick={refreshMix}>Refresh personal mix</button>
 {:else if view === 'Services'}
 	<h2>Connected services</h2>
-	{#each services as service (service.service)}<div class="device">
-			<strong>{service.service}</strong><small
-				>{service.username || 'No account linked'} · {service.enabled
-					? 'Enabled'
-					: 'Disabled'}</small
-			>
-		</div>{/each}
+	{#if services.length}<div class="settings-list" data-surface="panel">
+			{#each services as service (service.service)}<div class="device">
+					<strong>{service.service}</strong><small
+						>{service.username || 'No account linked'} · {service.enabled
+							? 'Enabled'
+							: 'Disabled'}</small
+					>
+				</div>{/each}
+		</div>{/if}
 	{#if !services.length && !error}<p>No connected services.</p>{/if}
 	<button class="text-button" onclick={() => web('/profile#connected-services')}
 		>Manage linked accounts in browser</button
 	>
 {:else if view === 'Devices'}
-	{#each devices as d (d.id)}<div class="device">
-			<strong>{d.label || 'Device'}</strong><small
-				>{d.current
-					? 'This session'
-					: 'Last active ' + new Date(d.last_seen_at * 1000).toLocaleDateString()}</small
-			>
-			{#if !d.current}{#if d.id === confirm}<p>Sign this device out of DroppedNeedle?</p>
-					<button class="secondary" disabled={saving} onclick={save}>Confirm sign out</button>
-					<button class="text-button" disabled={saving} onclick={() => (confirm = '')}
-						>Keep device</button
+	{#if devices.length}<div class="settings-list" data-surface="panel">
+			{#each devices as d (d.id)}<div class="device">
+					<strong>{d.label || 'Device'}</strong><small
+						>{d.current
+							? 'This session'
+							: 'Last active ' + new Date(d.last_seen_at * 1000).toLocaleDateString()}</small
 					>
-				{:else}<button
-						class="text-button"
-						disabled={saving}
-						aria-label={'Sign out ' + (d.label || 'device')}
-						onclick={() => (confirm = d.id)}>Sign out device</button
-					>{/if}{/if}
-		</div>{/each}
+					{#if !d.current}{#if d.id === confirm}<p>Sign this device out of DroppedNeedle?</p>
+							<button class="secondary" disabled={saving} onclick={save}>Confirm sign out</button>
+							<button class="text-button" disabled={saving} onclick={() => (confirm = '')}
+								>Keep device</button
+							>
+						{:else}<button
+								class="text-button"
+								disabled={saving}
+								aria-label={'Sign out ' + (d.label || 'device')}
+								onclick={() => (confirm = d.id)}>Sign out device</button
+							>{/if}{/if}
+				</div>{/each}
+		</div>{:else if !error}<p>No active devices.</p>{/if}
 {/if}
 {#if error}<p role="alert">{error}</p>
 	<button class="text-button" disabled={saving} onclick={() => retry++}>Reload account</button>{/if}
 {#if message}<p role="status">{message}</p>{/if}
 
 <style>
-	.views,
-	.links {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		margin-block: 0.7rem;
+	.account-tabs {
+		grid-template-columns: repeat(2, 1fr);
 	}
-	.views [aria-pressed='true'] {
-		outline: 2px solid var(--accent);
+	@media (min-width: 24rem) {
+		.account-tabs {
+			grid-template-columns: repeat(4, minmax(max-content, 1fr));
+		}
 	}
+
 	form {
 		display: grid;
 		gap: 0.75rem;
@@ -351,8 +371,7 @@
 		accent-color: var(--accent);
 	}
 	.device {
-		padding-block: 0.6rem;
-		border-bottom: 1px solid var(--line);
+		padding: 0.65rem var(--gap);
 	}
 	.device strong,
 	.device small {
@@ -362,11 +381,7 @@
 	.device small {
 		color: var(--muted);
 	}
-	.links {
-		flex-direction: column;
-		align-items: flex-start;
-	}
-	h3 {
-		margin-bottom: 0;
+	details form + form {
+		margin-top: 0.75rem;
 	}
 </style>

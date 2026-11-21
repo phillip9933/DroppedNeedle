@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { ArrowUp, ArrowDown, Check, Play } from '@lucide/svelte';
 	import sampleArtwork from '../player/tidal-memory.webp';
 	import type { Session } from '../connection';
@@ -80,7 +81,7 @@
 	const surfaces = Object.keys(surfaceNames) as InterfacePreferences['surface'][];
 </script>
 
-<section class="controls" aria-label="Interface settings">
+<section class="settings-stack" aria-label="Interface settings">
 	<h2>Button and panel style</h2>
 	<div class="materials" role="group" aria-label="Surface style">
 		{#each surfaces as style (style)}<button
@@ -112,32 +113,40 @@
 			/></label
 		>{/if}
 	<label
-		>Screen transitions<select
-			aria-label="Screen transitions"
-			value={$interfacePreferences.motion}
-			onchange={(e) =>
-				setInterface({ motion: e.currentTarget.value as InterfacePreferences['motion'] })}
-			><option value="off">Off</option><option value="quick">Quick fade</option><option
-				value="gentle">Gentle fade</option
-			></select
+		>Screen transitions<InlineChoice
+			selected={$interfacePreferences.motion}
+			label="Screen transitions"
+			><select
+				value={$interfacePreferences.motion}
+				onchange={(e) =>
+					setInterface({ motion: e.currentTarget.value as InterfacePreferences['motion'] })}
+				><option value="off">Off</option><option value="quick">Quick fade</option><option
+					value="gentle">Gentle fade</option
+				></select
+			></InlineChoice
 		></label
 	>
 	{#if session?.userId}
 		<label
 			>Start screen
-			<select value={opening} onchange={(e) => changeStart(e.currentTarget.value as StartScreen)}>
-				<option value="automatic">Automatic</option>
-				<option value="home">Home</option>
-				<option value="library">Library</option>
-				<option value="player">Now Playing</option>
-			</select>
+			<InlineChoice selected={opening}
+				><select
+					value={opening}
+					onchange={(e) => changeStart(e.currentTarget.value as StartScreen)}
+				>
+					<option value="automatic">Automatic</option>
+					<option value="home">Home</option>
+					<option value="library">Library</option>
+					<option value="player">Now Playing</option>
+				</select></InlineChoice
+			>
 		</label>
 		{#if opening === 'automatic'}<p>Open Home when connected and Offline music when offline.</p>
 		{:else if opening === 'player'}<p>Open your saved queue. An empty queue opens Library.</p>{/if}
 		{#if saveIssue}<p role="alert">{saveIssue}</p>{/if}
 	{/if}
 	<h2>Navigation bar</h2>
-	<div class="segmented" role="group" aria-label="Navigation bar position">
+	<div class="settings-tabs" data-surface="panel" role="group" aria-label="Navigation bar position">
 		{#each ['docked', 'floating'] as bar (bar)}<button
 				aria-pressed={$interfacePreferences.bar === bar}
 				onclick={() => setInterface({ bar: bar === 'floating' ? 'floating' : 'docked' })}
@@ -182,14 +191,19 @@
 				/></label
 			>
 			<label class="mini-row"
-				><span>Secondary text</span><select
-					value={mini.secondary}
-					onchange={(e) =>
-						changeMini({ secondary: e.currentTarget.value as MiniPlayerPreferences['secondary'] })}
-				>
-					{#each Object.entries(miniText) as [value, label] (value)}<option {value}>{label}</option
-						>{/each}
-				</select></label
+				><span>Secondary text</span><InlineChoice selected={mini.secondary}
+					><select
+						value={mini.secondary}
+						onchange={(e) =>
+							changeMini({
+								secondary: e.currentTarget.value as MiniPlayerPreferences['secondary']
+							})}
+					>
+						{#each Object.entries(miniText) as [value, label] (value)}<option {value}
+								>{label}</option
+							>{/each}
+					</select></InlineChoice
+				></label
 			>
 			<label class="mini-row"
 				><span>Show track progress</span><input
@@ -200,14 +214,17 @@
 			>
 			{#each sides as side (side)}
 				<label class="mini-row"
-					><span>{side === 'before' ? 'Before Play/Pause' : 'After Play/Pause'}</span><select
-						value={mini[side]}
-						onchange={(e) => placeButton(side, e.currentTarget.value as MiniButton)}
-					>
-						{#each Object.entries(miniButtons) as [value, label] (value)}<option {value}
-								>{label}</option
-							>{/each}
-					</select></label
+					><span>{side === 'before' ? 'Before Play/Pause' : 'After Play/Pause'}</span><InlineChoice
+						selected={mini[side]}
+						><select
+							value={mini[side]}
+							onchange={(e) => placeButton(side, e.currentTarget.value as MiniButton)}
+						>
+							{#each Object.entries(miniButtons) as [value, label] (value)}<option {value}
+									>{label}</option
+								>{/each}
+						</select></InlineChoice
+					></label
 				>
 			{/each}
 		</div>
@@ -237,6 +254,12 @@
 		min-height: 48px;
 		padding: 0.25rem 0.65rem;
 	}
+	.mini-rows .mini-row:has(:global([aria-expanded='true'])) {
+		align-items: flex-start;
+	}
+	.mini-row:has(:global([aria-expanded='true'])) > span {
+		padding-top: 0.65rem;
+	}
 	.mini-row + .mini-row {
 		border-top: 1px solid var(--line);
 	}
@@ -246,21 +269,10 @@
 		accent-color: var(--accent);
 		flex: none;
 	}
-	.mini-row select {
+	.mini-row :global(.inline-choice) {
 		min-width: 0;
 		max-width: 50%;
 		width: auto;
-	}
-	.controls {
-		display: grid;
-		gap: 0.8rem;
-	}
-	h2,
-	p {
-		margin: 0;
-	}
-	h2:not(:first-child) {
-		margin-top: 1rem;
 	}
 	p,
 	output {
@@ -354,24 +366,6 @@
 	}
 	.strength input {
 		width: 100%;
-	}
-	.segmented {
-		display: flex;
-		gap: 3px;
-		padding: 3px;
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: var(--radius);
-	}
-	.segmented button {
-		flex: 1;
-		min-height: 44px;
-		border-radius: calc(var(--radius) * 0.8);
-		font-weight: 650;
-	}
-	.segmented button[aria-pressed='true'] {
-		color: var(--dn-action-content);
-		background: var(--dn-action);
 	}
 	.choices {
 		overflow: hidden;

@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { localSignIn } from './fixtures/localSignIn';
@@ -85,6 +86,65 @@ async function fallback(page: Page) {
 		Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true });
 	});
 }
+test('a touch picker expands inside its dialog and Back dismisses the choices first', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 320, height: 650 });
+	await fixture(page);
+	await open(page);
+	const sheet = dialog(page);
+	const format = sheet.getByRole('combobox', { name: 'File format', exact: true });
+	const prefix = sheet.getByLabel('Path prefix (optional)');
+	const spacing = () => prefix.evaluate((el) => (el as HTMLElement).offsetTop);
+	const before = await spacing();
+	const accessibility = await page.context().newCDPSession(page);
+	const tree = await accessibility.send('Accessibility.getFullAXTree');
+	const accessible = tree.nodes.filter((node) => !node.ignored && node.role?.value === 'combobox');
+	expect(accessible).toHaveLength(1);
+	expect(accessible[0].name?.value).toBe('File format');
+	expect(accessible[0].value?.value).toBe('M3U8 playlist');
+	await accessibility.detach();
+	await format.tap();
+	const choices = sheet.getByRole('listbox', { name: 'File format', exact: true });
+	await expect(choices).toBeVisible();
+	await expect(format).toHaveAttribute('aria-expanded', 'true');
+	const triggerBox = (await format.boundingBox())!;
+	const listBox = (await choices.boundingBox())!;
+	expect(listBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 1);
+	expect(listBox.x + listBox.width).toBeLessThanOrEqual(320);
+	expect(await spacing()).toBeGreaterThan(before + 40);
+	await expect(choices.getByRole('option', { name: 'M3U8 playlist' })).toHaveAttribute(
+		'aria-selected',
+		'true'
+	);
+	await page.evaluate(() => window.dispatchEvent(new CustomEvent('dn-back', { cancelable: true })));
+	await expect(choices).toHaveCount(0);
+	await expect(format).toBeFocused();
+	await format.press('ArrowDown');
+	await format.press('End');
+	await format.press('Escape');
+	await expect(sheet).toBeVisible();
+	await expect(choices).toHaveCount(0);
+	await expect(format).toHaveText('M3U8 playlist');
+	await format.press('Enter');
+	await format.press('c');
+	await format.press('Enter');
+	await expect(format).toHaveText('CSV spreadsheet');
+	await format.tap();
+	await choices.getByRole('option', { name: 'M3U8 playlist' }).tap();
+	await expect(format).toHaveText('M3U8 playlist');
+	await format.press('End');
+	await format.press('Tab');
+	await expect(prefix).toBeFocused();
+	await expect(format).toHaveText('CSV spreadsheet');
+	await format.tap();
+	await prefix.click();
+	await expect(choices).toHaveCount(0);
+	await expect(prefix).toBeFocused();
+	await format.tap();
+	await sheet.getByRole('button', { name: 'Cancel' }).tap();
+	await expect(sheet).toHaveCount(0);
+});
 test('a shared read-only listener downloads exact DN CSV and M3U8 with Unicode names and account-scoped prefixes', async ({
 	page
 }) => {
@@ -92,7 +152,7 @@ test('a shared read-only listener downloads exact DN CSV and M3U8 with Unicode n
 	const api = await fixture(page);
 	await open(page);
 	await expect(b(page, 'Edit playlist')).toHaveCount(0);
-	await dialog(page).getByLabel('File format').selectOption('csv');
+	await chooseOption(dialog(page).getByLabel('File format'), 'csv');
 	await dialog(page).getByLabel('Path prefix (optional)').fill('  Music/雨/  ');
 	const download = page.waitForEvent('download');
 	await b(page, 'Export file').click();
@@ -317,7 +377,7 @@ test('Android prepares via authenticated transport, passes only its handle and n
 	await open(page);
 	for (const mode of ['cancel', 'failed', 'save', 'expired']) {
 		await page.evaluate((m) => sessionStorage.setItem('native-result', m), mode);
-		await dialog(page).getByLabel('File format').selectOption('csv');
+		await chooseOption(dialog(page).getByLabel('File format'), 'csv');
 		await dialog(page).getByLabel('Path prefix (optional)').fill('Music/雨');
 		await b(page, 'Export file').click();
 		if (mode === 'cancel') await expect(dialog(page)).toHaveCount(0);

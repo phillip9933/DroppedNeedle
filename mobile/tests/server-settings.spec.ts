@@ -1,3 +1,4 @@
+import { choiceList } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -111,7 +112,7 @@ test('listener changes server content visibility while preserving concurrent edi
 	await button(page, 'Save section preferences').click();
 	await expect(page.getByRole('status')).toHaveText('Section preferences saved.');
 	await expect(page.getByLabel('Other')).not.toBeChecked();
-	await expect(page.getByLabel('Page').locator('option')).toHaveCount(2);
+	await expect((await choiceList(page.getByLabel('Page'))).getByRole('option')).toHaveCount(2);
 	await button(page, 'Back').click();
 	await expect(button(page, 'Edition preferences')).toHaveCount(0);
 	await button(page, 'Web tools').click();

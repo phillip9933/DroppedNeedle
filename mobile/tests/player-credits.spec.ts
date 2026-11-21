@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { silentWav } from './fixtures/silentWav';
@@ -219,7 +220,7 @@ for (const ambiguous of [false, true])
 			const { reads, audio } = await fixture(page);
 			await seedDevice(page, ambiguous);
 			await button(page, 'Collection filters').click();
-			await page.getByLabel('Availability', { exact: true }).selectOption('downloaded');
+			await chooseOption(page.getByLabel('Availability', { exact: true }), 'downloaded');
 			await button(page, 'Play Saved opener').click();
 			await expect(button(page, 'Open album Old record')).toBeVisible();
 			const before = reads.filter((p) => p.startsWith('/library/'));

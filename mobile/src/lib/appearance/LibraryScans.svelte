@@ -70,27 +70,32 @@
 	});
 </script>
 
-<h3>Library scans</h3>
-{#if stats}<p>
-		{stats.total_artists.toLocaleString()} artists · {stats.total_albums.toLocaleString()} albums · {stats.total_tracks.toLocaleString()}
-		songs
-	</p>{/if}
-{#if runs}<p>
-		{runs.active ? 'Current scan: ' + runs.active.state : 'No scan running.'}{runs.queued
-			? ' A scan is queued.'
-			: ''}
-	</p>{/if}
-{#if ask}<p>Scan all configured library roots for new and changed files?</p>
-	<button class="primary" onclick={scan}>Start scan</button>
-	<button class="text-button" onclick={() => (ask = false)}>Cancel</button>
-{:else}<button
-		class="secondary"
-		disabled={!settings?.policy_revision || !settings.enabled || sending || loading}
-		onclick={() => (ask = true)}>Scan for changes</button
-	>{/if}
-<button class="text-button" disabled={loading || sending} onclick={read}>Refresh scans</button>
-{#if history.length}<h3>Recent scans</h3>
-	<ul>
+<h2>Library scans</h2>
+<div class="settings-panel" data-surface="panel">
+	{#if stats}<p>
+			{stats.total_artists.toLocaleString()} artists · {stats.total_albums.toLocaleString()} albums ·
+			{stats.total_tracks.toLocaleString()}
+			songs
+		</p>{/if}
+	{#if runs}<p>
+			{runs.active ? 'Current scan: ' + runs.active.state : 'No scan running.'}{runs.queued
+				? ' A scan is queued.'
+				: ''}
+		</p>{/if}
+	<div class="settings-actions">
+		{#if ask}<p>Scan all configured library roots for new and changed files?</p>
+			<button class="primary" onclick={scan}>Start scan</button>
+			<button class="text-button" onclick={() => (ask = false)}>Cancel</button>
+		{:else}<button
+				class="secondary"
+				disabled={!settings?.policy_revision || !settings.enabled || sending || loading}
+				onclick={() => (ask = true)}>Scan for changes</button
+			>{/if}
+		<button class="text-button" disabled={loading || sending} onclick={read}>Refresh scans</button>
+	</div>
+</div>
+{#if history.length}<h2>Recent scans</h2>
+	<ul class="settings-list" data-surface="panel">
 		{#each history as run (run.id)}<li>
 				{run.kind.replaceAll('_', ' ')} · {run.state} · {new Date(
 					run.queued_at * 1000
@@ -102,16 +107,12 @@
 	</p>{:else if loading}<p role="status">Loading scans…</p>{/if}
 
 <style>
-	h3 {
-		margin: 0.9rem 0 0.35rem;
-	}
 	ul {
-		padding-inline-start: 1.2rem;
+		padding: 0;
+		list-style: none;
 	}
 	li {
-		margin: 0.4rem 0;
-	}
-	.text-button {
-		margin-inline: 0.6rem;
+		padding: 0.7rem var(--gap);
+		overflow-wrap: anywhere;
 	}
 </style>

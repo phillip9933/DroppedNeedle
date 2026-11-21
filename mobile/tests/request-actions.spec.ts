@@ -1,3 +1,4 @@
+import { chooseOption, choiceList } from './fixtures/inlineChoice';
 import { verticalSwipe } from './fixtures/verticalSwipe';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
@@ -379,12 +380,13 @@ test('request tabs, history filters and transfer groups expose their state', asy
 	await expect(current).toBeVisible();
 	const history = page.getByRole('region', { name: 'Request history' });
 	await history.getByText('Filter and sort history').click();
-	await history.getByLabel('History status').selectOption('imported');
+	await chooseOption(history.getByLabel('History status'), 'imported');
 	await expect(history.getByText('No requests match this status.')).toBeVisible();
-	await history.getByLabel('History order').selectOption('oldest');
+	await chooseOption(history.getByLabel('History order'), 'oldest');
 	await expect.poll(() => calls.some((c) => c.includes('status=imported&sort=oldest'))).toBe(true);
-	await history.getByLabel('History status').selectOption('failed');
+	await chooseOption(history.getByLabel('History status'), 'failed');
 	await expect(history.getByText('Missed train')).toBeVisible();
+	await choiceList(history.getByLabel('History status'));
 	await expect(history.getByRole('option', { name: 'Can reimport' })).toHaveCount(0);
 	await current.focus();
 	await page.keyboard.press('ArrowRight');

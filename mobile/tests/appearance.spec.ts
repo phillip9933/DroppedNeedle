@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -308,11 +309,11 @@ test('preview and import only supported account CSS colors from a current or his
 	await expect(root).toHaveCSS('--dn-action', '#78288c');
 	await expect(root).toHaveCSS('--radius', '8px');
 	await expect(root).toHaveCSS('--muted', '#636363');
-	await panel.getByLabel('Web style').selectOption('8');
+	await chooseOption(panel.getByLabel('Web style'), '8');
 	await expect(panel.getByText('No compatible palette variables found.')).toBeVisible();
 	await expect(panel.getByRole('button', { name: 'Apply palette to this device' })).toHaveCount(0);
-	await panel.getByLabel('Web style').selectOption('7');
-	await panel.getByLabel('Palette to import').selectOption('midnight');
+	await chooseOption(panel.getByLabel('Web style'), '7');
+	await chooseOption(panel.getByLabel('Palette to import'), 'midnight');
 	await expect(panel.getByText('2 compatible variables in the Midnight palette.')).toBeVisible();
 	await panel.getByRole('button', { name: 'Apply palette to this device' }).click();
 	await expect(root).toHaveCSS('--color-success', '#116644');

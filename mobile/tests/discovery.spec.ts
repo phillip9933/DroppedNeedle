@@ -1,3 +1,4 @@
+import { chooseOption } from './fixtures/inlineChoice';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import type { components } from '../../frontend/src/lib/api/v3/openapi';
@@ -501,7 +502,7 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	await page.getByRole('button', { name: 'Restore Nightfall' }).click();
 	await expect(page.getByText('No hidden albums.')).toBeVisible();
 	await view('Discover for a playlist');
-	await page.getByLabel('Choose a playlist').selectOption('one');
+	await chooseOption(page.getByLabel('Choose a playlist'), 'one');
 	await expect(page.getByRole('button', { name: 'Late moon ' + artistName })).toBeVisible();
 	await view('Popular albums');
 	await expect(page.getByRole('button', { name: 'Crowd favourite ' + artistName })).toBeVisible();
@@ -541,9 +542,9 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 	await page.getByRole('button', { name: 'Art pop', exact: true }).click();
 	await page.getByRole('button', { name: artistName, exact: true }).click();
 	const artistView = page.getByRole('combobox', { name: 'Artist view' });
-	await artistView.selectOption('albums');
+	await chooseOption(artistView, 'albums');
 	await expect(page.getByRole('button', { name: 'Moonrise ' + artistName })).toBeVisible();
-	await artistView.selectOption('songs');
+	await chooseOption(artistView, 'songs');
 	await expect(
 		page.getByRole('button', { name: 'Lost Song, unavailable in your library' })
 	).toBeDisabled();

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { onMount } from 'svelte';
 	import { Browser } from '@capacitor/browser';
 	import { Capacitor } from '@capacitor/core';
@@ -380,33 +381,38 @@
 					>
 					<div>
 						<label
-							>History status<select
-								value={historyStatus}
-								onchange={(event) => {
-									historyStatus = event.currentTarget.value;
-									updateHistory();
-								}}
-							>
-								<option value="">All statuses</option><option value="imported">Imported</option
-								><option value="incomplete">Incomplete</option><option value="failed">Failed</option
-								><option value="cancelled">Cancelled</option><option value="rejected"
-									>Rejected</option
+							>History status<InlineChoice selected={historyStatus}
+								><select
+									value={historyStatus}
+									onchange={(event) => {
+										historyStatus = event.currentTarget.value;
+										updateHistory();
+									}}
 								>
-								{#if viewer?.role === 'admin'}<option value="reimportable">Can reimport</option
-									>{/if}
-							</select></label
+									<option value="">All statuses</option><option value="imported">Imported</option
+									><option value="incomplete">Incomplete</option><option value="failed"
+										>Failed</option
+									><option value="cancelled">Cancelled</option><option value="rejected"
+										>Rejected</option
+									>
+									{#if viewer?.role === 'admin'}<option value="reimportable">Can reimport</option
+										>{/if}
+								</select></InlineChoice
+							></label
 						>
 						<label
-							>History order<select
-								value={historySort}
-								onchange={(event) => {
-									historySort = event.currentTarget.value;
-									updateHistory();
-								}}
-							>
-								<option value="">Newest first</option><option value="oldest">Oldest first</option
-								><option value="status">By status</option>
-							</select></label
+							>History order<InlineChoice selected={historySort}
+								><select
+									value={historySort}
+									onchange={(event) => {
+										historySort = event.currentTarget.value;
+										updateHistory();
+									}}
+								>
+									<option value="">Newest first</option><option value="oldest">Oldest first</option
+									><option value="status">By status</option>
+								</select></InlineChoice
+							></label
 						>
 					</div>
 				</details>

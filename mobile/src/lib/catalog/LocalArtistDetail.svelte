@@ -6,6 +6,7 @@
 </script>
 
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import WebDetail from './WebDetail.svelte';
 	import { getJson, type Session } from '../connection';
 	import { errorMessage, path, type Album, type OnPlay } from './catalog';
@@ -90,10 +91,12 @@
 	{#if error}<p role="alert">{error}</p>
 		<button class="text-button" onclick={() => retry++}>Reload artist profile</button>{/if}
 	<label
-		>Artist library view<select bind:value={view}
-			><option value="albums">Albums</option><option value="songs">Songs</option><option
-				value="appearances">Appears on</option
-			></select
+		>Artist library view<InlineChoice selected={view}
+			><select bind:value={view}
+				><option value="albums">Albums</option><option value="songs">Songs</option><option
+					value="appearances">Appears on</option
+				></select
+			></InlineChoice
 		></label
 	>
 	{#key view}<SelectionHost {session} {onplay} {active}

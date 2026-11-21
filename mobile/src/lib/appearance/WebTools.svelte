@@ -119,31 +119,21 @@
 {#if error}<p role="alert">{error}</p>{/if}
 {#each groups as group (group.title)}
 	<h2>{group.title}</h2>
-	{#each group.links as link (link.route)}<a
-			href={session.serverUrl + link.route}
-			target="_blank"
-			rel="noopener noreferrer"
-			onclick={(e) => open(e, session.serverUrl + link.route)}
-			>{link.label}<ExternalLink size={15} /></a
-		>{/each}
+	<div class="settings-list" data-surface="panel">
+		{#each group.links as link (link.route)}<a
+				class="settings-entry"
+				href={session.serverUrl + link.route}
+				target="_blank"
+				rel="noopener noreferrer"
+				onclick={(e) => open(e, session.serverUrl + link.route)}
+				><span>{link.label}</span><ExternalLink size={15} /></a
+			>{/each}
+	</div>
 {/each}
 {#if !groups.length}<p>No matching tools.</p>{/if}
 
 <style>
 	input {
 		width: 100%;
-	}
-	a {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--gap);
-		color: var(--text);
-		text-decoration: none;
-		border-bottom: 1px solid var(--line);
-		min-height: 46px;
-	}
-	a :global(svg) {
-		color: var(--muted);
 	}
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InlineChoice from '../controls/InlineChoice.svelte';
 	import { getJson, type Session } from '../connection';
 	import { errorMessage, path } from './catalog';
 	import type { Category, BrowseFilters } from './libraryBrowse';
@@ -88,21 +89,25 @@
 			<summary>Rating and format</summary>
 			<div class="fields">
 				<label
-					>Your rating<select
-						value={filters.rating}
-						onchange={(e) => change({ rating: Number(e.currentTarget.value) })}
-						><option value="0">Any rating</option>{#each [1, 2, 3, 4, 5] as r (r)}<option value={r}
-								>{r} {r === 1 ? 'star' : 'stars'}</option
-							>{/each}</select
+					>Your rating<InlineChoice selected={filters.rating}
+						><select
+							value={filters.rating}
+							onchange={(e) => change({ rating: Number(e.currentTarget.value) })}
+							><option value="0">Any rating</option>{#each [1, 2, 3, 4, 5] as r (r)}<option
+									value={r}>{r} {r === 1 ? 'star' : 'stars'}</option
+								>{/each}</select
+						></InlineChoice
 					></label
 				>
 				<label
-					>Rating range<select
-						value={filters.ratingMode}
-						onchange={(e) =>
-							change({ ratingMode: e.currentTarget.value as BrowseFilters['ratingMode'] })}
-						><option value="at_least">At least</option><option value="at_most">At most</option
-						></select
+					>Rating range<InlineChoice selected={filters.ratingMode}
+						><select
+							value={filters.ratingMode}
+							onchange={(e) =>
+								change({ ratingMode: e.currentTarget.value as BrowseFilters['ratingMode'] })}
+							><option value="at_least">At least</option><option value="at_most">At most</option
+							></select
+						></InlineChoice
 					></label
 				>
 				{#if error}<p role="alert">{error}</p>
@@ -121,11 +126,13 @@
 							/>{format.toUpperCase()}</label
 						>{/each}{/if}
 				<label
-					>Selected formats<select
-						value={filters.formatMode}
-						onchange={(e) =>
-							change({ formatMode: e.currentTarget.value as BrowseFilters['formatMode'] })}
-						><option value="with">With</option><option value="without">Without</option></select
+					>Selected formats<InlineChoice selected={filters.formatMode}
+						><select
+							value={filters.formatMode}
+							onchange={(e) =>
+								change({ formatMode: e.currentTarget.value as BrowseFilters['formatMode'] })}
+							><option value="with">With</option><option value="without">Without</option></select
+						></InlineChoice
 					></label
 				>
 				<button
