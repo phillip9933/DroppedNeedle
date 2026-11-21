@@ -10,6 +10,8 @@
 	import PlaybackSettings from '../player/PlaybackSettings.svelte';
 	import LinkedPlayers from '../../../../frontend/src/lib/features/player/components/LinkedPlayers.svelte';
 	import EqualizerSettings from '../player/EqualizerSettings.svelte';
+	import UpdateSettings from '../updates/UpdateSettings.svelte';
+	import { watchAndroidUpdates, type AndroidUpdateState } from '../updates/androidUpdates';
 	import {
 		ChevronLeft,
 		ChevronRight,
@@ -22,6 +24,7 @@
 		SlidersHorizontal,
 		Globe,
 		Activity,
+		Download,
 		Info,
 		Layers,
 		Music2
@@ -57,6 +60,7 @@
 		| 'diagnostics'
 		| 'scans'
 		| 'about'
+		| 'updates'
 		| 'menu';
 	let {
 		session,
@@ -81,6 +85,10 @@
 		roleError = $state(''),
 		version = $state(''),
 		versionError = $state('');
+	const android = Capacitor.getPlatform() === 'android';
+	let updateFeed: ReturnType<typeof watchAndroidUpdates> | undefined;
+	let updateState = $state.raw<AndroidUpdateState | null>(null);
+	let updateError = $state('');
 	const layouts = [
 		{ id: 'home', label: 'Home', icon: House },
 		{ id: 'library', label: 'Library', icon: LibraryBig },
@@ -109,6 +117,7 @@
 			{ id: 'playback', label: 'Streaming and fades' },
 			{ id: 'handoff', label: 'Player handoff' },
 			{ id: 'equalizer', label: 'Equalizer' },
+			{ id: 'updates', label: 'App updates' },
 			{ id: 'about', label: 'About' }
 		].find((i) => i.id === page)?.label ?? 'Settings'
 	);
@@ -180,6 +189,19 @@
 	onMount(() => {
 		if (initial !== 'menu') page = initial;
 		void readRole();
+		if (android) {
+			updateFeed = watchAndroidUpdates(
+				(state) => {
+					updateState = state;
+					updateError = '';
+				},
+				(error) => {
+					updateError =
+						error instanceof Error ? error.message : 'Could not read the Android update status.';
+				}
+			);
+			return updateFeed.stop;
+		}
 	});
 </script>
 
@@ -285,6 +307,15 @@
 			{/if}
 			{@render groupHeading('App')}
 			<div class="settings-list" data-surface="panel">
+				{#if android}
+					<button class="settings-entry" data-screen-link onclick={() => open('updates')}
+						><Download size={19} /><span
+							>App updates{#if updateState?.offer && updateState.available}
+								<small class="update-available">{updateState.available.version} available</small>
+							{/if}</span
+						><ChevronRight size={16} /></button
+					>
+				{/if}
 				<button class="settings-entry" data-screen-link onclick={() => open('about')}
 					><Info size={19} /><span>About</span><ChevronRight size={16} /></button
 				>
@@ -300,6 +331,11 @@
 				{:else if page === 'playback' && session}<PlaybackSettings {session} />
 				{:else if page === 'handoff' && session}<LinkedPlayers />
 				{:else if page === 'themes'}<ThemeSettings {session} />
+				{:else if page === 'updates' && android}<UpdateSettings
+						snapshot={updateState}
+						readError={updateError}
+						onrefresh={() => updateFeed?.refresh()}
+					/>
 				{:else if page === 'account' && session}<Account {session} />
 				{:else if page === 'content' && session}<ServerSections {session} {admin} />
 				{:else if page === 'tools' && session}<WebTools {session} {admin} />
@@ -342,6 +378,11 @@
 	}
 	.back {
 		margin-inline-start: -0.25rem;
+	}
+	.update-available {
+		display: block;
+		color: var(--accent);
+		font-weight: 500;
 	}
 	.settings:has(> .shortcuts) {
 		container-type: inline-size;

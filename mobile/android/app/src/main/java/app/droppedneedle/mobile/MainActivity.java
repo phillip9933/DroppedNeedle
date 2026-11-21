@@ -1,6 +1,7 @@
 package app.droppedneedle.mobile;
 
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
 
@@ -19,6 +20,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DNOfflinePlugin.class);
         registerPlugin(DNPlaylistExportPlugin.class);
         registerPlugin(DNAppearancePlugin.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) registerPlugin(DNUpdatesPlugin.class);
+        else registerPlugin(DNUpdatesUnavailablePlugin.class);
         super.onCreate(state);
         creating = false;
     }

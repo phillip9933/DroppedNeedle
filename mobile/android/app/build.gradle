@@ -1,4 +1,12 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+apply from: rootProject.file('gradle/android-updater.gradle')
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
 
 android {
     namespace = "app.droppedneedle.mobile"
@@ -11,8 +19,8 @@ android {
         applicationId "app.droppedneedle.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 22
-        versionName "0.17.2"
+        versionCode 23
+        versionName "0.18.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -40,6 +48,7 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.work:work-runtime:2.11.2"
+    implementation 'io.github.phillip9933:android-updater:1.0.0'
     def media3Version = '1.8.0'
     implementation "androidx.media3:media3-exoplayer:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
