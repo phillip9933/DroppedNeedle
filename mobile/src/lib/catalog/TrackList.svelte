@@ -33,7 +33,7 @@
 				artist={track.artist}
 				duration={track.duration}
 				position={positions?.[index] ?? index + 1}
-				availability={inventory ? (inventory.byId.get(track.id)?.origin ?? 'online') : undefined}
+				availability={inventory ? (inventory.byId.has(track.id) ? 'offline' : 'online') : undefined}
 				onplay={() => onplay(tracks, index)}
 			/><TrackActions
 				{session}

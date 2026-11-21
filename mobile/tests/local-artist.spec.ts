@@ -29,7 +29,8 @@ test('a local artist links credited songs, paginated guest appearances and the D
 		favorite: false,
 		duration_seconds: 1
 	};
-	let favorite = false;
+	let favorite = false,
+		useLastFm = false;
 	const read: string[] = [];
 	await context.route(server + artistPath, (route) =>
 		route.fulfill({ contentType: 'text/html', body: '<title>DN artist</title>' })
@@ -79,12 +80,22 @@ test('a local artist links credited songs, paginated guest appearances and the D
 			favorite = true;
 			return json({ favorited: favorite });
 		}
+		if (path.endsWith('/top-songs')) {
+			expect(url.searchParams.get('source')).toBe('listenbrainz');
+			expect(url.searchParams.get('count')).toBe('50');
+			return json({
+				source: useLastFm ? 'lastfm' : 'listenbrainz',
+				songs: [{ recording_mbid: 'second', listen_count: 900 }]
+			});
+		}
 		if (path === '/library/tracks' && url.searchParams.has('artist_id')) {
 			expect(url.searchParams.get('artist_id')).toBe(artistId);
 			read.push('songs');
-			return json({ items: [song], total: 1 });
+			const second = { ...song, id: 'encore', title: 'Encore', recording_mbid: 'second' };
+			if (url.searchParams.get('after')) return json({ items: [second], total: 2 });
+			return json({ items: [song], total: 2, next: 'next' });
 		}
-		if (path === '/stream/local/guest-song')
+		if (path === '/stream/local/guest-song' || path === '/stream/local/encore')
 			return route.fulfill({
 				path: fileURLToPath(
 					new URL('../../server/tests/fixtures/library/management_full.wav', import.meta.url)
@@ -110,9 +121,15 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await expect(page.getByRole('button', { name: 'Artist profile', exact: true })).toBeVisible();
 	const view = page.getByLabel('Artist library view');
 	await chooseOption(view, 'appearances');
-	await page.getByRole('button', { name: 'Select items' }).click();
-	await page.getByRole('button', { name: 'Select Night Duo' }).click();
-	await page.getByRole('button', { name: 'More appearances', exact: true }).click();
+	await page
+		.locator('[data-selectable]:visible')
+		.filter({ hasText: 'Night Duo' })
+		.first()
+		.press('Shift+Space');
+	// The compact header can bring the next-page trigger into view automatically.
+	const more = page.getByRole('button', { name: 'More appearances', exact: true });
+	if (await more.isVisible()) await more.click();
+	await expect(page.getByRole('button', { name: 'Select Night Cohort' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Select Night Duo' })).toHaveAttribute(
 		'aria-pressed',
 		'true'
@@ -127,14 +144,28 @@ test('a local artist links credited songs, paginated guest appearances and the D
 	await expect(view).toBeVisible();
 	await page.getByRole('button', { name: 'Night Cohort Various Artists' }).click();
 	await expect(page.getByRole('heading', { name: 'Night Cohort', exact: true })).toBeVisible();
-	await page.getByRole('button', { name: 'Select items' }).click();
-	await page.getByRole('button', { name: 'Select After Hours' }).click();
+	await page
+		.locator('[data-selectable]:visible')
+		.filter({ hasText: 'After Hours' })
+		.first()
+		.press('Shift+Space');
 	await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(view).toHaveAttribute('data-value', 'appearances');
 	await expect(page.getByRole('button', { name: 'Night Duo Night Duo' })).toBeVisible();
 	await chooseOption(view, 'songs');
+	const sort = page.getByRole('combobox', { name: 'Sort songs' }),
+		titles = page.locator('[data-part=track-list] .row strong');
+	await chooseOption(sort, 'popularity');
+	await expect(titles).toHaveText(['Encore', 'After Hours']);
+	useLastFm = true;
+	await chooseOption(sort, '');
+	await chooseOption(sort, 'popularity');
+	await expect(titles).toHaveText(['After Hours', 'Encore']);
+	await expect(
+		page.getByText('No ListenBrainz ranks available. Showing songs by title.')
+	).toBeVisible();
 	await page.getByRole('button', { name: 'Play After Hours', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'After Hours', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Close player' }).click();

@@ -30,7 +30,7 @@ function key(session: Session, category: Category | 'availability') {
 export function readAvailability(session: Session): Availability {
 	try {
 		const value = session.userId && localStorage.getItem(key(session, 'availability'));
-		return value && Object.hasOwn(availabilityLabels, value) ? (value as Availability) : 'all';
+		return value && value !== 'all' && Object.hasOwn(availabilityLabels, value) ? 'offline' : 'all';
 	} catch {
 		return 'all';
 	}

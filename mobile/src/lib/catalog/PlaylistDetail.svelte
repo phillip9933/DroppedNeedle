@@ -257,7 +257,9 @@
 								<TrackRow
 									choice={track ? trackChoice(track, 'entry:' + entry.id) : undefined}
 									availability={track && device.inventory
-										? (device.inventory.byId.get(track.id)?.origin ?? 'online')
+										? device.inventory.byId.has(track.id)
+											? 'offline'
+											: 'online'
 										: undefined}
 									title={entry.track_name}
 									artist={entry.artist_name}

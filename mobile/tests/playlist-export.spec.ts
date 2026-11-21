@@ -119,9 +119,12 @@ test('a touch picker expands inside its dialog and Back dismisses the choices fi
 	await expect(format).toHaveAttribute('aria-expanded', 'true');
 	const triggerBox = (await format.boundingBox())!;
 	const listBox = (await choices.boundingBox())!;
-	expect(listBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 1);
+	expect(
+		listBox.y >= triggerBox.y + triggerBox.height - 1 ||
+			listBox.y + listBox.height <= triggerBox.y + 1
+	).toBeTruthy();
 	expect(listBox.x + listBox.width).toBeLessThanOrEqual(320);
-	expect(await spacing()).toBeGreaterThan(before + 40);
+	expect(await spacing()).toBe(before);
 	await expect(choices.getByRole('option', { name: 'M3U8 playlist' })).toHaveAttribute(
 		'aria-selected',
 		'true'
@@ -147,9 +150,8 @@ test('a touch picker expands inside its dialog and Back dismisses the choices fi
 	await expect(prefix).toBeFocused();
 	await expect(format).toHaveText('CSV spreadsheet');
 	await format.tap();
-	await prefix.click();
+	await sheet.getByRole('heading').first().click();
 	await expect(choices).toHaveCount(0);
-	await expect(prefix).toBeFocused();
 	await format.tap();
 	await sheet.getByRole('button', { name: 'Cancel' }).tap();
 	await expect(sheet).toHaveCount(0);

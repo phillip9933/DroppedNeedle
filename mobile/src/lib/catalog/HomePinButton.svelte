@@ -22,12 +22,14 @@
 		pin,
 		tracks,
 		compact = false,
+		iconOnly = false,
 		ondone
 	}: {
 		session: Session;
 		pin?: HomePin;
 		tracks?: PlayerTrack[];
 		compact?: boolean;
+		iconOnly?: boolean;
 		ondone?: () => void;
 	} = $props();
 	let key = $state(''),
@@ -98,13 +100,16 @@
 
 {#if pin}
 	<button
-		class:secondary={!compact}
+		class:icon-button={iconOnly}
+		aria-label={label}
+		title={iconOnly ? label : undefined}
+		class:secondary={!compact && !iconOnly}
 		class:plain={compact}
 		aria-pressed={pinned}
 		disabled={!key}
 		onclick={change}
 	>
-		{#if pinned}<PinOff size={16} />{:else}<Pin size={16} />{/if}{label}
+		{#if pinned}<PinOff size={16} />{:else}<Pin size={16} />{/if}{#if !iconOnly}{label}{/if}
 	</button>
 	{#if error}<p role="alert">{error}</p>{/if}
 {/if}

@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { uiText } from '../i18n';
+	import { SvelteMap } from 'svelte/reactivity';
+	import type { PlayerTrack } from '../player';
+	import { tr, uiText } from '../i18n';
 	import InlineChoice from '../controls/InlineChoice.svelte';
 	import {
 		libraryFilter,
@@ -28,13 +30,13 @@
 	import PreviewItem from '../boards/PreviewItem.svelte';
 	import TrackActions from './TrackActions.svelte';
 	import Albums from './Albums.svelte';
-	import { prepareLibraryQueue } from './libraryQueue';
+	import { prepareLibraryQueue, queueSizeCheck } from './libraryQueue';
 	import { prepareLibraryPlayback } from '../player/libraryWindow';
 	import TrackList from './TrackList.svelte';
 	import { trackDuration } from './TrackRow.svelte';
 	const selectable = useLibrarySelection();
 	type Schema = components['schemas'];
-	type Artist = Pick<Schema['ArtistView'], 'id' | 'name'>;
+	type Artist = Pick<Schema['ArtistView'], 'id' | 'name'> & { artist_mbid?: string | null };
 	let {
 		display,
 		session,
@@ -114,11 +116,19 @@
 	}
 	let albums = $state<Album[]>([]),
 		artists = $state<Schema['ArtistView'][]>([]),
-		songs = $state<ReturnType<typeof localSong>[]>([]);
+		songs = $state<PlayerTrack[]>([]);
 	let busy = $state(true),
 		error = $state(''),
 		next = $state<string | null>(null);
 	let generation = 0;
+	let rankedLimit = $state(30);
+	const moreRanked = $derived(sort === 'popularity' && songs.length > rankedLimit);
+	function loadMore() {
+		if (moreRanked) rankedLimit += 30;
+		else void load(next, generation);
+	}
+	let popularityRequest: AbortController | undefined;
+	let popularityNote = $state('');
 	function albumChoice(album: Album) {
 		return {
 			id: 'album:' + (album.localId || album.group),
@@ -172,7 +182,7 @@
 		const config = fixedFilter;
 		const by = recent ? 'date_added' : config?.sort || sort || sorts[kind][0][0];
 		return {
-			sort: by,
+			sort: by === 'popularity' ? 'title' : by,
 			order: ['album_count', 'date_added', 'year'].includes(by) ? 'desc' : 'asc',
 			q: (config?.query ?? query.trim()) || undefined,
 			favorites: (config?.favorites ?? favorites) ? 'true' : undefined,
@@ -211,6 +221,11 @@
 		preparation = controller;
 		progress = 'Preparing queue…';
 		try {
+			if (!shuffle && sort === 'popularity') {
+				songs.forEach(queueSizeCheck(session.serverUrl));
+				await onplay(songs, 0);
+				return;
+			}
 			const filters = shuffle ? { ...listFilters, sort: 'random', order: 'asc' } : listFilters;
 			const batch = await prepareLibraryPlayback(
 				session,
@@ -278,6 +293,41 @@
 						!result.next
 					);
 				next = result.next ?? null;
+			} else if (sort === 'popularity' && artist?.artist_mbid) {
+				const controller = new AbortController();
+				popularityRequest = controller;
+				const [tracks, ranking] = await Promise.all([
+					prepareLibraryQueue(session, listFilters, controller.signal, undefined, false),
+					getJson<Schema['TopSongsResponse']>(
+						session,
+						path(
+							'/api/v3/artists/{artist_mbid}/top-songs',
+							{ artist_mbid: artist.artist_mbid },
+							{ source: 'listenbrainz', count: 50 }
+						),
+						controller.signal
+					).catch(() => null)
+				]);
+				if (version !== generation) return;
+				const listens = new SvelteMap<string, number>();
+				if (ranking?.source === 'listenbrainz')
+					for (const row of ranking.songs) {
+						if (row.recording_mbid && row.listen_count != null)
+							listens.set(row.recording_mbid.toLowerCase(), row.listen_count);
+					}
+				const score = (t: (typeof tracks)[number]) =>
+					listens.get(t.recordingMbid?.toLowerCase() ?? '') ?? -1;
+				songs = tracks.sort((a, b) => score(b) - score(a));
+				popularityNote = songs.some((t) => score(t) >= 0)
+					? tr(
+							'ListenBrainz top 50 first, followed by unranked songs.',
+							'ListenBrainz の上位50曲、次に順位のない曲を表示します。'
+						)
+					: tr(
+							'No ListenBrainz ranks available. Showing songs by title.',
+							'ListenBrainz の順位がないため、曲名順で表示します。'
+						);
+				next = null;
 			} else {
 				const result = await getJson<Schema['TrackListPage']>(
 					session,
@@ -310,6 +360,8 @@
 		void artistAppearances;
 		void advanced;
 		const version = ++generation;
+		popularityNote = '';
+		rankedLimit = 30;
 		albums = [];
 		artists = [];
 		songs = [];
@@ -319,6 +371,7 @@
 		const timer = setTimeout(() => void untrack(() => load(null, version)), term ? 220 : 0);
 		return () => {
 			clearTimeout(timer);
+			popularityRequest?.abort();
 			generation++;
 		};
 	});
@@ -337,7 +390,9 @@
 				><select bind:value={sort}
 					>{#each sorts[kind] as [value, label], i (value)}<option value={i === 0 ? '' : value}
 							>{label}</option
-						>{/each}</select
+						>{/each}{#if artist?.artist_mbid && kind === 'songs'}<option value="popularity"
+							>{tr('Popularity · ListenBrainz', '人気順 · ListenBrainz')}</option
+						>{/if}</select
 				></InlineChoice
 			>{/if}
 		<button
@@ -514,16 +569,21 @@
 					></button
 				>{/each}
 		</div>{/if}
-	{#if songs.length}<TrackList {session} tracks={songs} {onplay} />{/if}
+	{#if songs.length}<TrackList
+			{session}
+			tracks={sort === 'popularity' ? songs.slice(0, rankedLimit) : songs}
+			{onplay}
+		/>{/if}
 {/if}
+{#if popularityNote}<p class="popularity-note">{popularityNote}</p>{/if}
 {#if error}<p role="alert">{error}</p>
 	<button class="secondary" onclick={() => load(next, generation)}>{uiText('Try again')}</button>
 {:else if busy}<p role="status">{uiText('Loading')} {noun}…</p>
-{:else if next && !preview}<button
+{:else if (next || moreRanked) && !preview}<button
 		class="secondary more"
 		data-selection-more={artist ? true : undefined}
-		use:loadNearEnd={{ active, enabled: !!artist && !busy, load: () => load(next, generation) }}
-		onclick={() => load(next, generation)}>{uiText('More')} {noun}</button
+		use:loadNearEnd={{ active, enabled: !!artist && !busy, load: loadMore }}
+		onclick={loadMore}>{uiText('More')} {noun}</button
 	>
 {:else if !albums.length && !songs.length && !artists.length}<p>
 		{uiText('No')}

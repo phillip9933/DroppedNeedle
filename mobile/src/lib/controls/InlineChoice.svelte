@@ -8,6 +8,7 @@
 	const id = $props.id();
 	let host: HTMLSpanElement;
 	let trigger: HTMLButtonElement;
+	let menu = $state<HTMLSpanElement>();
 	let source: HTMLSelectElement | undefined;
 	let expanded = $state(false);
 	let disabled = $state(false);
@@ -160,16 +161,47 @@
 		active = initial();
 		trigger.focus({ preventScroll: true });
 		void tick().then(() => {
-			if (!expanded) return;
+			if (!expanded || !menu) return;
+			menu.showPopover?.();
+			positionMenu();
 			scrollActive();
-			host.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 		});
 	}
-	function scrollActive() {
+	function positionMenu() {
+		if (!expanded || !menu) return;
+		const rect = trigger.getBoundingClientRect();
+		const viewport = window.visualViewport;
+		const left = viewport?.offsetLeft ?? 0,
+			top = viewport?.offsetTop ?? 0;
+		const width = viewport?.width ?? window.innerWidth,
+			height = viewport?.height ?? window.innerHeight;
+		const maxBottom = top + height - 6;
+		const below = Math.max(0, maxBottom - rect.bottom - 4);
+		const above = Math.max(0, rect.top - top - 10);
+		const up = below < Math.min(menu.scrollHeight + 2, 240) && above > below;
+		menu.style.width = Math.min(Math.max(rect.width, 152), width - 12) + 'px';
+		menu.style.maxHeight = Math.min(288, up ? above : below) + 'px';
+		menu.style.left =
+			Math.max(left + 6, Math.min(rect.left, left + width - menu.offsetWidth - 6)) + 'px';
+		menu.style.top = (up ? rect.top - 4 - menu.offsetHeight : rect.bottom + 4) + 'px';
+	}
+	$effect(() => {
 		if (!expanded) return;
-		document
-			.getElementById(id + '-option-' + active)
-			?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+		const events = new AbortController();
+		const options = { capture: true, signal: events.signal };
+		window.addEventListener('scroll', positionMenu, options);
+		window.addEventListener('resize', positionMenu, options);
+		window.visualViewport?.addEventListener('resize', positionMenu, options);
+		window.visualViewport?.addEventListener('scroll', positionMenu, options);
+		return () => events.abort();
+	});
+	function scrollActive() {
+		const option = document.getElementById(id + '-option-' + active);
+		if (!expanded || !menu || !option) return;
+		const bounds = menu.getBoundingClientRect(),
+			item = option.getBoundingClientRect();
+		if (item.top < bounds.top) menu.scrollTop += item.top - bounds.top;
+		else if (item.bottom > bounds.bottom) menu.scrollTop += item.bottom - bounds.bottom;
 	}
 	function choose(index: number) {
 		if (
@@ -269,7 +301,14 @@
 		<span class="native" aria-hidden="true" inert>{@render children()}</span>
 	</span>
 	{#if expanded}
-		<span id={id + '-choices'} role="listbox" aria-label={label || fieldName} class="choices">
+		<span
+			bind:this={menu}
+			popover="manual"
+			id={id + '-choices'}
+			role="listbox"
+			aria-label={label || fieldName}
+			class="choices"
+		>
 			{#each groups as group, i (i)}
 				<span role={group.label ? 'group' : 'presentation'} aria-label={group.label}>
 					{#if group.label}<span class="group-name" aria-hidden="true">{group.label}</span>{/if}
@@ -358,13 +397,18 @@
 		transform: rotate(180deg);
 	}
 	.choices {
+		position: fixed;
+		inset: auto;
+		z-index: 1000;
+		box-sizing: border-box;
+		margin: 0;
 		display: grid;
 		min-width: 0;
 		max-height: min(45dvh, 18rem);
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		touch-action: pan-y;
-		margin-block-start: 0.3rem;
+		box-shadow: 0 4px 18px #0003;
 		padding: 0.2rem;
 		border: 1px solid var(--dn-edge);
 		border-radius: var(--radius);
