@@ -336,6 +336,48 @@ for (const [surface, palette] of [
 			const sample = page.locator('[data-part="sample-player"]');
 			await expect(sample.locator('button[aria-label="Cast and audio output"]')).toBeVisible();
 			await checkIcons(sample);
+			const background = await page
+				.locator('html')
+				.evaluate((el) => getComputedStyle(el).backgroundColor);
+			const radius = await page
+				.locator('html')
+				.evaluate((el) => getComputedStyle(el).getPropertyValue('--radius').trim());
+			const checkArt = async (player: Locator) => {
+				const art = player.locator('[data-section-id="player-artwork"] .hero');
+				await expect(art).toHaveCSS('border-top-left-radius', radius);
+				await expect(art).toHaveCSS('border-top-right-radius', radius);
+				await expect(art).toHaveCSS('overflow-x', 'clip');
+				expect(
+					await art.evaluate((el) => getComputedStyle(el, '::after').backgroundImage)
+				).toContain(background);
+			};
+			await expect(page.locator('[data-part="layout-editor"]')).toHaveCSS(
+				'background-color',
+				background
+			);
+			await checkArt(sample);
+			await customize(page, 'Artwork');
+			const inspector = page.getByRole('dialog');
+			await expect(inspector.locator('.sheet-head')).toHaveCSS(
+				'background-color',
+				'rgba(0, 0, 0, 0)'
+			);
+			await editorButton(page, 'Done').click();
+			await editorButton(page, 'Preview current draft').click();
+			const preview = page.getByRole('dialog', { name: 'Player layout preview' });
+			await expect(preview).toHaveCSS('background-color', background);
+			await expect(preview).toHaveCSS('background-image', 'none');
+			await checkArt(preview);
+			await editorButton(page, 'Back to editing').click();
+			await editorButton(page, 'Save layout').click();
+			const artwork = live.locator('[data-section-id="player-artwork"]');
+			if (await artwork.locator('.lyric-art').count())
+				await live.getByRole('button', { name: 'Lyrics', exact: true }).click();
+			await expect(artwork.locator('[data-part="cover"]')).toHaveCSS(
+				'border-top-left-radius',
+				radius
+			);
+			await checkArt(live);
 		}
 	);
 }
@@ -557,15 +599,15 @@ test('a listener sizes independent metadata tiles and saves a live text template
 	await removeField(page, 'Artwork');
 	await customize(page, 'Track title');
 	await page.getByText('Position and size', { exact: true }).click();
-	await page.getByLabel('Width in cells').fill('9');
-	await page.getByLabel('Row', { exact: true }).fill('2');
+	await page.getByLabel('Width in cells').fill('18');
+	await page.getByLabel('Row', { exact: true }).fill('3');
 	await button('Done').click();
 	await customize(page, 'Artist');
 	await page.getByText('Position and size', { exact: true }).click();
-	await page.getByLabel('Width in cells').fill('5');
+	await page.getByLabel('Width in cells').fill('10');
 	await page.getByLabel('Row', { exact: true }).fill('1');
-	await page.getByLabel('Column', { exact: true }).fill('10');
-	await page.getByLabel('Row', { exact: true }).fill('2');
+	await page.getByLabel('Column', { exact: true }).fill('19');
+	await page.getByLabel('Row', { exact: true }).fill('3');
 	await button('Done').click();
 	await customize(page, 'Track title');
 	await chooseOption(page.getByRole('combobox', { name: 'Horizontal alignment' }), 'end');
@@ -651,7 +693,7 @@ test('independent queue, favorite and playlist fields control the current DN tra
 	await addFeature(page, 'Track rating');
 	await customize(page, 'Track rating');
 	await page.getByText('Position and size', { exact: true }).click();
-	await page.getByLabel('Width in cells').fill('15');
+	await page.getByLabel('Width in cells').fill('30');
 	await button('Done').click();
 	for (const name of ['Add to playlist', 'Offline download', 'Seek bar', 'Duration'])
 		await addFeature(page, name);
@@ -796,11 +838,12 @@ test('an older header keeps its control sizes and accessible inspector focus whe
 		const boxes = await faces.evaluateAll((nodes) =>
 			nodes.map((n) => {
 				const box = n.getBoundingClientRect();
-				return { w: box.width, h: box.height };
+				const scale = parseFloat(getComputedStyle(n).getPropertyValue('--draft-scale')) || 1;
+				return { w: box.width / scale, h: box.height / scale };
 			})
 		);
 		for (const box of boxes) expect(Math.abs(box.w - box.h)).toBeLessThan(1);
-		expect(boxes[0].w).toBeGreaterThanOrEqual(44);
+		expect(boxes[0].w).toBeGreaterThanOrEqual(43.99);
 		expect(boxes[1].w).toBeGreaterThanOrEqual(size - 0.5);
 		expect(boxes[1].w).toBeLessThanOrEqual(boxes[0].w + 0.5);
 	};
@@ -835,7 +878,7 @@ test('an older header keeps its control sizes and accessible inspector focus whe
 	await button('Hide play queue').click();
 	await expect(live.locator('[data-player-grid]')).toBeVisible();
 	await geometry(live, 'player-close', 32);
-	const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key);
+	const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).sections, key);
 	expect(stored.find((s: { id: string }) => s.id === 'player-close')).toMatchObject({
 		icon: 'circle-play',
 		iconSize: 32
@@ -1159,7 +1202,7 @@ test('old menu and Track tools layouts migrate to More actions without adding ei
 	await expect(picker.getByRole('button', { name: 'Navigation menu', exact: true })).toHaveCount(0);
 	await page.keyboard.press('Escape');
 	await b('Save layout').click();
-	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!).sections, key);
 	expect(saved.some((s: { id: string }) => s.id === 'player-more')).toBe(true);
 	expect(saved.some((s: { id: string }) => s.id === 'player-menu' || s.id === 'player-tools')).toBe(
 		false
@@ -2066,7 +2109,7 @@ test('the saved player grid keeps proportional tiles, fixed and fill icons, lyri
 		id: 'player-rating',
 		title: '',
 		preview: true,
-		grid: { x: 6, y: 18, w: 3, h: 2 }
+		grid: { x: 12, y: 36, w: 6, h: 4 }
 	});
 	const fill = gridLayout.find((s) => s.id === 'player-next')!;
 	fill.iconMode = 'fill';
@@ -2077,7 +2120,7 @@ test('the saved player grid keeps proportional tiles, fixed and fill icons, lyri
 		({ server, layout }) => {
 			localStorage.setItem(
 				'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']),
-				JSON.stringify(layout)
+				JSON.stringify({ version: 3, sections: layout })
 			);
 			window.dispatchEvent(
 				new CustomEvent('dn-layout-change', { detail: { board: 'player', user: 'alex', server } })
@@ -2130,4 +2173,94 @@ test('the saved player grid keeps proportional tiles, fixed and fill icons, lyri
 	await expect(live.getByRole('heading', { name: 'Play queue' })).toBeVisible();
 	await live.getByRole('button', { name: 'Hide play queue' }).click();
 	await expect(grid).toBeVisible();
+});
+
+test('the layout editor and Preview keep live player proportions and all five stars after rotation', async ({
+	page
+}) => {
+	const device = await page.context().newCDPSession(page);
+	await device.send('Emulation.setSafeAreaInsetsOverride', {
+		insets: { top: 26, bottom: 18, left: 12, right: 4 }
+	});
+	await fixture(page);
+	await play(page);
+	await page.evaluate((server) => {
+		const layout = [
+			['title', 0, 0, 12, 2],
+			['settings', 12, 0, 3, 2],
+			['rating', 0, 2, 7, 1]
+		].map(([id, x, y, w, h]) => ({
+			id: 'player-' + id,
+			title: '',
+			preview: true,
+			grid: { x, y, w, h }
+		}));
+		localStorage.setItem(
+			'dn.mobile.layout.v1.' + JSON.stringify([server, 'alex', 'player']),
+			JSON.stringify(layout)
+		);
+		window.dispatchEvent(
+			new CustomEvent('dn-layout-change', { detail: { board: 'player', user: 'alex', server } })
+		);
+	}, server);
+	const live = page.locator('[data-part=now-playing]');
+	async function measure(player: Locator) {
+		const grid = player.locator('[data-player-grid]');
+		await expect(grid.locator('.stars svg')).toHaveCount(5);
+		return grid.evaluate(async (el) => {
+			// Orientation changes trigger ResizeObserver in both the live player and draft canvases.
+			await new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+			);
+			const canvas = el.getBoundingClientRect();
+			const tile = el
+				.querySelector('[data-section-id=player-rating] .content')!
+				.getBoundingClientRect();
+			const glyphs = Array.from(el.querySelectorAll('.stars svg'), (node) =>
+				node.getBoundingClientRect()
+			);
+			const title = el
+				.querySelector('[data-section-id=player-title] .lines')!
+				.getBoundingClientRect();
+			return {
+				ratio: canvas.width / canvas.height,
+				star: glyphs[0].width / canvas.width,
+				title: title.height / canvas.height,
+				visible: glyphs.every(
+					(g) =>
+						g.width > 0 &&
+						g.height > 0 &&
+						g.left >= tile.left - 0.5 &&
+						g.right <= tile.right + 0.5 &&
+						g.top >= tile.top - 0.5 &&
+						g.bottom <= tile.bottom + 0.5
+				)
+			};
+		});
+	}
+	const sizes = [
+		{ width: 390, height: 844 },
+		{ width: 740, height: 360 }
+	];
+	const liveSizes = [];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		liveSizes.push(await measure(live));
+	}
+	await openEditor(page);
+	for (const [i, size] of sizes.entries()) {
+		await page.setViewportSize(size);
+		const editor = await measure(page.locator('[data-part=sample-player]'));
+		await editorButton(page, 'Preview current draft').click();
+		const preview = await measure(page.locator('[data-part=draft-player]'));
+		for (const surface of [editor, preview]) {
+			expect(surface.ratio).toBeCloseTo(liveSizes[i].ratio, 2);
+			expect(surface.star).toBeCloseTo(liveSizes[i].star, 3);
+			expect(surface.title).toBeCloseTo(liveSizes[i].title, 3);
+			expect(surface.visible).toBe(true);
+		}
+		expect(liveSizes[i].visible).toBe(true);
+		await editorButton(page, 'Back to editing').click();
+	}
+	await device.detach();
 });

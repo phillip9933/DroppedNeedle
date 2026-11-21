@@ -59,10 +59,9 @@
 	let templateInput = $state<HTMLTextAreaElement>(null!);
 	let query = $state(''),
 		splitFrom = $state(''),
-		keepAnchor = $state(false),
 		geometryOpen = $state(false);
 	let space = $derived(
-		emptyGridSpace(items, 3, 2) ?? emptyGridSpace(items, 2, 1) ?? emptyGridSpace(items)
+		emptyGridSpace(items, 6, 4) ?? emptyGridSpace(items, 4, 2) ?? emptyGridSpace(items)
 	);
 	let destination = $state.raw<GridRect>();
 	let drag = $state.raw<{
@@ -94,6 +93,32 @@
 			current = false;
 		};
 	});
+	// Lay out at the live player's dimensions first. Scaling the finished canvas keeps
+	// text, icons and touch geometry in the same proportion in both draft views.
+	function fitDraft(node: HTMLElement) {
+		const shell = node.closest<HTMLElement>('[data-part="app"]')!;
+		const main = shell.querySelector('main')!;
+		function measure() {
+			const style = getComputedStyle(shell);
+			const width =
+				shell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+			const height =
+				shell.clientHeight -
+				parseFloat(style.paddingTop) -
+				(parseFloat(style.getPropertyValue('--notice-height')) || 0);
+			if (!width || !height || !node.clientHeight) return;
+			const scale = Math.min(1, node.clientWidth / width, node.clientHeight / height);
+			node.style.setProperty('--draft-width', width + 'px');
+			node.style.setProperty('--draft-height', height + 'px');
+			node.style.setProperty('--draft-scale', String(scale));
+		}
+		const observer = new ResizeObserver(measure);
+		observer.observe(shell);
+		observer.observe(main);
+		observer.observe(node);
+		measure();
+		return { destroy: () => observer.disconnect() };
+	}
 	function commit(next: GridSection[]) {
 		const input = document.activeElement;
 		const typing = input?.matches('textarea, input[type=text]') ? input : null;
@@ -140,9 +165,7 @@
 		const target = anchor;
 		void tick().then(() => target?.isConnected && target.focus({ preventScroll: true }));
 	}
-	function pick(from: HTMLElement, mode: 'anywhere' | 'here' | 'split' = 'anywhere') {
-		const split = mode === 'split';
-		keepAnchor = mode === 'here';
+	function pick(from: HTMLElement, split = false) {
 		const rect =
 			split && field
 				? {
@@ -162,11 +185,11 @@
 	// Prefer a useful initial size whenever there is room. A split always keeps
 	// the exact lower half of the tile the listener chose.
 	function suggestedBox(id: string, fallback: GridRect): GridRect {
-		let width = 3,
-			height = 2;
+		let width = 6,
+			height = 4;
 		if (id === 'player-artwork') {
 			width = GRID_COLUMNS;
-			height = 9;
+			height = 18;
 		} else if (
 			[
 				'player-timeline',
@@ -177,7 +200,7 @@
 			].includes(id)
 		) {
 			width = GRID_COLUMNS;
-			height = 3;
+			height = 6;
 		} else if (
 			[
 				'player-rating',
@@ -188,14 +211,13 @@
 				'player-text'
 			].includes(id)
 		) {
-			width = 9;
-		} else if (id === 'player-quality') width = 6;
-		// Keep the upper-left cell under the plus when expanding into adjacent space.
+			width = 18;
+		} else if (id === 'player-quality') width = 12;
 		for (let h = height; h >= 1; h--) {
 			for (let w = width; w >= fallback.w; w--) {
 				const anchored = { ...fallback, w, h };
 				if (gridFits(anchored, items)) return anchored;
-				const free = !keepAnchor && emptyGridSpace(items, w, h);
+				const free = emptyGridSpace(items, w, h);
 				if (free) return free;
 			}
 		}
@@ -566,16 +588,9 @@
 						>{tr('Swap', '入れ替え')}</span
 					>{:else if drag.resize}<span>{drag.next.w} × {drag.next.h}</span>{/if}
 			</div>
-		{:else if space}
-			<div class="free-space" style={location(space)}>
-				<button
-					aria-label={tr('Add item here', 'ここに追加')}
-					onclick={(e) => pick(e.currentTarget, 'here')}><Plus size={16} /></button
-				>
-			</div>
 		{/if}
 	{/snippet}
-	<div class="stage" bind:this={stage} use:gridGesture={{ begin, move, end }}>
+	<div class="stage" bind:this={stage} use:fitDraft use:gridGesture={{ begin, move, end }}>
 		<PlayerView
 			session={sampleSession}
 			expanded={true}
@@ -662,82 +677,85 @@
 				<button class="text-button" onclick={closePanel}>{uiText('Done')}</button>
 			</div>
 		</div>
-		{#if panel === 'pick'}
-			<input
-				type="search"
-				aria-label={uiText('Find a feature')}
-				placeholder={uiText('Find a feature')}
-				bind:value={query}
-			/>
-			<div class="choices">
-				{#each matches as option (option.id)}
-					<button onclick={() => choose(option.id)}>{uiText(option.label)}<Plus size={16} /></button
-					>
-				{:else}<p>{uiText('No matching features.')}</p>{/each}
-			</div>
-		{:else if field}
-			<PlayerCellAppearance {field} change={modify} />
-			{#if isPlayerText(field.id)}
-				<label
-					>{uiText('Text template')}<textarea
-						bind:this={templateInput}
-						maxlength={512}
-						value={field.template ?? defaultPlayerText}
-						oninput={(e) => modify({ template: e.currentTarget.value })}
-					></textarea></label
-				>
-				<div class="tokens">
-					{#each playerTokens as t (t)}<button onclick={() => token(t)}>{'{' + t + '}'}</button
-						>{/each}
-				</div>
-			{/if}
-			{#if playerWidgets.find((w) => w.id === field.id)?.option}
-				<label class="check"
-					><input
-						type="checkbox"
-						checked={field.preview}
-						onchange={(e) => modify({ preview: e.currentTarget.checked })}
-					/>{uiText(playerWidgets.find((w) => w.id === field?.id)?.option ?? '')}</label
-				>
-			{/if}
-			<label
-				>{uiText('Section title')}<input
-					type="text"
-					maxlength={64}
-					value={field.title}
-					placeholder={sectionTitle({ ...field, title: '' })}
-					oninput={(e) => modify({ title: e.currentTarget.value })}
-				/></label
-			>
-			<details bind:open={geometryOpen}>
-				<summary>{tr('Position and size', '位置とサイズ')}</summary>
-				<div class="coordinates">
-					{#each [['x', tr('Column', '列'), GRID_COLUMNS], ['y', tr('Row', '行'), GRID_ROWS], ['w', tr('Width in cells', '幅（マス）'), GRID_COLUMNS], ['h', tr('Height in cells', '高さ（マス）'), GRID_ROWS]] as [key, label, max] (key)}
-						{@const prop = key as keyof GridRect}
-						<label
-							>{label}<input
-								type="number"
-								min="1"
-								{max}
-								value={field.grid[prop] + Number(prop === 'x' || prop === 'y')}
-								onchange={(e) => position(prop, e.currentTarget)}
-							/></label
+		<div class="panel-body">
+			{#if panel === 'pick'}
+				<input
+					type="search"
+					aria-label={uiText('Find a feature')}
+					placeholder={uiText('Find a feature')}
+					bind:value={query}
+				/>
+				<div class="choices">
+					{#each matches as option (option.id)}
+						<button onclick={() => choose(option.id)}
+							>{uiText(option.label)}<Plus size={16} /></button
 						>
-					{/each}
+					{:else}<p>{uiText('No matching features.')}</p>{/each}
 				</div>
-			</details>
-			<button
-				class="panel-action"
-				disabled={field.grid.h < 2}
-				onclick={(e) => pick(e.currentTarget, 'split')}
-				><Plus size={16} />{tr('Place another item underneath', '下に別の項目を配置')}</button
-			>
-			{#if splitAvailable(field.id)}<button class="panel-action" onclick={splitGroup}
-					>{tr('Split into individual controls', '個別の操作に分割')}</button
-				>{/if}
-			<button class="panel-action remove" onclick={remove}>{uiText('Remove item')}</button>
-			{#if message}<p role="status">{message}</p>{/if}
-		{/if}
+			{:else if field}
+				<PlayerCellAppearance {field} change={modify} />
+				{#if isPlayerText(field.id)}
+					<label
+						>{uiText('Text template')}<textarea
+							bind:this={templateInput}
+							maxlength={512}
+							value={field.template ?? defaultPlayerText}
+							oninput={(e) => modify({ template: e.currentTarget.value })}
+						></textarea></label
+					>
+					<div class="tokens">
+						{#each playerTokens as t (t)}<button onclick={() => token(t)}>{'{' + t + '}'}</button
+							>{/each}
+					</div>
+				{/if}
+				{#if playerWidgets.find((w) => w.id === field.id)?.option}
+					<label class="check"
+						><input
+							type="checkbox"
+							checked={field.preview}
+							onchange={(e) => modify({ preview: e.currentTarget.checked })}
+						/>{uiText(playerWidgets.find((w) => w.id === field?.id)?.option ?? '')}</label
+					>
+				{/if}
+				<label
+					>{uiText('Section title')}<input
+						type="text"
+						maxlength={64}
+						value={field.title}
+						placeholder={sectionTitle({ ...field, title: '' })}
+						oninput={(e) => modify({ title: e.currentTarget.value })}
+					/></label
+				>
+				<details bind:open={geometryOpen}>
+					<summary>{tr('Position and size', '位置とサイズ')}</summary>
+					<div class="coordinates">
+						{#each [['x', tr('Column', '列'), GRID_COLUMNS], ['y', tr('Row', '行'), GRID_ROWS], ['w', tr('Width in cells', '幅（マス）'), GRID_COLUMNS], ['h', tr('Height in cells', '高さ（マス）'), GRID_ROWS]] as [key, label, max] (key)}
+							{@const prop = key as keyof GridRect}
+							<label
+								>{label}<input
+									type="number"
+									min="1"
+									{max}
+									value={field.grid[prop] + Number(prop === 'x' || prop === 'y')}
+									onchange={(e) => position(prop, e.currentTarget)}
+								/></label
+							>
+						{/each}
+					</div>
+				</details>
+				<button
+					class="panel-action"
+					disabled={field.grid.h < 2}
+					onclick={(e) => pick(e.currentTarget, true)}
+					><Plus size={16} />{tr('Place another item underneath', '下に別の項目を配置')}</button
+				>
+				{#if splitAvailable(field.id)}<button class="panel-action" onclick={splitGroup}
+						>{tr('Split into individual controls', '個別の操作に分割')}</button
+					>{/if}
+				<button class="panel-action remove" onclick={remove}>{uiText('Remove item')}</button>
+				{#if message}<p role="status">{message}</p>{/if}
+			{/if}
+		</div>
 	</dialog>
 {/if}
 {#if preview}
@@ -754,7 +772,7 @@
 		<button class="text-button" onclick={closePreview}
 			><ArrowLeft size={17} />{uiText('Back to editing')}</button
 		>
-		<div class="preview-stage">
+		<div class="preview-stage" use:fitDraft>
 			<PlayerView
 				session={sampleSession}
 				expanded={true}
@@ -772,6 +790,7 @@
 		width: min(100%, 40rem);
 		margin-inline: auto;
 		color: var(--text);
+		background: var(--bg);
 		display: grid;
 		gap: 0.42rem;
 		min-width: 0;
@@ -793,10 +812,10 @@
 		gap: 0.3rem;
 		padding: 0.15rem 0.2rem;
 	}
-	.bar h2 {
+	header.bar h2 {
 		margin: 0 auto 0 0;
 		font-size: 1.15rem;
-		color: var(--text);
+		color: var(--heading, var(--text));
 	}
 	.history {
 		border: 0;
@@ -824,22 +843,21 @@
 			54rem
 		);
 		overflow: hidden;
-		border: 1px solid var(--line);
-		border-radius: 0.8rem;
-		background: var(--bg);
 	}
 	.stage :global([data-part='sample-player']),
 	.preview-stage :global([data-part='draft-player']) {
-		position: relative;
-		inset: auto;
+		position: absolute;
+		inset: 50% auto auto 50%;
 		margin: 0;
-		width: 100%;
-		height: 100%;
+		width: var(--draft-width, 100%);
+		height: var(--draft-height, 100%);
 		min-height: 0;
 		max-height: none;
-		padding: 0;
+		transform: translate(-50%, -50%) scale(var(--draft-scale, 1));
 	}
 	.stage :global([data-player-grid]) {
+		outline: 1px solid var(--line);
+		outline-offset: -1px;
 		background-image:
 			linear-gradient(
 				to right,
@@ -851,7 +869,7 @@
 				color-mix(in srgb, var(--text) 12%, transparent) 1px,
 				transparent 1px
 			);
-		background-size: calc(100% / 15) calc(100% / 20);
+		background-size: calc(100% / var(--grid-cols)) calc(100% / var(--grid-rows));
 	}
 	.stage :global([data-section-id]) {
 		outline: 0;
@@ -887,8 +905,8 @@
 		position: absolute;
 		z-index: 3;
 		inset: auto 0 0 auto;
-		width: 23px;
-		height: 23px;
+		width: min(45%, calc(23px / var(--draft-scale, 1)));
+		height: min(45%, calc(23px / var(--draft-scale, 1)));
 		min-width: 0;
 		min-height: 0;
 		padding: 0;
@@ -899,31 +917,11 @@
 		touch-action: none;
 		cursor: nwse-resize;
 	}
-	.free-space,
 	.ghost {
 		position: absolute;
 		display: grid;
 		place-items: center;
 		pointer-events: none;
-	}
-	.free-space {
-		padding: 1px;
-	}
-	.free-space button {
-		display: grid;
-		place-content: center;
-		min-width: 0;
-		min-height: 0;
-		width: 100%;
-		height: 100%;
-		padding: 0;
-		color: var(--accent);
-		border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
-		background: transparent;
-		border-radius: 5px;
-		pointer-events: auto;
-	}
-	.ghost {
 		z-index: 5;
 		border: 2px dashed var(--accent);
 		border-radius: 4px;
@@ -991,11 +989,20 @@
 		max-width: none;
 		max-height: min(58dvh, 30rem);
 		margin: 0;
-		padding: 0 0.8rem 0.8rem;
-		overflow: auto;
-		overscroll-behavior: contain;
+		padding: 0;
+		overflow: hidden;
 		border-radius: 1rem;
 		box-shadow: 0 10px 36px #0005;
+	}
+	.inspector[open] {
+		display: flex;
+		flex-direction: column;
+	}
+	.panel-body {
+		min-height: 0;
+		padding: 0 0.8rem 0.8rem;
+		overflow-y: auto;
+		overscroll-behavior: contain;
 	}
 	.inspector.upper {
 		top: var(--panel-top);
@@ -1005,11 +1012,8 @@
 		background: #0002;
 	}
 	.sheet-head {
-		position: sticky;
-		z-index: 2;
-		top: 0;
-		background: var(--bg);
-		padding-bottom: 0.3rem;
+		flex: none;
+		padding: 0 0.8rem 0.3rem;
 	}
 	.sheet-head > div {
 		justify-content: space-between;
@@ -1038,7 +1042,7 @@
 		background: var(--muted);
 	}
 	.choices,
-	.inspector > label,
+	.panel-body > label,
 	.inspector details,
 	.inspector .coordinates {
 		display: grid;
@@ -1119,6 +1123,8 @@
 		align-self: flex-start;
 	}
 	.preview-stage {
+		position: relative;
+		overflow: hidden;
 		flex: 1;
 		min-height: 0;
 	}

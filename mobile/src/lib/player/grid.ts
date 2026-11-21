@@ -1,8 +1,10 @@
 import type { Section } from '../boards/layout';
 import { isPlayerSlot, playerCanvas, playerColumns } from './composition';
 
-export const GRID_COLUMNS = 15;
-export const GRID_ROWS = 20;
+export const GRID_COLUMNS = 30;
+export const GRID_ROWS = 40;
+const LEGACY_GRID_COLUMNS = 15;
+const LEGACY_GRID_ROWS = 20;
 export type GridRect = { x: number; y: number; w: number; h: number };
 export type GridSection = Section & { grid: GridRect };
 
@@ -18,6 +20,15 @@ export function validGridRect(value: unknown): value is GridRect {
 		x + w <= GRID_COLUMNS &&
 		y + h <= GRID_ROWS
 	);
+}
+
+// Version 2 used a 15 × 20 grid. One old cell occupies exactly four current cells.
+export const PLAYER_GRID_VERSION = 3;
+export function upgradeV2GridRect(value: unknown): GridRect | undefined {
+	if (!validGridRect(value)) return;
+	const { x, y, w, h } = value;
+	const rect = { x: x * 2, y: y * 2, w: w * 2, h: h * 2 };
+	return validGridRect(rect) ? rect : undefined;
 }
 
 export function gridFits(box: GridRect, sections: readonly Section[], ignoreId?: string): boolean {
@@ -73,18 +84,18 @@ export function defaultGridLayout(): GridSection[] {
 		grid: { x, y, w, h }
 	});
 	return [
-		tile('artwork', 0, 0, 15, 9),
-		tile('title', 0, 9, 12, 1, { padding: 3, maxLines: 1 }),
-		tile('artist', 0, 10, 12, 1, { padding: 3, maxLines: 1 }),
-		tile('favorite', 12, 9, 3, 2, { padding: 4 }),
-		tile('album', 0, 11, 9, 1, { padding: 3, maxLines: 1 }),
-		tile('quality', 9, 11, 6, 1, { padding: 3 }),
-		tile('timeline', 0, 12, 15, 3, { padding: 3 }),
+		tile('artwork', 0, 0, 30, 18),
+		tile('title', 0, 18, 24, 2, { padding: 3, maxLines: 1 }),
+		tile('artist', 0, 20, 24, 2, { padding: 3, maxLines: 1 }),
+		tile('favorite', 24, 18, 6, 4, { padding: 4 }),
+		tile('album', 0, 22, 18, 2, { padding: 3, maxLines: 1 }),
+		tile('quality', 18, 22, 12, 2, { padding: 3 }),
+		tile('timeline', 0, 24, 30, 6, { padding: 3 }),
 		...['shuffle', 'previous', 'toggle', 'next', 'repeat'].map((id, i) =>
-			tile(id, i * 3, 15, 3, 3, { padding: 4 })
+			tile(id, i * 6, 30, 6, 6, { padding: 4 })
 		),
 		...['lyrics', 'output', 'queue', 'more'].map((id, i) =>
-			tile(id, [0, 3, 9, 12][i], 18, 3, 2, { padding: 4 })
+			tile(id, [0, 6, 18, 24][i], 36, 6, 4, { padding: 4 })
 		)
 	];
 }
@@ -103,8 +114,8 @@ function spans(total: number, weights: number[], minimum = weights.map(() => 1))
 	return result;
 }
 
-function place(section: Section, grid: GridRect): GridSection {
-	const placed = { ...section, grid };
+function place(section: Section, { x, y, w, h }: GridRect, scale: number): GridSection {
+	const placed = { ...section, grid: { x: x * scale, y: y * scale, w: w * scale, h: h * scale } };
 	delete placed.sameRow;
 	delete placed.stack;
 	delete placed.placement;
@@ -114,26 +125,34 @@ function place(section: Section, grid: GridRect): GridSection {
 export function toPlayerGrid(sections: Section[]): GridSection[] {
 	if (isPlayerGrid(sections)) return sections.map((s) => ({ ...s, grid: { ...s.grid } }));
 	const rows = playerCanvas(sections).map(playerColumns);
+	// Preserve the old integer rounding before subdividing each coarse cell.
+	const fields = rows.flat(2);
+	const scale = fields.length <= LEGACY_GRID_COLUMNS * LEGACY_GRID_ROWS ? 2 : 1;
+	const columnsAcross = GRID_COLUMNS / scale;
+	const rowsDown = GRID_ROWS / scale;
 	const minimum = rows.map((cols) => Math.max(...cols.map((cells) => cells.length)));
-	if (minimum.reduce((sum, n) => sum + n, 0) > GRID_ROWS) {
+	if (minimum.reduce((sum, n) => sum + n, 0) > rowsDown) {
 		// Even very tall old layouts can retain their fields, in the original reading order.
-		const fields = rows.flat(2);
 		if (fields.length > GRID_COLUMNS * GRID_ROWS)
 			throw Error('This layout has more items than the player grid can hold.');
-		const columns = Math.ceil(fields.length / GRID_ROWS);
-		const widths = spans(GRID_COLUMNS, Array(columns).fill(1));
+		const columns = Math.ceil(fields.length / rowsDown);
+		const widths = spans(columnsAcross, Array(columns).fill(1));
 		return fields.map((s, i) => {
 			const c = i % columns;
-			return place(s, {
-				x: widths.slice(0, c).reduce((sum, w) => sum + w, 0),
-				y: Math.floor(i / columns),
-				w: widths[c],
-				h: 1
-			});
+			return place(
+				s,
+				{
+					x: widths.slice(0, c).reduce((sum, w) => sum + w, 0),
+					y: Math.floor(i / columns),
+					w: widths[c],
+					h: 1
+				},
+				scale
+			);
 		});
 	}
 	const heights = spans(
-		GRID_ROWS,
+		rowsDown,
 		rows.map((cols) => {
 			const fields = cols.flat();
 			const natural = fields.some((s) => s.id === 'player-artwork') ? 360 : 44;
@@ -145,7 +164,7 @@ export function toPlayerGrid(sections: Section[]): GridSection[] {
 	let y = 0;
 	rows.forEach((cols, r) => {
 		const widths = spans(
-			GRID_COLUMNS,
+			columnsAcross,
 			cols.map((cells) => cells[0].width ?? 1)
 		);
 		let x = 0;
@@ -156,7 +175,7 @@ export function toPlayerGrid(sections: Section[]): GridSection[] {
 			);
 			let subY = y;
 			cells.forEach((s, i) => {
-				grid.push(place(s, { x, y: subY, w: widths[c], h: subHeights[i] }));
+				grid.push(place(s, { x, y: subY, w: widths[c], h: subHeights[i] }, scale));
 				subY += subHeights[i];
 			});
 			x += widths[c];

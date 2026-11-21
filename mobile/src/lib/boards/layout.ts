@@ -4,7 +4,12 @@ import { boardDisplay, type BoardDisplay } from './display';
 import { getJson, type Session } from '../connection';
 import { discoveryWidgets, defaultDiscoveryWidgets } from '../catalog/discoveryWidgets';
 import { libraryWidgets } from '../catalog/libraryWidgets';
-import { isPlayerGrid, type GridRect } from '../player/grid';
+import {
+	isPlayerGrid,
+	PLAYER_GRID_VERSION,
+	upgradeV2GridRect,
+	type GridRect
+} from '../player/grid';
 import { expandLegacyTrack, isPlayerSlot, isPlayerText } from '../player/composition';
 import {
 	playerMeasurements,
@@ -171,12 +176,16 @@ export function hasSavedPlayerLayout(server: string, user: string) {
 }
 export function loadLayout(server: string, user: string, board: LayoutTarget): Section[] {
 	const boards = board === 'player' ? null : readBoards(server, user);
+	let legacyPlayerGrid = false;
 	let entries: unknown = board === 'player' ? null : boards?.layouts[board];
 	if (!Array.isArray(entries)) {
 		const raw = localStorage.getItem(key(server, user, board));
 		if (raw === null) return defaults(board);
 		try {
-			entries = JSON.parse(raw);
+			const stored = JSON.parse(raw);
+			legacyPlayerGrid = board === 'player' && Array.isArray(stored);
+			entries =
+				board === 'player' && stored?.version === PLAYER_GRID_VERSION ? stored.sections : stored;
 		} catch {
 			return defaults(board);
 		}
@@ -220,7 +229,12 @@ export function loadLayout(server: string, user: string, board: LayoutTarget): S
 				(isNavigation(item.id) && ['header-start', 'header-end', 'hidden'].includes(item.placement))
 			)
 				section.placement = item.placement;
-			Object.assign(section, playerOptions(item));
+			Object.assign(
+				section,
+				playerOptions(
+					legacyPlayerGrid && item.grid ? { ...item, grid: upgradeV2GridRect(item.grid) } : item
+				)
+			);
 			if (item.sameRow === true) section.sameRow = true;
 			if (['start', 'center', 'end'].includes(item.vAlign)) section.vAlign = item.vAlign;
 			if (isPlayerIcon(item.icon)) section.icon = item.icon;
@@ -256,8 +270,12 @@ export function saveLayout(
 		return item;
 	});
 	let filtersChanged = false;
-	if (board === 'player') localStorage.setItem(key(server, user, board), JSON.stringify(layout));
-	else {
+	if (board === 'player') {
+		const stored = layout.some((s) => s.grid)
+			? { version: PLAYER_GRID_VERSION, sections: layout }
+			: layout;
+		localStorage.setItem(key(server, user, board), JSON.stringify(stored));
+	} else {
 		const state = readBoards(server, user);
 		state.layouts[board] = layout;
 		if (edits) {

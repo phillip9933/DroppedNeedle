@@ -58,15 +58,17 @@ async function startComposer(page: Page, seed: ([string, boolean] | Section)[]) 
 	const server = 'https://composer.example';
 	const key = 'dn.mobile.layout.v1.' + JSON.stringify([server, 'listener', 'player']);
 	await page.addInitScript(
-		({ key, seed }) =>
+		({ key, seed }) => {
+			const rows = seed.map((item) =>
+				Array.isArray(item) ? { id: item[0], sameRow: item[1], preview: true, title: '' } : item
+			);
 			localStorage.setItem(
 				key,
 				JSON.stringify(
-					seed.map((item) =>
-						Array.isArray(item) ? { id: item[0], sameRow: item[1], preview: true, title: '' } : item
-					)
+					seed.every((item) => !Array.isArray(item)) ? { version: 3, sections: rows } : rows
 				)
-			),
+			);
+		},
 		{ key, seed }
 	);
 	await page.route(server + '/api/v3/**', async (route) => {
@@ -91,6 +93,8 @@ async function startComposer(page: Page, seed: ([string, boolean] | Section)[]) 
 	await button('Settings').click();
 	await button('Edit Now Playing layout').click();
 	await expect(page.locator('[data-player-grid]')).toBeVisible();
+	await expect(button('Add item here')).toHaveCount(0);
+	await expect(button('Add item')).toBeVisible();
 	return { key, button };
 }
 
@@ -136,7 +140,10 @@ test('a held touch moves a tile and undo and redo restore its snapped coordinate
 	expect(await position(page, 'artist')).toEqual({ x: 0, y: 3, w: 4, h: 3 });
 	await button('Redo layout edit').click();
 	await button('Save layout').click();
-	const saved: Section[] = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	const saved: Section[] = await page.evaluate(
+		(k) => JSON.parse(localStorage.getItem(k)!).sections,
+		key
+	);
 	expect(saved.find((s) => s.id === 'player-artist')?.grid).toEqual({ x: 5, y: 5, w: 4, h: 3 });
 });
 
@@ -198,10 +205,13 @@ test('resizing a tile leaves its neighbors in place and preview uses the same gr
 	await page.setViewportSize({ width: 740, height: 360 });
 	const preview = page.locator('[data-part=layout-preview]');
 	await expect(preview).toBeVisible();
-	const play = (await preview.locator('[data-section-id=player-toggle]').boundingBox())!;
-	const next = (await preview.locator('[data-section-id=player-next]').boundingBox())!;
-	expect(play.width / next.width).toBeCloseTo(2, 1);
-	expect(Math.abs(play.y - next.y)).toBeLessThan(2);
+	const geometry = await preview.evaluate((dialog) => {
+		const play = dialog.querySelector('[data-section-id=player-toggle]')!.getBoundingClientRect();
+		const next = dialog.querySelector('[data-section-id=player-next]')!.getBoundingClientRect();
+		return { widthRatio: play.width / next.width, rowOffset: Math.abs(play.y - next.y) };
+	});
+	expect(geometry.widthRatio).toBeCloseTo(2, 1);
+	expect(geometry.rowOffset).toBeLessThan(2);
 	await button('Back to editing').click();
 	await expect.poll(() => position(page, 'toggle')).toEqual({ x: 0, y: 5, w: 6, h: 6 });
 });
@@ -234,7 +244,10 @@ test('place another item underneath divides only the chosen tile and preserves n
 	await expect(d.getByLabel('Label name')).toHaveValue('Listen');
 	await button('Done').click();
 	await button('Save layout').click();
-	const saved: Section[] = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	const saved: Section[] = await page.evaluate(
+		(k) => JSON.parse(localStorage.getItem(k)!).sections,
+		key
+	);
 	expect(saved.find((s) => s.id === 'player-toggle')).toMatchObject({
 		padding: 3,
 		showLabel: true,
@@ -261,7 +274,10 @@ test('seek times and lyrics settings round trip through save and custom text sur
 	await chooseOption(d.getByLabel('Lyrics display'), 'sheet');
 	await button('Done').click();
 	await button('Save layout').click();
-	const saved: Section[] = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	const saved: Section[] = await page.evaluate(
+		(k) => JSON.parse(localStorage.getItem(k)!).sections,
+		key
+	);
 	expect(saved.find((s) => s.id === 'player-lyrics')?.lyricsMode).toBe('sheet');
 	expect(saved.find((s) => s.id === 'player-timeline')).toMatchObject({
 		seekStyle: 'waveform',
@@ -279,6 +295,6 @@ test('seek times and lyrics settings round trip through save and custom text sur
 	await button('Done').click();
 	await button('Redo layout edit').click();
 	await button('Cancel').click();
-	const retained = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!), key);
+	const retained = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)!).sections, key);
 	expect(retained).toEqual(saved);
 });

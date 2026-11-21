@@ -1151,6 +1151,10 @@
 	.hero {
 		position: relative;
 	}
+	.hero:not(.lyric-art) {
+		border-radius: var(--radius) var(--radius) 0 0;
+		overflow: clip;
+	}
 	.hero:not(.lyric-art)::after {
 		content: '';
 		position: absolute;
@@ -1674,7 +1678,7 @@
 		width: 100%;
 		height: 100%;
 		aspect-ratio: auto;
-		border-radius: 0;
+		border-radius: inherit;
 	}
 	.fixed-grid .transport,
 	.fixed-grid .modes,
@@ -1700,6 +1704,13 @@
 		aspect-ratio: auto;
 		justify-content: center;
 	}
+	.fixed-grid .content :global(.stars button) {
+		display: grid;
+		place-items: center;
+		min-height: clamp(0px, calc(100cqh - 2 * var(--field-padding, 0px)), 44px);
+		padding: 0;
+	}
+
 	.performance .fixed-grid [data-section-id] :global(.credit-link),
 	.fixed-grid .signal-button {
 		min-block-size: 0;

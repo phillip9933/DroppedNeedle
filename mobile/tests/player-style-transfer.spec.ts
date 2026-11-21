@@ -73,11 +73,11 @@ test('fixed grid JSON keeps positions and icon sizing and rejects overlaps or in
 		{ ...layout[1], grid: { x: 6, y: 2, w: 3, h: 3 }, iconMode: 'fill' }
 	];
 	const exported = exportPlayerStyle(tiles);
-	expect(JSON.parse(exported).version).toBe(2);
+	expect(JSON.parse(exported).version).toBe(3);
 	expect(importPlayerStyle(exported)).toEqual(tiles);
 	for (const grid of [
 		{ x: 5, y: 2, w: 3, h: 3 },
-		{ x: 14, y: 0, w: 2, h: 1 },
+		{ x: 29, y: 0, w: 2, h: 1 },
 		{ x: 0, y: 19.5, w: 1, h: 1 },
 		{ x: 0, y: 0, w: 1, h: 1, unexpected: 'x' },
 		undefined
@@ -87,6 +87,21 @@ test('fixed grid JSON keeps positions and icon sizing and rejects overlaps or in
 			importPlayerStyle(JSON.stringify({ ...JSON.parse(exported), sections }))
 		).toThrow();
 	}
+});
+
+test('version 2 layouts keep their proportions and finer edits round trip at the new precision', () => {
+	const encode = (version: number, grid: unknown) =>
+		JSON.stringify({
+			format: 'droppedneedle-player-layout',
+			version,
+			sections: [{ ...layout[1], grid }]
+		});
+	const upgraded = importPlayerStyle(encode(2, { x: 2, y: 17, w: 13, h: 3 }));
+	expect(upgraded[0].grid).toEqual({ x: 4, y: 34, w: 26, h: 6 });
+	expect(() => importPlayerStyle(encode(2, { x: 2, y: 18, w: 13, h: 3 }))).toThrow();
+	expect(() => importPlayerStyle(encode(2, { x: 2, y: 17, w: 14, h: 3 }))).toThrow();
+	const fine = [{ ...upgraded[0], grid: { x: 5, y: 35, w: 25, h: 5 } }];
+	expect(importPlayerStyle(exportPlayerStyle(fine))).toEqual(fine);
 });
 
 test('version 1 layouts migrate removed controls and preserve nested header and body fields', () => {
@@ -231,7 +246,7 @@ test('a shared player layout previews first, preserves invalid drafts and saves 
 	await importDraft();
 	await page.getByRole('button', { name: 'Save layout', exact: true }).click();
 	const saved = await page.evaluate((k) => localStorage.getItem(k), key);
-	expect(JSON.parse(saved || '[]')).toEqual(toPlayerGrid(layout));
+	expect(JSON.parse(saved!)).toEqual({ version: 3, sections: toPlayerGrid(layout) });
 });
 
 test('layout files round trip offline through review, cancellation and an explicit save', async ({
@@ -287,11 +302,11 @@ test('layout files round trip offline through review, cancellation and an explic
 	await choose(bytes);
 	await expect(input).toHaveValue(exported);
 	await expect(
-		page.getByText('15 × 20 · ' + toPlayerGrid(layout).length + ' elements')
+		page.getByText('30 × 40 · ' + toPlayerGrid(layout).length + ' elements')
 	).toBeVisible();
 	await load.click();
 	expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
 	await button('Save layout').click();
 	const saved = await page.evaluate((k) => localStorage.getItem(k), key);
-	expect(JSON.parse(saved || '[]')).toEqual(toPlayerGrid(layout));
+	expect(JSON.parse(saved!)).toEqual({ version: 3, sections: toPlayerGrid(layout) });
 });
