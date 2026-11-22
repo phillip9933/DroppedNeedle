@@ -1,8 +1,12 @@
+import type { PlayerTrack } from '../player';
 import type { PlayStat } from './smartRules';
 
 export interface SmartMatches {
 	definition: string;
 	ids: string[];
+	tracks?: PlayerTrack[];
+	completedAt?: number;
+	feedbackRevision?: string | null;
 	stats?: Record<string, PlayStat>;
 	ratings?: Record<string, number>;
 	genres?: Record<string, string[]>;
@@ -49,7 +53,7 @@ export async function savedMatches(key: string) {
 export async function storeMatches(key: string, value?: SmartMatches, current?: () => boolean) {
 	try {
 		const db = await database();
-		if (current && !current()) return;
+		if (current && !current()) return false;
 		await new Promise<void>((resolve, reject) => {
 			const tx = db.transaction('matches', 'readwrite');
 			const store = tx.objectStore('matches');
@@ -59,7 +63,9 @@ export async function storeMatches(key: string, value?: SmartMatches, current?: 
 			tx.onabort = () => reject(tx.error);
 		});
 		localStorage.removeItem(key + '.matches');
+		return true;
 	} catch {
 		/* Reading library matches online works even if the device cache is full. */
+		return false;
 	}
 }

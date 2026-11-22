@@ -2,7 +2,7 @@
 	import { tr, uiText } from '../i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { Play, Shuffle } from '@lucide/svelte';
+	import { Play, RefreshCw, Shuffle } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import type { PlayerTrack } from '../player';
 	import { errorMessage, type OnPlay } from './catalog';
@@ -34,6 +34,7 @@
 	import { browsePin } from './homePins';
 	import HomePinButton from './HomePinButton.svelte';
 	import TrackActions from './TrackActions.svelte';
+	import PlaylistHeading from './PlaylistHeading.svelte';
 	import SelectionHost from './SelectionHost.svelte';
 	import BrowseEntries from './BrowseEntries.svelte';
 
@@ -103,12 +104,15 @@
 	}
 	let smartTracks = $state.raw<PlayerTrack[]>([]),
 		smartLoading = $state(false),
+		smartChecking = $state(false),
 		smartError = $state(''),
 		smartRevision = $state(0);
-	let smartScan: Promise<PlayerTrack[]> | undefined;
+	let smartScan: Promise<PlayerTrack[]> | undefined,
+		lastRefresh = 0;
 	$effect(() => {
 		const rule = item.smart;
-		void smartRevision;
+		const refresh = smartRevision !== lastRefresh;
+		lastRefresh = smartRevision;
 		if (!rule || !active) return;
 		const owner = session;
 		const local = deviceOnly ? inventory : undefined;
@@ -120,15 +124,30 @@
 		}
 		const job = new AbortController();
 		smartError = '';
-		smartTracks = [];
-		smartLoading = true;
+		if (!refresh) smartTracks = [];
+		smartLoading = !refresh;
+		smartChecking = true;
+		let cached = false,
+			firstPage = true;
 		const scan = smartPlaylistTracks(
 			owner,
 			rule,
 			job.signal,
 			local ? availableTracks(local) : undefined,
 			(page) => {
-				if (!job.signal.aborted) smartTracks = [...smartTracks, ...page];
+				if (job.signal.aborted) return;
+				smartTracks = firstPage ? [...page] : [...smartTracks, ...page];
+				firstPage = false;
+			},
+			{
+				refresh,
+				onSnapshot: ({ tracks }) => {
+					if (job.signal.aborted) return;
+					cached = true;
+					smartTracks = tracks;
+					smartScan = Promise.resolve(tracks);
+					smartLoading = false;
+				}
 			}
 		);
 		smartScan = scan;
@@ -136,12 +155,15 @@
 			(result) => {
 				if (!job.signal.aborted) {
 					smartTracks = result;
+					smartScan = Promise.resolve(result);
+					smartChecking = false;
 					smartLoading = false;
 				}
 			},
 			(cause) => {
 				if (!job.signal.aborted) {
-					smartTracks = [];
+					if (!cached) smartTracks = [];
+					smartChecking = false;
 					smartLoading = false;
 					smartError = errorMessage(cause);
 				}
@@ -389,9 +411,16 @@
 		{active}
 		localOnly={offline}
 		smartPlayback={!!item.smart}
-		heading={albumHeader || deviceArtist ? undefined : item.title}
+		heading={albumHeader || deviceArtist || isPlaylist ? undefined : item.title}
 		scope={JSON.stringify([item.id, filter])}
 	>
+		{#if isPlaylist}<PlaylistHeading
+				{session}
+				id={item.smart ? 'smart:' + item.smart.id : item.id}
+				title={item.title}
+				covers={item.covers}
+				cacheOnly={deviceOnly}
+			/>{/if}
 		{#if item.smart}<small>{uiText('Smart playlist · on this device')}</small>{/if}
 		{#if showAvailability}<DetailAvailability
 				source={device}
@@ -406,6 +435,11 @@
 				}}
 			/>
 		{:else}<p>{total.toLocaleString()} {total === 1 ? uiText('track') : uiText('tracks')}</p>{/if}
+		{#if item.smart && !deviceOnly}
+			<button class="text-button" disabled={smartChecking} onclick={() => smartRevision++}>
+				<RefreshCw size={16} />{tr('Refresh smart playlist', 'スマートプレイリストを更新')}
+			</button>
+		{/if}
 		{#if smartLoading}<p role="status">
 				{tr('Finding matching tracks…', '条件に合う曲を検索中…')}
 			</p>{/if}
@@ -457,9 +491,9 @@
 				{uiText('No matching tracks.')}
 			</p>{/if}
 		{#if smartError}<p role="alert">{smartError}</p>
-			<button class="secondary" onclick={() => smartRevision++}
-				>{uiText('Retry smart playlist')}</button
-			>{/if}
+			{#if deviceOnly}<button class="secondary" onclick={() => smartRevision++}
+					>{uiText('Retry smart playlist')}</button
+				>{/if}{/if}
 		{#if pageError}<p role="alert">{pageError}</p>
 			<button class="secondary" onclick={() => readPage(!!serverTracks.length)}
 				>{uiText('Retry')}</button

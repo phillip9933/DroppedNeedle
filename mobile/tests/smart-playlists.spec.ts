@@ -107,7 +107,10 @@ test('five-star jazz from a year range uses personal history before its limit, i
 	await button(page, 'Back to Playlists').click();
 	oldServer = true;
 	await button(page, 'Back in rotation').click();
+	await expect(button(page, 'Play Rediscovered')).toBeVisible();
+	await button(page, 'Refresh smart playlist').click();
 	await expect(page.getByRole('alert')).toContainText('Update your DN server');
+	await expect(button(page, 'Play Never played')).toBeVisible();
 	await seedOfflineMusic(page, server, 'listener', true, []);
 	await expect(page.getByRole('heading', { name: 'Back in rotation' })).toBeVisible();
 	await expect(button(page, 'Play Never played')).toBeVisible();
@@ -276,6 +279,25 @@ test('a smart playlist evaluates the current DN filters and limit and keeps acco
 	});
 	await button(page, 'Back to Playlists').click();
 	env.updateCatalog();
+	await page.clock.setFixedTime(new Date(Date.now() + 20 * 60_000));
+	let release!: () => void;
+	const waiting = new Promise<void>((resolve) => (release = resolve));
+	const refresh = server + '/api/v3/library/tracks?**';
+	await page.route(refresh, async (route) => {
+		if (new URL(route.request().url()).searchParams.has('rating')) await waiting;
+		return route.fallback();
+	});
+	const request = page.waitForRequest((req) => new URL(req.url()).searchParams.has('rating'));
+	await button(page, 'Night driving').click();
+	try {
+		await request;
+		await expect(button(page, 'Play North Star')).toBeVisible();
+		await expect(page.getByText('Finding matching tracks…')).toHaveCount(0);
+	} finally {
+		release();
+	}
+	await expect(button(page, 'Play North Star Live')).toBeVisible();
+	await button(page, 'Back to Playlists').click();
 	let modal = await edit(page, 'Night driving');
 	await modal.getByLabel('Playlist name').fill('Night drive live');
 	await trackLimit(modal, 1);
@@ -283,7 +305,7 @@ test('a smart playlist evaluates the current DN filters and limit and keeps acco
 	await button(page, 'Night drive live').click();
 	await expect(button(page, 'Play North Star Live')).toBeVisible();
 	await expect(button(page, 'Play North Coast Live')).toHaveCount(0);
-	expect(env.queries).toHaveLength(2);
+	expect(env.queries).toHaveLength(3);
 	await localSignIn(page, server, 'another-listener');
 	await playlists(page);
 	await expect(page.getByText('No matching playlists.')).toBeVisible();

@@ -13,6 +13,17 @@ export type FeedbackRecord = {
 
 export const feedbackScope = (s: OfflineAccount) =>
 	s.userId ? JSON.stringify([s.serverUrl, s.userId]) : '';
+const revisionKey = (scope: string) => 'dn.mobile.track-feedback-revision.' + scope;
+export function libraryFeedbackRevision(session: OfflineAccount) {
+	return localStorage.getItem(revisionKey(feedbackScope(session)));
+}
+export function changedLibraryFeedback(session: OfflineAccount) {
+	try {
+		localStorage.setItem(revisionKey(feedbackScope(session)), crypto.randomUUID());
+	} catch {
+		// Completed playlist results still expire normally when storage is full.
+	}
+}
 export const feedbackChanged = 'dn-track-feedback';
 export function notifyFeedback(record: FeedbackRecord, metadataChanged = false) {
 	window.dispatchEvent(new CustomEvent(feedbackChanged, { detail: record }));
