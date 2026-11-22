@@ -116,6 +116,10 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 			return json({ items: [], total: 0 });
 		}
 
+		if (path === '/discover/refresh') {
+			expect(req.method()).toBe('POST');
+			return route.fulfill({ status: 202, json: { status: 'ok', message: 'Refresh triggered' } });
+		}
 		if (path === '/discover/queue')
 			return json({
 				queue_id: 'first',
@@ -549,6 +553,9 @@ test('a listener explores DN charts and genres, follows an artist and plays libr
 		page.getByText('This section is disabled in DroppedNeedle.', { exact: false })
 	).toBeVisible();
 	expect(reads.filter((p) => p === '/discover')).toHaveLength(1);
+	await page.getByRole('button', { name: 'Refresh recommendations' }).click();
+	await expect.poll(() => reads.filter((p) => p === '/discover').length).toBe(2);
+	expect(reads.filter((p) => p === '/discover/refresh')).toHaveLength(1);
 	await page.getByRole('button', { name: 'Play Silver Moon', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Silver Moon', exact: true })).toBeVisible();
 	await minimizePlayer(page);
