@@ -1,5 +1,5 @@
 import { DnError, getArtwork, type Session } from '../connection';
-import { cachedValue, storeValue } from '../offline/viewedMedia';
+import { artworkPolicyChanged, cachedValue, storeValue } from '../offline/viewedMedia';
 import { companion } from '../offline/companions';
 import { mediaChanged, preferredOffline } from '../offline/media';
 
@@ -14,6 +14,35 @@ type CoverRequest = {
 	retry?: ReturnType<typeof setTimeout>;
 };
 const freshFor = 7 * 24 * 60 * 60 * 1000;
+// A virtualized row can disappear and return within the same scroll gesture.
+type RecentCovers = Map<string, { source: string; expires: number }>;
+const recent = new WeakMap<Session, RecentCovers>();
+const recentBudget = 8 * 1024 * 1024;
+function coverKey(path: string, cacheOnly: boolean) {
+	return cacheOnly ? 'offline:' + path : path;
+}
+export function recentCover(session: Session, path: string | undefined, cacheOnly: boolean) {
+	if (!path) return '';
+	const key = coverKey(path, cacheOnly);
+	const entry = recent.get(session)?.get(key);
+	if (entry && entry.expires > Date.now()) return entry.source;
+	return pending.get(session)?.get(key)?.source ?? '';
+}
+function remember(covers: RecentCovers, key: string, source: string) {
+	if (source.length > recentBudget) return;
+	covers.delete(key);
+	covers.set(key, { source, expires: Date.now() + 120_000 });
+	let bytes = 0;
+	for (const entry of covers.values()) bytes += entry.source.length;
+	for (const [oldest, entry] of covers) {
+		if (bytes <= recentBudget && covers.size <= 128) break;
+		covers.delete(oldest);
+		bytes -= entry.source.length;
+	}
+}
+window.addEventListener(artworkPolicyChanged, (e) =>
+	recent.delete((e as CustomEvent<Session>).detail)
+);
 let offlineModes = new WeakMap<Session, Promise<boolean>>();
 window.addEventListener(mediaChanged, () => {
 	offlineModes = new WeakMap();
@@ -45,11 +74,18 @@ export function observeCover(
 	receive: (source: string) => void,
 	cacheOnly = false
 ) {
-	const key = cacheOnly ? 'offline:' + path : path;
+	const key = coverKey(path, cacheOnly);
 	const entries = pending.get(session) ?? new Map<string, CoverRequest>();
 	pending.set(session, entries);
 	let request = entries.get(key);
 	if (!request) {
+		const warm = recentCover(session, path, cacheOnly);
+		if (warm) {
+			receive(warm);
+			return () => {};
+		}
+		const covers = recent.get(session) ?? new Map();
+		recent.set(session, covers);
 		const listeners = new Set<(source: string) => void>();
 		let retries = 0;
 		const job: CoverRequest = {
@@ -96,6 +132,7 @@ export function observeCover(
 						}, warmingDelays[retries++]);
 					}
 				} finally {
+					if (reusable && job.source) remember(covers, key, job.source);
 					if (!job.retry && !job.source) for (const listener of listeners) listener('');
 					job.settled = !job.retry;
 					// A player and its palette can subscribe at different times to
