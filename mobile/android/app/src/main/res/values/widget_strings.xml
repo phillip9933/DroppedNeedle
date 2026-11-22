@@ -1,5 +1,5 @@
 <resources>
-    <string name="widget_name">DroppedNeedle player</string>
+    <string name="widget_name">OtoHari player</string>
     <string name="widget_resume">Resume listening</string>
     <string name="widget_previous">Previous song</string>
     <string name="widget_play">Play</string>

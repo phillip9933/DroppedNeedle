@@ -152,7 +152,7 @@ class DNUpdatesPlugin : Plugin() {
         val state = updates.state.value
         val tag = selectedTag(call, state)
         if (!state.ready || state.downloading) fail("Download and verify this update first.")
-        if (!canInstallPackages()) fail("Allow DroppedNeedle to install apps, then tap Install again.")
+        if (!canInstallPackages()) fail("Allow OtoHari to install apps, then tap Install again.")
         val intent = installWindow.prepare {
             updates.prepareInstall()
                 ?: fail(updates.state.value.error?.description() ?: "Android could not open an installer for this update.")
@@ -160,7 +160,7 @@ class DNUpdatesPlugin : Plugin() {
         requireForeground()
         val current = updates.state.value
         if (!current.ready || current.available?.tag != tag) fail("The available release changed. Review it again.")
-        if (!canInstallPackages()) fail("Allow DroppedNeedle to install apps, then tap Install again.")
+        if (!canInstallPackages()) fail("Allow OtoHari to install apps, then tap Install again.")
         activity.startActivity(intent)
     }
 

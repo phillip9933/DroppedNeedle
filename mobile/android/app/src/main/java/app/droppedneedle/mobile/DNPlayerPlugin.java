@@ -67,7 +67,7 @@ public final class DNPlayerPlugin extends Plugin {
                 try {
                     action.run(service);
                 } catch (Exception e) {
-                    call.reject("DroppedNeedle could not complete this playback command.");
+                    call.reject("OtoHari could not complete this playback command.");
                 }
             };
             if (service != null) { run.run(); return; }

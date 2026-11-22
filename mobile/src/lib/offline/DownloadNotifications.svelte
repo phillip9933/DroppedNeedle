@@ -5,8 +5,8 @@
 	import { nativeMedia, type DownloadNotificationState } from './nativeMedia';
 
 	const statuses: Record<DownloadNotificationState, string> = {
-		appOff: 'Off for DroppedNeedle.',
-		appOn: 'On for DroppedNeedle. The download channel appears after your first download starts.',
+		appOff: 'Off for OtoHari.',
+		appOn: 'On for OtoHari. The download channel appears after your first download starts.',
 		channelOff: 'Off for offline downloads.',
 		on: 'On for offline downloads.'
 	};
@@ -47,7 +47,7 @@
 	}
 </script>
 
-<p role="status">{status}</p>
+<p role="status">{uiText(status)}</p>
 <button class="secondary" disabled={opening} onclick={open}
 	>{uiText('Open Android notification settings')}</button
 >

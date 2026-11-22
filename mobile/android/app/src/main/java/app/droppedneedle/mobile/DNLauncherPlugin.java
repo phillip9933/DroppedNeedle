@@ -21,7 +21,7 @@ public class DNLauncherPlugin extends Plugin {
     }
     @PluginMethod public void pinPlaylist(PluginCall call) {
         HeadsetAccount owner = current(call);
-        if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+        if (owner == null) { call.reject("Connect your DroppedNeedle account in OtoHari first."); return; }
         try {
             if (!PlaylistShortcut.pin(getActivity(), owner, call.getString("id"), call.getString("name")))
                 call.reject("This launcher could not pin the playlist.");
@@ -37,7 +37,7 @@ public class DNLauncherPlugin extends Plugin {
     @PluginMethod public void carPlaylistIndex(PluginCall call) {
         SavedQueue.io(() -> {
             HeadsetAccount owner = current(call);
-            if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+            if (owner == null) { call.reject("Connect your DroppedNeedle account in OtoHari first."); return; }
             try {
                 call.resolve(new JSObject().put("completed", new CarSmartPlaylists(getContext(), owner)
                         .replace(call.getArray("lists"))));
@@ -47,7 +47,7 @@ public class DNLauncherPlugin extends Plugin {
     @PluginMethod public void carPlaylistReady(PluginCall call) {
         SavedQueue.io(() -> {
             HeadsetAccount owner = current(call);
-            if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+            if (owner == null) { call.reject("Connect your DroppedNeedle account in OtoHari first."); return; }
             try {
                 new CarSmartPlaylists(getContext(), owner).publish(call.getString("id"), call.getString("definition"),
                         call.getString("snapshot"), call.getInt("total", -1), call.getData().getLong("completedAt"));
@@ -57,7 +57,7 @@ public class DNLauncherPlugin extends Plugin {
     }
     @PluginMethod public void replaceHomePins(PluginCall call) {
         HeadsetAccount owner = current(call);
-        if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+        if (owner == null) { call.reject("Connect your DroppedNeedle account in OtoHari first."); return; }
         try {
             new CarHomePins(getContext(), owner).replace(call.getArray("pins"));
             call.resolve();

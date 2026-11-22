@@ -1,7 +1,7 @@
 {
   "appId": "app.droppedneedle.mobile",
-  "appName": "DroppedNeedle",
+  "appName": "OtoHari",
   "webDir": "dist",
   "loggingBehavior": "none",
-  "backgroundColor": "#131c20"
+  "backgroundColor": "#050705"
 }

@@ -46,7 +46,7 @@ final class RoutedPlayer extends ForwardingSimpleBasePlayer {
         this.local = local;
         this.sources = sources;
         PowerManager power = context.getSystemService(PowerManager.class);
-        networkPlayback = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroppedNeedle:cast-playback");
+        networkPlayback = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OtoHari:cast-playback");
         networkPlayback.setReferenceCounted(false);
         local.addListener(new Listener() {
             @Override public void onEvents(Player player, Events events) {

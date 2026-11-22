@@ -211,7 +211,7 @@ final class PlaybackEqualizer {
 
     JSObject read() {
         attach();
-        if (effect == null) return unavailable("This audio output does not provide an equalizer for DroppedNeedle.");
+        if (effect == null) return unavailable("This audio output does not provide an equalizer for OtoHari.");
         try {
             if (!effect.hasControl()) return unavailable("Another audio effect controls the equalizer on this output.");
             short count = effect.getNumberOfBands();
