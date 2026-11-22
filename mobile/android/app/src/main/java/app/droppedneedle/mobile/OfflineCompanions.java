@@ -62,6 +62,12 @@ final class OfflineCompanions extends SQLiteOpenHelper {
             return row.moveToFirst();
         }
     }
+    byte[] coverBytes(String path) {
+        try (Cursor row = getReadableDatabase().rawQuery("SELECT data FROM covers WHERE path=?", new String[] {path})) {
+            return row.moveToFirst() ? row.getBlob(0) : null;
+        }
+    }
+
     String cover(String path) {
         if (path == null)
             return null;

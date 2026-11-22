@@ -61,9 +61,7 @@ export function mirrorHomePins(session: Session) {
 			if (!live) return;
 			const key = collectionKey(session.serverUrl, userId);
 			const publish = (data: HomeCollection) => {
-				const pins = data.pins
-					.filter((p) => p.kind !== 'smart')
-					.map((p) => carPin(session, p, data));
+				const pins = data.pins.map((p) => carPin(session, p, data));
 				pending = pending
 					.then(async () => {
 						if (live) await native.replaceHomePins({ serverUrl: session.serverUrl, userId, pins });

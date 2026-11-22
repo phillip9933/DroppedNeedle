@@ -84,6 +84,9 @@
             </intent-filter>
         </receiver>
 
+        <provider android:name=".CarArtworkProvider"
+            android:authorities="${applicationId}.car-art"
+            android:exported="true" />
         <provider
             android:name="io.github.phillip9933.appupdater.UpdateFileProvider"
             android:authorities="${applicationId}.android-updates"

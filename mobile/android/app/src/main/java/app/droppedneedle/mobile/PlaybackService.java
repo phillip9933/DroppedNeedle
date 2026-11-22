@@ -63,7 +63,7 @@ public final class PlaybackService extends MediaLibraryService {
     }
 
     static final class Access implements OfflineDataSource.Library {
-        final String artworkScope = UUID.randomUUID().toString();
+        final String artworkScope, artworkAuthority;
         final HttpUrl base;
         final String apiPath;
         final String token;
@@ -82,6 +82,8 @@ public final class PlaybackService extends MediaLibraryService {
             }
             this.token = token;
             this.userId = userId;
+            artworkScope = CarArtworkProvider.scope(new HeadsetAccount(base, token, userId));
+            artworkAuthority = context.getPackageName() + ".car-art";
             apiPath = base.encodedPath().replaceAll("/+$", "") + "/api/v3/";
         }
 
@@ -470,7 +472,7 @@ public final class PlaybackService extends MediaLibraryService {
             throw error;
         }
     }
-    MediaSession.MediaItemsWithStartPosition prepareCarQueue(HeadsetAccount login, JSArray queue, int index, long position)
+    MediaSession.MediaItemsWithStartPosition prepareCarQueue(HeadsetAccount login, JSArray queue, int index, LibraryWindow window, long position)
             throws JSONException {
         Access next = new Access(this, login.server.toString(), login.token, login.userId);
         ArrayList<MediaItem> checked = items(next, queue);
@@ -486,6 +488,11 @@ public final class PlaybackService extends MediaLibraryService {
         sleep.changedTrack(null);
         remember(next, checked);
         attach(next);
+        if (window != null) {
+            for (int i = 0; i < checked.size(); i++)
+                ((JSONObject) trackIdentity(checked.get(i))).put("smartIndex", window.loaded - checked.size() + i);
+            pager.attach(window, next.base, next.apiPath, next.token);
+        }
         pendingCarTrack = trackIdentity(checked.get(0));
         return new MediaSession.MediaItemsWithStartPosition(checked, index, position);
     }
@@ -504,7 +511,7 @@ public final class PlaybackService extends MediaLibraryService {
             MediaMetadata.Builder metadata = new MediaMetadata.Builder()
                     .setTitle(track.getString("title")).setArtist(track.getString("artist"))
                     .setAlbumTitle(track.getString("album"));
-            metadata.setArtworkUri(PlaybackArtwork.uri(access, track.getString("id")));
+            metadata.setArtworkUri(CarArtworkProvider.uri(access.artworkAuthority, access.artworkScope, access.base, track));
 
             items.add(new MediaItem.Builder().setMediaId(track.getString("id"))
                     .setUri(stream).setTag(track).setMediaMetadata(metadata.build()).build());

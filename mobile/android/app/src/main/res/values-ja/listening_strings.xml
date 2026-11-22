@@ -1,6 +1,7 @@
 <resources>
     <string name="car_home_pins">ホームに固定</string>
     <string name="car_library">ライブラリ</string>
+    <string name="car_smart_playlists">スマートプレイリスト</string>
     <string name="car_playlists">プレイリスト</string>
     <string name="car_favorites">お気に入りの曲</string>
     <string name="car_device">この端末</string>

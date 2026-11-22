@@ -43,7 +43,7 @@ public final class PlaybackArtworkTest {
         JSONObject track = new JSONObject().put("id", id).put("title", id)
                 .put("streamUrl", BASE + "/api/v3/stream/local/" + id).put("artworkUrl", cover);
         owner.metadata.put(id, track);
-        return new MediaMetadata.Builder().setArtworkUri(PlaybackArtwork.uri(owner, id)).build();
+        return new MediaMetadata.Builder().setArtworkUri(CarArtworkProvider.uri(owner.artworkAuthority, owner.artworkScope, owner.base, track)).build();
     }
 
     private static byte[] picture(int color) {
@@ -128,6 +128,29 @@ public final class PlaybackArtworkTest {
         } finally {
             owner.offline.remove(new JSONArray().put("tagged").put("plain"));
         }
+    }
+
+    @Test public void onlineCarCoverUsesOnlyItsServersCoverEndpointAndNeverExposesTheBearerToTheHost() throws Exception {
+        PlaybackService.Access access = account();
+        HeadsetAccount login = new HeadsetAccount(access.base,access.token,access.userId);
+        String path = "/api/v3/library/albums/test/artwork";
+        android.net.Uri art = track(access,"fixture",BASE + path).artworkUri;
+        assertEquals("content",art.getScheme());
+        assertFalse(art.toString().contains(login.token));
+        assertFalse(art.toString().contains(login.server.host()));
+        byte[] blue = picture(Color.BLUE);
+        AtomicInteger calls = new AtomicInteger();
+        OkHttpClient server = new OkHttpClient.Builder().addInterceptor(chain -> {
+            calls.incrementAndGet();
+            assertEquals(BASE + path + "?size=500",chain.request().url().toString());
+            assertEquals("Bearer " + login.token,chain.request().header("Authorization"));
+            return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("OK").body(ResponseBody.create(MediaType.get("image/png"),blue)).build();
+        }).build();
+        assertEquals(Color.BLUE, CarArtworkProvider.cover(context,login,art,false,server,() -> true).getPixel(0,0));
+        assertNull(CarArtworkProvider.cover(context,login,art.buildUpon().clearQuery().appendQueryParameter("cover","/api/v3/admin/users").build(), false,server,() -> true));
+        assertNull(CarArtworkProvider.cover(context,login,art,false,server,() -> false));
+        assertEquals(1,calls.get());
     }
 
     @Test public void fallbackHonorsOfflineModeAndRejectsAnotherAccountsCachedOrInFlightCover() throws Exception {

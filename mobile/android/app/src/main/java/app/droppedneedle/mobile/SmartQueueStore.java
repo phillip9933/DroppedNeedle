@@ -107,6 +107,22 @@ final class SmartQueueStore {
         return new LibraryWindow.Batch(LibraryWindow.smart(snapshot, start + count, cursor.total, order), new JSONArray(items));
     }
 
+    JSONArray carPage(HeadsetAccount owner, String snapshot, int start, int total)
+            throws IOException, GeneralSecurityException, JSONException {
+        if (!validId(snapshot)) throw new IOException("Invalid car playlist.");
+        return readPage(key(owner.server.toString(), owner.token, owner.userId), snapshot, start, total);
+    }
+
+    void retainCar(String snapshot) throws IOException {
+        if (!validId(snapshot)) throw new IOException("Invalid car playlist.");
+        File marker = new File(new File(root, snapshot), "car");
+        if (!marker.isFile() && !marker.createNewFile()) throw new IOException("Could not retain car playlist.");
+    }
+
+    void releaseCar(String snapshot) {
+        if (validId(snapshot)) new File(new File(root, snapshot), "car").delete();
+    }
+
     private JSONArray readPage(SecretKey key, String snapshot, int start, int total)
             throws IOException, GeneralSecurityException, JSONException {
         AtomicFile page = new AtomicFile(new File(new File(root, snapshot), Integer.toString(start)));
@@ -143,7 +159,7 @@ final class SmartQueueStore {
             File active = new File(dir, "active");
             if (keep != null && keep.contains(dir.getName())) {
                 try { active.createNewFile(); } catch (IOException ignored) { /* Keep the live pages. */ }
-            } else if (active.exists() ? keep != null : System.currentTimeMillis() - dir.lastModified() > 86_400_000L) {
+            } else if (!new File(dir, "car").isFile() && (active.exists() ? keep != null : System.currentTimeMillis() - dir.lastModified() > 86_400_000L)) {
                 File[] pages = dir.listFiles();
                 if (pages != null) for (File page : pages) page.delete();
                 dir.delete();

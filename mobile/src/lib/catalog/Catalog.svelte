@@ -5,6 +5,7 @@
 	import type { OnlineCredit } from '../player/related';
 	import { librarySelectionBack } from './librarySelection.svelte';
 	import type { Session } from '../connection';
+	import { mirrorSmartPlaylists } from './carSmartPlaylists';
 	import { mirrorHomePins } from './launcherShortcuts';
 	import type { Album, CatalogTab, OnPlay } from './catalog';
 	import BoardView from '../boards/BoardView.svelte';
@@ -42,6 +43,7 @@
 	} = $props();
 	const dismissSelection = librarySelectionBack();
 	$effect(() => mirrorHomePins(session));
+	$effect(() => mirrorSmartPlaylists(session));
 	let boardView = $state<BoardView>();
 	let hub = $state<LibraryHub>();
 	let searchView = $state<Search>();
