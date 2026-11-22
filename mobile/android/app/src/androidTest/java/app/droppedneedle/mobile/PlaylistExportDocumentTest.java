@@ -41,7 +41,7 @@ public class PlaylistExportDocumentTest {
         Intent picker = DNPlaylistExportPlugin.destination("application/json", DNPlaylistExportPlugin.LAYOUT_NAME);
         assertEquals(Intent.ACTION_CREATE_DOCUMENT, picker.getAction());
         assertEquals("application/json", picker.getType());
-        assertEquals("droppedneedle-player-layout.json", picker.getStringExtra(Intent.EXTRA_TITLE));
+        assertEquals("otohari-player-layout.json", picker.getStringExtra(Intent.EXTRA_TITLE));
         assertEquals(1, picker.getExtras().size());
         String layout = "{\"format\":\"droppedneedle-player-layout\",\"version\":1,\"sections\":[{\"id\":\"player-toggle\",\"title\":\"音楽\",\"preview\":true}]}";
         assertArrayEquals(layout.getBytes(StandardCharsets.UTF_8), DNPlaylistExportPlugin.layoutBytes(layout));

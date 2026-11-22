@@ -92,7 +92,7 @@ final class CarLibrary {
                     .setMediaType(folder ? MediaMetadata.MEDIA_TYPE_FOLDER_MIXED : MediaMetadata.MEDIA_TYPE_MUSIC).build()).build();
         }
     }
-    static Entry root() { return new Entry(ROOT, "DroppedNeedle", "", null); }
+    static Entry root() { return new Entry(ROOT, "OtoHari", "", null); }
     private Uri shelf(String kind, String value, String cursor) {
         Uri.Builder key = new Uri.Builder().scheme("dncar").authority(scope).appendPath(kind);
         if (value != null) key.appendQueryParameter("value", value);

@@ -1,3 +1,7 @@
+## OtoHari for Android
+
+This branch develops OtoHari, an independent, unofficial music player for DroppedNeedle. See the [OtoHari app guide](mobile/README.md) for installation, sign-in and playback. The documentation below covers the upstream DroppedNeedle server.
+
 <div align="center">
 
 <img src="Images/logo_wide.png" alt="DroppedNeedle" width="400" />

@@ -1,6 +1,11 @@
-# DroppedNeedle Mobile
+# OtoHari
 
-The Android and iOS apps connect to your DroppedNeedle v3 server. Play music from your DN library, manage your queue and playlists, and request albums or songs from the same server. Android is the primary tested platform.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/otohari-horizontal-lime.svg">
+  <img src="brand/otohari-horizontal-black.svg" alt="OtoHari" width="260">
+</picture>
+
+OtoHari is an independent, unofficial music player for Android and iPhone. It connects to your own DroppedNeedle v3 server. The DroppedNeedle project does not develop or endorse OtoHari. Play music from your DN library, manage your queue and playlists, and request albums or songs from the same server. Android is the primary tested platform.
 
 ## Connect your phone
 
@@ -16,7 +21,7 @@ Server administrators can add browser sign-in by building the DN web frontend wi
 
 On Android 8 or later, open **Settings → App → App updates**. You can also open Settings from the sign-in screen. Choose **Check for updates** to check the Android releases on GitHub. This works independently of your DroppedNeedle account.
 
-The app checks the stable channel about once a day by default. Choose **Beta** to include prereleases, or enable **Download automatically on Wi-Fi** to have the APK ready for later. Open **App updates** to read the release notes, download the APK and install it. If Android asks for permission, allow installs from DroppedNeedle, return to the app and tap **Install update**. Android asks you to confirm the installation.
+The app checks the stable channel about once a day by default. Choose **Beta** to include prereleases, or enable **Download automatically on Wi-Fi** to have the APK ready for later. Open **App updates** to read the release notes, download the APK and install it. If Android asks for permission, allow installs from OtoHari, return to the app and tap **Install update**. Android asks you to confirm the installation.
 
 ## Find a setting or change language
 
@@ -164,7 +169,7 @@ Use the cast icon in Now Playing or **Settings → Playback → Cast and audio o
 
 ## Android Auto, speakers and library shortcuts
 
-Android Auto can browse your DN library, playlists, favorites and saved music, and find songs by voice. Under **Playlists → Smart playlists**, the car uses the match lists saved by the phone for the current account. Open the updated phone app once to sync existing playlists. When offline, the car shows the matching tracks available on the device. **Library → Pinned to Home** follows the order you set on the phone, including on dashboards that show only four navigation tabs. Track artwork is shared with the car through Android, including locally available covers during offline playback. Add the DroppedNeedle widget from the Android launcher for playback controls. On Android, tapping the system media card or the widget title opens Now Playing and keeps the current playback state. Open a DN playlist in the app to pin a shortcut that returns to it under your account.
+Android Auto can browse your DN library, playlists, favorites and saved music, and find songs by voice. Under **Playlists → Smart playlists**, the car uses the match lists saved by the phone for the current account. Open the updated phone app once to sync existing playlists. When offline, the car shows the matching tracks available on the device. **Library → Pinned to Home** follows the order you set on the phone, including on dashboards that show only four navigation tabs. Track artwork is shared with the car through Android, including locally available covers during offline playback. Add the OtoHari widget from the Android launcher for playback controls. On Android, tapping the system media card or the widget title opens Now Playing and keeps the current playback state. Open a DN playlist in the app to pin a shortcut that returns to it under your account.
 
 In **Cast and audio output → Find network speakers**, Sonos rooms show their groups. Select a room to adjust its volume, join another group or leave a group. Playback goes through the group coordinator.
 
@@ -224,11 +229,19 @@ From `mobile/`, set `ANDROID_HOME` to your SDK directory. Set `DN_ANDROID_RELEAS
 pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
 ```
 
-The command verifies the signing fingerprint, package, version and release build type. It reads the mobile fork’s public release history and downloads the most recently published Android APK, including betas, to check its actual version code. The new code must match the Gradle build and exceed that published code. After these checks it copies the APK under the filename the app expects. Create a release on the mobile fork using the tag it prints and attach that file. For example, version `0.23.0` uses tag `android-v0.23.0` and asset `droppedneedle-android-0.23.0.apk`. For `0.23.0-beta.1`, use `android-v0.23.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+The command verifies the signing fingerprint, package, version and release build type. It reads the mobile fork’s public release history and downloads the most recently published Android APK, including betas, to check its actual version code. The new code must match the Gradle build and exceed that published code. After these checks it copies the APK under the filename the app expects. Use OtoHari in the GitHub release title and the APK’s display label. Attach the file under the exact filename the command prints so earlier Android betas can find it. For example, version `0.23.0` uses tag `android-v0.23.0` and asset `droppedneedle-android-0.23.0.apk`. For `0.23.0-beta.1`, use `android-v0.23.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+
+### Moving mobile releases to a dedicated repository
+
+The Android and iPhone branches currently live in the DroppedNeedle fork. Keep this fork connected to upstream for changes such as browser pairing. For the planned OtoHari repository:
+
+1. Preserve the mobile commit history, the AGPL license and upstream attribution. Bring over or pin the exact frontend files the mobile build imports, including the API types, pairing helpers, player controls, themes and fonts. Check both clients from a fresh checkout.
+2. Publish a transition APK on the existing fork using its current tag and asset naming convention. That APK must point its updater at the new OtoHari release feed. Test an update from the last public APK through the transition to the first release on the new feed, using the original application ID and signing certificate.
+3. Configure the new repository’s Apple signing environment before moving TestFlight uploads. Reuse the existing App Store Connect record, bundle ID and tester groups. Change the localized listing name to OtoHari when the record is editable.
 
 ## How the clients fit together
 
-The mobile app is a separate Svelte entry point. It shares the v3 contract, browser pairing format, theme colors, EQ preset curves, artwork and player handoff controls with the web frontend. The mobile build bundles its UI on the device. Browser pairing uses the DN web sign-in page. Handoff uses two account-scoped v3 routes on the matching Rust server. Recent-play smart rules and server-provided ReplayGain tags use new optional catalog fields. An existing server can still provide library browsing and streaming.
+The mobile app is a separate Svelte entry point. It shares the v3 contract, browser pairing format, theme colors, EQ preset curves and player handoff controls with the web frontend. The mobile build bundles its UI on the device. Browser pairing uses the DN web sign-in page. Handoff uses two account-scoped v3 routes on the matching Rust server. Recent-play smart rules and server-provided ReplayGain tags use new optional catalog fields. An existing server can still provide library browsing and streaming.
 
 Android uses a Media3 playback service. iOS uses AVQueuePlayer and a resource loader for authenticated byte-range requests. The native player owns the track queue. The Svelte view reads its current state when the user reopens the app. Native API and audio requests authenticate to the selected server. Native session credentials use Keychain or Android Keystore-backed storage. The web preview holds credentials in memory and fetches each track before play.
 

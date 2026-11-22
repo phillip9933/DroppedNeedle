@@ -120,7 +120,7 @@ class CarSession implements MediaLibrarySession.Callback {
         io.execute(() -> {
             try {
                 HeadsetAccount owner = HeadsetAccount.read(service);
-                if (owner == null) throw new IOException("Sign into DroppedNeedle first.");
+                if (owner == null) throw new IOException("Connect your DroppedNeedle account in OtoHari first.");
                 CarLibrary catalog = new CarLibrary(service, owner);
                 CarLibrary.SmartSelection smart = term == null ? catalog.smartSelection(request.mediaId) : null;
                 LibraryWindow window = smart == null ? null : smart.window();

@@ -132,7 +132,7 @@ public final class DNOfflinePlugin extends Plugin {
         main.post(() -> {
             try {
                 reviewed(call);
-                startActivityForResult(call,DNPlaylistExportPlugin.destination("application/json","droppedneedle-diagnostics.json"),"diagnosticChosen");
+                startActivityForResult(call,DNPlaylistExportPlugin.destination("application/json","otohari-diagnostics.json"),"diagnosticChosen");
             } catch (Exception unavailable) { call.reject("Review the report and choose a writable destination."); }
         });
     }
@@ -211,7 +211,7 @@ public final class DNOfflinePlugin extends Plugin {
         main.post(() -> {
             Activity activity = getActivity();
             if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
-                call.reject("Return to DroppedNeedle before opening Android notification settings.");
+                call.reject("Return to OtoHari before opening Android notification settings.");
                 return;
             }
             try {

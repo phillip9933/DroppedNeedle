@@ -12,7 +12,7 @@
     <string name="offline_downloads">オフライン用のダウンロード</string>
     <string name="saving_offline">オフライン用に保存中</string>
     <string name="download_progress">%2$d 曲中 %1$d 曲を処理しました</string>
-    <string name="widget_name">DroppedNeedle プレーヤー</string>
+    <string name="widget_name">OtoHari プレーヤー</string>
     <string name="widget_resume">再生を再開</string>
     <string name="widget_previous">前の曲</string>
     <string name="widget_play">再生</string>

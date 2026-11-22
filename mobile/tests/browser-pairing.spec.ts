@@ -508,7 +508,7 @@ test('download notification settings open on demand and reflect Android changes 
 	await page.getByRole('button', { name: 'Settings', exact: true }).click();
 	await page.getByRole('button', { name: 'Download preferences', exact: true }).click();
 	const group = page.getByRole('group', { name: 'Download notifications' });
-	await expect(group.getByRole('status')).toHaveText('Off for DroppedNeedle.');
+	await expect(group.getByRole('status')).toHaveText('Off for OtoHari.');
 	expect(
 		await page.evaluate(() => sessionStorage.getItem('opened-notification-settings'))
 	).toBeNull();
@@ -517,10 +517,7 @@ test('download notification settings open on demand and reflect Android changes 
 		.poll(() => page.evaluate(() => sessionStorage.getItem('opened-notification-settings')))
 		.toBe('1');
 	for (const [state, text] of [
-		[
-			'appOn',
-			'On for DroppedNeedle. The download channel appears after your first download starts.'
-		],
+		['appOn', 'On for OtoHari. The download channel appears after your first download starts.'],
 		['channelOff', 'Off for offline downloads.'],
 		['on', 'On for offline downloads.']
 	]) {

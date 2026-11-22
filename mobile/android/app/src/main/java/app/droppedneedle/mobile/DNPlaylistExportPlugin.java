@@ -97,7 +97,7 @@ public final class DNPlaylistExportPlugin extends Plugin {
         chooseDocument(call, file.mime, name, file);
     }
 
-    static final String LAYOUT_NAME = "droppedneedle-player-layout.json";
+    static final String LAYOUT_NAME = "otohari-player-layout.json";
     private static final int MAX_LAYOUT_BYTES = 64 * 1024;
     static byte[] layoutBytes(String text) throws IOException {
         if (text == null || text.isEmpty()) throw new IOException("No layout is available to save.");
