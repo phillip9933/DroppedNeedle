@@ -50,8 +50,8 @@
 				Continue as <strong>{authStore.user?.display_name}</strong> on this DroppedNeedle server.
 			</p>
 			<p>
-				Only approve if you started sign-in in OtoHari on this phone. Revoke access
-				from Profile → Sessions.
+				Only approve if you started sign-in in OtoHari on this phone. Revoke access from Profile →
+				Sessions.
 			</p>
 			{#if error}<p role="alert">{error}</p>{/if}
 			<Button variant="primary" loading={busy} onclick={allow}>Connect this phone</Button>
