@@ -312,3 +312,72 @@ test('stopping an artist sync keeps the cache and stops further artist requests'
 	release();
 	expect(ids).toEqual(['first']);
 });
+
+test('returning to an album in a scrolling smart playlist reuses its cover with disk caching off', async ({
+	page
+}) => {
+	await fixture(page);
+	let fetched = 0;
+	await page.route(server + '/api/v3/library/albums/solo/artwork?*', (route) => {
+		fetched++;
+		return route.fulfill({ path: file, contentType: 'image/webp' });
+	});
+	await page.addInitScript(
+		({ server }) => {
+			const owner = JSON.stringify([server, 'listener']);
+			localStorage.setItem(
+				'dn.mobile.smart-playlists.v1.' + owner + '.smart-rock',
+				JSON.stringify({
+					id: 'smart-rock',
+					name: 'Artwork songs',
+					kind: 'songs',
+					genre: 'Rock',
+					limit: 200,
+					sort: 'title',
+					order: 'asc'
+				})
+			);
+			localStorage.setItem(
+				'dn.mobile.home-pins.v1.' + owner,
+				JSON.stringify({ pins: [{ id: 'smart-rock', title: 'Artwork songs', kind: 'smart' }] })
+			);
+		},
+		{ server }
+	);
+	await page.route(server + '/api/v3/library/tracks?*', (route) => {
+		if (new URL(route.request().url()).searchParams.get('genre') !== 'Rock')
+			return route.fallback();
+		const items = Array.from({ length: 120 }, (_, i) => ({
+			id: 't' + i,
+			title: 'Song ' + String(i).padStart(3, '0'),
+			artist_name: 'Band',
+			album_id: i === 0 ? 'solo' : 'other',
+			album_title: i === 0 ? 'Night train' : 'Other',
+			art_missing: i !== 0,
+			cover_available: i === 0
+		}));
+		return route.fulfill({ json: { items, total: items.length, next: null } });
+	});
+	await localSignIn(page, server);
+	await options(page);
+	await chooseOption(page.getByLabel('Artwork cache limit'), '0');
+	await button(page, 'Back').click();
+	await button(page, 'Back').click();
+	await page
+		.getByRole('region', { name: 'Pinned to Home' })
+		.getByRole('button', { name: /Artwork songs/ })
+		.click();
+	const rows = page.getByRole('list', { name: 'Tracks results' });
+	const first = rows.getByRole('listitem').filter({ hasText: 'Song 000' });
+	await expect(first.locator('img')).toBeVisible();
+	expect(fetched).toBe(1);
+	await rows.evaluate((grid) => {
+		grid.closest('main')!.scrollTop = grid.clientHeight;
+	});
+	await expect(first).toHaveCount(0);
+	await rows.evaluate((grid) => {
+		grid.closest('main')!.scrollTop = 0;
+	});
+	await expect(first.locator('img')).toBeVisible();
+	expect(fetched).toBe(1);
+});

@@ -1,6 +1,7 @@
 import type { Session } from '../connection';
 
 const mib = 1024 * 1024;
+export const artworkPolicyChanged = 'dn-artwork-policy-changed';
 export const mediaLimits = {
 	artwork: [0, 32, 64, 128, 256, 512, 1024, 2048, 4096],
 	lyrics: [0, 2, 8, 32]
@@ -128,6 +129,8 @@ export async function setCacheLimit(
 		await trim(s, scope, p, clear ? 0 : limit * mib);
 		await read(s.policy.put(p, scope));
 	});
+	if (kind === 'artwork')
+		window.dispatchEvent(new CustomEvent(artworkPolicyChanged, { detail: session }));
 }
 export async function cachedValue(session: Session, kind: MediaKind, path: string) {
 	const scope = scopeOf(session, kind);

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Disc3 } from '@lucide/svelte';
 	import type { Session } from '../connection';
-	import { observeCover } from './coverRequests';
+	import { observeCover, recentCover } from './coverRequests';
 
 	let {
 		session,
@@ -31,7 +31,7 @@
 			account = session;
 		let unsubscribe: (() => void) | undefined;
 		let stopFallback: (() => void) | undefined;
-		source = '';
+		source = recentCover(account, src, local) || recentCover(account, alternate, local);
 		if (!src) return;
 		const observer = new IntersectionObserver(
 			(entries) => {
@@ -53,7 +53,7 @@
 					local
 				);
 			},
-			{ rootMargin: '100px' }
+			{ rootMargin: '450px 0px' }
 		);
 		observer.observe(element);
 		return () => {
