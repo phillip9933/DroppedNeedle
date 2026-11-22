@@ -1,3 +1,4 @@
+import { localSignIn } from './fixtures/localSignIn';
 import { chooseOption, choiceList } from './fixtures/inlineChoice';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -207,6 +208,59 @@ async function connect(page: Page) {
 	await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
 	return { lists, writes, streams, members: () => members };
 }
+
+test('a listener assigns and restores device artwork on a read-only playlist', async ({ page }) => {
+	const state = await connect(page);
+	await page.getByRole('button', { name: 'Library', exact: true }).click();
+	await page.getByRole('button', { name: 'Browse Playlists' }).click();
+	const playlist = page.getByRole('button', { name: 'Listening room', exact: true });
+	await playlist.click();
+	const artwork = page.getByRole('button', { name: 'Change playlist artwork' });
+	await artwork.click();
+	const dialog = page.getByRole('dialog', { name: 'Playlist artwork' });
+	const png = await page.evaluate(() => {
+		const canvas = document.createElement('canvas');
+		canvas.width = 920;
+		canvas.height = 640;
+		const context = canvas.getContext('2d')!;
+		context.fillStyle = 'teal';
+		context.fillRect(0, 0, canvas.width, canvas.height);
+		return canvas.toDataURL().split(',')[1];
+	});
+	await dialog.locator('input[type=file]').setInputFiles({
+		name: 'personal.png',
+		mimeType: 'image/png',
+		buffer: Buffer.from(png, 'base64')
+	});
+	await expect(dialog).toHaveCount(0);
+	await expect(artwork.locator('img')).toHaveJSProperty('naturalWidth', 512);
+	await page.getByRole('button', { name: 'Back to playlists' }).click();
+	await expect(playlist.locator('img')).toBeVisible();
+	await expect(
+		page.getByRole('button', { name: 'My mix', exact: true }).locator('img')
+	).toHaveCount(0);
+	const reopenLibrary = async (username: string) => {
+		await localSignIn(page, server, username);
+		await page.getByRole('button', { name: 'Library', exact: true }).click();
+		await page.getByRole('button', { name: 'Browse Playlists' }).click();
+		await expect(playlist).toBeVisible();
+	};
+	await page.route(api + '/me', (r) =>
+		r.fulfill({ json: { id: 'second', display_name: 'Second' } })
+	);
+	await reopenLibrary('second');
+	await playlist.click();
+	await artwork.click();
+	await expect(dialog.getByRole('button', { name: 'Choose artwork on this device' })).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Use automatic artwork' })).toHaveCount(0);
+	await page.unroute(api + '/me');
+	await reopenLibrary('listener');
+	await expect(playlist.locator('img')).toHaveJSProperty('naturalWidth', 512);
+	await page.getByRole('button', { name: 'More options for Listening room' }).click();
+	await page.getByRole('button', { name: 'Use automatic artwork' }).click();
+	await expect(playlist.locator('img')).toHaveCount(0);
+	expect(state.writes.filter((line) => line.includes('/playlists/'))).toEqual([]);
+});
 
 test('an owner creates, renames, shares and confirms deletion of a playlist', async ({ page }) => {
 	const state = await connect(page);

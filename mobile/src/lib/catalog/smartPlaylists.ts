@@ -1,3 +1,4 @@
+import { forgetPlaylistCover } from './playlistCoverOverrides';
 import { accountId } from '../boards/layout';
 import { libraryFilter } from '../boards/filteredSections';
 import { postJson, type Session } from '../connection';
@@ -16,6 +17,7 @@ import {
 	type PlaylistFilters,
 	type PlayStat
 } from './smartRules';
+import { libraryFeedbackRevision } from '../offline/feedbackStore';
 import { offlineInventory } from '../offline/media';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 
@@ -120,12 +122,98 @@ export async function writeSmartPlaylist(
 	)
 		throw new Error('This playlist changed. Reopen it before saving your edits.');
 	if (stored) localStorage.setItem(key, JSON.stringify(stored));
-	else localStorage.removeItem(key);
+	else {
+		localStorage.removeItem(key);
+		await forgetPlaylistCover(session, 'smart:' + id);
+	}
 	// During edits, keep observed per-track history and ratings for offline evaluation.
 	// Verified membership is reused only when the current rules, sort and limit still agree.
 	if (!previous || !stored) {
 		localStorage.removeItem(key + '.matches');
 		await storeMatches(key);
+	}
+	notifySmartPlaylist(session, id);
+}
+
+export type SmartSnapshot = { tracks: PlayerTrack[]; completedAt: number };
+const freshFor = 15 * 60_000;
+
+function snapshot(
+	cache: SmartMatches | null | undefined,
+	definition: string
+): SmartSnapshot | undefined {
+	if (
+		!sameDefinition(cache?.definition, definition) ||
+		!cache?.completedAt ||
+		!Array.isArray(cache.tracks)
+	)
+		return;
+	return { tracks: cache.tracks, completedAt: cache.completedAt };
+}
+
+export async function readSmartSnapshot(session: Session, playlist: SmartPlaylist) {
+	const key = (await prefix(session)) + playlist.id;
+	const definition = matchDefinition(rule(playlist));
+	const value = await savedMatches(key);
+	return sameDefinition(localStorage.getItem(key), definition)
+		? snapshot(value, definition)
+		: undefined;
+}
+
+function notifySmartPlaylist(session: Session, id: string) {
+	window.dispatchEvent(
+		new CustomEvent('dn-smart-playlist-updated', {
+			detail: { serverUrl: session.serverUrl, userId: session.userId, id }
+		})
+	);
+}
+
+type PageListener = (page: PlayerTrack[]) => void;
+type Scan = {
+	controller: AbortController;
+	pages: PlayerTrack[];
+	listeners: Set<PageListener>;
+	done: Promise<PlayerTrack[]>;
+};
+const activeScans = new Map<string, Scan>();
+
+// A phone view and a car can open the same playlist at once. A scan runs until its last reader leaves.
+async function joinScan(
+	key: string,
+	signal: AbortSignal,
+	onPage: PageListener | undefined,
+	start: (signal: AbortSignal, page: PageListener) => Promise<PlayerTrack[]>
+) {
+	signal.throwIfAborted();
+	let scan = activeScans.get(key);
+	if (!scan || scan.controller.signal.aborted) {
+		const controller = new AbortController();
+		const listeners = new Set<PageListener>();
+		const pages: PlayerTrack[] = [];
+		const done = start(controller.signal, (batch) => {
+			pages.push(...batch);
+			for (const listener of listeners) listener(batch);
+		}).finally(() => {
+			if (activeScans.get(key)?.controller === controller) activeScans.delete(key);
+		});
+		scan = { controller, listeners, pages, done };
+		activeScans.set(key, scan);
+	}
+	const joining = scan;
+	const listener: PageListener = (page) => onPage?.(page);
+	joining.listeners.add(listener);
+	let cancel!: () => void;
+	const cancelled = new Promise<never>((_, reject) => {
+		cancel = () => reject(signal.reason);
+		signal.addEventListener('abort', cancel, { once: true });
+	});
+	try {
+		if (joining.pages.length) listener(joining.pages);
+		return await Promise.race([joining.done, cancelled]);
+	} finally {
+		signal.removeEventListener('abort', cancel);
+		joining.listeners.delete(listener);
+		if (!joining.listeners.size) joining.controller.abort();
 	}
 }
 
@@ -134,17 +222,19 @@ export async function smartPlaylistTracks(
 	playlist: SmartPlaylist,
 	signal = new AbortController().signal,
 	availableTracks?: PlayerTrack[],
-	onPage?: (newMatches: PlayerTrack[]) => void
+	onPage?: PageListener,
+	options: { refresh?: boolean; onSnapshot?: (cached: SmartSnapshot) => void } = {}
 ) {
 	const item = rule(playlist),
 		root = playlistRules(item);
-	const { params, assured, mandatory, leaves } = planRules(root);
+	const plan = planRules(root);
 	const key = (await prefix(session)) + item.id,
 		definition = matchDefinition(item);
 	const current = () => sameDefinition(localStorage.getItem(key), definition);
 	const now = Date.now() / 1000;
 	signal.throwIfAborted();
 	if (availableTracks) {
+		const { assured, mandatory } = plan;
 		const cache = await savedMatches(key);
 		signal.throwIfAborted();
 		const same = sameDefinition(cache?.definition, definition);
@@ -183,6 +273,60 @@ export async function smartPlaylistTracks(
 		return result;
 	}
 
+	const saved = current();
+	const savedResult = saved ? await savedMatches(key) : undefined;
+	const cached = snapshot(savedResult, definition);
+	const personal = plan.leaves.some((r) => r.field === 'favorite' || r.field === 'rating');
+	const feedbackRevision = personal ? libraryFeedbackRevision(session) : null;
+	signal.throwIfAborted();
+	if (cached) {
+		options.onSnapshot?.(cached);
+		const age = Date.now() - cached.completedAt;
+		if (
+			!options.refresh &&
+			age >= 0 &&
+			age < freshFor &&
+			(savedResult?.feedbackRevision ?? null) === feedbackRevision
+		)
+			return cached.tracks;
+	}
+	const scan = (signal: AbortSignal, page?: PageListener) =>
+		scanOnline(session, item, root, plan, signal, page, async (result) => {
+			const stillCurrent = () =>
+				saved &&
+				!signal.aborted &&
+				current() &&
+				(!personal || libraryFeedbackRevision(session) === feedbackRevision);
+			if (
+				stillCurrent() &&
+				(await storeMatches(
+					key,
+					{ ...result, definition, feedbackRevision, completedAt: Date.now() },
+					stillCurrent
+				))
+			) {
+				if (current()) notifySmartPlaylist(session, item.id);
+			}
+		});
+	if (!saved) return scan(signal, onPage);
+	return joinScan(
+		JSON.stringify([key, definition, feedbackRevision]),
+		signal,
+		cached ? undefined : onPage,
+		scan
+	);
+}
+
+async function scanOnline(
+	session: Session,
+	item: SmartPlaylist,
+	root: ReturnType<typeof playlistRules>,
+	{ params, assured, leaves }: ReturnType<typeof planRules>,
+	signal: AbortSignal,
+	onPage: PageListener | undefined,
+	complete: (result: Omit<SmartMatches, 'definition'>) => Promise<void>
+) {
+	const now = Date.now() / 1000;
 	const needsStats = leaves.some((r) => r.field === 'plays' || r.field === 'lastPlayed');
 	const needsRatings = leaves.some((r) => r.field === 'rating' && !assured.has(r));
 	const filters = { ...params, sort: item.sort, order: item.order };
@@ -287,17 +431,15 @@ export async function smartPlaylistTracks(
 				throw Error('The track list changed while loading. Try again.');
 	}
 	signal.throwIfAborted();
-	if (current()) {
-		const data: SmartMatches = {
-			definition,
-			ids: matches.map((t) => t.id),
-			stats: needsStats ? history : undefined,
-			ratings: needsRatings ? ratings : undefined,
-			genres: byGenre.size ? genres : undefined,
-			genreFields: byGenre.size ? [...byGenre.keys()] : undefined
-		};
-		await storeMatches(key, data, () => !signal.aborted && current());
-	}
+	await complete({
+		ids: matches.map((t) => t.id),
+		tracks: matches,
+		stats: needsStats ? history : undefined,
+		ratings: needsRatings ? ratings : undefined,
+		genres: byGenre.size ? genres : undefined,
+		genreFields: byGenre.size ? [...byGenre.keys()] : undefined
+	});
+
 	signal.throwIfAborted();
 	return matches;
 }

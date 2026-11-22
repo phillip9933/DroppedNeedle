@@ -3,6 +3,7 @@ import { DnError, putJson, type Session } from '../connection';
 import { path } from '../catalog/catalog';
 import { offlineInventory, offlineSupported, preferredOffline } from './media';
 import {
+	changedLibraryFeedback,
 	notifyFeedback,
 	feedbackRows,
 	feedbackScope,
@@ -32,6 +33,7 @@ async function put(
 			{ favorited: value }
 		);
 		if (typeof response?.favorited !== 'boolean') throw Error('DN did not confirm the favorite.');
+		changedLibraryFeedback(session);
 		return response.favorited;
 	}
 	const response = await putJson<Models['RatingStatusResponse']>(
@@ -41,6 +43,7 @@ async function put(
 	);
 	if (!Number.isInteger(response?.rating) || response.rating < 0 || response.rating > 5)
 		throw Error('DN did not confirm the track rating.');
+	changedLibraryFeedback(session);
 	return response.rating;
 }
 export async function changeTrackFeedback(

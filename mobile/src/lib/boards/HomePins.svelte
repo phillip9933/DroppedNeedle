@@ -38,6 +38,7 @@
 		type HomePin,
 		type HomeCollection
 	} from '../catalog/homePins';
+	import PlaylistCover from '../catalog/PlaylistCover.svelte';
 	import Cover from '../catalog/Cover.svelte';
 	let {
 		session,
@@ -221,7 +222,12 @@
 						onclick={() => open(pin)}
 					>
 						<span class="art"
-							>{#if pin.art}<Cover
+							>{#if pin.kind === 'playlist' || pin.kind === 'smart'}<PlaylistCover
+									{session}
+									id={pin.kind + ':' + pin.id}
+									covers={pin.art ? [pin.art] : []}
+									cacheOnly={offline}
+								/>{:else if pin.art}<Cover
 									{session}
 									path={pin.art}
 									seed={pin.id}

@@ -105,4 +105,13 @@ test('a pinned smart playlist shows the first page while scanning and plays a so
 	await list.getByRole('button', { name: 'Play Recording 09500', exact: true }).click();
 	await expect.poll(() => streams.includes('09500'), { timeout: 15000 }).toBe(true);
 	expect(await list.getByRole('listitem').count()).toBeLessThan(100);
+
+	const firstScanRequests = requested.length;
+	await localSignIn(page, server);
+	await page
+		.getByRole('region', { name: 'Pinned to Home' })
+		.getByRole('button', { name: new RegExp(title) })
+		.click();
+	await expect(list).toHaveAttribute('data-loaded', '10000');
+	expect(requested).toHaveLength(firstScanRequests);
 });

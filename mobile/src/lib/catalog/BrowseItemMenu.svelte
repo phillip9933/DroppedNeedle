@@ -9,6 +9,7 @@
 	import type { SmartPlaylist } from './smartPlaylists';
 	import { offlineSupported } from '../offline/media';
 	import { supportsUpNext } from '../player';
+	import PlaylistCoverPicker from './PlaylistCoverPicker.svelte';
 	import PlaylistDialog from './PlaylistDialog.svelte';
 	import type { Session } from '../connection';
 	import HomePinButton from './HomePinButton.svelte';
@@ -63,6 +64,11 @@
 					>{uiText('Save offline')}</button
 				>{/if}
 		{/if}
+		{#if category === 'Playlists'}<PlaylistCoverPicker
+				{session}
+				id={row.id}
+				ondone={onclose}
+			/>{/if}
 		{#if row.smart && edit}<button onclick={() => edit?.(row.smart!)}
 				>{uiText('Edit smart playlist')}</button
 			>{/if}

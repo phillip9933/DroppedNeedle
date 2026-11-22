@@ -1,3 +1,4 @@
+import { forgetPlaylistCover } from './playlistCoverOverrides';
 import type { components } from '../../../../frontend/src/lib/api/v3/openapi';
 import type { PlayerTrack } from '../player';
 import { validLocalFileId } from '../offline/tracks';
@@ -244,6 +245,7 @@ export async function deletePlaylist(session: Session, id: string) {
 		'DELETE'
 	);
 	forgetPlaylist(session, id);
+	await forgetPlaylistCover(session, 'playlist:' + id);
 	return result;
 }
 
