@@ -45,7 +45,7 @@ jobs:
           xcrun simctl bootstatus "$device" -b
           xcodebuild -onlyUsePackageVersionsFromResolvedFile -project ios/App/App.xcodeproj -scheme App -configuration Debug -destination "id=$device" -derivedDataPath "$RUNNER_TEMP/iphone-build" CODE_SIGNING_ALLOWED=NO build
           xcrun simctl install "$device" "$RUNNER_TEMP/iphone-build/Build/Products/Debug-iphonesimulator/App.app"
-          xcrun simctl launch "$device" app.droppedneedle.mobile
+          xcrun simctl launch "$device" app.dnmusic.mobile
           swiftc tests/ios/simulator/check-launch.swift -o "$RUNNER_TEMP/check-launch"
           for attempt in {1..12}; do
             xcrun simctl io "$device" screenshot "$RUNNER_TEMP/iphone-launch.png"
