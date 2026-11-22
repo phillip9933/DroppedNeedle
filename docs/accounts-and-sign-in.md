@@ -66,9 +66,9 @@ If the server runs with `ALLOW_PASSWORD_LOGIN=false`, the code cannot be used un
 
 The command asks for no password of its own: anyone with access to the machine and its data folders can run it.
 
-## Sign in from DroppedNeedle Mobile
+## Sign in from OtoHari
 
-Enter your server address in the app. Select **Continue in browser** to use your usual DroppedNeedle sign-in. After sign-in, select **Connect this phone**. A device session gives the phone access to your library and requests. Revoke it under **Profile > Sessions**.
+OtoHari is an independent mobile client for DroppedNeedle. Enter your server address in OtoHari. Select **Continue in browser** to use your usual DroppedNeedle sign-in. After sign-in, select **Connect this phone**. A device session gives the phone access to your library and requests. Revoke it under **Profile > Sessions**.
 
 This flow uses the mobile pairing page from this web frontend and the server's existing sign-in settings. An OIDC provider uses the same callback address as the web app. A server with an older web frontend can accept a local password, a linked Jellyfin sign-in, or a v3 device session token.
 

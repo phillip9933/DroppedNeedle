@@ -25,7 +25,7 @@
 			if (!freshPairing(Number(request.started)))
 				throw new Error('This sign-in has expired. Start again from your phone.');
 			const key = await recipient(request);
-			const { token } = await mint.mutateAsync('DroppedNeedle Mobile ' + request.device);
+			const { token } = await mint.mutateAsync('OtoHari ' + request.device);
 			destination = await sealToken(request, key, token);
 			handBack(destination);
 		} catch (cause) {
@@ -40,7 +40,7 @@
 <AuthFrame kicker="Mobile sign-in">
 	<AuthCard icon={Smartphone} centred>
 		{#if !available}
-			<p>Open sign-in from DroppedNeedle Mobile using your server's HTTPS address.</p>
+			<p>Open sign-in from OtoHari using your server's HTTPS address.</p>
 		{:else if destination}
 			<p>Your phone can now access DroppedNeedle.</p>
 			<Button href={destination} variant="primary">Return to the app</Button>
@@ -50,7 +50,7 @@
 				Continue as <strong>{authStore.user?.display_name}</strong> on this DroppedNeedle server.
 			</p>
 			<p>
-				Only approve if you started sign-in in DroppedNeedle Mobile on this phone. Revoke access
+				Only approve if you started sign-in in OtoHari on this phone. Revoke access
 				from Profile → Sessions.
 			</p>
 			{#if error}<p role="alert">{error}</p>{/if}
