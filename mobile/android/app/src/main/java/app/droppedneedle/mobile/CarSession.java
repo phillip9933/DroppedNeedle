@@ -122,20 +122,27 @@ class CarSession implements MediaLibrarySession.Callback {
                 HeadsetAccount owner = HeadsetAccount.read(service);
                 if (owner == null) throw new IOException("Sign into DroppedNeedle first.");
                 CarLibrary catalog = new CarLibrary(service, owner);
-                List<CarLibrary.Entry> rows = term == null ? catalog.siblings(request.mediaId) : catalog.search(term);
+                CarLibrary.SmartSelection smart = term == null ? catalog.smartSelection(request.mediaId) : null;
+                LibraryWindow window = smart == null ? null : smart.window();
                 JSArray tracks = new JSArray();
                 int selected = -1;
-                for (CarLibrary.Entry entry : rows) {
-                    if (entry.track == null) continue;
-                    if (request.mediaId.equals(entry.id) || term != null && selected < 0) selected = tracks.length();
-                    tracks.put(entry.track);
+                if (smart != null) {
+                    for (int i = 0; i < smart.tracks().length(); i++) tracks.put(smart.tracks().getJSONObject(i));
+                    selected = smart.index();
+                } else {
+                    List<CarLibrary.Entry> rows = term == null ? catalog.siblings(request.mediaId) : catalog.search(term);
+                    for (CarLibrary.Entry entry : rows) {
+                        if (entry.track == null) continue;
+                        if (request.mediaId.equals(entry.id) || term != null && selected < 0) selected = tracks.length();
+                        tracks.put(entry.track);
+                    }
                 }
                 if (selected < 0 || !owner.matches(HeadsetAccount.read(service))) throw new IOException("No matching song.");
                 final int index = selected;
                 main.post(() -> {
                     try {
                         if (closed || result.isCancelled() || generation != service.carGeneration()) throw new IOException("Playback changed.");
-                        result.set(service.prepareCarQueue(owner, tracks, index, position == C.TIME_UNSET ? 0 : Math.max(0, position)));
+                        result.set(service.prepareCarQueue(owner, tracks, index, window, position == C.TIME_UNSET ? 0 : Math.max(0, position)));
                     } catch (Exception error) { result.setException(error); }
                 });
             } catch (Exception failed) { result.setException(failed); }

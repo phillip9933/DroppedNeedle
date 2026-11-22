@@ -34,6 +34,27 @@ public class DNLauncherPlugin extends Plugin {
         if (owner != null) reply.put("id", ((MainActivity)getActivity()).shortcuts.take(getContext(), owner));
         call.resolve(reply);
     }
+    @PluginMethod public void carPlaylistIndex(PluginCall call) {
+        SavedQueue.io(() -> {
+            HeadsetAccount owner = current(call);
+            if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+            try {
+                call.resolve(new JSObject().put("completed", new CarSmartPlaylists(getContext(), owner)
+                        .replace(call.getArray("lists"))));
+            } catch (Exception error) { call.reject("Could not update car playlists.", error); }
+        });
+    }
+    @PluginMethod public void carPlaylistReady(PluginCall call) {
+        SavedQueue.io(() -> {
+            HeadsetAccount owner = current(call);
+            if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }
+            try {
+                new CarSmartPlaylists(getContext(), owner).publish(call.getString("id"), call.getString("definition"),
+                        call.getString("snapshot"), call.getInt("total", -1), call.getData().getLong("completedAt"));
+                call.resolve();
+            } catch (Exception error) { call.reject("Could not save car playlist.", error); }
+        });
+    }
     @PluginMethod public void replaceHomePins(PluginCall call) {
         HeadsetAccount owner = current(call);
         if (owner == null) { call.reject("Sign into DroppedNeedle first."); return; }

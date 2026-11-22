@@ -26,7 +26,6 @@ import org.json.JSONObject;
 /** Resolves artwork requested by Media3 for the current notification and platform session. */
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 final class PlaybackArtwork implements BitmapLoader {
-    private static final String SCHEME = "dn-artwork";
     private static final int MAX_BYTES = 8 * 1024 * 1024;
     private final Supplier<PlaybackService.Access> current;
     private final Call.Factory http;
@@ -39,10 +38,6 @@ final class PlaybackArtwork implements BitmapLoader {
     PlaybackArtwork(Supplier<PlaybackService.Access> current, Call.Factory http) {
         this.current = current;
         this.http = http;
-    }
-
-    static Uri uri(PlaybackService.Access owner, String trackId) {
-        return new Uri.Builder().scheme(SCHEME).authority(owner.artworkScope).appendPath(trackId).build();
     }
 
     @Override public boolean supportsMimeType(String type) { return Util.isBitmapFactorySupportedMimeType(type); }
@@ -66,8 +61,9 @@ final class PlaybackArtwork implements BitmapLoader {
     private ListenableFuture<Bitmap> load(Uri uri, @Nullable byte[] inline) {
         PlaybackService.Access owner = current.get();
         String id = uri.getLastPathSegment();
-        if (owner == null || id == null || !SCHEME.equals(uri.getScheme())
-                || !owner.artworkScope.equals(uri.getAuthority()))
+        if (owner == null || id == null || !"content".equals(uri.getScheme())
+                || !owner.artworkAuthority.equals(uri.getAuthority()) || uri.getPathSegments().size() != 2
+                || !owner.artworkScope.equals(uri.getPathSegments().get(0)))
             return Futures.immediateFuture(null);
         return worker.submit(() -> {
             JSONObject track = owner.metadata(id);
@@ -76,13 +72,14 @@ final class PlaybackArtwork implements BitmapLoader {
             HttpUrl remote = HttpUrl.parse(track.optString("artworkUrl"));
             if (!owner.allowsOnlineMedia() || !owner.permits(remote, "")) remote = null;
             Source source = new Source(uri, file, inline, remote);
-            if (source.equals(lastSource)) return current.get() == owner ? lastCover : null;
+            if (lastCover != null && source.equals(lastSource)) return current.get() == owner ? lastCover : null;
 
             Bitmap cover = embedded(file);
             if (cover == null) cover = decode(inline);
             if (cover == null && remote != null) {
                 if (current.get() != owner || !owner.allowsOnlineMedia()) return null;
-                cover = download(owner, remote);
+                cover = download(http, new Request.Builder().url(remote).tag(PlaybackService.Access.class, owner)
+                        .header("Authorization", "Bearer " + owner.token).build());
                 if (cover == null || !owner.allowsOnlineMedia()) return null;
             }
             if (current.get() != owner) return null;
@@ -92,7 +89,7 @@ final class PlaybackArtwork implements BitmapLoader {
         });
     }
 
-    @Nullable private static Bitmap embedded(@Nullable File file) {
+    @Nullable static Bitmap embedded(@Nullable File file) {
         if (file == null) return null;
         try (FileInputStream input = new FileInputStream(file)) {
             MediaMetadataRetriever reader = new MediaMetadataRetriever();
@@ -107,9 +104,7 @@ final class PlaybackArtwork implements BitmapLoader {
         }
     }
 
-    @Nullable private Bitmap download(PlaybackService.Access owner, HttpUrl url) {
-        Request request = new Request.Builder().url(url).tag(PlaybackService.Access.class, owner)
-                .header("Authorization", "Bearer " + owner.token).build();
+    @Nullable static Bitmap download(Call.Factory http, Request request) {
         try (Response response = http.newCall(request).execute()) {
             ResponseBody body = response.body();
             if (!response.isSuccessful() || body == null || body.contentLength() > MAX_BYTES
@@ -120,7 +115,7 @@ final class PlaybackArtwork implements BitmapLoader {
         }
     }
 
-    @Nullable private static Bitmap decode(@Nullable byte[] bytes) {
+    @Nullable static Bitmap decode(@Nullable byte[] bytes) {
         if (bytes == null || bytes.length == 0 || bytes.length > MAX_BYTES) return null;
         try {
             return BitmapUtil.decode(bytes, bytes.length, null, 512);

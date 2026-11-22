@@ -164,7 +164,7 @@ Use the cast icon in Now Playing or **Settings → Playback → Cast and audio o
 
 ## Android Auto, speakers and library shortcuts
 
-Android Auto can browse your DN library, playlists, favorites and saved music, and find songs by voice. Add the DroppedNeedle widget from the Android launcher for playback controls. On Android, tapping the system media card or the widget title opens Now Playing and keeps the current playback state. Open a DN playlist in the app to pin a shortcut that returns to it under your account.
+Android Auto can browse your DN library, playlists, favorites and saved music, and find songs by voice. Under **Playlists → Smart playlists**, the car uses the match lists saved by the phone for the current account. Open the updated phone app once to sync existing playlists. When offline, the car shows the matching tracks available on the device. **Library → Pinned to Home** follows the order you set on the phone, including on dashboards that show only four navigation tabs. Track artwork is shared with the car through Android, including locally available covers during offline playback. Add the DroppedNeedle widget from the Android launcher for playback controls. On Android, tapping the system media card or the widget title opens Now Playing and keeps the current playback state. Open a DN playlist in the app to pin a shortcut that returns to it under your account.
 
 In **Cast and audio output → Find network speakers**, Sonos rooms show their groups. Select a room to adjust its volume, join another group or leave a group. Playback goes through the group coordinator.
 

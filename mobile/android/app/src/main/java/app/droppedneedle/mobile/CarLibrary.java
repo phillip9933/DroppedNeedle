@@ -34,9 +34,10 @@ final class CarLibrary {
         default JSONObject plan(HttpUrl url, JSONObject seed) throws IOException, JSONException { throw new IOException("DN radio is unavailable."); }
     }
     final HeadsetAccount owner;
-    private final String scope, prefix;
+    private final String scope, prefix, artworkScope, artworkAuthority;
     private final OfflineStore store;
     private final CarHomePins pins;
+    private final CarSmartPlaylists smart;
     private final Context context;
     private final boolean local;
     private final Read read;
@@ -62,23 +63,31 @@ final class CarLibrary {
     CarLibrary(Context app, HeadsetAccount account, Read read, boolean disconnected) {
         this.owner = account;
         this.context = app;
+        artworkScope = CarArtworkProvider.scope(account);
+        artworkAuthority = app.getPackageName() + ".car-art";
         scope = OfflineStore.digest(account.server + "\n" + account.userId);
         prefix = account.server.encodedPath().replaceAll("/+$", "") + "/api/v3/";
         store = OfflineStore.forUser(app, account.server.toString(), account.userId);
         pins = new CarHomePins(app, account);
+        smart = new CarSmartPlaylists(app, account);
         local = store.offlineOnly() || disconnected;
         this.read = read;
     }
     static final class Entry {
         final String id, title, subtitle;
         final JSONObject track;
+        final Uri art;
         Entry(String id, String title, String subtitle, JSONObject track) {
+            this(id, title, subtitle, track, null);
+        }
+        Entry(String id, String title, String subtitle, JSONObject track, Uri art) {
+            this.art = art;
             this.id = id; this.title = title; this.subtitle = subtitle; this.track = track;
         }
         MediaItem media() {
             boolean folder = track == null;
             return new MediaItem.Builder().setMediaId(id).setMediaMetadata(new MediaMetadata.Builder()
-                    .setTitle(title).setSubtitle(subtitle).setArtist(folder ? null : subtitle)
+                    .setTitle(title).setArtworkUri(art).setSubtitle(subtitle).setArtist(folder ? null : subtitle)
                     .setIsBrowsable(folder).setIsPlayable(!folder)
                     .setMediaType(folder ? MediaMetadata.MEDIA_TYPE_FOLDER_MIXED : MediaMetadata.MEDIA_TYPE_MUSIC).build()).build();
         }
@@ -93,13 +102,18 @@ final class CarLibrary {
     private Entry folder(String kind, String value, String cursor, String name) {
         return new Entry(shelf(kind, value, cursor).toString(), name, "", null);
     }
+    private Entry folderWithArt(String kind, String value, String name, String art) {
+        return new Entry(shelf(kind, value, null).toString(), name, "", null,
+                CarArtworkProvider.folderUri(artworkAuthority, artworkScope, owner.server, value, art));
+    }
     private Entry song(Uri shelf, JSONObject track) throws JSONException {
         String id = track.getString("id");
         if (!OfflineStore.validTrackId(id)) throw new JSONException("Invalid library track.");
         // Download metadata can retain a server-relative stream URL across app updates.
         track.put("streamUrl", store.original(id).toString());
         return new Entry(shelf.buildUpon().appendQueryParameter("track", id).build().toString(),
-                track.getString("title"), track.optString("artist"), track);
+                track.getString("title"), track.optString("artist"), track,
+                CarArtworkProvider.uri(artworkAuthority, artworkScope, owner.server, track));
     }
     private Uri parse(String raw) throws IOException {
         if (raw.length() > 8192) throw new IOException("Invalid media ID.");
@@ -118,6 +132,7 @@ final class CarLibrary {
             List<Entry> root = new ArrayList<>();
             if (!local) root.addAll(Arrays.asList(folder("library", null, null, context.getString(R.string.car_library)), folder("playlists", null, null, context.getString(R.string.car_playlists)),
                     folder("favorites", null, null, context.getString(R.string.car_favorites))));
+            if (local && smart.lists().length() > 0) root.add(folder("playlists", null, null, context.getString(R.string.car_playlists)));
             root.add(folder("device", null, null, context.getString(R.string.car_device)));
             if (pins.list().length() > 0) root.add(folder("pins", null, null, context.getString(R.string.car_home_pins)));
             return root;
@@ -126,8 +141,12 @@ final class CarLibrary {
         if (key.getQueryParameter("track") != null) return Collections.emptyList();
         String kind = key.getLastPathSegment(), value = key.getQueryParameter("value"), after = key.getQueryParameter("after");
         if ("pins".equals(kind) || "pin".equals(kind)) return pinnedChildren(kind, value, after, key);
-        if ("library".equals(kind)) return Arrays.asList(folder("albums", null, null, context.getString(R.string.car_albums)), folder("artists", null, null, context.getString(R.string.car_artists)),
-                folder("recent", null, null, context.getString(R.string.car_recent)));
+        if ("library".equals(kind)) {
+            List<Entry> shelves = new ArrayList<>(Arrays.asList(folder("albums", null, null, context.getString(R.string.car_albums)),
+                    folder("artists", null, null, context.getString(R.string.car_artists)), folder("recent", null, null, context.getString(R.string.car_recent))));
+            if (pins.list().length() > 0) shelves.add(folder("pins", null, null, context.getString(R.string.car_home_pins)));
+            return shelves;
+        }
         List<Entry> entries = new ArrayList<>();
         if ("device".equals(kind) || local && "search".equals(kind)) {
             JSONArray saved = store.snapshot().getJSONArray("items");
@@ -143,20 +162,42 @@ final class CarLibrary {
             if (offset + PAGE < matches.size()) entries.add(folder(kind, value, String.valueOf(offset + PAGE), context.getString(R.string.car_more)));
             return entries;
         }
+        if ("smartLists".equals(kind)) {
+            JSONArray lists = smart.lists();
+            int start = offset(after, lists.length());
+            for (int i = start; i < Math.min(start + PAGE, lists.length()); i++) {
+                JSONObject list = lists.getJSONObject(i);
+                entries.add(folder("smart", list.getString("id"), null, list.getString("name")));
+            }
+            if (start + PAGE < lists.length()) entries.add(folder(kind, null, String.valueOf(start + PAGE), context.getString(R.string.car_more)));
+            return entries;
+        }
+        if ("smart".equals(kind)) return smartTracks(key);
+        if ("playlists".equals(kind) && after == null && smart.lists().length() != 0)
+            entries.add(folder("smartLists", null, null, context.getString(R.string.car_smart_playlists)));
         if (local) return entries;
         HttpUrl.Builder base = owner.server.newBuilder().encodedPath(prefix);
         if ("playlists".equals(kind) || "playlist".equals(kind)) {
             HttpUrl.Builder request = base.addPathSegment("playlists");
             if ("playlist".equals(kind)) request.addPathSegment(valid(value));
-            JSONObject data = read.get(request.build());
+            JSONObject data;
+            try { data = read.get(request.build()); }
+            catch (IOException unavailable) {
+                if (!entries.isEmpty()) return entries; // Device playlists are available during a server outage.
+                throw unavailable;
+            }
             if (data.optBoolean("is_redacted")) return entries;
             JSONArray rows = data.getJSONArray("playlists".equals(kind) ? "playlists" : "tracks");
             int i = offset(after, rows.length());
             for (; i < rows.length() && entries.size() < PAGE; i++) {
                 JSONObject row = rows.getJSONObject(i);
                 if ("playlists".equals(kind)) {
-                    if (!row.optBoolean("is_redacted") && !row.isNull("name"))
-                        entries.add(folder("playlist", row.getString("id"), null, row.getString("name")));
+                    if (!row.optBoolean("is_redacted") && !row.isNull("name")) {
+                        JSONArray covers = row.optJSONArray("cover_urls");
+                        String art = !row.isNull("custom_cover_url") ? row.getString("custom_cover_url")
+                                : covers == null ? null : covers.optString(0);
+                        entries.add(folderWithArt("playlist", row.getString("id"), row.getString("name"), art));
+                    }
                 } else {
                     String file = row.isNull("library_file_id") ? "" : row.getString("library_file_id");
                     if (file.isEmpty() && "local".equals(row.optString("source_type")) && !row.isNull("track_source_id"))
@@ -165,6 +206,11 @@ final class CarLibrary {
                         JSONObject track = new JSONObject().put("id", file).put("title", row.getString("track_name"))
                                 .put("artist", row.optString("artist_name")).put("album", row.optString("album_name"))
                                 .put("streamUrl", store.original(file).toString());
+                        String art = CarArtworkProvider.relative(owner.server, row.optString("cover_url"));
+                        if (art == null && !row.isNull("album_id") && OfflineStore.validTrackId(row.getString("album_id")))
+                            art = "/api/v3/library/albums/" + Uri.encode(row.getString("album_id")) + "/artwork";
+                        if (art != null) track.put("artworkUrl", owner.server.newBuilder()
+                                .encodedPath(owner.server.encodedPath().replaceAll("/+$", "") + art).addQueryParameter("size","500").build().toString());
                         entries.add(song(key, track));
                     }
                 }
@@ -189,13 +235,88 @@ final class CarLibrary {
         for (int i = 0; i < rows.length(); i++) {
             JSONObject row = rows.getJSONObject(i);
             if ("artists".equals(kind)) entries.add(folder("artist", row.getString("id"), null, row.getString("name")));
-            else if ("albums".equals(kind)) entries.add(folder("album", row.getString("id"), null, row.getString("title")));
+            else if ("albums".equals(kind)) {
+                String id = row.getString("id");
+                String art = row.optBoolean("art_missing") ? null : !row.isNull("release_group_mbid")
+                        ? "/api/v3/covers/release-group/" + Uri.encode(row.getString("release_group_mbid"))
+                        : "/api/v3/library/albums/" + Uri.encode(id) + "/artwork";
+                entries.add(folderWithArt("album", id, row.getString("title"), art));
+            }
             else entries.add(song(key, LibraryWindow.track(owner.server, prefix, row)));
         }
         if (!page.isNull("next") && !page.getString("next").equals(after))
             entries.add(folder(kind, value, page.getString("next"), context.getString(R.string.car_more)));
         return entries;
     }
+    private List<Entry> smartTracks(Uri key) throws IOException, JSONException {
+        String id = key.getQueryParameter("value");
+        JSONObject list = smart.get(id);
+        int total = list.optInt("total"), start = offset(key.getQueryParameter("after"), total);
+        List<Entry> result = new ArrayList<>();
+        java.util.Map<String, JSONObject> saved = local ? CarHomePins.saved(store.snapshot().getJSONArray("items")) : Collections.emptyMap();
+        int end = start;
+        while (end < total && result.size() < LibraryWindow.PAGE) {
+            int pageStart = end / LibraryWindow.PAGE * LibraryWindow.PAGE;
+            JSONArray page = smart.page(list, pageStart);
+            for (int i = end - pageStart; i < page.length() && result.size() < LibraryWindow.PAGE; i++) {
+                JSONObject track = page.getJSONObject(i);
+                if (!local || saved.containsKey(track.getString("id"))) result.add(song(key, track));
+                end++;
+            }
+        }
+        if (end < total) result.add(folder("smart", id, String.valueOf(end), context.getString(R.string.car_more)));
+        return result;
+    }
+
+    record SmartSelection(JSONArray tracks, int index, LibraryWindow window) {}
+
+    SmartSelection smartSelection(String raw) throws IOException, JSONException, java.security.GeneralSecurityException {
+        Uri key = parse(raw);
+        if (!"smart".equals(key.getLastPathSegment())) return null;
+        String picked = key.getQueryParameter("track");
+        if (!OfflineStore.validTrackId(picked)) throw new IOException("Choose a playlist track.");
+        JSONObject list = smart.get(key.getQueryParameter("value"));
+        int total = list.getInt("total"), start = offset(key.getQueryParameter("after"), total);
+        String snapshot = list.getString("snapshot");
+        JSONArray page;
+        if (!local) {
+            page = smart.page(list, start);
+        } else {
+            java.util.Map<String, JSONObject> saved = CarHomePins.saved(store.snapshot().getJSONArray("items"));
+            List<JSONObject> playable = new ArrayList<>();
+            int selected = -1;
+            for (int pos = 0; pos < total; pos += LibraryWindow.PAGE) {
+                JSONArray rows = smart.page(list, pos);
+                for (int i = 0; i < rows.length(); i++) {
+                    JSONObject track = rows.getJSONObject(i);
+                    String id = track.getString("id");
+                    if (!saved.containsKey(id)) continue;
+                    if (picked.equals(id)) selected = playable.size();
+                    playable.add(track);
+                }
+            }
+            if (selected < 0) throw new IOException("Track is unavailable offline.");
+            if (playable.size() != total && playable.size() > LibraryWindow.PAGE) {
+                snapshot = java.util.UUID.randomUUID().toString();
+                SmartQueueStore queues = new SmartQueueStore(context);
+                for (int pos = 0; pos < playable.size(); pos += LibraryWindow.PAGE) {
+                    JSONArray part = new JSONArray(playable.subList(pos, Math.min(pos + LibraryWindow.PAGE, playable.size())));
+                    queues.write(owner.server.toString(), owner.token, owner.userId, snapshot, pos, playable.size(), part);
+                }
+            }
+            total = playable.size();
+            start = selected / LibraryWindow.PAGE * LibraryWindow.PAGE;
+            page = new JSONArray(playable.subList(start, Math.min(total, start + LibraryWindow.PAGE)));
+        }
+        for (int i = 0; i < page.length(); i++) {
+            if (picked.equals(page.getJSONObject(i).getString("id"))) {
+                LibraryWindow window = total <= LibraryWindow.PAGE ? null : LibraryWindow.smart(snapshot, start + page.length(), total);
+                return new SmartSelection(page, i, window);
+            }
+        }
+        throw new IOException("This track has moved. Reopen the playlist.");
+    }
+
     private List<Entry> pinnedChildren(String kind, String value, String after, Uri key) throws IOException, JSONException {
         List<Entry> entries = new ArrayList<>();
         java.util.Map<String, JSONObject> saved = local ? CarHomePins.saved(store.snapshot().getJSONArray("items")) : Collections.emptyMap();
@@ -203,7 +324,7 @@ final class CarLibrary {
             JSONArray rows = pins.list();
             for (int i = 0; i < rows.length(); i++) {
                 JSONObject pin = rows.getJSONObject(i);
-                if (local && pins.offline(pin, saved).isEmpty()) continue;
+                if (local && !"smart".equals(pin.optString("kind")) && pins.offline(pin, saved).isEmpty()) continue;
                 if ("track".equals(pin.optString("kind"))) {
                     if (OfflineStore.validTrackId(pin.optString("id"))) entries.add(song(key, local ? saved.get(pin.getString("id")) :
                         new JSONObject().put("id", pin.getString("id")).put("title", pin.getString("title"))
@@ -214,6 +335,7 @@ final class CarLibrary {
         }
         JSONObject pin = pins.find(value);
         List<JSONObject> tracks = new ArrayList<>();
+        if ("smart".equals(pin.optString("kind"))) return children(shelf("smart", pin.getString("id"), after).toString());
         if (local) tracks = pins.offline(pin, saved);
         else {
             String type = pin.getString("kind"), id = pin.getString("id"), localId = pin.optString("localId");
@@ -280,7 +402,7 @@ final class CarLibrary {
         String track = key.getQueryParameter("track");
         if (track == null) {
             String kind = key.getLastPathSegment();
-            if (!Arrays.asList("library","playlists","playlist","device","recent","album","artist","albums","artists","favorites","search","pins","pin","genre").contains(kind))
+            if (!Arrays.asList("library","playlists","playlist","device","recent","album","artist","albums","artists","favorites","search","pins","pin","genre","smartLists","smart").contains(kind))
                 throw new IOException("Unknown shelf.");
             return new Entry(raw, kind, "", null);
         }

@@ -136,6 +136,30 @@ public class HeadsetResumeTest {
             file.finish();
         }
     }
+    @Test public void carCanReadAnOfflineCoverThroughContentResolverOnlyForTheActiveLogin() throws Exception {
+        login(SERVER, TOKEN, USER);
+        String path = "/api/v3/library/albums/cover-test/artwork";
+        android.graphics.Bitmap pixel = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+        pixel.eraseColor(android.graphics.Color.GREEN);
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        pixel.compress(android.graphics.Bitmap.CompressFormat.PNG,100,bytes);
+        String key = OfflineStore.digest("two");
+        try {
+            local.companions().put(key, path, new OfflineCompanions.Image("image/png",bytes.toByteArray()),null,null);
+            HeadsetAccount account = HeadsetAccount.read(context);
+            android.net.Uri uri = CarArtworkProvider.uri(context.getPackageName() + ".car-art",
+                    CarArtworkProvider.scope(account),account.server,track("two").put("artworkUrl", SERVER + path));
+            try (java.io.InputStream in = context.getContentResolver().openInputStream(uri)) {
+                android.graphics.Bitmap cover = android.graphics.BitmapFactory.decodeStream(in);
+                assertNotNull(cover);
+                assertTrue(android.graphics.Color.green(cover.getPixel(0,0)) > 240);
+            }
+            assertNull(CarArtworkProvider.relative(account.server,"https://outside.invalid" + path));
+            assertNull(CarArtworkProvider.relative(account.server,SERVER + "/api/v3/admin/users"));
+            logout();
+            assertThrows(java.io.FileNotFoundException.class, () -> context.getContentResolver().openInputStream(uri));
+        } finally { local.companions().forget(key); }
+    }
     @Test public void coldControllerPlayUsesTheSavedAccountSelectionAndLatestPositionWithoutAWebView() throws Exception {
         login(SERVER, TOKEN, USER);
         savedQueue(true);

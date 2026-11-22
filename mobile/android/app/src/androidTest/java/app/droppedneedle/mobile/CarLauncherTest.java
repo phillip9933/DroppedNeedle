@@ -125,6 +125,64 @@ public class CarLauncherTest {
         assertThrows(IOException.class, () -> next.item(song.id));
         assertTrue(CarLibrary.slice(albums, Integer.MAX_VALUE, Integer.MAX_VALUE).isEmpty());
     }
+    @Test public void completedSmartPlaylistsSurviveColdBrowseAndContinueThroughAllTracks() throws Exception {
+        HeadsetAccount login = new HeadsetAccount(owner.server, owner.token, UUID.randomUUID().toString());
+        CarSmartPlaylists lists = new CarSmartPlaylists(app, login);
+        String snapshot = UUID.randomUUID().toString(), rule = "five-stars";
+        JSONArray index = new JSONArray().put(new JSONObject().put("id","smart-rated").put("name","Five stars").put("definition",rule));
+        lists.replace(index);
+        try {
+            SmartQueueStore pages = new SmartQueueStore(app);
+            for (int start = 0; start < 105; start += LibraryWindow.PAGE) {
+                JSONArray rows = new JSONArray();
+                for (int n = start; n < Math.min(start + LibraryWindow.PAGE,105); n++)
+                    rows.put(new JSONObject().put("id","file-" + n).put("title","Song " + n)
+                            .put("artist","Fixture").put("album","Album")
+                            .put("streamUrl",login.server + "/api/v3/stream/local/file-" + n)
+                            .put("artworkUrl",login.server + "/api/v3/library/albums/test/artwork"));
+                pages.write(login.server.toString(), login.token, login.userId, snapshot, start, 105, rows);
+            }
+            lists.publish("smart-rated",rule,snapshot,105,1000L);
+            assertEquals(1000L, lists.replace(index).getLong("smart-rated"));
+            CarLibrary car = new CarLibrary(app, login, url -> { throw new IOException("Server unreachable"); }, false);
+            String playlists = car.children(CarLibrary.ROOT).get(1).id;
+            String smart = car.children(playlists).get(0).id;
+            CarLibrary.Entry folder = car.children(smart).get(0);
+            assertEquals("Five stars",folder.title);
+            List<CarLibrary.Entry> first = car.children(folder.id);
+            assertEquals(101,first.size());
+            assertEquals("Song 0", first.get(0).title);
+            assertEquals("content",first.get(0).media().mediaMetadata.artworkUri.getScheme());
+            assertEquals("/api/v3/library/albums/test/artwork",first.get(0).art.getQueryParameter("cover"));
+            CarLibrary.SmartSelection selection = car.smartSelection(first.get(77).id);
+            assertEquals(77,selection.index());
+            LibraryWindow window = selection.window();
+            assertEquals(100, window.loaded);
+            assertEquals(105, window.total);
+            assertEquals("Song 100", pages.read(login.server.toString(),login.token,login.userId,window).tracks.getJSONObject(0).getString("title"));
+            CarLibrary cold = new CarLibrary(app, login, url -> { throw new AssertionError(url); }, false);
+            List<CarLibrary.Entry> last = cold.children(first.get(100).id);
+            assertEquals(5,last.size());
+            assertEquals("Song 104", cold.item(last.get(4).id).title);
+            OfflineStore files = OfflineStore.forUser(app,login.server.toString(),login.userId);
+            byte[] tone = OfflinePlaybackTest.wav();
+            JSONObject lastTrack = last.get(4).track;
+            try {
+                try (OfflineStore.Capture copy = files.begin(lastTrack,true,tone.length)) {
+                    copy.write(tone,0,tone.length);
+                    copy.finish();
+                }
+                CarLibrary disconnected = new CarLibrary(app,login,url -> { throw new AssertionError(url); },true);
+                List<CarLibrary.Entry> offline = disconnected.children(folder.id);
+                assertEquals(1,offline.size());
+                assertEquals("Song 104",disconnected.smartSelection(offline.get(0).id).tracks().getJSONObject(0).getString("title"));
+            } finally { files.remove(new JSONArray().put(lastTrack.getString("id"))); }
+            assertEquals(0, new CarSmartPlaylists(app,owner).lists().length());
+            assertEquals(0, new CarSmartPlaylists(app,new HeadsetAccount(login.server,"new-session",login.userId)).lists().length());
+            lists.replace(new JSONArray().put(index.getJSONObject(0).put("definition","new-rule")));
+            assertTrue(cold.children(folder.id).isEmpty());
+        } finally { lists.replace(new JSONArray()); }
+    }
     @Test public void shortcutHandlesAreSingleUsePerTapAndBoundToTheCurrentLibrary() throws Exception {
         String handle = UUID.randomUUID().toString();
         SharedPreferences preferences = app.getSharedPreferences("dn-launcher-playlists", Context.MODE_PRIVATE);
