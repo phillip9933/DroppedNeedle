@@ -129,6 +129,7 @@ export function browseChoice(session: Session, item: BrowseItem) {
 	return {
 		id: item.id,
 		title: item.title,
+		smart: !!item.smart,
 		tracks: (signal: AbortSignal, forQueue: boolean) => resolveItem(session, item, signal, forQueue)
 	};
 }

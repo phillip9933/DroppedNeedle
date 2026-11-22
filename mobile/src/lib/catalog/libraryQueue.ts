@@ -37,27 +37,16 @@ export function queueSizeCheck(server: string) {
 	};
 }
 
-export async function prepareLibraryQueue(
+/** Cursor pages in DN's sort order, with duplicate rows removed and list changes detected. */
+export async function* trackPages(
 	session: Session,
 	filters: Record<string, string | number | undefined>,
 	signal: AbortSignal,
-	onprogress?: (loaded: number, total: number) => void,
-	forQueue = true,
-	playlist?: {
-		limit: number;
-		matches?: (row: TrackPage['items'][number], page: TrackPage) => boolean;
-	},
+	limit = pageSize,
 	first?: TrackPage
-): Promise<PlayerTrack[]> {
-	if (
-		playlist &&
-		(!Number.isInteger(playlist.limit) || playlist.limit < 1 || playlist.limit > maxQueueTracks)
-	)
-		throw new Error('Choose a playlist limit between 1 and 2,000 tracks.');
-	const tracks: PlayerTrack[] = [],
-		ids = new Set<string>(),
+): AsyncGenerator<TrackPage> {
+	const ids = new Set<string>(),
 		cursors = new Set<string>();
-	const checkSize = forQueue ? queueSizeCheck(session.serverUrl) : undefined;
 	let after: string | undefined, total: number | undefined;
 	do {
 		signal.throwIfAborted();
@@ -65,18 +54,7 @@ export async function prepareLibraryQueue(
 			first ??
 			(await getJson(
 				session,
-				path(
-					'/api/v3/library/tracks',
-					{},
-					{
-						...filters,
-						limit:
-							playlist && !playlist.matches
-								? Math.min(pageSize, playlist.limit - tracks.length)
-								: pageSize,
-						after
-					}
-				),
+				path('/api/v3/library/tracks', {}, { ...filters, limit, after }),
 				signal
 			));
 		first = undefined;
@@ -86,31 +64,44 @@ export async function prepareLibraryQueue(
 			page.total < 0 ||
 			(total !== undefined && total !== page.total)
 		)
-			throw new Error(changed);
+			throw Error(changed);
 		total = page.total;
-		const target = playlist ? Math.min(total, playlist.limit) : total;
-		if (forQueue && target > maxQueueTracks) throw new Error(tooMany);
-		const previous = ids.size;
-		for (const row of page.items) {
-			if (!row.id) throw new Error(changed);
-			if (ids.has(row.id)) continue;
+		const items = page.items.filter((row) => {
+			if (!row.id) throw Error(changed);
+			if (ids.has(row.id)) return false;
 			ids.add(row.id);
-			if (playlist?.matches && !playlist.matches(row, page)) continue;
+			return true;
+		});
+		if (ids.size > total) throw Error(changed);
+		yield { ...page, items };
+		after = page.next ?? undefined;
+		if (after) {
+			if (!items.length || cursors.has(after)) throw Error(changed);
+			cursors.add(after);
+		}
+	} while (after);
+	if (ids.size !== total) throw Error(changed);
+}
+
+export async function prepareLibraryQueue(
+	session: Session,
+	filters: Record<string, string | number | undefined>,
+	signal: AbortSignal,
+	onprogress?: (loaded: number, total: number) => void,
+	forQueue = true,
+	first?: TrackPage
+): Promise<PlayerTrack[]> {
+	const tracks: PlayerTrack[] = [];
+	const checkSize = forQueue ? queueSizeCheck(session.serverUrl) : undefined;
+	for await (const page of trackPages(session, filters, signal, pageSize, first)) {
+		if (forQueue && page.total > maxQueueTracks) throw Error(tooMany);
+		for (const row of page.items) {
 			const track = localSong(row);
 			checkSize?.(track);
 			tracks.push(track);
-			if (playlist && tracks.length === target) break;
 		}
-		if (ids.size > total) throw new Error(changed);
-		after = playlist && tracks.length === target ? undefined : (page.next ?? undefined);
-		if (after) {
-			if (previous === ids.size || cursors.has(after)) throw new Error(changed);
-			cursors.add(after);
-		}
-		onprogress?.(tracks.length, target);
-	} while (after);
-	if (ids.size !== total && !(playlist && tracks.length === playlist.limit))
-		throw new Error(changed);
-	if (!playlist && !tracks.length) throw new Error('No tracks match these filters.');
+		onprogress?.(tracks.length, page.total);
+	}
+	if (!tracks.length) throw Error('No tracks match these filters.');
 	return tracks;
 }

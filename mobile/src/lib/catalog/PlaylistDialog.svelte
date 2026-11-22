@@ -7,12 +7,14 @@
 		onclose,
 		busy = false,
 		page = false,
+		action,
 		children
 	}: {
 		title: string;
 		onclose: () => void;
 		busy?: boolean;
 		page?: boolean;
+		action?: Snippet;
 		children: Snippet;
 	} = $props();
 	let dialog: HTMLDialogElement;
@@ -52,6 +54,7 @@
 				onclick={onclose}><ChevronLeft size={23} /></button
 			>{/if}
 		<h2>{title}</h2>
+		{#if action}<div class="header-action">{@render action()}</div>{/if}
 	</header>
 	{@render children()}
 </dialog>
@@ -88,6 +91,15 @@
 		align-items: center;
 		gap: 0.35rem;
 		padding-block: 0.35rem;
+	}
+	.page header .icon-button {
+		color: var(--text);
+		background: transparent;
+		border: 0;
+		box-shadow: none;
+	}
+	.header-action {
+		margin-inline-start: auto;
 	}
 	.page h2 {
 		margin: 0;

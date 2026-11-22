@@ -184,7 +184,7 @@ public final class PlaybackService extends MediaLibraryService {
         consumePriority();
         state.put("upNext", order.pending(player));
         if (pager.attached()) {
-            state.put("continuation", pager.saved());
+            state.put("continuation", pager.saved(includeTracks));
             state.put("libraryExtras", order.extraIndices(player));
         }
         if (includeTracks) {
@@ -305,6 +305,15 @@ public final class PlaybackService extends MediaLibraryService {
             @Override public int count() { return player.getMediaItemCount(); }
             @Override public boolean active() { return showsPauseControl(); }
             @Override public boolean offlineOnly() { return access == null || access.offline != null && access.offline.offlineOnly(); }
+            @Override public void readSmart(LibraryWindow cursor, java.util.function.Consumer<LibraryWindow.Batch> done, Runnable failed) {
+                Access owner = access;
+                SavedQueue.io(() -> {
+                    try {
+                        done.accept(new SmartQueueStore(PlaybackService.this).read(owner.base.toString(),
+                                owner.token, owner.userId, cursor));
+                    } catch (Exception unavailable) { failed.run(); }
+                });
+            }
             @Override public void apply(LibraryWindow.Batch batch, boolean restart, boolean resume) throws JSONException {
                 applyPage(batch, restart, resume);
             }
@@ -518,6 +527,27 @@ public final class PlaybackService extends MediaLibraryService {
         setRepeat(repeat);
     }
 
+    private void shuffleSmartUpcoming(LibraryWindow cursor) {
+        int count = player.getMediaItemCount(), current = player.getCurrentMediaItemIndex();
+        int[] displayed = new int[count];
+        boolean[] keep = new boolean[count];
+        for (int i = 0; i < count; i++) {
+            MediaItem item = player.getMediaItemAt(i);
+            displayed[i] = order.isExtra(item) ? -1 : ((JSONObject)trackIdentity(item)).optInt("smartIndex", -1);
+            keep[i] = order.isPending(item) || order.isExtra(item);
+        }
+        LibraryWindow replacement = SmartQueueOrder.toggle(cursor, displayed, keep, current);
+        for (int end = count; end > current + 1;) {
+            if (keep[end - 1]) { end--; continue; }
+            int from = end - 1;
+            while (from > current + 1 && !keep[from - 1]) from--;
+            order.remove(player, from, end);
+            player.removeMediaItems(from, end);
+            end = from;
+        }
+        pager.switchSmartOrder(replacement);
+    }
+
     private static void remember(Access owner, ArrayList<MediaItem> items) {
         for (MediaItem item : items) owner.metadata.put(item.mediaId, (JSONObject) trackIdentity(item));
     }
@@ -598,6 +628,10 @@ public final class PlaybackService extends MediaLibraryService {
         Access owner = append ? access : next;
         ArrayList<MediaItem> items = items(owner, queue);
         LibraryWindow window = LibraryWindow.parse(continuation, items.size());
+        if (window != null && window.smartSnapshot != null) {
+            for (int i = 0; i < items.size(); i++)
+                ((JSONObject)trackIdentity(items.get(i))).put("smartIndex", window.sourceIndex(window.loaded - items.size() + i));
+        }
         if (window != null && placement != null) throw new IllegalArgumentException("Invalid initial library queue.");
         remember(owner, items);
         if (append) {
@@ -1038,6 +1072,10 @@ public final class PlaybackService extends MediaLibraryService {
             case "shuffleUpcoming":
                 changingWindow = true;
                 try {
+                    if (pager.smartWindow() != null) {
+                        shuffleSmartUpcoming(pager.smartWindow());
+                        break;
+                    }
                     SavedQueue.ShuffleHistory history = access == null || order.shuffled() ? null
                             : SavedQueue.shuffleHistory(this, access.base.toString(), access.token, access.userId);
                     order.toggle(player, history);
@@ -1250,7 +1288,8 @@ public final class PlaybackService extends MediaLibraryService {
             result.put("upNext", order.pending(player));
         }
         result.put("repeat", repeat == Player.REPEAT_MODE_ONE ? "one" : repeat == Player.REPEAT_MODE_ALL ? "all" : "off");
-        result.put("shuffled", order.shuffled());
+        LibraryWindow smart = pager.smartWindow();
+        result.put("shuffled", order.shuffled() || smart != null && smart.smartOrder != null && smart.smartOrder.shuffled);
         result.put("hasPreviousQueue", previousQueue != null);
         result.put("autoplay", autoplay);
         if (radioProblem != null) result.put("autoplayProblem", radioProblem);

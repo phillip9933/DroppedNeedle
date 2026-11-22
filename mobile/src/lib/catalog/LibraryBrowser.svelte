@@ -61,6 +61,7 @@
 		playbackFilter,
 		shuffled
 	} from './browseActions';
+	import { prepareSmartPlayback } from '../player/smartPlayback';
 	import { prepareLibraryPlayback } from '../player/libraryWindow';
 	import { queueSizeCheck } from './libraryQueue';
 	import type { SmartPlaylist } from './smartPlaylists';
@@ -532,6 +533,8 @@
 		} else if (row.album) onopen(row.album);
 		else if (row.artist) onlocal(row.artist);
 		else if (row.playlist) onplaylist(row.playlist);
+		else if (row.smart)
+			ondetail(row, [], disconnected, available ? { category: 'Playlists', filters } : undefined);
 		else if (row.genre !== undefined && !row.localTracks) ondetail(row, [], false);
 		else void run('open', row);
 	}
@@ -602,6 +605,13 @@
 						'選択した項目には再生可能な曲がありません。'
 					)
 				);
+			if (row?.smart && (action === 'play' || action === 'shuffle')) {
+				const batch = await prepareSmartPlayback(session, tracks, 0, action === 'shuffle', signal);
+				signal.throwIfAborted();
+				finish?.();
+				await onplay(batch.tracks, batch.index, batch.continuation);
+				return;
+			}
 			if (row && forQueue) {
 				const check = queueSizeCheck(session.serverUrl);
 				tracks.forEach(check);

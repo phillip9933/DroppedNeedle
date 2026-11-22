@@ -1,5 +1,11 @@
 import { registerPlugin } from '@capacitor/core';
-import type { PlaybackBridge, PlaybackDelivery, PlayerAccess, PlayerState } from '../player';
+import type {
+	PlaybackBridge,
+	PlaybackDelivery,
+	PlayerAccess,
+	PlayerTrack,
+	PlayerState
+} from '../player';
 import type { Network, Profiles, TrackFades } from './streaming';
 import type { SoundSettings } from './sound';
 import type { EqualizerBridge } from './equalizer';
@@ -47,6 +53,14 @@ export const nativePlayer = registerPlugin<
 		OutputBridge &
 		FadeBridge & {
 			signalPath(): Promise<SignalOutput>;
+			storeSmartPage(
+				options: PlayerAccess & {
+					snapshot: string;
+					start: number;
+					total: number;
+					tracks: PlayerTrack[];
+				}
+			): Promise<void>;
 			shuffleSelection(options: {
 				serverUrl: string;
 				userId: string;

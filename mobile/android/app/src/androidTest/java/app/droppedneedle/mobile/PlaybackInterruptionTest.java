@@ -634,6 +634,97 @@ public final class PlaybackInterruptionTest {
         }
     }
 
+    @Test public void smartPlaylistRefillsOnTheNativeServiceWhileBackgroundedAndOffline() throws Exception {
+        Context app = instrumentation.getTargetContext();
+        String base = "https://127.0.0.1:1", token = "smart-session", user = "smart-" + java.util.UUID.randomUUID();
+        String snapshot = java.util.UUID.randomUUID().toString();
+        OfflineStore offline = OfflineStore.forUser(app, base, user);
+        offline.configure(offline.options().put("offlineOnly", true));
+        JSArray ids = new JSArray(), opening = new JSArray();
+        org.json.JSONObject[] rows = new org.json.JSONObject[2];
+        byte[] audio = java.util.Arrays.copyOf(OfflinePlaybackTest.wav(), 44 + 8000 * 2 * 6);
+        java.nio.ByteBuffer.wrap(audio).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .putInt(4, audio.length-8).putInt(40, audio.length-44);
+        SmartQueueStore store = new SmartQueueStore(app);
+        try {
+            for (int i = 0; i < 2; i++) {
+                String id = "file-" + i;
+                ids.put(id);
+                rows[i] = new org.json.JSONObject().put("id", id).put("title", id)
+                        .put("artist", "Library").put("album", "Offline").put("duration", 6)
+                        .put("streamUrl", base + "/api/v3/stream/local/" + id);
+                try (OfflineStore.Capture saved = offline.begin(rows[i], true, audio.length)) {
+                    saved.write(audio, 0, audio.length);
+                    saved.finish();
+                }
+            }
+            for (int start = 0; start < 10000; start += 100) {
+                org.json.JSONArray batch = new org.json.JSONArray();
+                for (int i = start; i < start + 100; i++) batch.put(rows[i % 2]);
+                store.write(base, token, user, snapshot, start, 10000, batch);
+            }
+            for (int i = 9550; i < 9600; i++) opening.put(rows[i % 2]);
+            CountDownLatch connected = new CountDownLatch(1);
+            ServiceConnection binding = connection(connected);
+            try (ActivityScenario<MainActivity> activity = ActivityScenario.launch(MainActivity.class)) {
+                awaitAppReady(activity);
+                assertTrue(app.bindService(new Intent(app, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND),
+                        binding, Context.BIND_AUTO_CREATE));
+                try {
+                    assertTrue(connected.await(10, TimeUnit.SECONDS));
+                    instrumentation.runOnMainSync(() -> {
+                        try {
+                            playback.setQueue(base, token, user, opening, 0, null, null,
+                                    LibraryWindow.smart(snapshot, 9600, 10000).state(), 0, true);
+                        } catch (Exception error) { throw new AssertionError(error); }
+                    });
+                    await("Foreground playback started", () -> player.isPlaying());
+                    activity.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+                    instrumentation.runOnMainSync(() -> {
+                        playback.command("skipTo", 49, -1);
+                        playback.command("next", -1, -1);
+                    });
+                    await("The next window played without WebView or DN", () -> {
+                        JSObject state = playback.snapshot();
+                        return player.isPlaying() && "file-0".equals(player.getCurrentMediaItem().mediaId)
+                                && state.optJSONObject("libraryWindow").optInt("loaded") == 9700
+                                && state.optJSONObject("libraryWindow").optInt("offset") == 9550
+                                && state.optJSONArray("tracks").length() == 150;
+                    });
+                    instrumentation.runOnMainSync(() -> {
+                        playback.command("setPlaying", 0, -1);
+                        int priority = player.getCurrentMediaItemIndex() + 5;
+                        playback.command("prioritize", priority, -1);
+                        playback.command("shuffleUpcoming", -1, -1);
+                    });
+                    await("The shuffle spans the full remainder and preserves Up Next", () -> {
+                        JSObject state = playback.snapshot();
+                        org.json.JSONArray tracks = state.optJSONArray("tracks");
+                        int position = state.optInt("index");
+                        if (!state.optBoolean("shuffled") || tracks.length() <= position + 2) return false;
+                        if (tracks.optJSONObject(position).optInt("smartIndex") != 9600
+                                || tracks.optJSONObject(position + 1).optInt("smartIndex") != 9605) return false;
+                        for (int i = position + 2; i < tracks.length(); i++)
+                            if (tracks.optJSONObject(i).optInt("smartIndex") >= 9700) return true;
+                        return false;
+                    });
+                    instrumentation.runOnMainSync(() -> playback.command("shuffleUpcoming", -1, -1));
+                    await("Turning off shuffle restores playlist order after the priority track", () -> {
+                        JSObject state = playback.snapshot();
+                        int position = state.optInt("index");
+                        org.json.JSONArray tracks = state.optJSONArray("tracks");
+                        return !state.optBoolean("shuffled") && tracks.length() > position + 2
+                                && tracks.optJSONObject(position + 1).optInt("smartIndex") == 9605
+                                && tracks.optJSONObject(position + 2).optInt("smartIndex") == 9601;
+                    });
+                } finally {
+                    if (playback != null) instrumentation.runOnMainSync(() -> playback.command("clear", -1, -1));
+                    app.unbindService(binding);
+                }
+            }
+        } finally { offline.remove(ids); }
+    }
+
     // Startup intentionally clears orphaned playback before rendering the signed-out form.
     private void awaitAppReady(ActivityScenario<MainActivity> activity) throws Exception {
         long end = SystemClock.elapsedRealtime() + 10_000;

@@ -37,6 +37,7 @@ final class SavedQueue {
     // Service instances can overlap during teardown. File mutations must stay ordered across them.
     private static final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final SmartQueueStore smartQueues;
     private final AtomicFile playlist;
     private final AtomicFile cursor;
     static boolean exists(Context context) {
@@ -44,7 +45,10 @@ final class SavedQueue {
         return new File(dir, PLAYLIST_FILE).isFile() || new File(dir, PLAYLIST_FILE + ".bak").isFile();
     }
 
+    static void io(Runnable task) { storage.execute(task); }
+
     SavedQueue(Context context) {
+        smartQueues = new SmartQueueStore(context);
         File dir = context.getNoBackupFilesDir();
         playlist = new AtomicFile(new File(dir, PLAYLIST_FILE));
         cursor = new AtomicFile(new File(dir, "playback-cursor.v1"));
@@ -127,8 +131,8 @@ final class SavedQueue {
                         || base.encodedQuery() != null || base.encodedFragment() != null || userId == null
                         || userId.trim().isEmpty())
                     throw new IllegalArgumentException("Connect to a DroppedNeedle account to shuffle.");
-                if (ids == null || ids.length() > 2000)
-                    throw new IllegalArgumentException("Choose up to 2,000 library tracks.");
+                if (ids == null || ids.length() > SmartQueueStore.MAX)
+                    throw new IllegalArgumentException("Choose up to 10,000 library tracks.");
                 ArrayList<String> files = new ArrayList<>(ids.length());
                 for (int i = 0; i < ids.length(); i++) {
                     Object id = ids.opt(i);
@@ -173,6 +177,7 @@ final class SavedQueue {
                 output.write(cipher.getIV());
                 output.write(encrypted);
                 target.finishWrite(output);
+                if (includesTracks) smartQueues.retain(state);
             } catch (IOException | GeneralSecurityException e) {
                 if (output != null) target.failWrite(output);
                 Log.w("DNPlayback", "The playback queue could not be saved.");
@@ -204,6 +209,12 @@ final class SavedQueue {
                 JSONObject latest = read(cursor, key);
                 if (latest.getString("revision").equals(queue.getString("revision"))) {
                     latest.put("tracks", queue.getJSONArray("tracks"));
+                    // The position checkpoint shares the snapshot and shuffle order of this queue revision.
+                    JSONObject window = latest.optJSONObject("continuation"), archived = queue.optJSONObject("continuation");
+                    if (window != null && archived != null && archived.has("smartOrder")) {
+                        window.put("smartOrder", archived.getString("smartOrder"));
+                        window.put("smartShuffled", archived.getBoolean("smartShuffled"));
+                    }
                     for (String field : new String[]{"previousQueue", "shuffleOrder", "heard"})
                         if (queue.has(field)) latest.put(field, queue.get(field));
                     if (queue.has("userId")) latest.put("userId", queue.get("userId"));
@@ -240,7 +251,7 @@ final class SavedQueue {
     }
 
     void clear() {
-        storage.execute(() -> { playlist.delete(); cursor.delete(); });
+        storage.execute(() -> { playlist.delete(); cursor.delete(); smartQueues.retain(null); });
     }
 
     void afterWrite(Runnable callback) {

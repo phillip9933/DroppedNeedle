@@ -77,7 +77,7 @@
 	}
 	let expanded = $state<Section | null>(null);
 	let root: HTMLElement;
-	let group = $state.raw<{ row: BrowseItem; section: Section; device: boolean } | null>(null),
+	let group = $state.raw<{ row: BrowseItem; section?: Section; device: boolean } | null>(null),
 		groupScroll = 0;
 	let groupView = $state<LibraryGroup>();
 	const source = catalogSource(
@@ -95,7 +95,7 @@
 		const detail = group,
 			music = tracks;
 		void detailRetry;
-		if (!active || !detail || !localDetail || !music) return;
+		if (!active || !detail?.section || !localDetail || !music) return;
 		const request = new AbortController();
 		detailError = '';
 		void shelfRows(session, detail.section, music, request.signal).then(
@@ -114,7 +114,7 @@
 		);
 		return () => request.abort();
 	});
-	function openGroup(section: Section, row: BrowseItem) {
+	function openGroup(section: Section | undefined, row: BrowseItem) {
 		groupScroll = root.closest('main')?.scrollTop ?? 0;
 		group = { section, row, device: source.useDevice };
 		detailRow = row;
@@ -339,6 +339,13 @@
 						{/if}
 					{/snippet}
 					{#if owner && board === 'home'}<HomePins
+							onsmart={(rule) =>
+								openGroup(undefined, {
+									id: 'smart:' + rule.id,
+									title: rule.name,
+									subtitle: '',
+									smart: rule
+								})}
 							{session}
 							{owner}
 							active={active && !expanded && !group}

@@ -34,6 +34,8 @@ final class QueueOrder {
 
     int extraCount() { return extras.size(); }
 
+    boolean isPending(MediaItem entry) { return upNext.contains(key(entry)); }
+
     boolean isExtra(MediaItem entry) { return extras.contains(key(entry)); }
 
     JSONArray extraIndices(Player player) {
