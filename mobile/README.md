@@ -206,7 +206,7 @@ For Android, install JDK 21 and Android SDK Platform 36. Run `./gradlew assemble
 
 ### Prepare an Android GitHub release
 
-Set the mobile package version and Android `versionName` to the same version, and increase the Android `versionCode` for every release, including betas. After `pnpm sync`, generate a signed, standalone **release APK** in Android Studio using the same signing identity as the builds distributed to users. Android requires that identity for an in-place upgrade. Ordinary `assembleDebug` builds are for USB testing.
+Set the mobile package version and Android `versionName` to the same version, and increase `versionCode` for every release, including betas. Push an `android-v<version>` tag at the release commit. The **Android release checks** workflow builds and tests that tag and saves the standalone unsigned APK as a workflow artifact. After the checks pass, download the artifact and sign the APK with the Android distribution identity. Publish the signed APK with its SHA-256 checksum. Android requires the same signing identity for in-place updates. Debug builds are for device testing.
 
 From `mobile/`, set `ANDROID_HOME` to your SDK directory. Set `DN_ANDROID_RELEASE_CERT_SHA256` to the trusted public distribution certificate’s SHA-256 fingerprint from your release configuration. The stable and beta channels use the same signing identity. Then run the following with the signed APK and an output directory of your choice.
 
