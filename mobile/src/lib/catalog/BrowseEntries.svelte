@@ -76,7 +76,11 @@
 	const virtual = $derived(!albumGallery && items.length > 64 && metrics.pitch > 0);
 	const mounted = $derived.by(() => {
 		const start = virtual ? metrics.start : 0,
-			end = virtual ? metrics.end : items.length;
+			end = virtual
+				? metrics.end
+				: !albumGallery && !metrics.pitch && items.length > 64
+					? initialWindow.end
+					: items.length;
 		const rows = items.slice(start, end).map((item, i) => ({ item, index: start + i }));
 		if (virtual) {
 			for (const extra of new Set([pinned, anchor])) {

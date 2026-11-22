@@ -8,9 +8,11 @@ import {
 	type TrackPage
 } from '../catalog/libraryQueue';
 import type { PlayerTrack } from '../player';
-import { shuffled } from './shuffle';
+import { shuffled, shuffleInPlace } from './shuffle';
 
 export interface LibraryContinuation {
+	smartSnapshot?: string;
+	browserSmartShuffled?: boolean;
 	filters: Record<string, string>;
 	after: string | null;
 	loaded: number;
@@ -117,15 +119,7 @@ export async function prepareLibraryPlayback(
 		first = await read(session, params, null, 200, signal);
 	signal.throwIfAborted();
 	if (first.total <= maxQueueTracks || Capacitor.getPlatform() === 'ios') {
-		const tracks = await prepareLibraryQueue(
-			session,
-			params,
-			signal,
-			progress,
-			true,
-			undefined,
-			first
-		);
+		const tracks = await prepareLibraryQueue(session, params, signal, progress, true, first);
 		signal.throwIfAborted();
 		if (params.sort !== 'random') return { tracks };
 		const order = await shuffled(tracks, session, 'server');
@@ -141,12 +135,71 @@ export async function prepareLibraryPlayback(
 	progress?.(result.tracks.length, first.total);
 	return result;
 }
+// Browser playback keeps an immutable membership snapshot for as long as its queue or
+// previous queue is live. Android stores the same pages with its encrypted playback archive.
+const browserSnapshots = new WeakMap<LibraryContinuation, PlayerTrack[]>();
+export function attachBrowserSmartSnapshot(cursor: LibraryContinuation, ordered: PlayerTrack[]) {
+	browserSnapshots.set(cursor, ordered);
+}
+
+export function toggleBrowserSmartOrder(
+	current: LibraryContinuation,
+	displayed: PlayerTrack[],
+	index: number,
+	extras: Set<PlayerTrack>,
+	upNext: Set<PlayerTrack>
+) {
+	const snapshot = browserSnapshots.get(current);
+	if (!snapshot) throw Error('Reopen this smart playlist to continue playback.');
+	const visible = new Set(displayed.filter((t) => !extras.has(t)).map((t) => t.smartIndex));
+	const keep = displayed.filter((t, i) => i <= index || upNext.has(t) || extras.has(t));
+	const queued = keep.filter((t) => !extras.has(t));
+	const prefix = [
+		...snapshot.slice(0, current.loaded).filter((t) => !visible.has(t.smartIndex)),
+		...queued
+	];
+	const taken = new Set(prefix.map((t) => t.smartIndex));
+	const remaining = snapshot
+		.filter((t) => !taken.has(t.smartIndex))
+		.sort((a, b) => a.smartIndex! - b.smartIndex!);
+	const enabled = !current.browserSmartShuffled;
+	if (enabled) shuffleInPlace(remaining);
+	const loaded = prefix.length;
+	const continuation = {
+		...current,
+		loaded,
+		after: loaded < current.total ? String(loaded) : null,
+		browserSmartShuffled: enabled
+	};
+	attachBrowserSmartSnapshot(continuation, [...prefix, ...remaining]);
+	return { tracks: keep, continuation };
+}
+
 export async function nextLibraryBatch(
 	session: Session,
 	current: LibraryContinuation,
 	retained: PlayerTrack[],
 	signal: AbortSignal
 ) {
+	if (current.smartSnapshot) {
+		signal.throwIfAborted();
+		const snapshot = browserSnapshots.get(current);
+		if (!snapshot) throw Error('Reopen this smart playlist to continue playback.');
+		const start = current.after === null ? 0 : current.loaded;
+		const ordered =
+			start === 0 && current.browserSmartShuffled === false
+				? [...snapshot].sort((a, b) => a.smartIndex! - b.smartIndex!)
+				: snapshot;
+		const tracks = ordered.slice(start, start + refillSize);
+		const loaded = start + tracks.length;
+		const continuation = {
+			...current,
+			loaded,
+			after: loaded === current.total ? null : String(loaded)
+		};
+		attachBrowserSmartSnapshot(continuation, ordered);
+		return { tracks, continuation };
+	}
 	const restart = current.after === null;
 	const p = await read(session, current.filters, current.after, refillSize, signal);
 	signal.throwIfAborted();

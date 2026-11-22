@@ -1,3 +1,11 @@
+import {
+	openRule,
+	applyRule,
+	favoriteRule,
+	ratingRule,
+	playlistOptions,
+	trackLimit
+} from './fixtures/playlistRules';
 import { chooseOption } from './fixtures/inlineChoice';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
@@ -26,6 +34,8 @@ test('five-star jazz from a year range uses personal history before its limit, i
 	let oldServer = false;
 	await page.route(server + '/api/v3/library/tracks?**', async (r) => {
 		const q = new URL(r.request().url()).searchParams;
+		if (!q.has('include_play_stats') && q.get('limit') === '500')
+			return r.fulfill({ json: { items: songs, total: songs.length, next: null } });
 		if (!q.has('include_play_stats')) return r.fallback();
 		expect(q.get('genre')).toBe('Jazz');
 		expect(q.get('rating')).toBe('5');
@@ -71,13 +81,24 @@ test('five-star jazz from a year range uses personal history before its limit, i
 		.click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Playlist name').fill('Back in rotation');
-	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '5');
-	await dialog.getByText('Genre, year and listening history').click();
-	await dialog.getByLabel('Genre', { exact: true }).fill('Jazz');
-	await dialog.getByLabel('Earliest year').fill('1990');
-	await dialog.getByLabel('Maximum plays').fill('4');
-	await dialog.getByLabel('Not played in the last (days)').fill('90');
-	await dialog.getByLabel('Track limit').fill('2');
+	await ratingRule(dialog, 5, true);
+	await openRule(dialog, 'Genre');
+	await dialog.getByRole('button', { name: /Genre Choose/ }).click();
+	await page.getByRole('button', { name: 'Jazz', exact: true }).click();
+	await applyRule(dialog);
+	await openRule(dialog, 'Release year');
+	await chooseOption(dialog.getByLabel('Condition'), 'atLeast');
+	await chooseOption(dialog.getByRole('combobox', { name: 'Release year' }), '1990');
+	await applyRule(dialog);
+	await openRule(dialog, 'Play count');
+	await chooseOption(dialog.getByLabel('Condition'), 'atMost');
+	await chooseOption(dialog.getByRole('combobox', { name: 'Play count' }), 'custom');
+	await dialog.getByLabel('Custom value').fill('4');
+	await applyRule(dialog);
+	await openRule(dialog, 'Last played');
+	await chooseOption(dialog.getByRole('combobox', { name: 'Time period' }), '90');
+	await applyRule(dialog);
+	await trackLimit(dialog, 2);
 	await dialog.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
 	await button(page, 'Back in rotation').click();
 	await expect(button(page, 'Play Rediscovered')).toBeVisible();
@@ -88,8 +109,7 @@ test('five-star jazz from a year range uses personal history before its limit, i
 	await button(page, 'Back in rotation').click();
 	await expect(page.getByRole('alert')).toContainText('Update your DN server');
 	await seedOfflineMusic(page, server, 'listener', true, []);
-	await expect(page.getByRole('group', { name: 'Offline availability' })).toBeVisible();
-	await button(page, 'Back in rotation').click();
+	await expect(page.getByRole('heading', { name: 'Back in rotation' })).toBeVisible();
 	await expect(button(page, 'Play Never played')).toBeVisible();
 	await expect(button(page, 'Play Played yesterday')).toHaveCount(0);
 });
@@ -117,6 +137,8 @@ async function fixture(page: Page) {
 			return r.fulfill({
 				json: { id: user, display_name: 'Listener', role: 'user' }
 			});
+		if (path === '/library/stats')
+			return r.fulfill({ json: { format_breakdown: { flac: 3 }, total_tracks: 3 } });
 		if (path === '/library/tracks' && url.searchParams.has('rating')) {
 			queries.push(url.searchParams);
 			const items = ['North Star', 'North Coast', 'North Wind']
@@ -152,13 +174,20 @@ async function create(page: Page) {
 		.click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByLabel('Playlist name').fill('Night driving');
+	await openRule(dialog, 'Search text');
 	await dialog.getByLabel('Contains').fill('North');
-	await dialog.getByLabel('Favorites only').check();
-	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '4');
-	await dialog.getByLabel('Audio formats').fill('FLAC');
+	await applyRule(dialog);
+	await favoriteRule(dialog);
+	await ratingRule(dialog, 4, true);
+	await openRule(dialog, 'File format');
+	await dialog.getByRole('button', { name: /File format Choose/ }).click();
+	await page.getByRole('button', { name: 'FLAC', exact: true }).click();
+	await page.getByRole('button', { name: 'Done', exact: true }).click();
+	await applyRule(dialog);
+	await playlistOptions(dialog);
 	await chooseOption(dialog.getByLabel('Playlist sort', { exact: true }), 'album');
 	await chooseOption(dialog.getByLabel('Sort direction'), 'desc');
-	await dialog.getByLabel('Track limit').fill('2');
+	await trackLimit(dialog, 2);
 	await dialog.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
 	await expect(button(page, 'Night driving')).toBeVisible();
 }
@@ -181,18 +210,15 @@ test('New playlist carries its name to a full-screen rule editor and previews li
 	await expect(dialog).toHaveAccessibleName('Smart playlist');
 	expect((await dialog.boundingBox())?.height).toBe(page.viewportSize()!.height);
 	await expect(dialog.getByLabel('Playlist name')).toHaveValue('Try filters');
-	await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '4');
-	await dialog.getByLabel('Track limit').fill('2');
+	await ratingRule(dialog, 4, true);
+	await trackLimit(dialog, 2);
 	await dialog.getByRole('button', { name: 'Preview matching tracks' }).click();
 	await expect(dialog.getByRole('region', { name: 'Matching tracks' })).toContainText('North Star');
 	await dialog.getByRole('button', { name: 'Back', exact: true }).click();
 	await expect(dialog).toHaveAccessibleName('New playlist');
 	await expect(dialog.getByLabel('Playlist name')).toHaveValue('Try filters');
 	await dialog.getByRole('button', { name: /^Smart playlist/ }).click();
-	await expect(dialog.getByLabel('Playlist rating', { exact: true })).toHaveAttribute(
-		'data-value',
-		'4'
-	);
+	await expect(dialog.getByRole('button', { name: 'Rating is at least 4 stars' })).toBeVisible();
 	await dialog.getByRole('button', { name: 'Cancel' }).click();
 	await expect(button(page, 'Try filters')).toHaveCount(0);
 	expect(env.playlistWrites).toEqual([]);
@@ -252,7 +278,7 @@ test('a smart playlist evaluates the current DN filters and limit and keeps acco
 	env.updateCatalog();
 	let modal = await edit(page, 'Night driving');
 	await modal.getByLabel('Playlist name').fill('Night drive live');
-	await modal.getByLabel('Track limit').fill('1');
+	await trackLimit(modal, 1);
 	await modal.getByRole('button', { name: 'Save playlist' }).click();
 	await button(page, 'Night drive live').click();
 	await expect(button(page, 'Play North Star Live')).toBeVisible();
@@ -331,4 +357,70 @@ test('in airplane mode an old download needs a confirmed rule match and known me
 	await expect(button(page, 'Play North Coast')).toHaveCount(0);
 	await expect(button(page, 'Play North Wind')).toHaveCount(0);
 	expect(env.queries).toHaveLength(1);
+});
+
+test('rule groups keep their scope, cancel discards an edit, and new playlists use 10,000 tracks', async ({
+	page
+}) => {
+	await fixture(page);
+	let finishIndex!: () => void;
+	const lastPage = new Promise<void>((resolve) => {
+		finishIndex = resolve;
+	});
+	await page.route(server + '/api/v3/library/tracks?**', async (route) => {
+		const q = new URL(route.request().url()).searchParams;
+		if (q.get('limit') !== '500') return route.fallback();
+		if (q.get('after') === 'more genres') {
+			await lastPage;
+			return route.fulfill({ json: { items: [{ genre: 'Punk' }], total: 2, next: null } });
+		}
+		return route.fulfill({ json: { items: [{ genre: 'Rock' }], total: 2, next: 'more genres' } });
+	});
+	await localSignIn(page, server);
+	await playlists(page);
+	await button(page, 'New playlist').click();
+	const dialog = page.locator('dialog[open]');
+	await dialog.getByRole('button', { name: /^Smart playlist/ }).click();
+	await dialog.getByLabel('Playlist name').fill('Five-star rock');
+	await expect(dialog.locator('summary')).toContainText('Up to 10,000 tracks');
+	await ratingRule(dialog, 5);
+	await dialog.getByRole('button', { name: 'Add group', exact: true }).click();
+	await dialog.getByRole('searchbox', { name: 'Find a rule' }).fill('gen');
+	await dialog.getByRole('button', { name: 'Genre', exact: true }).click();
+	await dialog.getByRole('button', { name: /Genre Choose/ }).click();
+	await page.getByRole('searchbox', { name: 'Search choices' }).fill('ro');
+	await expect(page.getByRole('button', { name: 'Punk', exact: true })).toHaveCount(0);
+	await expect(button(page, 'Rock')).toBeVisible();
+	finishIndex();
+	await button(page, 'Rock').click();
+	await applyRule(dialog);
+	const group = dialog.locator('.rule-group.nested');
+	await expect(group.getByRole('combobox')).toHaveAttribute('data-value', 'any');
+	await group.getByRole('button', { name: 'Add rule', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Genre', exact: true }).click();
+	await dialog.getByRole('button', { name: /Genre Choose/ }).click();
+	await button(page, 'Punk').click();
+	await applyRule(dialog);
+	await expect(group.getByRole('button', { name: 'Genre is Punk' })).toBeVisible();
+	await dialog.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
+	await expect(button(page, 'Five-star rock')).toBeVisible();
+	await edit(page, 'Five-star rock');
+	await dialog.getByRole('button', { name: 'Genre is Punk' }).click();
+	await dialog.getByRole('button', { name: 'Genre Punk' }).click();
+	await page.getByRole('searchbox', { name: 'Search choices' }).fill('Secondary tag');
+	await button(page, 'Use exact genre “Secondary tag”').click();
+	await applyRule(dialog);
+	await expect(group.getByRole('button', { name: 'Genre is Secondary tag' })).toBeVisible();
+	await dialog.getByRole('button', { name: 'Genre is Secondary tag' }).click();
+	await dialog.getByRole('button', { name: 'Remove rule', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await edit(page, 'Five-star rock');
+	await expect(group.getByRole('button', { name: 'Genre is Punk' })).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Rating is 5 stars' })).toBeVisible();
+	await group.getByRole('button', { name: 'Remove group' }).click();
+	await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Save playlist', exact: true }).click();
+	await edit(page, 'Five-star rock');
+	await expect(dialog.getByRole('button', { name: 'Rating is 5 stars' })).toBeVisible();
+	await expect(group).toHaveCount(0);
 });

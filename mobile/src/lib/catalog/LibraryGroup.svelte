@@ -27,6 +27,7 @@
 	import { beginPlaybackPreparation, shuffled } from './browseActions';
 	import { queueSizeCheck } from './libraryQueue';
 	import { genreTracksPage, tracksInGenre } from './libraryGenres';
+	import { prepareSmartPlayback } from '../player/smartPlayback';
 	import { prepareLibraryPlayback } from '../player/libraryWindow';
 	import AlbumHero from './AlbumHero.svelte';
 	import ArtistHeader from './ArtistHeader.svelte';
@@ -88,32 +89,68 @@
 	const showAvailability = $derived(
 		offlineSupported && !!session.userId && (isAlbum || isPlaylist)
 	);
-	const deviceOnly = $derived(!!collection || offline || !!item.localTracks);
+	let connected = $state(navigator.onLine);
+	const deviceOnly = $derived(
+		!!collection ||
+			offline ||
+			!!item.localTracks ||
+			(!!item.smart && (!connected || inventory?.offlineOnly === true))
+	);
 	let availability = $state<Availability>(untrack(() => initialAvailability));
 	const filter = $derived(availability === 'all' && deviceOnly ? 'offline' : availability);
 	export function getPlaybackAvailability() {
 		return filter === 'all' ? undefined : filter;
 	}
-	let smartTracks = $state.raw<PlayerTrack[]>(),
+	let smartTracks = $state.raw<PlayerTrack[]>([]),
+		smartLoading = $state(false),
 		smartError = $state(''),
 		smartRevision = $state(0);
+	let smartScan: Promise<PlayerTrack[]> | undefined;
 	$effect(() => {
-		const data = inventory,
-			rule = item.smart,
-			owner = session;
+		const rule = item.smart;
 		void smartRevision;
-		if (!collection || !rule || !data || !active) return;
+		if (!rule || !active) return;
+		const owner = session;
+		const local = deviceOnly ? inventory : undefined;
+		if (deviceOnly && !local) {
+			smartTracks = [];
+			smartError = '';
+			smartLoading = true;
+			return;
+		}
 		const job = new AbortController();
 		smartError = '';
-		void smartPlaylistTracks(owner, rule, job.signal, availableTracks(data)).then(
-			(result) => {
-				if (!job.signal.aborted) smartTracks = result;
-			},
-			(cause) => {
-				if (!job.signal.aborted) smartError = errorMessage(cause);
+		smartTracks = [];
+		smartLoading = true;
+		const scan = smartPlaylistTracks(
+			owner,
+			rule,
+			job.signal,
+			local ? availableTracks(local) : undefined,
+			(page) => {
+				if (!job.signal.aborted) smartTracks = [...smartTracks, ...page];
 			}
 		);
-		return () => job.abort();
+		smartScan = scan;
+		void scan.then(
+			(result) => {
+				if (!job.signal.aborted) {
+					smartTracks = result;
+					smartLoading = false;
+				}
+			},
+			(cause) => {
+				if (!job.signal.aborted) {
+					smartTracks = [];
+					smartLoading = false;
+					smartError = errorMessage(cause);
+				}
+			}
+		);
+		return () => {
+			job.abort();
+			smartScan = undefined;
+		};
 	});
 	const savedAlbum = $derived(
 		isAlbum && inventory && deviceOnly
@@ -121,6 +158,7 @@
 			: undefined
 	);
 	const candidates = $derived.by(() => {
+		if (item.smart) return smartTracks;
 		if (!deviceOnly) return tracks;
 		if (!inventory) return [];
 		if (collection?.category === 'Albums') {
@@ -130,7 +168,6 @@
 				.sort(deviceTrackOrder({ sort: 'album', order: 'asc' }));
 		}
 		if (collection?.category === 'Playlists') {
-			if (item.smart) return smartTracks ?? [];
 			return offlinePlaylists(session, availableTracks(inventory), item.id)[0]?.localTracks ?? [];
 		}
 		return tracks.flatMap((t) => inventory?.byId.get(t.id)?.track ?? []);
@@ -184,7 +221,9 @@
 			? candidates
 			: candidates.filter((t) => inventory && matchesAvailability(inventory, t.id, filter))
 	);
-	const shown = $derived(remoteGenre ? serverTracks : filteredTracks.slice(0, limit));
+	const shown = $derived(
+		remoteGenre ? serverTracks : item.smart ? filteredTracks : filteredTracks.slice(0, limit)
+	);
 	const total = $derived(
 		remoteGenre ? (knownTotal ?? item.count ?? serverTracks.length) : filteredTracks.length
 	);
@@ -212,7 +251,7 @@
 			if (!job.signal.aborted) reading = false;
 		}
 	}
-	async function all(shuffle: boolean) {
+	async function all(shuffle: boolean, startId?: string) {
 		if (busy) return;
 		const job = new AbortController();
 		queueRead = job;
@@ -220,6 +259,26 @@
 		error = '';
 		const finish = beginPlaybackPreparation(() => job.abort());
 		try {
+			if (item.smart) {
+				if (!smartScan) return;
+				// Cancel this play request without interrupting the playlist the listener is browsing.
+				const cancelled = new Promise<undefined>((resolve) =>
+					job.signal.addEventListener('abort', () => resolve(undefined), { once: true })
+				);
+				const matches = await Promise.race([smartScan, cancelled]);
+				if (!matches || job.signal.aborted) return;
+				const playable =
+					filter === 'all'
+						? matches
+						: matches.filter((t) => inventory && matchesAvailability(inventory, t.id, filter));
+				const index = startId ? playable.findIndex((t) => t.id === startId) : 0;
+				if (index < 0) throw Error('This track is no longer in the list.');
+				const batch = await prepareSmartPlayback(session, playable, index, shuffle, job.signal);
+				job.signal.throwIfAborted();
+				finish();
+				await onplay(batch.tracks, batch.index, batch.continuation);
+				return;
+			}
 			if (remoteGenre && item.genre) {
 				const batch = await prepareLibraryPlayback(
 					session,
@@ -260,8 +319,15 @@
 	const eligible = $derived(new Set(rows.map((r) => r.id)));
 	onMount(() => {
 		const visibility = () => (shownDocument = !document.hidden);
+		const network = () => (connected = navigator.onLine);
 		document.addEventListener('visibilitychange', visibility);
-		return () => document.removeEventListener('visibilitychange', visibility);
+		window.addEventListener('online', network);
+		window.addEventListener('offline', network);
+		return () => {
+			document.removeEventListener('visibilitychange', visibility);
+			window.removeEventListener('online', network);
+			window.removeEventListener('offline', network);
+		};
 	});
 	$effect(() => {
 		const foreground = active && shownDocument;
@@ -287,6 +353,10 @@
 	});
 	async function play(row: BrowseItem) {
 		if (busy) return;
+		if (item.smart && row.track) {
+			returnItem = row.id;
+			return all(false, row.track.id);
+		}
 		busy = true;
 		error = '';
 		returnItem = row.id;
@@ -318,6 +388,7 @@
 		{onplay}
 		{active}
 		localOnly={offline}
+		smartPlayback={!!item.smart}
 		heading={albumHeader || deviceArtist ? undefined : item.title}
 		scope={JSON.stringify([item.id, filter])}
 	>
@@ -335,6 +406,17 @@
 				}}
 			/>
 		{:else}<p>{total.toLocaleString()} {total === 1 ? uiText('track') : uiText('tracks')}</p>{/if}
+		{#if smartLoading}<p role="status">
+				{tr('Finding matching tracks…', '条件に合う曲を検索中…')}
+			</p>{/if}
+		{#if item.smart && queueRead && busy}
+			<div class="group-actions" role="status">
+				<span>{tr('Preparing playlist…', 'プレイリストを準備中…')}</span>
+				<button class="text-button" onclick={() => queueRead?.abort()}
+					>{uiText('Cancel preparation')}</button
+				>
+			</div>
+		{/if}
 		{#if shown.length}
 			{#if !albumHeader && !deviceArtist}<div class="group-actions">
 					<button class="primary" disabled={busy} onclick={() => all(false)}
@@ -365,13 +447,15 @@
 					data-selection-more={!pageError || undefined}
 					use:loadNearEnd={{ active, enabled: !reading && !pageError, load: () => readPage(true) }}
 					onclick={() => readPage(true)}>{uiText('More songs')}</button
-				>{:else if !remoteGenre && limit < filteredTracks.length}<button
+				>{:else if !remoteGenre && !item.smart && limit < filteredTracks.length}<button
 					class="secondary"
 					data-selection-more
 					use:loadNearEnd={{ active, enabled: true, load: () => (limit += 48) }}
 					onclick={() => (limit += 48)}>{uiText('More songs')}</button
 				>{/if}
-		{:else if !reading && !pageError}<p>{uiText('No matching tracks.')}</p>{/if}
+		{:else if !smartLoading && !smartError && !reading && !pageError}<p>
+				{uiText('No matching tracks.')}
+			</p>{/if}
 		{#if smartError}<p role="alert">{smartError}</p>
 			<button class="secondary" onclick={() => smartRevision++}
 				>{uiText('Retry smart playlist')}</button
@@ -381,8 +465,9 @@
 				>{uiText('Retry')}</button
 			>{/if}
 		{#if reading}<p role="status">{uiText('Loading genre tracks…')}</p>{/if}
-		{#if queueRead && busy}<button class="text-button" onclick={() => queueRead?.abort()}
-				>{uiText('Cancel preparation')}</button
+		{#if !item.smart && queueRead && busy}<button
+				class="text-button"
+				onclick={() => queueRead?.abort()}>{uiText('Cancel preparation')}</button
 			>{/if}
 		{#if error}<p role="alert">{error}</p>{/if}
 	</SelectionHost>

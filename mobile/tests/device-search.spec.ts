@@ -1,3 +1,4 @@
+import { ratingRule } from './fixtures/playlistRules';
 import { minimizePlayer } from './fixtures/minimizePlayer';
 import { chooseOption } from './fixtures/inlineChoice';
 import { test, expect, type Page } from '@playwright/test';
@@ -161,7 +162,7 @@ test('explicit offline Search finds saved metadata, local playlists, actions and
 		.click();
 	const creator = page.getByRole('dialog');
 	await creator.getByLabel('Playlist name').fill('Amber stars');
-	await chooseOption(creator.getByLabel('Playlist rating', { exact: true }), '5');
+	await ratingRule(creator, 5, true);
 	await creator.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
 	await expect(button(page, 'Amber stars')).toBeVisible();
 	await button(page, 'Search').click();

@@ -1,4 +1,4 @@
-import { chooseOption } from './fixtures/inlineChoice';
+import { favoriteRule, ratingRule } from './fixtures/playlistRules';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { emptyBoardRead } from './fixtures/emptyBoardRead';
@@ -187,8 +187,8 @@ async function smartList(page: Page, create = false) {
 			.click();
 		const dialog = page.getByRole('dialog');
 		await dialog.getByLabel('Playlist name').fill('Loved five stars');
-		await dialog.getByLabel('Favorites only').check();
-		await chooseOption(dialog.getByLabel('Playlist rating', { exact: true }), '5');
+		await favoriteRule(dialog);
+		await ratingRule(dialog, 5, true);
 		await dialog.getByRole('button', { name: 'Create smart playlist', exact: true }).click();
 	}
 	await button(page, 'Loved five stars').click();

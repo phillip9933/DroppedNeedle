@@ -21,7 +21,7 @@
 	import { type Album, type OnPlay, errorMessage } from '../catalog/catalog';
 	import { libraryRadio, type DiscoverArtistRef } from '../catalog/discovery';
 	import { playlists, type Playlist } from '../catalog/playlists';
-	import { readSmartPlaylists, smartPlaylistTracks } from '../catalog/smartPlaylists';
+	import { readSmartPlaylists, type SmartPlaylist } from '../catalog/smartPlaylists';
 	import { beginPlaybackPreparation } from '../catalog/browseActions';
 	import { playMix } from '../catalog/mixBuilder';
 	import {
@@ -48,6 +48,7 @@
 		onopen,
 		onartist,
 		onlocal,
+		onsmart,
 		onplaylist,
 		ongenre,
 		onplay,
@@ -61,6 +62,7 @@
 		onopen: (album: Album) => void;
 		onartist: (a: DiscoverArtistRef) => void;
 		onlocal: (a: { id: string; name: string }) => void;
+		onsmart: (rule: SmartPlaylist) => void;
 		onplaylist: (p: Playlist) => void;
 		ongenre?: (name: string) => void;
 		onplay: OnPlay;
@@ -116,6 +118,17 @@
 			let songs: PlayerTrack[] = [];
 			const fromDevice =
 				offline || ((pin.kind === 'artist' || pin.kind === 'album') && !pin.localId && !pin.mbid);
+			if (pin.kind === 'smart') {
+				const rule = (await readSmartPlaylists(session)).find((r) => r.id === pin.id);
+				if (signal.aborted) return;
+				if (rule) onsmart(rule);
+				else
+					status = tr(
+						'This playlist is no longer available.',
+						'このプレイリストは利用できません。'
+					);
+				return;
+			}
 			if (fromDevice) {
 				const local = available ?? availableTracks(await offlineInventory(session));
 				songs = await devicePinTracks(session, pin, data, local, signal);
@@ -149,11 +162,6 @@
 								'このプレイリストは利用できません。'
 							);
 						return;
-					}
-					case 'smart': {
-						const rule = (await readSmartPlaylists(session)).find((r) => r.id === pin.id);
-						if (rule) songs = await smartPlaylistTracks(session, rule, signal);
-						break;
 					}
 					case 'station':
 						if (pin.stationType)

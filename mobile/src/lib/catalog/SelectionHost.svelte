@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { prepareSmartPlayback } from '../player/smartPlayback';
 	import { uiText } from '../i18n';
 	import { onDestroy, type Snippet } from 'svelte';
 	import {
@@ -37,6 +38,7 @@
 		externalToggle = false,
 		choices,
 		contains,
+		smartPlayback = false,
 		localOnly = false
 	}: {
 		session: Session;
@@ -50,6 +52,7 @@
 		externalToggle?: boolean;
 		choices?: () => LibraryChoice[];
 		contains?: (id: string) => boolean;
+		smartPlayback?: boolean;
 		localOnly?: boolean;
 	} = $props();
 	const group = new LibrarySelection(
@@ -112,11 +115,15 @@
 		progress = 'Preparing selected music…';
 		let tracks: PlayerTrack[] = [];
 		const forQueue = action !== 'offline' && action !== 'playlist';
-		const checkSize = forQueue ? queueSizeCheck(session.serverUrl) : undefined;
+		const selected = [...group.selected.values()];
+		const smart =
+			(action === 'play' || action === 'shuffle') &&
+			(smartPlayback || (selected.length === 1 && selected[0].smart));
+		const checkSize = forQueue && !smart ? queueSizeCheck(session.serverUrl) : undefined;
 		const finish = forQueue ? beginPlaybackPreparation(() => controller.abort()) : undefined;
 
 		try {
-			for (const item of [...group.selected.values()]) {
+			for (const item of selected) {
 				controller.signal.throwIfAborted();
 				const batch = await item.tracks(controller.signal, forQueue);
 				controller.signal.throwIfAborted();
@@ -125,6 +132,20 @@
 					checkSize?.(track);
 					tracks.push(track);
 				}
+			}
+			if (smart) {
+				const batch = await prepareSmartPlayback(
+					session,
+					tracks,
+					0,
+					action === 'shuffle',
+					controller.signal
+				);
+				controller.signal.throwIfAborted();
+				finish?.();
+				await onplay(batch.tracks, batch.index, batch.continuation);
+				if (!controller.signal.aborted) group.close();
+				return;
 			}
 			if (action === 'shuffle') tracks = await shuffled(tracks, session);
 			controller.signal.throwIfAborted();

@@ -4,6 +4,7 @@ import { selectionDrag } from './selectionDrag';
 import type { PlayerTrack } from '../player';
 
 export type LibraryChoice = {
+	smart?: boolean;
 	id: string;
 	title: string;
 	tracks: (signal: AbortSignal, forQueue: boolean) => Promise<PlayerTrack[]> | PlayerTrack[];

@@ -7,6 +7,7 @@ import {
 } from './streaming';
 import {
 	nextLibraryBatch,
+	toggleBrowserSmartOrder,
 	retainedHistory,
 	refillAt,
 	type LibraryContinuation
@@ -211,7 +212,7 @@ export function browserPlayer(onbuffer?: (state: PlayerState) => void): Playback
 						() => null
 					)
 				: null;
-			if (policy?.options.offlineOnly)
+			if (!cursor.smartSnapshot && policy?.options.offlineOnly)
 				throw Error('Turn off offline-only mode to load more library tracks.');
 			const batch = await nextLibraryBatch(
 				{ serverUrl, userId, token, displayName: '' },
@@ -497,7 +498,7 @@ export function browserPlayer(onbuffer?: (state: PlayerState) => void): Playback
 		const bufferedEnd = duration * (sourceBlob?.size ? 1 : transferFraction);
 		return {
 			...state,
-			shuffled: !!original,
+			shuffled: !!original || !!windowCursor?.browserSmartShuffled,
 			upNext: pendingIndices(),
 			hasPreviousQueue: !!previous,
 			autoplay,
@@ -936,7 +937,21 @@ export function browserPlayer(onbuffer?: (state: PlayerState) => void): Playback
 				if (action === 'shuffleUpcoming') {
 					const start = state.index + 1;
 					const priority = pendingIndices().map((index) => state.tracks[index]);
-					if (original) {
+					if (windowCursor?.smartSnapshot) {
+						const batch = toggleBrowserSmartOrder(
+							windowCursor,
+							state.tracks,
+							state.index,
+							windowExtras,
+							upNext
+						);
+						loadingWindow?.abort();
+						loadingWindow = undefined;
+						windowProblem = undefined;
+						state.tracks = batch.tracks;
+						windowCursor = batch.continuation;
+						await extendWindow(true);
+					} else if (original) {
 						const current = state.tracks[state.index];
 						const base = original.filter((entry) => !upNext.has(entry));
 						state.index = base.indexOf(current);

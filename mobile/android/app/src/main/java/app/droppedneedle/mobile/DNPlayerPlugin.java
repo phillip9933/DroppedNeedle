@@ -94,6 +94,19 @@ public final class DNPlayerPlugin extends Plugin {
                 });
     }
 
+    @PluginMethod public void storeSmartPage(PluginCall call) {
+        SavedQueue.io(() -> {
+            try {
+                new SmartQueueStore(getContext()).write(call.getString("serverUrl"), call.getString("token"),
+                        call.getString("userId"), call.getString("snapshot"), call.getInt("start", -1),
+                        call.getInt("total", -1), call.getArray("tracks"));
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Could not store this smart playlist page.", error);
+            }
+        });
+    }
+
     @PluginMethod public void setQueue(PluginCall call) {
         execute(call, p -> {
             p.setQueue(call.getString("serverUrl"), call.getString("token"), call.getString("userId"), call.getArray("tracks"),

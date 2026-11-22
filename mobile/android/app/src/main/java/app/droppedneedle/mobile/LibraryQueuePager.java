@@ -5,6 +5,7 @@ import com.getcapacitor.JSObject;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Consumer;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -29,6 +30,7 @@ final class LibraryQueuePager {
         int count();
         boolean offlineOnly();
         boolean active();
+        default void readSmart(LibraryWindow cursor, Consumer<LibraryWindow.Batch> done, Runnable failed) { failed.run(); }
         void apply(LibraryWindow.Batch batch, boolean restart, boolean resume) throws JSONException;
     }
 
@@ -39,6 +41,7 @@ final class LibraryQueuePager {
     private String path, token;
     private LibraryWindow current;
     private Call fetching;
+    private boolean readingSmart;
     private String problem;
     private boolean waiting;
     private final Runnable retry = () -> {
@@ -67,12 +70,23 @@ final class LibraryQueuePager {
             fetching.cancel();
         main.cancel(retry);
         fetching = null;
+        readingSmart = false;
         current = null;
         base = null;
         token = path = problem = null;
         waiting = false;
     }
 
+    LibraryWindow smartWindow() {
+        return current != null && current.smartSnapshot != null ? current : null;
+    }
+
+    void switchSmartOrder(LibraryWindow replacement) {
+        boolean advancing = waiting;
+        attach(replacement, base, path, token);
+        waiting = advancing;
+        load(true);
+    }
     boolean attached() {
         return current != null;
     }
@@ -89,8 +103,9 @@ final class LibraryQueuePager {
         return current != null && (waiting || host.active());
     }
     @Nullable
-    JSONObject saved() {
-        return current == null ? null : current.state();
+    JSONObject saved() { return saved(true); }
+    JSONObject saved(boolean includeOrder) {
+        return current == null ? null : current.state(includeOrder);
     }
 
     @Nullable
@@ -114,7 +129,7 @@ final class LibraryQueuePager {
 
     void load(boolean explicit) {
         LibraryWindow cursor = current;
-        if (cursor == null || fetching != null || problem != null && !explicit)
+        if (cursor == null || fetching != null || readingSmart || problem != null && !explicit)
             return;
         if (!explicit && !hostActive())
             return;
@@ -124,6 +139,20 @@ final class LibraryQueuePager {
         if (!restart && host.count() - 1 - host.index() > LibraryWindow.AHEAD)
             return;
         main.cancel(retry);
+        if (cursor.smartSnapshot != null) {
+            readingSmart = true;
+            problem = null;
+            host.readSmart(cursor, batch -> main.post(() -> {
+                if (current != cursor) return;
+                readingSmart = false;
+                accept(null, cursor, batch, restart);
+            }), () -> main.post(() -> {
+                if (current != cursor) return;
+                readingSmart = false;
+                failed(null, "Could not read the saved smart playlist. Reopen the playlist to rebuild its queue.", false);
+            }));
+            return;
+        }
         if (host.offlineOnly()) {
             problem = "Turn off offline-only mode to load more library tracks.";
             return;

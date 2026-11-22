@@ -10,12 +10,13 @@
 	import { browseChoice, type BrowseItem, type Category } from './libraryBrowse';
 	import type { CollectionDisplay } from './browsePreferences';
 	import { queueSizeCheck } from './libraryQueue';
-	import { playlistShuffle } from './browseActions';
+	import { beginPlaybackPreparation, playlistShuffle } from './browseActions';
 	import { tappedPlayback } from './browsePlayback';
 	import { loadNearEnd } from './browseViewport';
 	import BrowseEntries from './BrowseEntries.svelte';
 	import BrowseItemMenu, { type BrowseAction } from './BrowseItemMenu.svelte';
 	import PlaylistEditor from './PlaylistEditor.svelte';
+	import { prepareSmartPlayback } from '../player/smartPlayback';
 	import type { SmartPlaylist } from './smartPlaylists';
 	import SelectionHost from './SelectionHost.svelte';
 	let {
@@ -69,13 +70,17 @@
 	);
 	const known = $derived(new Set(views.flatMap((v) => v.shown.map((i) => i.id))));
 	const shuffle = playlistShuffle();
+	let smartPreparation: AbortController | undefined;
 	$effect(() => {
 		void session;
 		void active;
 		void query;
 		void scope;
 		notice = '';
-		return shuffle.cancel;
+		return () => {
+			shuffle.cancel();
+			smartPreparation?.abort();
+		};
 	});
 	$effect(() => {
 		const index = model,
@@ -149,6 +154,27 @@
 		error = '';
 		try {
 			if (!tracks.length) throw Error('No available tracks in this selection.');
+			if (row.smart && (type === 'play' || type === 'shuffle')) {
+				const request = new AbortController();
+				smartPreparation = request;
+				const finish = beginPlaybackPreparation(() => request.abort());
+				try {
+					const batch = await prepareSmartPlayback(
+						session,
+						tracks,
+						0,
+						type === 'shuffle',
+						request.signal
+					);
+					request.signal.throwIfAborted();
+					finish();
+					await onplay(batch.tracks, batch.index, batch.continuation);
+				} finally {
+					finish();
+					if (smartPreparation === request) smartPreparation = undefined;
+				}
+				return;
+			}
 			const check = queueSizeCheck(session.serverUrl);
 			tracks.forEach(check);
 			if (type === 'shuffle') await shuffle.play(tracks, session, onplay);
@@ -158,7 +184,8 @@
 				notice = placementMessage(type);
 			}
 		} catch (cause) {
-			error = errorMessage(cause);
+			if (!(cause instanceof DOMException && cause.name === 'AbortError'))
+				error = errorMessage(cause);
 		} finally {
 			working = false;
 		}

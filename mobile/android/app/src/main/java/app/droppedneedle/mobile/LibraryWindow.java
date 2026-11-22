@@ -33,9 +33,17 @@ final class LibraryWindow {
 
     final JSONObject filters;
     final String after;
+    final String smartSnapshot;
+    final SmartQueueOrder smartOrder;
     final int loaded, total;
 
     private LibraryWindow(JSONObject filters, String after, int loaded, int total) {
+        this(filters, after, loaded, total, null, null);
+    }
+
+    private LibraryWindow(JSONObject filters, String after, int loaded, int total, String snapshot, SmartQueueOrder order) {
+        this.smartOrder = order;
+        this.smartSnapshot = snapshot;
         this.filters = filters;
         this.after = after;
         this.loaded = loaded;
@@ -84,11 +92,37 @@ final class LibraryWindow {
         if (retained < 1 || retained > 300 || loaded < retained || loaded > total
                 || (after == null) != (loaded == total))
             throw changed();
+        if (data.has("smartSnapshot")) {
+            String snapshot = data.getString("smartSnapshot");
+            if (!SmartQueueStore.validId(snapshot) || safe.length() != 0 || total > SmartQueueStore.MAX
+                    || after != null && !after.equals(String.valueOf(loaded)))
+                throw changed();
+            return smart(snapshot, loaded, total, SmartQueueOrder.read(data, total));
+        }
         return new LibraryWindow(safe, after, loaded, total);
     }
 
-    JSONObject state() {
+    static LibraryWindow smart(String snapshot, int loaded, int total) {
+        return smart(snapshot, loaded, total, null);
+    }
+
+    static LibraryWindow smart(String snapshot, int loaded, int total, SmartQueueOrder order) {
+        return new LibraryWindow(new JSONObject(), loaded == total ? null : String.valueOf(loaded), loaded, total, snapshot, order);
+    }
+
+    int sourceIndex(int i) {
+        return smartOrder == null ? i : smartOrder.at(i);
+    }
+
+    JSONObject state() { return state(true); }
+
+    JSONObject state(boolean includeOrder) {
         JSObject result = new JSObject();
+        if (smartSnapshot != null) result.put("smartSnapshot", smartSnapshot);
+        if (includeOrder && smartOrder != null) {
+            result.put("smartOrder", smartOrder.packed);
+            result.put("smartShuffled", smartOrder.shuffled);
+        }
         result.put("filters", filters);
         result.put("after", after == null ? JSONObject.NULL : after);
         result.put("loaded", loaded);

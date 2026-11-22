@@ -128,7 +128,7 @@ function page(session: Session, signal: AbortSignal, after: string | null, genre
 export async function readLibraryGenres(
 	session: Session,
 	signal: AbortSignal,
-	progress?: (count: number, total: number) => void
+	progress?: (count: number, total: number, choices: Iterable<Name>) => void
 ): Promise<Name[]> {
 	const revision = await revisionFor(session, signal);
 	signal.throwIfAborted();
@@ -142,7 +142,7 @@ export async function readLibraryGenres(
 	)
 		scan = empty(revision);
 	scans.set(session, scan);
-	if (scan.count) progress?.(scan.count, scan.total);
+	if (scan.count) progress?.(scan.count, scan.total, scan.names.values());
 	while (!scan.done) {
 		const after = scan.after,
 			result = await page(session, signal, after);
@@ -175,7 +175,7 @@ export async function readLibraryGenres(
 		scan.updated = Date.now();
 		if (scan.after) scan.seen.add(scan.after);
 		remember(session, scan);
-		progress?.(scan.count, scan.total);
+		progress?.(scan.count, scan.total, scan.names.values());
 	}
 	return Array.from(scan.names.values());
 }

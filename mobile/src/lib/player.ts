@@ -8,6 +8,8 @@ import { nativePlayer as native } from './player/native';
 import { tr } from './i18n';
 
 export interface PlayerTrack {
+	/** Original occurrence in a smart playback snapshot, independent of duplicate song IDs. */
+	smartIndex?: number;
 	id: string;
 	title: string;
 	artist: string;
@@ -283,17 +285,7 @@ function mediaUrl(base: URL, address: string, prefix: string) {
 	return url.href;
 }
 
-async function submitTracks(
-	tracks: PlayerTrack[],
-	index: number,
-	access: PlayerAccess,
-	placement?: QueuePlacement,
-	continuation?: LibraryContinuation,
-	start?: { positionSeconds: number; playing: boolean }
-) {
-	window.dispatchEvent(new Event('dn-playback-intent'));
-	if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
-		throw new Error('Choose a track to play.');
+export function playbackAddresses(tracks: PlayerTrack[], access: PlayerAccess) {
 	const base = new URL(access.serverUrl);
 	if (
 		base.protocol !== 'https:' ||
@@ -306,12 +298,26 @@ async function submitTracks(
 		throw new Error('Playback requires a secure DroppedNeedle connection.');
 	}
 	base.pathname = base.pathname.replace(/\/?$/, '/');
-	const profiles = streamProfiles(access);
-	const queue = tracks.map((track) => ({
+	return tracks.map((track) => ({
 		...track,
 		streamUrl: streamAddress(mediaUrl(base, track.streamUrl, 'api/v3/stream/local/'), original),
 		artworkUrl: track.artworkUrl ? mediaUrl(base, track.artworkUrl, 'api/v3/') : undefined
 	}));
+}
+
+async function submitTracks(
+	tracks: PlayerTrack[],
+	index: number,
+	access: PlayerAccess,
+	placement?: QueuePlacement,
+	continuation?: LibraryContinuation,
+	start?: { positionSeconds: number; playing: boolean }
+) {
+	window.dispatchEvent(new Event('dn-playback-intent'));
+	if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
+		throw new Error('Choose a track to play.');
+	const profiles = streamProfiles(access);
+	const queue = playbackAddresses(tracks, access);
 	queueRevision++;
 	return update(() =>
 		backend.setQueue({
