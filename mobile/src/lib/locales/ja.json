@@ -1138,7 +1138,7 @@
 	"Track details": "曲の詳細",
 	"Track details for {song}": "「{song}」の詳細",
 	"Track fades": "曲のフェード",
-	"Track gain evens out individual songs. Album gain preserves the volume differences within an album. Both use the ReplayGain tags in your DN library.": "トラックゲインは曲ごとの音量をそろえます。アルバムゲインはアルバム内の音量差を保ちます。DN ライブラリの ReplayGain タグを使用します。",
+	"Track gain evens out individual songs. Album gain preserves their relative volume. OtoHari uses loudness values from DN when available and falls back to ReplayGain tags.": "トラックゲインは曲ごとの音量をそろえます。アルバムゲインは曲間の音量差を保ちます。OtoHari は DN のラウドネス値を優先し、取得できない場合は ReplayGain タグを使用します。",
 	"Track length": "曲の長さ",
 	"Track limit": "曲数の上限",
 	"Track position (": "曲の位置（",

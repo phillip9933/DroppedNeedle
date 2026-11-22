@@ -28,6 +28,7 @@ import org.json.JSONObject;
 final class PlaybackSound {
     private final SharedPreferences prefs;
     private final WeakHashMap<JSONObject, JSONObject> embedded = new WeakHashMap<>();
+    final PlaybackLoudness loudness = new PlaybackLoudness();
     final GainProcessor primary = new GainProcessor();
     private String mode;
     private float speed;
@@ -126,29 +127,33 @@ final class PlaybackSound {
         }
     }
 
-    private static double value(JSONObject dn, JSONObject embedded, String key) {
+    private static double value(JSONObject levels, JSONObject dn, JSONObject embedded, String key) {
+        if (levels != null && levels.has(key)) return levels.optDouble(key);
         double v = dn.optDouble(key, Double.NaN);
         return Double.isFinite(v) || embedded == null ? v : embedded.optDouble(key, Double.NaN);
     }
 
     static float factor(String mode, JSONObject tags, JSONObject embedded) {
+        return factor(mode, null, tags, embedded);
+    }
+    static float factor(String mode, JSONObject levels, JSONObject tags, JSONObject embedded) {
         if (tags == null || "off".equals(mode))
             return 1;
-        boolean album = "album".equals(mode) && Double.isFinite(value(tags, embedded, "replayGainAlbumDb"));
-        double db = value(tags, embedded, album ? "replayGainAlbumDb" : "replayGainTrackDb");
+        boolean album = "album".equals(mode) && Double.isFinite(value(levels, tags, embedded, "replayGainAlbumDb"));
+        double db = value(levels, tags, embedded, album ? "replayGainAlbumDb" : "replayGainTrackDb");
         if (!Double.isFinite(db))
             return 1;
         double factor = Math.pow(10, Math.max(-60, Math.min(60, db)) / 20);
-        double peak = value(tags, embedded, album ? "replayGainAlbumPeak" : "replayGainTrackPeak");
+        double peak = value(levels, tags, embedded, album ? "replayGainAlbumPeak" : "replayGainTrackPeak");
         if (!(peak > 0))
-            peak = value(tags, embedded, album ? "replayGainTrackPeak" : "replayGainAlbumPeak");
+            peak = value(levels, tags, embedded, album ? "replayGainTrackPeak" : "replayGainAlbumPeak");
         if (Double.isFinite(peak) && peak > 0)
             factor = Math.min(factor, 1 / peak);
         return (float) factor;
     }
     float factor(MediaItem item) {
         JSONObject info = tags(item);
-        return factor(mode, info, embedded.get(info));
+        return factor(mode, item == null ? null : loudness.get(item.mediaId), info, embedded.get(info));
     }
 
     static DefaultRenderersFactory renderers(
