@@ -390,9 +390,25 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { call.resolve(self.snapshot(knownQueue: call.getString("knownQueue"))) }
     }
 
+    private func bufferedRanges() -> [[String: Double]] {
+        guard queue.indices.contains(index), let item = player.currentItem,
+              let entry = streams[ObjectIdentifier(item)], entry.key == queue[index].key else { return [] }
+        let length = duration
+        guard length.isFinite, length > 0 else { return [] }
+        if let file = entry.stream.completeFile, FileManager.default.fileExists(atPath: file.path) {
+            return [["start": 0, "end": length]]
+        }
+        return item.loadedTimeRanges.compactMap { value in
+            let range = value.timeRangeValue
+            let start = range.start.seconds, end = CMTimeRangeGetEnd(range).seconds
+            guard start.isFinite, end.isFinite, min(length, end) > max(0, start) else { return nil }
+            return ["start": max(0, start), "end": min(length, end)]
+        }
+    }
+
     private func snapshot(knownQueue: String? = nil) -> [String: Any] {
         var result: [String: Any] = ["queueVersion": queueVersion, "repeat": repeatMode.rawValue, "index": index, "playing": player.timeControlStatus != .paused,
-                "position": position, "duration": duration, "error": error as Any? ?? NSNull()]
+                "position": position, "duration": duration, "bufferedRanges": bufferedRanges(), "error": error as Any? ?? NSNull()]
         if knownQueue != queueVersion { result["tracks"] = queue.map(\.data) }
         return result
     }
