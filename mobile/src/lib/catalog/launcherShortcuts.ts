@@ -15,12 +15,16 @@ import { accountId } from '../boards/layout';
 
 type Account = Pick<Session, 'serverUrl' | 'userId'>;
 const native = registerPlugin<{
+	takePlayerNotification(): Promise<{ open: boolean }>;
 	pinPlaylist(options: Account & { id: string; name: string }): Promise<void>;
 	takePlaylist(options: Account): Promise<{ id?: string }>;
 	replaceHomePins(options: Account & { pins: unknown[] }): Promise<void>;
 }>('DNLauncher');
 export const launcherShortcuts = Capacitor.getPlatform() === 'android';
 export const pendingShortcut = writable<{ session: Session; id: string } | null>(null);
+export function takePlayerNotification() {
+	return native.takePlayerNotification();
+}
 export function pinPlaylist(session: Session, id: string, name: string) {
 	return native.pinPlaylist({ serverUrl: session.serverUrl, userId: session.userId, id, name });
 }
