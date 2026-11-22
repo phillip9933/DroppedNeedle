@@ -11,6 +11,7 @@ final class LibraryStream: NSObject, AVAssetResourceLoaderDelegate, URLSessionDa
     private var session: URLSession?
     private var conversion: ConvertedTrack?
     private(set) var errorMessage: String?
+    var completeFile: URL? { conversion?.completeFile }
     let asset: AVURLAsset
 
     init(url: URL, token: String, profile: StreamProfile) {

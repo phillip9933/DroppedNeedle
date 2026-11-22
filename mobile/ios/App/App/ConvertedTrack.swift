@@ -27,6 +27,8 @@ final class ConvertedTrack: NSObject, URLSessionDataDelegate {
     private var session: URLSession!
     private var mode = Mode.waiting
     private var file: URL?
+    // Worker transitions publish the completed playback file to the main-thread player snapshot.
+    private(set) var completeFile: URL?
     private var handle: FileHandle?
     private var size: Int64 = 0
     private var type = ""
@@ -79,6 +81,7 @@ final class ConvertedTrack: NSObject, URLSessionDataDelegate {
         }
     }
     private func removeFile() {
+        DispatchQueue.main.async { self.completeFile = nil }
         try? handle?.close()
         handle = nil
         if let file { try? FileManager.default.removeItem(at: file); self.file = nil }
@@ -148,6 +151,8 @@ final class ConvertedTrack: NSObject, URLSessionDataDelegate {
         guard error == nil, file != nil, size > 0 else { fail("The converted track could not be downloaded."); return }
         do { try handle?.close(); handle = nil }
         catch { fail("The converted track could not be read."); return }
+        let readyFile = file
+        DispatchQueue.main.async { self.completeFile = readyFile }
         mode = .ready
         session.finishTasksAndInvalidate()
         drain(serve)
