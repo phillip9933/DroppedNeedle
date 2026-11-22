@@ -38,6 +38,8 @@ Library shelves also work with music saved on this device. Add **Library genres*
 
 Under **Radio stations**, tap a station to see its albums and tracks. **Play station** builds a playable queue from the music in your DN library.
 
+At the top of Discover, **Refresh recommendations** asks your DN server to rebuild your recommendations. Your current shelves stay visible while the server prepares the update.
+
 Open **Discover → Mix Builder** to build a mix from up to eight artists or up to eight albums. Give it a name to save the recipe and play a fresh selection from your DN library. Use **Pin to Home** on a mix, station, playlist, smart playlist, genre, artist, album or track. On Home, **Arrange pins** changes their order or removes one. Pins belong to the signed-in account on this device. You can play the tracks available on the phone when offline. Android Auto also shows supported Home pins in the same order.
 
 Open **Library** for Playlists, Artists, Albums, Tracks and Genres. Albums and playlists start as two-column grids, artists as three-column portraits, and tracks and genres as lists. Use the toolbar to sort, filter, search, select items, or switch views. **Collection options** controls the number of columns and spacing for that category. More items load as you scroll. Opening a detail and going back keeps your place. **Library sections** opens your custom shelves.

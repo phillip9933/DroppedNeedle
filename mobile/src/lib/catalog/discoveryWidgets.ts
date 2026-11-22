@@ -174,6 +174,15 @@ export function forgetDiscoveryPage(session: Session) {
 	snapshot.clear(session);
 	settings.clear(session);
 }
+export async function refreshRecommendations(session: Session, signal: AbortSignal) {
+	await postJson<S['RefreshResponse']>(
+		session,
+		path('/api/v3/discover/refresh'),
+		undefined,
+		signal
+	);
+	snapshot.clear(session);
+}
 async function missingReason(session: Session, key: string) {
 	const pref = (await settings(session)).pages.discover?.find((item) => item.key === key);
 	if (!pref) return '';
@@ -236,6 +245,7 @@ export async function readWidget(
 			for (const a of deck.items ?? []) addAlbum(list, { ...a, requested: false });
 			return {
 				shelves: [list],
+				refreshing: snap.refreshing,
 				cards: list.albums.map((album) => {
 					const row = deck.items?.find((item) => item.musicbrainz_id === album.group);
 					return { album, artistId: row?.artist_id, reason: row?.recommendation_reason || '' };

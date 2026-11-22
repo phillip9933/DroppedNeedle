@@ -2,7 +2,14 @@
 	import { uiText, tr } from '../i18n';
 	import { onMount } from 'svelte';
 	import { revealScreen } from '../appearance/interface';
-	import { ArrowLeft, ChevronRight, PanelsTopLeft, Download, ListFilterPlus } from '@lucide/svelte';
+	import {
+		ArrowLeft,
+		ChevronRight,
+		PanelsTopLeft,
+		Download,
+		ListFilterPlus,
+		RefreshCw
+	} from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { catalogSource } from '../catalog/catalogSource.svelte';
 	import { availableTracks } from '../offline/library';
@@ -19,6 +26,7 @@
 	import SelectionHost from '../catalog/SelectionHost.svelte';
 	import LibraryWidget from '../catalog/LibraryWidget.svelte';
 	import DiscoveryWidget from '../catalog/DiscoveryWidget.svelte';
+	import { refreshRecommendations } from '../catalog/discoveryWidgets';
 	import type { Preview } from './display';
 	import PreviewViewport from './PreviewViewport.svelte';
 	import HomePins from './HomePins.svelte';
@@ -126,6 +134,29 @@
 		return source.useDevice || group?.device ? 'offline' : undefined;
 	}
 
+	let refreshing = $state(false),
+		refreshStatus = $state(''),
+		refreshError = $state(''),
+		discoveryRevision = $state(0);
+	let refreshRequest: AbortController | undefined;
+	async function refreshDiscover() {
+		if (refreshing || deviceShelves) return;
+		const request = new AbortController();
+		refreshRequest = request;
+		refreshing = true;
+		refreshStatus = '';
+		refreshError = '';
+		try {
+			await refreshRecommendations(session, request.signal);
+			if (request.signal.aborted) return;
+			discoveryRevision++;
+			refreshStatus = tr('Refresh requested.', '更新をリクエストしました。');
+		} catch (cause) {
+			if (!request.signal.aborted) refreshError = errorMessage(cause);
+		} finally {
+			if (request === refreshRequest) refreshing = false;
+		}
+	}
 	let offset = 0;
 	let live = false;
 	async function load() {
@@ -163,6 +194,7 @@
 		}
 		window.addEventListener('dn-layout-change', changed);
 		return () => {
+			refreshRequest?.abort();
 			window.removeEventListener('dn-layout-change', changed);
 			live = false;
 		};
@@ -232,6 +264,7 @@
 		/>
 	{:else}
 		<DiscoveryWidget
+			refreshRevision={discoveryRevision}
 			{ongenre}
 			id={item.id}
 			{session}
@@ -329,6 +362,21 @@
 					heading={uiText(boardNames[board])}
 				>
 					{#snippet tools()}
+						{#if board === 'discover' && !deviceShelves}
+							<button
+								class="board-action secondary"
+								disabled={refreshing}
+								onclick={refreshDiscover}
+							>
+								<RefreshCw size={17} />{tr('Refresh recommendations', 'おすすめを更新')}
+							</button>
+							{#if refreshing || refreshStatus}<small role="status"
+									>{refreshing
+										? tr('Requesting refresh…', '更新をリクエスト中…')
+										: refreshStatus}</small
+								>{/if}
+							{#if refreshError}<small role="alert">{refreshError}</small>{/if}
+						{/if}
 						{#if board === 'library'}
 							{#if owner}<button class="board-action secondary" onclick={() => (newFilter = {})}
 									><ListFilterPlus size={17} />{uiText('New filtered section')}</button

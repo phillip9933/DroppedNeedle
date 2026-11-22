@@ -25,7 +25,8 @@
 		ongenre,
 		onplay,
 		expanded = false,
-		active = true
+		active = true,
+		refreshRevision = 0
 	}: {
 		id: string;
 		session: Session;
@@ -35,6 +36,7 @@
 		onartist: (a: DiscoverArtistRef) => void;
 		onplay: OnPlay;
 		active?: boolean;
+		refreshRevision?: number;
 		expanded?: boolean;
 		onexpand: () => void;
 	} = $props();
@@ -82,6 +84,7 @@
 			choice = selectedPlaylist,
 			capacity = previewCapacity;
 		void retry;
+		void refreshRevision;
 		if (!active) return;
 		let current = true,
 			timer: ReturnType<typeof setTimeout>,
