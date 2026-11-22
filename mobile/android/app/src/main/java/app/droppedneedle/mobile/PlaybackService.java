@@ -133,6 +133,7 @@ public final class PlaybackService extends MediaLibraryService {
                 updateReadAhead();
                 if (playbackNetwork != now) {
                     playbackNetwork = now;
+                    updateLoudness();
                     if (now == StreamProfiles.Path.OFFLINE && radio != null) {
                         cancelRadio();
                         radioProblem = "Go online to continue with similar music.";
@@ -356,6 +357,7 @@ public final class PlaybackService extends MediaLibraryService {
                 }
             }
             @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
+                updateLoudness();
                 sound.primary.factor = sound.factor(item);
                 sleep.changedTrack(trackIdentity(item), reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
                         || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT || fades.automaticAdvance(item));
@@ -372,6 +374,7 @@ public final class PlaybackService extends MediaLibraryService {
                 if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_TIMELINE_CHANGED,
                         Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_REPEAT_MODE_CHANGED,
                         Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) updateReadAhead();
+                if (events.containsAny(Player.EVENT_DEVICE_INFO_CHANGED, Player.EVENT_IS_PLAYING_CHANGED)) updateLoudness();
                 sleep.check();
                 if (events.contains(Player.EVENT_TIMELINE_CHANGED)) queueVersion = UUID.randomUUID().toString();
                 if (!changingWindow && events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) consumePriority();
@@ -700,6 +703,7 @@ public final class PlaybackService extends MediaLibraryService {
         revision = null;
         queueKey = SavedQueue.key(next.base.toString(), next.token);
         authorizeReports(next);
+        sound.loudness.reset();
         access = next;
         autoplay = autoplaySetting(next.base.toString(), next.userId, null);
         stopFadeWatches();
@@ -709,10 +713,28 @@ public final class PlaybackService extends MediaLibraryService {
             boolean[] online = {next.allowsOnlineMedia()};
             stopFadeOfflineWatch = next.offline.watchOfflineMode(() -> {
                 boolean enabled = next.allowsOnlineMedia();
-                if (enabled != online[0]) { online[0] = enabled; if (!enabled) cancelRadio(); fades.sourceChanged(); }
+                if (enabled != online[0]) {
+                    online[0] = enabled;
+                    if (!enabled) cancelRadio();
+                    updateLoudness();
+                    fades.sourceChanged();
+                }
             });
         }
         fades.sourceChanged();
+    }
+    private void updateLoudness() {
+        Access owner = access;
+        MediaItem item = owner == null ? null : localPlayback.getCurrentMediaItem();
+        String id = owner != null && owner.allowsOnlineMedia() && playbackNetwork != StreamProfiles.Path.OFFLINE
+                && player.destination().isEmpty() && !"off".equals(sound.replayGainMode())
+                && item != null && owner.metadata.containsKey(item.mediaId) && OfflineStore.validTrackId(item.mediaId)
+                ? item.mediaId : null;
+        sound.loudness.select(id, () -> playbackHttp.newCall(PlaybackLoudness.request(owner.base, id, owner.token)
+                .newBuilder().tag(Access.class, owner).build()), main::post, () -> {
+            sound.primary.factor = sound.factor(localPlayback.getCurrentMediaItem());
+            fades.gainChanged();
+        });
     }
     private void updateReadAhead() {
         if (player != null && playbackHttp != null) readAhead.update(this, access, player, playbackHttp);
@@ -839,6 +861,7 @@ public final class PlaybackService extends MediaLibraryService {
         if (speed != null)
             localPlayback.setPlaybackSpeed(sound.speed());
         if (mode != null) {
+            updateLoudness();
             sound.primary.factor = sound.factor(localPlayback.getCurrentMediaItem());
             fades.gainChanged();
         }
@@ -1042,6 +1065,7 @@ public final class PlaybackService extends MediaLibraryService {
             player.stop();
             player.clearMediaItems();
             stopFadeWatches();
+            sound.loudness.reset();
             access = null;
             player.setRepeatMode(Player.REPEAT_MODE_OFF);
             stopSelf();
@@ -1326,6 +1350,7 @@ public final class PlaybackService extends MediaLibraryService {
         sleep.cancel();
         fades.release();
         equalizer.close();
+        sound.loudness.reset();
         access = null;
         PlayerWidget.render(this, null);
         main.removeCallbacks(stopEmptyExternalPlay);
