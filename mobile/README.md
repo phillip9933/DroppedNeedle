@@ -239,6 +239,9 @@ Installed 0.9.0 and older builds check the DroppedNeedle fork. Starting with 0.9
 
 Publish releases after 1.0.0 to OtoHari only. Keep the final 1.0.0 release and APK on the fork so installations that miss the overlap can still upgrade and switch feeds later. Keep the existing Android application ID and signing certificate.
 
+For each mirrored release, publish the signed APK and its checksum on the fork first. In the standalone repository, create the annotated Android tag on the equivalent release commit. Include a trailer on its own line, `Legacy-Source: <full commit SHA of the fork's Android tag>`. Pushing that tag runs **Mirror an Android release**. It verifies the package, version, distribution certificate and both asset digests before publishing the same files and channel here. To retry, run the workflow from `main` with the same tag. A mismatched public asset stops the mirror for inspection.
+
+
 ### iPhone releases
 
 TestFlight uses the existing App Store Connect app, bundle ID and tester groups. Its distribution channel is independent of GitHub’s Android releases. Configure the new repository’s Apple signing environment before moving uploads there.

@@ -1,0 +1,40 @@
+name: Mirror an Android release
+on:
+  push:
+    tags: ['android-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published Android tag on the DroppedNeedle fork
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-mirror-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: >-
+      github.repository == 'phillip9933/OtoHari' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'push' && (startsWith(github.ref_name, 'android-v0.9.') ||
+        github.ref_name == 'android-v1.0.0' || startsWith(github.ref_name, 'android-v1.0.0-'))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check mirror retries and cutover rules
+        run: python3 -B mobile/scripts/test_mirror_android_release.py
+      - name: Verify and mirror the published APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: python3 mobile/scripts/mirror-android-release.py "$RELEASE_TAG"
