@@ -1,0 +1,53 @@
+name: Android release checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['android-v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .github/node-version
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: mobile/package.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: pnpm install --frozen-lockfile
+      - name: Verify the Android release tag
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "$GITHUB_REF_NAME" = "android-v$version"
+      - run: node --test scripts/prepare-android-update.test.mjs
+      - run: pnpm build && pnpm exec cap sync android
+      - run: ./gradlew :app:assembleRelease :app:assembleDebugAndroidTest :app:testReleaseUnitTest :app:lintRelease
+        working-directory: mobile/android
+      - name: Save the APK for release signing
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.ref_name }}-unsigned
+          path: mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

@@ -205,7 +205,7 @@ Use **Import colors from a web style** to preview compatible colors and corner r
 
 ## Build and test
 
-On a fresh checkout, install the dependencies in `frontend/` first. Its prepare script generates the TypeScript configuration for the shared sign-in code. From `mobile/`, use the Node.js and pnpm versions in `package.json`.
+From `mobile/`, use the Node.js and pnpm versions in `package.json`. Install the mobile dependencies once for both the app and its shared DroppedNeedle sources.
 
 ```sh
 pnpm install --frozen-lockfile
