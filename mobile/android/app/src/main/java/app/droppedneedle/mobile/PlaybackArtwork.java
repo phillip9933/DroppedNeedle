@@ -74,14 +74,16 @@ final class PlaybackArtwork implements BitmapLoader {
             Source source = new Source(uri, file, inline, remote);
             if (lastCover != null && source.equals(lastSource)) return current.get() == owner ? lastCover : null;
 
-            Bitmap cover = embedded(file);
-            if (cover == null) cover = decode(inline);
+            String path = CarArtworkProvider.relative(owner.base, track.optString("artworkUrl"));
+            Bitmap cover = owner.offline == null || path == null ? null : decode(owner.offline.companions().coverBytes(path));
             if (cover == null && remote != null) {
                 if (current.get() != owner || !owner.allowsOnlineMedia()) return null;
                 cover = download(http, new Request.Builder().url(remote).tag(PlaybackService.Access.class, owner)
                         .header("Authorization", "Bearer " + owner.token).build());
-                if (cover == null || !owner.allowsOnlineMedia()) return null;
+                if (!owner.allowsOnlineMedia()) cover = null;
             }
+            if (cover == null) cover = decode(inline);
+            if (cover == null) cover = embedded(file);
             if (current.get() != owner) return null;
             lastSource = source;
             lastCover = cover;

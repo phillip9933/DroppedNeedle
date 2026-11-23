@@ -102,14 +102,17 @@ public final class CarArtworkProvider extends ContentProvider {
         if (!current.getAsBoolean()) return null;
         String id = uri.getLastPathSegment(), path = coverPath(uri.getQueryParameter("cover"));
         OfflineStore files = OfflineStore.forUser(app, account.server.toString(), account.userId);
-        Bitmap bitmap = folder ? null : PlaybackArtwork.embedded(files.artworkSource(files.original(id).toString()));
-        if (bitmap == null && path != null) bitmap = PlaybackArtwork.decode(files.companions().coverBytes(path));
-        if (bitmap != null || path == null || files.offlineOnly() || !current.getAsBoolean()) return bitmap;
-        HttpUrl image = account.server.newBuilder().encodedPath(account.server.encodedPath().replaceAll("/+$", "") + path)
-                .addQueryParameter("size","500").build();
-        bitmap = PlaybackArtwork.download(http, new Request.Builder().url(image)
-                .header("Authorization", "Bearer " + account.token).build());
-        return current.getAsBoolean() && !files.offlineOnly() ? bitmap : null;
+        Bitmap bitmap = path == null ? null : PlaybackArtwork.decode(files.companions().coverBytes(path));
+        if (bitmap == null && path != null && !files.offlineOnly() && current.getAsBoolean()) {
+            HttpUrl image = account.server.newBuilder().encodedPath(account.server.encodedPath().replaceAll("/+$", "") + path)
+                    .addQueryParameter("size", "500").build();
+            bitmap = PlaybackArtwork.download(http, new Request.Builder().url(image)
+                    .header("Authorization", "Bearer " + account.token).build());
+            if (files.offlineOnly()) bitmap = null;
+        }
+        if (bitmap == null && !folder && current.getAsBoolean())
+            bitmap = PlaybackArtwork.embedded(files.artworkSource(files.original(id).toString()));
+        return current.getAsBoolean() ? bitmap : null;
     }
 
     @Override public String getType(Uri uri) { return "image/jpeg"; }

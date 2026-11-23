@@ -93,13 +93,15 @@ public class CarLauncherTest {
                 boolean second = url.queryParameter("after") != null;
                 if (second) assertEquals("opaque/2+=", url.queryParameter("after"));
                 return new JSONObject().put("items", new JSONArray().put(new JSONObject().put("id", second ? "b" : "a")
-                        .put("title", second ? "Second album" : "First album")))
+                        .put("title", second ? "Second album" : "First album")
+                        .put("release_group_mbid","group").put("cover_available",!second)))
                         .put("next", second ? JSONObject.NULL : "opaque/2+=");
             }
             if (path.endsWith("/tracks")) {
                 assertTrue("b".equals(url.queryParameter("album_id")) || "Night".equals(url.queryParameter("q")));
                 return new JSONObject().put("items", new JSONArray().put(new JSONObject().put("id","t").put("title","Night Drive")
-                        .put("artist_name","Driver").put("art_missing",true))).put("next", JSONObject.NULL);
+                        .put("artist_name","Driver").put("album_id","b").put("release_group_mbid","group")
+                        .put("cover_available",true))).put("next", JSONObject.NULL);
             }
             if (path.endsWith("playlists")) return new JSONObject().put("playlists", new JSONArray()
                     .put(new JSONObject().put("id", "hidden").put("name", "Someone else's songs").put("is_redacted", true))
@@ -117,6 +119,9 @@ public class CarLauncherTest {
         List<CarLibrary.Entry> albums = car.children(car.children(root.get(0).id).get(0).id);
         List<CarLibrary.Entry> second = car.children(albums.get(1).id);
         CarLibrary.Entry song = car.children(second.get(0).id).get(0);
+        assertEquals("/api/v3/library/albums/a/artwork", albums.get(0).art.getQueryParameter("cover"));
+        assertEquals("/api/v3/covers/release-group/group", second.get(0).art.getQueryParameter("cover"));
+        assertEquals("/api/v3/library/albums/b/artwork", song.art.getQueryParameter("cover"));
         assertEquals("Night Drive", song.title);
         assertNull(song.media().localConfiguration);
         assertEquals("https://car-fixture.invalid/music/api/v3/stream/local/t", song.track.getString("streamUrl"));

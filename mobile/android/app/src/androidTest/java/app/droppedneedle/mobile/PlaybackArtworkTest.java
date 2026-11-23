@@ -99,9 +99,15 @@ public final class PlaybackArtworkTest {
         PlaybackService.Access owner = account();
         MediaMetadata tagged = track(owner, "tagged", "");
         MediaMetadata plain = track(owner, "plain", COVER);
-        PlaybackArtwork loader = new PlaybackArtwork(() -> owner, request -> {
-            throw new AssertionError("Unexpected artwork request");
-        });
+        AtomicInteger requests = new AtomicInteger();
+        byte[] blue = picture(Color.BLUE);
+        OkHttpClient http = new OkHttpClient.Builder().addInterceptor(chain -> {
+            assertEquals(COVER, chain.request().url().toString());
+            requests.incrementAndGet();
+            return new Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                    .code(200).message("OK").body(ResponseBody.create(MediaType.get("image/png"), blue)).build();
+        }).build();
+        PlaybackArtwork loader = new PlaybackArtwork(() -> owner, http);
         try {
             owner.offline.configure(owner.offline.options().put("autoCache", true).put("unmeteredOnly", false));
             save(owner, "tagged", taggedMp3(picture(Color.RED)));
@@ -122,9 +128,11 @@ public final class PlaybackArtworkTest {
             JSONArray entries = owner.offline.snapshot().getJSONArray("items");
             assertEquals(2, entries.length());
             for (int i = 0; i < entries.length(); i++) assertEquals(1234, entries.getJSONObject(i).getLong("used"));
+            assertEquals(0, requests.get());
             owner.offline.configure(owner.offline.options().put("offlineOnly", false));
             owner.metadata("tagged").put("artworkUrl", COVER);
-            assertEquals(Color.RED, load(loader, tagged).getPixel(0, 0));
+            assertEquals(Color.BLUE, load(loader, tagged).getPixel(0, 0));
+            assertEquals(1, requests.get());
         } finally {
             owner.offline.remove(new JSONArray().put("tagged").put("plain"));
         }

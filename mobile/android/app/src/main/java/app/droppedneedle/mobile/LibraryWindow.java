@@ -183,8 +183,20 @@ final class LibraryWindow {
         return row.isNull(key) ? "" : row.optString(key);
     }
 
+    static HttpUrl albumArtwork(HttpUrl base, String prefix, JSONObject row, String album) {
+        if (row.optBoolean("art_missing")) return null;
+        HttpUrl.Builder art = base.newBuilder();
+        if (row.optBoolean("cover_available") && OfflineStore.validTrackId(album))
+            return art.encodedPath(prefix + "library/albums/").addPathSegment(album).addPathSegment("artwork")
+                    .addQueryParameter("size", "500").build();
+        String group = text(row, "release_group_mbid");
+        if (!OfflineStore.validTrackId(group)) return null;
+        return art.encodedPath(prefix + "covers/release-group/").addPathSegment(group)
+                .addQueryParameter("size", "500").build();
+    }
+
     static JSONObject track(HttpUrl base, String prefix, JSONObject row) throws JSONException {
-        String id = row.getString("id"), album = text(row, "album_id"), group = text(row, "release_group_mbid");
+        String id = row.getString("id");
         JSONObject track = new JSONObject()
                                    .put("id", id)
                                    .put("title", row.getString("title"))
@@ -196,16 +208,8 @@ final class LibraryWindow {
                                                    .addPathSegment(id)
                                                    .build()
                                                    .toString());
-        if (!row.optBoolean("art_missing")
-                && (!group.isEmpty() || row.optBoolean("cover_available") && !album.isEmpty())) {
-            HttpUrl.Builder art =
-                    base.newBuilder()
-                            .encodedPath(prefix + (group.isEmpty() ? "library/albums/" : "covers/release-group/"))
-                            .addPathSegment(group.isEmpty() ? album : group);
-            if (group.isEmpty())
-                art.addPathSegment("artwork");
-            track.put("artworkUrl", art.addQueryParameter("size", "500").build().toString());
-        }
+        HttpUrl art = albumArtwork(base, prefix, row, text(row, "album_id"));
+        if (art != null) track.put("artworkUrl", art.toString());
         for (String[] name : METADATA)
             if (!row.isNull(name[0]))
                 track.put(name[1], row.get(name[0]));

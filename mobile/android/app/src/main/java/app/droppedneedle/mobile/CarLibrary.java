@@ -241,10 +241,8 @@ final class CarLibrary {
             if ("artists".equals(kind)) entries.add(folder("artist", row.getString("id"), null, row.getString("name")));
             else if ("albums".equals(kind)) {
                 String id = row.getString("id");
-                String art = row.optBoolean("art_missing") ? null : !row.isNull("release_group_mbid")
-                        ? "/api/v3/covers/release-group/" + Uri.encode(row.getString("release_group_mbid"))
-                        : "/api/v3/library/albums/" + Uri.encode(id) + "/artwork";
-                entries.add(folderWithArt("album", id, row.getString("title"), art, -1));
+                HttpUrl art = LibraryWindow.albumArtwork(owner.server, prefix, row, id);
+                entries.add(folderWithArt("album", id, row.getString("title"), art == null ? null : art.toString(), -1));
             }
             else entries.add(song(key, LibraryWindow.track(owner.server, prefix, row)));
         }
