@@ -235,12 +235,11 @@ Keep the existing tag and asset names so older Android installs can find the upd
 
 ### Android release overlap
 
-Installed 0.9.0 and older builds check the DroppedNeedle fork. Starting with 0.9.1, the Android app checks OtoHari. Publish each transition release to both repositories for about a week, through `1.0.0`. Build, sign and prepare the APK once, then upload that same file and checksum to both releases with the same tag and channel. Publish OtoHari first so every user who installs the bridge has a live update feed. Verify the published assets have the same SHA-256. Test an in-place upgrade from the previous public APK and confirm that a subsequent update is offered from OtoHari. [OtoHari releases](https://github.com/phillip9933/OtoHari/releases) · [DroppedNeedle fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+Installed 0.9.0 and older builds check the DroppedNeedle fork. Starting with 0.9.1, the Android app checks OtoHari. Publish each transition release to both repositories for about a week, through `1.0.0`. Build and sign the APK once. Publish it with its checksum on the fork, then mirror the signed files to OtoHari using the same tag and release channel. Verify the published assets have the same SHA-256. Test an in-place upgrade from the previous public APK and confirm that a subsequent update is offered from OtoHari. [OtoHari releases](https://github.com/phillip9933/OtoHari/releases) · [DroppedNeedle fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
 
 Publish releases after 1.0.0 to OtoHari only. Keep the final 1.0.0 release and APK on the fork so installations that miss the overlap can still upgrade and switch feeds later. Keep the existing Android application ID and signing certificate.
 
 For each mirrored release, publish the signed APK and its checksum on the fork first. In the standalone repository, create the annotated Android tag on the equivalent release commit. Include a trailer on its own line, `Legacy-Source: <full commit SHA of the fork's Android tag>`. Pushing that tag runs **Mirror an Android release**. It verifies the package, version, distribution certificate and both asset digests before publishing the same files and channel here. To retry, run the workflow from `main` with the same tag. A mismatched public asset stops the mirror for inspection.
-
 
 ### iPhone releases
 
