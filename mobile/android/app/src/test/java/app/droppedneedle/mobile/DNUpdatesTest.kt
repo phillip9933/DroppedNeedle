@@ -41,7 +41,7 @@ class DNUpdatesTest {
     @Test fun webStateKeepsReleaseOwnershipProgressAndPermissionSeparate() {
         val tag = "android-v2.0.0-beta.1"
         assertEquals("phillip9933", dnUpdateConfig.owner)
-        assertEquals("DroppedNeedle", dnUpdateConfig.repository)
+        assertEquals("OtoHari", dnUpdateConfig.repository)
         assertNull(dnUpdateConfig.versionFromTag("v2.0.0"))
         assertEquals("droppedneedle-android-2.0.0-beta.1.apk", dnUpdateConfig.assetName(tag))
         val state = UpdateState(

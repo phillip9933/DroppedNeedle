@@ -31,7 +31,7 @@ import org.json.JSONObject
 
 internal val dnUpdateConfig = UpdateConfig(
     owner = "phillip9933",
-    repository = "DroppedNeedle",
+    repository = "OtoHari",
     tagPrefix = "android-v",
     assetPrefix = "droppedneedle-android-",
 )

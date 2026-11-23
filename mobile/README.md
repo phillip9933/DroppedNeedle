@@ -229,15 +229,19 @@ From `mobile/`, set `ANDROID_HOME` to your SDK directory. Set `DN_ANDROID_RELEAS
 pnpm android:prepare-update /path/to/signed.apk /path/to/release-assets
 ```
 
-The command verifies the signing fingerprint, package, version and release build type. It reads the mobile fork’s public release history and downloads the most recently published Android APK, including betas, to check its actual version code. The new code must match the Gradle build and exceed that published code. After these checks it copies the APK under the filename the app expects. Use OtoHari in the GitHub release title and the APK’s display label. Attach the file under the exact filename the command prints so earlier Android betas can find it. For example, version `0.23.0` uses tag `android-v0.23.0` and asset `droppedneedle-android-0.23.0.apk`. For `0.23.0-beta.1`, use `android-v0.23.0-beta.1` and mark the GitHub release as a prerelease. The Android app only reads published releases. [Mobile fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+The command verifies the APK’s signing fingerprint, package, version and release build type against the Android source. It also checks the most recently published Android APK in each release feed, including betas. A new version must have a higher build code in every feed. Preparing an existing version for an unfinished mirror requires the same signed bytes. The command prints the tag, asset path, SHA-256 and destination repositories.
 
-### Moving mobile releases to a dedicated repository
+Keep the existing tag and asset names so older Android installs can find the update. For example, `android-v1.0.0` uses `droppedneedle-android-1.0.0.apk`. Mark beta releases as GitHub prereleases and publish the final 1.0 release on the stable channel.
 
-The Android and iPhone branches currently live in the DroppedNeedle fork. Keep this fork connected to upstream for changes such as browser pairing. For the planned OtoHari repository:
+### Android release overlap
 
-1. Preserve the mobile commit history, the AGPL license and upstream attribution. Bring over or pin the exact frontend files the mobile build imports, including the API types, pairing helpers, player controls, themes and fonts. Check both clients from a fresh checkout.
-2. Publish a transition APK on the existing fork using its current tag and asset naming convention. That APK must point its updater at the new OtoHari release feed. Test an update from the last public APK through the transition to the first release on the new feed, using the original application ID and signing certificate.
-3. Configure the new repository’s Apple signing environment before moving TestFlight uploads. Reuse the existing App Store Connect record, bundle ID and tester groups. Change the localized listing name to OtoHari when the record is editable.
+Installed 0.9.0 and older builds check the DroppedNeedle fork. Starting with 0.9.1, the Android app checks OtoHari. Publish each transition release to both repositories for about a week, through `1.0.0`. Build, sign and prepare the APK once, then upload that same file and checksum to both releases with the same tag and channel. Publish OtoHari first so every user who installs the bridge has a live update feed. Verify the published assets have the same SHA-256. Test an in-place upgrade from the previous public APK and confirm that a subsequent update is offered from OtoHari. [OtoHari releases](https://github.com/phillip9933/OtoHari/releases) · [DroppedNeedle fork releases](https://github.com/phillip9933/DroppedNeedle/releases)
+
+Publish releases after 1.0.0 to OtoHari only. Keep the final 1.0.0 release and APK on the fork so installations that miss the overlap can still upgrade and switch feeds later. Keep the existing Android application ID and signing certificate.
+
+### iPhone releases
+
+TestFlight uses the existing App Store Connect app, bundle ID and tester groups. Its distribution channel is independent of GitHub’s Android releases. Configure the new repository’s Apple signing environment before moving uploads there.
 
 ## How the clients fit together
 
