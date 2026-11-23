@@ -103,13 +103,16 @@ public class CarLauncherTest {
             }
             if (path.endsWith("playlists")) return new JSONObject().put("playlists", new JSONArray()
                     .put(new JSONObject().put("id", "hidden").put("name", "Someone else's songs").put("is_redacted", true))
-                    .put(new JSONObject().put("id", "p").put("name", "Mine")));
+                    .put(new JSONObject().put("id", "p").put("name", "Mine").put("custom_cover_url", "/api/v3/playlists/p/cover").put("updated_at", 12)));
             throw new AssertionError(path);
         };
         CarLibrary car = new CarLibrary(app, owner, transport, false);
         List<CarLibrary.Entry> root = car.children(CarLibrary.ROOT);
         assertEquals(4, root.size());
-        assertEquals("Mine", car.children(root.get(1).id).get(0).title);
+        CarLibrary.Entry playlist = car.children(root.get(1).id).get(0);
+        assertEquals("Mine", playlist.title);
+        assertEquals("12", playlist.art.getQueryParameter("v"));
+        assertEquals("/api/v3/playlists/p/cover", playlist.art.getQueryParameter("cover"));
         assertEquals(1, car.children(root.get(1).id).size());
         List<CarLibrary.Entry> albums = car.children(car.children(root.get(0).id).get(0).id);
         List<CarLibrary.Entry> second = car.children(albums.get(1).id);

@@ -418,6 +418,7 @@
 				{session}
 				id={item.smart ? 'smart:' + item.smart.id : item.id}
 				title={item.title}
+				playlist={item.playlist}
 				covers={item.covers}
 				cacheOnly={deviceOnly}
 			/>{/if}

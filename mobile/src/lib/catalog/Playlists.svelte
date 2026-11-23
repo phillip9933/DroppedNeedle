@@ -28,6 +28,11 @@
 		error = $state('');
 	let retry = $state(0);
 	$effect(() => {
+		const refresh = () => retry++;
+		window.addEventListener('dn-playlists-updated', refresh);
+		return () => window.removeEventListener('dn-playlists-updated', refresh);
+	});
+	$effect(() => {
 		const account = session;
 		void retry;
 		if (!active) return;

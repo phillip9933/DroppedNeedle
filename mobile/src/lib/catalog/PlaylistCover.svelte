@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readable } from 'svelte/store';
 	import { ListMusic } from '@lucide/svelte';
 	import type { Session } from '../connection';
 	import { playlistCoverOverride } from './playlistCoverOverrides';
@@ -15,7 +16,8 @@
 		covers?: string[];
 		cacheOnly?: boolean;
 	} = $props();
-	const override = $derived(playlistCoverOverride(session, id));
+	const empty = readable<string | undefined>();
+	const override = $derived(id.startsWith('smart:') ? playlistCoverOverride(session, id) : empty);
 	const collage = $derived(covers.length > 1 && !$override);
 </script>
 

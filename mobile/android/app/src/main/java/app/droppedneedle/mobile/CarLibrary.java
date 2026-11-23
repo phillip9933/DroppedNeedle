@@ -102,9 +102,12 @@ final class CarLibrary {
     private Entry folder(String kind, String value, String cursor, String name) {
         return new Entry(shelf(kind, value, cursor).toString(), name, "", null);
     }
-    private Entry folderWithArt(String kind, String value, String name, String art) {
-        return new Entry(shelf(kind, value, null).toString(), name, "", null,
-                CarArtworkProvider.folderUri(artworkAuthority, artworkScope, owner.server, value, art));
+    private Entry folderWithArt(String kind, String value, String name, String art, long revision) {
+        Uri uri = CarArtworkProvider.folderUri(artworkAuthority, artworkScope, owner.server, value, art);
+        // The car caches the content URI. Keep the DN request itself on its vetted cover path.
+        if (uri != null && revision >= 0)
+            uri = uri.buildUpon().appendQueryParameter("v", Long.toString(revision)).build();
+        return new Entry(shelf(kind, value, null).toString(), name, "", null, uri);
     }
     private Entry song(Uri shelf, JSONObject track) throws JSONException {
         String id = track.getString("id");
@@ -196,7 +199,8 @@ final class CarLibrary {
                         JSONArray covers = row.optJSONArray("cover_urls");
                         String art = !row.isNull("custom_cover_url") ? row.getString("custom_cover_url")
                                 : covers == null ? null : covers.optString(0);
-                        entries.add(folderWithArt("playlist", row.getString("id"), row.getString("name"), art));
+                        entries.add(folderWithArt("playlist", row.getString("id"), row.getString("name"), art,
+                                row.isNull("custom_cover_url") ? -1 : row.optLong("updated_at", -1)));
                     }
                 } else {
                     String file = row.isNull("library_file_id") ? "" : row.getString("library_file_id");
@@ -240,7 +244,7 @@ final class CarLibrary {
                 String art = row.optBoolean("art_missing") ? null : !row.isNull("release_group_mbid")
                         ? "/api/v3/covers/release-group/" + Uri.encode(row.getString("release_group_mbid"))
                         : "/api/v3/library/albums/" + Uri.encode(id) + "/artwork";
-                entries.add(folderWithArt("album", id, row.getString("title"), art));
+                entries.add(folderWithArt("album", id, row.getString("title"), art, -1));
             }
             else entries.add(song(key, LibraryWindow.track(owner.server, prefix, row)));
         }

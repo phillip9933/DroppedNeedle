@@ -162,6 +162,8 @@
 	id={'playlist:' + current.id}
 	title={current.name}
 	covers={playlistArtwork(current)}
+	playlist={current}
+	onchanged={load}
 />
 {#if busy}<p role="status">{uiText('Loading tracks…')}</p>
 {:else if error}<p role="alert">{error}</p>

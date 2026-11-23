@@ -87,7 +87,7 @@ export async function forgetPlaylistCover(session: Session, playlist: string) {
 	try {
 		await savePlaylistCover(session, playlist);
 	} catch {
-		// The playlist deletion has already succeeded.
+		// The change on DN has already succeeded.
 		console.warn('Could not remove artwork from device storage.');
 	}
 }

@@ -64,9 +64,10 @@
 					>{uiText('Save offline')}</button
 				>{/if}
 		{/if}
-		{#if category === 'Playlists'}<PlaylistCoverPicker
+		{#if category === 'Playlists' && (row.smart || (!offline && row.playlist?.is_owner))}<PlaylistCoverPicker
 				{session}
 				id={row.id}
+				playlist={row.playlist}
 				ondone={onclose}
 			/>{/if}
 		{#if row.smart && edit}<button onclick={() => edit?.(row.smart!)}
