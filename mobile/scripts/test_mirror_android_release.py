@@ -56,6 +56,21 @@ class MirrorTests(unittest.TestCase):
                 patch.object(mirror, "verify_apk"), patch.object(mirror.subprocess, "run", self.upload):
             mirror.mirror(self.tag, Path(tmp), Path(tmp))
 
+    def test_release_tools_are_pinned_when_runner_has_newer_sdk(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(mirror.os.environ, {"ANDROID_HOME": tmp}):
+            root = Path(tmp) / "build-tools"
+            newer = root / "37.0.0"
+            newer.mkdir(parents=True)
+            for binary in ("apksigner", "aapt"):
+                (newer / binary).touch()
+            with self.assertRaisesRegex(ValueError, "36.0.0"):
+                mirror.build_tools()
+            pinned = root / "36.0.0"
+            pinned.mkdir()
+            for binary in ("apksigner", "aapt"):
+                (pinned / binary).touch()
+            self.assertEqual(mirror.build_tools(), pinned)
+
     def test_cutover_range(self):
         for version in ["0.9.0", "0.9.1", "0.9.1-beta.2", "1.0.0-rc.1", "1.0.0"]:
             self.assertEqual(mirror.version_for("android-v" + version), version)

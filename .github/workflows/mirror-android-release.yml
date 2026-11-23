@@ -33,6 +33,8 @@ jobs:
           persist-credentials: false
       - name: Check mirror retries and cutover rules
         run: python3 -B mobile/scripts/test_mirror_android_release.py
+      - name: Install the release verification tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0"'
       - name: Verify and mirror the published APK
         env:
           GH_TOKEN: ${{ github.token }}

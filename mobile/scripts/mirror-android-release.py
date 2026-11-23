@@ -14,6 +14,7 @@ DESTINATION = "phillip9933/OtoHari"
 SIGNER = "d3af5297ea72c7b0a4494b7bbffad0af33e265ea281b120572190721e9331883"
 FIRST_APK = "8096285ffacc804dbaeb3bf2b74a29d912179e4c2cae4279c774daf1a508b5c4"
 MAX_APK_BYTES = 512 * 1024 * 1024
+BUILD_TOOLS_VERSION = "36.0.0"
 
 
 def require(condition, message):
@@ -109,8 +110,9 @@ def verify_apk(apk, version, digest, tools):
     if version == "0.9.0":
         require(digest == FIRST_APK, "The historical 0.9.0 APK does not match the pinned public release.")
     certs = subprocess.check_output([tools / "apksigner", "verify", "--print-certs", apk], text=True)
-    require(re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})$", certs, re.MULTILINE) == [SIGNER],
-            "The APK must have the trusted OtoHari release signer.")
+    signers = re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})$", certs, re.MULTILINE)
+    require(signers == [SIGNER],
+            f"Unexpected APK signer in SDK {BUILD_TOOLS_VERSION}: {', '.join(signers) or 'no signer digest reported'}.")
     info = subprocess.check_output([tools / "aapt", "dump", "badging", apk], text=True)
     pkg = next((line for line in info.splitlines() if line.startswith("package:")), "")
     require(" name='app.droppedneedle.mobile'" in pkg and f" versionName='{version}'" in pkg
@@ -172,8 +174,10 @@ def mirror(tag, folder, tools):
 
 def build_tools():
     sdk = os.environ.get("ANDROID_HOME") or os.environ["ANDROID_SDK_ROOT"]
-    versions = [p for p in (Path(sdk) / "build-tools").iterdir() if re.fullmatch(r"\d+\.\d+\.\d+", p.name)]
-    return max(versions, key=lambda p: tuple(map(int, p.name.split("."))))
+    tools = Path(sdk) / "build-tools" / BUILD_TOOLS_VERSION
+    require(all((tools / binary).is_file() for binary in ("apksigner", "aapt")),
+            f"Install Android SDK Build Tools {BUILD_TOOLS_VERSION} to verify release assets.")
+    return tools
 
 
 if __name__ == "__main__":
