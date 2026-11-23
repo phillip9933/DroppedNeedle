@@ -5,7 +5,7 @@ OtoHari is an independent Android and iPhone music player for your own DroppedNe
 ## Install
 
 - **Android:** Download the signed APK from [OtoHari releases](https://github.com/phillip9933/OtoHari/releases). In the app, choose **Settings → App → App updates → Beta** to receive prereleases.
-- **iPhone:** [Join the public TestFlight beta](https://testflight.apple.com/join/ep112gZM) on your iPhone. The invitation currently lists the app as **Unofficial DroppedNeedle**. Install TestFlight if prompted, then tap **Accept** and **Install**.
+- **iPhone:** [Join the public TestFlight beta](https://testflight.apple.com/join/ep112gZM) on your iPhone. Install TestFlight if prompted, then tap **Accept** and **Install**.
 
 ## Development
 
