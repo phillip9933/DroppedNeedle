@@ -93,6 +93,8 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(self.uploads, [self.name, self.name + ".sha256"])
         self.assertEqual(len(self.posts), 1)
         self.assertEqual(self.posts[0]["make_latest"], "false")
+        self.assertEqual(self.posts[0]["tag_name"], self.tag)
+        self.assertNotIn("target_commitish", self.posts[0])
 
     def test_existing_release_cannot_be_repaired_or_overwritten(self):
         self.run_mirror()

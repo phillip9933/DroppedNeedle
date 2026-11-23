@@ -144,8 +144,9 @@ def mirror(tag, folder, tools):
     verify_apk(apk, version, apk_digest, tools)
     dest = find_destination(tag)
     if dest is None:
+        # The verified tag already exists. target_commitish is for creating a new tag.
         dest = api(f"repos/{DESTINATION}/releases", "POST", {
-            "tag_name": tag, "target_commitish": tagged[1], "name": source["name"] or tag, "body": source["body"] or "",
+            "tag_name": tag, "name": source["name"] or tag, "body": source["body"] or "",
             "draft": True, "prerelease": source["prerelease"], "make_latest": "false",
         })
     endpoint = f"repos/{DESTINATION}/releases/{int(dest['id'])}"
