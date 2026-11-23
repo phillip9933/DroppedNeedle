@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
 	constants,
 	copyFileSync,
+	createReadStream,
 	createWriteStream,
 	mkdirSync,
 	mkdtempSync,
@@ -16,7 +18,31 @@ import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 
 const maxBytes = 512 * 1024 * 1024;
-const repository = 'phillip9933/DroppedNeedle';
+const canonical = 'phillip9933/OtoHari';
+const legacy = 'phillip9933/DroppedNeedle';
+
+export function releaseRepositories(version) {
+	const match =
+		/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*))?$/.exec(
+			version
+		);
+	if (
+		!match ||
+		version.length > 128 ||
+		match.slice(1, 4).some((part) => part.length > 18) ||
+		match[4]?.split('.').some((part) => /^0\d+$/.test(part))
+	)
+		throw Error('Expected an Android release version such as 1.0.0-beta.1.');
+	const [, major, minor, patch] = match;
+	const bridge = major === '0' || (major === '1' && minor === '0' && patch === '0');
+	return bridge ? [canonical, legacy] : [canonical];
+}
+
+async function sha256(file) {
+	const hash = createHash('sha256');
+	for await (const chunk of createReadStream(file)) hash.update(chunk);
+	return hash.digest('hex');
+}
 
 export function signerFingerprint(verification) {
 	const signers = [
@@ -54,14 +80,19 @@ function inspect(apk, tools, expectedSigner, version) {
 	return code;
 }
 
-export function checkVersionCode(candidate, configured, published) {
-	if (candidate !== configured)
-		throw Error('The APK version code must match mobile/android/app/build.gradle.');
-	if (candidate <= published)
-		throw Error(`Increase the version code above the last published Android build (${published}).`);
+export function checkPublishedVersion(candidate, previous, repository) {
+	if (candidate.version === previous.version) {
+		if (candidate.digest !== previous.digest)
+			throw Error(
+				`Version ${candidate.version} already has a different signed APK on ${repository}.`
+			);
+		return;
+	}
+	if (candidate.code <= previous.code)
+		throw Error(`Increase the version code above Android build ${previous.code} on ${repository}.`);
 }
 
-async function latestPublished() {
+async function latestPublished(repository) {
 	let latest;
 	for (let page = 1; ; page++) {
 		const response = await fetch(
@@ -72,7 +103,9 @@ async function latestPublished() {
 			}
 		);
 		if (!response.ok)
-			throw Error(`Could not check published Android releases (HTTP ${response.status}).`);
+			throw Error(
+				`Could not check published Android releases on ${repository} (HTTP ${response.status}).`
+			);
 		const releases = await response.json();
 		for (const release of releases) {
 			if (release.draft || !release.published_at || !release.tag_name.startsWith('android-v'))
@@ -88,9 +121,9 @@ async function latestPublished() {
 	}
 }
 
-async function publishedCode(tools, signer) {
-	const latest = await latestPublished();
-	if (!latest) return 0;
+async function publishedApk(repository, tools, signer) {
+	const latest = await latestPublished(repository);
+	if (!latest) return;
 	const { version, asset } = latest;
 	const expected = `https://github.com/${repository}/releases/download/${encodeURIComponent('android-v' + version)}/${encodeURIComponent(asset.name)}`;
 	if (
@@ -119,7 +152,11 @@ async function publishedCode(tools, signer) {
 			createWriteStream(previous, { flags: 'wx' })
 		);
 		if (received !== asset.size) throw Error('The prior APK was incomplete.');
-		return inspect(previous, tools, signer, version);
+		return {
+			version,
+			code: inspect(previous, tools, signer, version),
+			digest: await sha256(previous)
+		};
 	} finally {
 		rmSync(folder, { recursive: true, force: true });
 	}
@@ -148,13 +185,28 @@ async function prepare(input, directory) {
 	const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 	const gradle = readFileSync(new URL('../android/app/build.gradle', import.meta.url), 'utf8');
 	const configured = Number(/^\s*versionCode\s+([1-9]\d*)\s*$/m.exec(gradle)?.[1]);
-	const candidate = inspect(apk, tools, signer, version);
-	checkVersionCode(candidate, configured, await publishedCode(tools, signer));
+	const code = inspect(apk, tools, signer, version);
+	if (code !== configured)
+		throw Error('The APK version code must match mobile/android/app/build.gradle.');
+	const candidate = { version, code, digest: await sha256(apk) };
+	const destinations = releaseRepositories(version);
+	for (const repository of destinations) {
+		const previous = await publishedApk(repository, tools, signer);
+		if (previous) checkPublishedVersion(candidate, previous, repository);
+	}
 	const asset = `droppedneedle-android-${version}.apk`;
 	mkdirSync(directory, { recursive: true });
 	const output = resolve(directory, asset);
-	if (apk !== output) copyFileSync(apk, output, constants.COPYFILE_EXCL);
-	console.log(`GitHub tag: android-v${version}\nRelease asset: ${output}`);
+	if (apk !== output) {
+		try {
+			copyFileSync(apk, output, constants.COPYFILE_EXCL);
+		} catch (error) {
+			if (error.code !== 'EEXIST' || (await sha256(output)) !== candidate.digest) throw error;
+		}
+	}
+	console.log(
+		`GitHub tag: android-v${version}\nRelease asset: ${output}\nSHA-256: ${candidate.digest}\nPublish the same file to: ${destinations.join(', ')}`
+	);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
