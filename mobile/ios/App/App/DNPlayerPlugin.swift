@@ -3,13 +3,7 @@ import Capacitor
 import MediaPlayer
 import Network
 import UIKit
-
-private final class ArtworkSession: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
+import ImageIO
 
 @objc(DNPlayerPlugin)
 public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -50,12 +44,12 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     private var interrupted = false
     private var artwork: MPMediaItemArtwork?
     private var artworkTask: URLSessionDataTask?
-    private lazy var artworkSession: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.urlCredentialStorage = nil
-        config.urlCache = nil
-        return URLSession(configuration: config, delegate: ArtworkSession(), delegateQueue: .main)
+    private var artworkVersion = UUID()
+    private let artworkQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.qualityOfService = .utility
+        queue.maxConcurrentOperationCount = 1
+        return queue
     }()
 
     public override func load() {
@@ -184,6 +178,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
     private func clearItems() {
         itemStatus = nil
         artworkTask?.cancel()
+        artworkVersion = UUID()
         artwork = nil
         pause()
         player.removeAllItems()
@@ -255,21 +250,53 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func loadArtwork() {
         artworkTask?.cancel()
+        artworkVersion = UUID()
         artwork = nil
         guard let path = queue[index].data["artworkUrl"] as? String, let url = URL(string: path) else { return }
         let key = queue[index].key
         let credential = token
         var request = URLRequest(url: url)
         request.setValue("Bearer " + credential, forHTTPHeaderField: "Authorization")
-        artworkTask = artworkSession.dataTask(with: request) { [weak self] data, response, _ in
-            guard let self, self.token == credential, self.queue.indices.contains(self.index),
-                  self.queue[self.index].key == key,
-                  let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  let data, let image = UIImage(data: data) else { return }
-            self.artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-            self.publishNowPlaying()
-        }
+        let version = artworkVersion
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
+        config.timeoutIntervalForResource = 10
+        request.httpShouldHandleCookies = false
+        request.setValue(DNReadKind.artwork.accept, forHTTPHeaderField: "Accept")
+        let transfer = DNReadTransfer(artwork: { [weak self] bytes in
+            guard let bytes, let cover = Self.thumbnail(bytes) else { return }
+            DispatchQueue.main.async {
+                guard let self, self.artworkVersion == version, self.token == credential,
+                      self.queue.indices.contains(self.index), self.queue[self.index].key == key else { return }
+                let image = UIImage(cgImage: cover)
+                self.artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                self.publishNowPlaying()
+            }
+        })
+        let session = URLSession(configuration: config, delegate: transfer, delegateQueue: artworkQueue)
+        artworkTask = session.dataTask(with: request)
         artworkTask?.resume()
+        session.finishTasksAndInvalidate()
+    }
+
+    private static func thumbnail(_ bytes: Data) -> CGImage? {
+        let probe = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(bytes as CFData, probe),
+              let type = CGImageSourceGetType(source) as String?,
+              ["public.jpeg", "public.png", "com.compuserve.gif", "org.webmproject.webp", "public.avif"].contains(type),
+              (1...512).contains(CGImageSourceGetCount(source)),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, probe) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              (1...8192).contains(width), (1...8192).contains(height), width <= 16_777_216 / height else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 768
+        ] as CFDictionary)
     }
 
     private var position: Double {
@@ -499,7 +526,7 @@ public final class DNPlayerPlugin: CAPPlugin, CAPBridgedPlugin {
         if let fadeObserver { player.removeTimeObserver(fadeObserver) }
         player.pause()
         for (_, entry) in streams { entry.stream.close() }
-        artworkSession.invalidateAndCancel()
+        artworkTask?.cancel()
         for listener in listeners { NotificationCenter.default.removeObserver(listener) }
         for (command, target) in commands { command.removeTarget(target) }
     }

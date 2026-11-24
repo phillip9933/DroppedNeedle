@@ -32,10 +32,23 @@ final class DNReadTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendabl
     private var status = 0, limit = 0
     private var mime = "", readBody = false, accepted = false
     typealias Reply = (Int, String, String?)
-    private let completion: (Reply?) -> Void
+    private typealias RawReply = (Int, String, Data?)
+    private let finish: (RawReply?) -> Void
     init(kind: DNReadKind, completion: @escaping (Reply?) -> Void) {
         self.kind = kind
-        self.completion = completion
+        self.finish = { reply in
+            guard let (status, mime, bytes) = reply else { completion(nil); return }
+            let text = !(200...299).contains(status) || kind == .search
+            let data = bytes.flatMap { text ? String(data: $0, encoding: .utf8) : $0.base64EncodedString() }
+            completion((status, mime, data))
+        }
+    }
+    init(artwork: @escaping (Data?) -> Void) {
+        kind = .artwork
+        finish = { reply in
+            guard let (status, _, bytes) = reply, status == 200 else { artwork(nil); return }
+            artwork(bytes)
+        }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
@@ -59,10 +72,8 @@ final class DNReadTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendabl
         buffer.append(data)
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard accepted, error == nil || !readBody else { completion(nil); return }
-        let text = !(200...299).contains(status) || kind == .search
-        let data = text ? String(data: buffer, encoding: .utf8) : buffer.base64EncodedString()
-        completion((status, mime, readBody ? data : nil))
+        guard accepted, error == nil || !readBody else { finish(nil); return }
+        finish((status, mime, readBody ? buffer : nil))
     }
 }
 
