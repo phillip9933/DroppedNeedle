@@ -9,9 +9,22 @@ public class MainActivity extends BridgeActivity {
     final NotificationRoute notifications = new NotificationRoute();
     final PlaylistShortcut shortcuts = new PlaylistShortcut();
     private boolean creating;
+    private String sharedSong;
+    private void receiveShare(Intent intent) {
+        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction()) || !"text/plain".equals(intent.getType())) return;
+        CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+        if (text != null && text.length() > 0 && text.length() <= 8192) sharedSong = text.toString();
+    }
+    String takeSharedSong() {
+        String result = sharedSong;
+        sharedSong = null;
+        return result;
+    }
 
     @Override
     public void onCreate(Bundle state) {
+        if (state == null) receiveShare(getIntent());
+        else sharedSong = state.getString("sharedSong");
         notifications.restore(this, getIntent(), state);
         shortcuts.restore(getIntent(), state);
         creating = true;
@@ -36,6 +49,10 @@ public class MainActivity extends BridgeActivity {
                         ? "dn-player-notification" : "dn-download-notification");
             }
         }
+        if (!creating && Intent.ACTION_SEND.equals(intent.getAction())) {
+            receiveShare(intent);
+            if (sharedSong != null && getBridge() != null) getBridge().triggerWindowJSEvent("dn-shared-song");
+        }
         if (!creating && shortcuts.receive(intent) && getBridge() != null)
             getBridge().triggerWindowJSEvent("dn-playlist-shortcut");
         super.onNewIntent(intent);
@@ -44,6 +61,7 @@ public class MainActivity extends BridgeActivity {
         super.onSaveInstanceState(state);
         notifications.save(state);
         shortcuts.save(state);
+        state.putString("sharedSong", sharedSong);
     }
     boolean takeDownloadNotification() { return notifications.take(NotificationRoute.Destination.DOWNLOADS); }
 }

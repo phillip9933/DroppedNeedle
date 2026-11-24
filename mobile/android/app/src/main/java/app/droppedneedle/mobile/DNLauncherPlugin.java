@@ -14,6 +14,13 @@ public class DNLauncherPlugin extends Plugin {
         if (owner != null && owner.server.equals(server) && owner.userId.equals(call.getString("userId"))) return owner;
         return null;
     }
+    @PluginMethod public void takeSharedSong(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            JSObject reply = new JSObject();
+            if (getActivity() instanceof MainActivity activity) reply.put("text", activity.takeSharedSong());
+            call.resolve(reply);
+        });
+    }
     @PluginMethod public void takePlayerNotification(PluginCall call) {
         boolean open = getActivity() instanceof MainActivity activity
                 && activity.notifications.take(NotificationRoute.Destination.PLAYER);

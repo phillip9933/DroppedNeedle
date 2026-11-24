@@ -15,6 +15,7 @@ import { accountId } from '../boards/layout';
 
 type Account = Pick<Session, 'serverUrl' | 'userId'>;
 const native = registerPlugin<{
+	takeSharedSong(): Promise<{ text?: string }>;
 	takePlayerNotification(): Promise<{ open: boolean }>;
 	pinPlaylist(options: Account & { id: string; name: string }): Promise<void>;
 	takePlaylist(options: Account): Promise<{ id?: string }>;
@@ -22,6 +23,9 @@ const native = registerPlugin<{
 }>('DNLauncher');
 export const launcherShortcuts = Capacitor.getPlatform() === 'android';
 export const pendingShortcut = writable<{ session: Session; id: string } | null>(null);
+export function takeSharedSong() {
+	return native.takeSharedSong();
+}
 export function takePlayerNotification() {
 	return native.takePlayerNotification();
 }

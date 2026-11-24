@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiText } from './lib/i18n';
+	import { uiText, tr } from './lib/i18n';
 	import { onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { Capacitor } from '@capacitor/core';
@@ -50,11 +50,13 @@
 		type PlayerCredit,
 		type SavedScope
 	} from './lib/player/related';
+	import { songLink } from './lib/catalog/songLinks';
 	import Catalog from './lib/catalog/Catalog.svelte';
 	import { setDetailSettings } from './lib/catalog/DetailSettings.svelte';
 	import {
 		launcherShortcuts,
 		pendingShortcut,
+		takeSharedSong,
 		takePlaylistShortcut,
 		takePlayerNotification
 	} from './lib/catalog/launcherShortcuts';
@@ -84,6 +86,20 @@
 	let settingsOrigin: 'catalog' | 'player' | 'queue' = 'catalog';
 	let settingsVisit = $state(0);
 	let catalogVisit = $state(0);
+	let initialSearch = $state('');
+	async function openSharedSong() {
+		const account = session;
+		if (!account || !Capacitor.isNativePlatform() || document.hidden) return;
+		const result = await takeSharedSong().catch(() => undefined);
+		if (session !== account || !result?.text) return;
+		const address = songLink(result.text);
+		navigate('search', undefined, undefined, address);
+		if (!address)
+			issue = tr(
+				'Share a song link from Spotify, Apple Music, Deezer, YouTube or song.link.',
+				'Spotify、Apple Music、Deezer、YouTube、song.linkの曲リンクを共有してください。'
+			);
+	}
 	const inPlayer = $derived(panel === 'player' || panel === 'queue');
 	let issue = $state('');
 	let main: HTMLElement;
@@ -233,11 +249,17 @@
 			pull.settle(commit, navigate);
 		}
 	};
-	function navigate(to: BrowseDestination, category?: Category, shortcutId?: string) {
+	function navigate(
+		to: BrowseDestination,
+		category?: Category,
+		shortcutId?: string,
+		sharedSearch = ''
+	) {
 		switchPanel(() => {
 			clearRelated();
 			catalogVisit++;
 			initialCategory = category;
+			initialSearch = sharedSearch;
 			pendingShortcut.set(shortcutId && session ? { session, id: shortcutId } : null);
 			tab = to;
 			panel = 'catalog';
@@ -475,6 +497,7 @@
 				(!navigator.onLine || (await preferredOffline(next).catch(() => false)));
 			tab = offline ? 'offline' : 'home';
 		} else tab = start === 'player' ? 'library' : start;
+		initialSearch = '';
 		session = next;
 		miniReturn = undefined;
 		queueFromMini = false;
@@ -484,6 +507,7 @@
 		await openDownloadNotification();
 		await openPlaylistShortcut();
 		await openPlayerNotification();
+		await openSharedSong();
 		if (restoreError) report(restoreError);
 	}
 	async function start(tracks: PlayerTrack[], index: number, continuation?: LibraryContinuation) {
@@ -572,6 +596,8 @@
 		window.addEventListener('dn-download-notification', openDownloadNotification);
 		window.addEventListener('dn-player-notification', openPlayerNotification);
 		window.addEventListener('dn-playlist-shortcut', openPlaylistShortcut);
+		window.addEventListener('dn-shared-song', openSharedSong);
+		document.addEventListener('visibilitychange', openSharedSong);
 		window.addEventListener('dn-session-expired', expired);
 		window.addEventListener('keydown', key);
 		return () => {
@@ -582,6 +608,8 @@
 			window.removeEventListener('dn-download-notification', openDownloadNotification);
 			window.removeEventListener('dn-player-notification', openPlayerNotification);
 			window.removeEventListener('dn-playlist-shortcut', openPlaylistShortcut);
+			window.removeEventListener('dn-shared-song', openSharedSong);
+			document.removeEventListener('visibilitychange', openSharedSong);
 			window.removeEventListener('dn-session-expired', expired);
 			window.removeEventListener('online', retryLogout);
 			document.removeEventListener('visibilitychange', retryLogout);
@@ -650,6 +678,7 @@
 								active={panel === 'catalog'}
 								{tab}
 								{initialCategory}
+								{initialSearch}
 								onplay={start}
 								onoffline={offlineSupported ? () => navigate('offline') : undefined}
 								onnavigate={navigate}

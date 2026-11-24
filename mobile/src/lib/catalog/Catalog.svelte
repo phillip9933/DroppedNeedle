@@ -28,6 +28,7 @@
 		onnavigate,
 		onoffline,
 		initialCategory,
+		initialSearch = '',
 		initialCredit,
 		onreturn
 	}: {
@@ -37,6 +38,7 @@
 		onplay: OnPlay;
 		onoffline?: () => void;
 		initialCategory?: Category;
+		initialSearch?: string;
 		initialCredit?: OnlineCredit;
 		onreturn?: () => void;
 		onnavigate: (tab: CatalogTab) => void;
@@ -75,7 +77,7 @@
 		untrack(() => (initialCredit?.kind === 'artist' ? initialCredit.artist : null))
 	);
 	let artist = $state<DiscoverArtistRef | null>(null);
-	let term = $state(''),
+	let term = $state(untrack(() => initialSearch)),
 		genre = $state('');
 	let root: HTMLElement;
 	const offsets: number[] = [];
