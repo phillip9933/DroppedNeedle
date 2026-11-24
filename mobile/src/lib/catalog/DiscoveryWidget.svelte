@@ -206,6 +206,7 @@
 				{ongenre}
 			/>
 		{:else}<DiscoveryPreview
+				{active}
 				{display}
 				{data}
 				{session}
